@@ -31,8 +31,8 @@ services:
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
       SYNC_EXCLUDED_FOLDERS: ${SYNC_EXCLUDED_FOLDERS:-}
       SYNC_FILE_TYPES: ${SYNC_FILE_TYPES:-}
-      # Obsidian config-category sync (default: core plugin data, so the
-      # vault's daily-notes settings reach the server). "none" disables;
+      # Obsidian config-category sync (default: core and community plugin data,
+      # including daily-note settings and the Tasks plugin format). "none" disables;
       # the category values are listed in .env.example.
       SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}
       # --- MCP server (svc-vault-mcp) ---
@@ -99,6 +99,7 @@ services:
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       # Left empty = the server applies the smart defaults listed below, where <MEMORY_DIR> and
       # <DAILY_NOTES_FOLDER> stand for the resolved values (defaults "About Me" and "Daily Notes").
+      # A set folder list replaces its whole default.
       # The daily notes folder is resolved from DAILY_NOTES_FOLDER or
       # .obsidian/daily-notes.json, falling back to "Daily Notes".
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, <DAILY_NOTES_FOLDER>"

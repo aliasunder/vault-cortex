@@ -78,7 +78,8 @@ EMBEDDING_ENABLED=true
 RERANK_MODE=blended
 
 # Enable or disable the memory layer (default: true).
-# Set to false to hide memory tools and skip About Me/ creation.
+# Set to false to hide memory tools and skip memory-folder creation.
+# MEMORY_DIR still supplies default protected folders and orphan exclusions when false.
 MEMORY_ENABLED=true
 # Enable or disable file tools — vault_read_file and vault_list_files (default: true).
 # Set to false when Obsidian Sync has attachment syncing disabled.
@@ -110,9 +111,11 @@ MEMORY_DIR=About Me
 
 # Comma-separated folders excluded from orphan detection.
 # Default: the daily notes folder, Templates, and MEMORY_DIR.
-# The daily folder is read on each query from DAILY_NOTES_FOLDER or
-# .obsidian/daily-notes.json, falling back to "Daily Notes".
+# DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is reread
+# on each query, falling back to "Daily Notes". Root-level daily notes remain eligible.
 # When set, replaces the whole default — include every folder to keep excluded.
+# Apply env changes with CLI restart or recreate the Compose container;
+# Obsidian settings apply on the next query once daily-notes.json reaches the server.
 # ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
 
 # URL shown in OAuth discovery metadata
@@ -220,7 +223,8 @@ MAX_IMAGE_OUTPUT_BYTES=49152
 MAX_PDF_RENDER_PAGES=5
 
 # Enable or disable the memory layer (default: true).
-# Set to false to hide memory tools and skip About Me/ creation.
+# Set to false to hide memory tools and skip memory-folder creation.
+# MEMORY_DIR still supplies default protected folders and orphan exclusions when false.
 MEMORY_ENABLED=true
 # Enable or disable file tools — vault_read_file and vault_list_files (default: true).
 # Set to false when Obsidian Sync has attachment syncing disabled.
@@ -253,9 +257,11 @@ MEMORY_DIR=About Me
 
 # Comma-separated folders excluded from orphan detection.
 # Default: the daily notes folder, Templates, and MEMORY_DIR.
-# The daily folder is read on each query from DAILY_NOTES_FOLDER or
-# .obsidian/daily-notes.json, falling back to "Daily Notes".
+# DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is reread
+# on each query, falling back to "Daily Notes". Root-level daily notes remain eligible.
 # When set, replaces the whole default — include every folder to keep excluded.
+# Apply env changes with CLI restart or recreate the Compose container;
+# Obsidian settings apply on the next query once daily-notes.json reaches the server.
 # ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
 
 # URL shown in OAuth discovery metadata
