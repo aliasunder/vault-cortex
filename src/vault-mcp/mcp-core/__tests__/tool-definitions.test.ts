@@ -2492,6 +2492,28 @@ describe("DISABLED_TOOLS", () => {
     expect(replaceAdvice).toBe(`To replace a block, ${expectedAdvice}.`)
   })
 
+  it.each([
+    {
+      label: "names vault_replace_in_note while it is served",
+      disabledTools: "",
+      expectedLine:
+        "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). To replace a block, use vault_replace_span (one atomic step).",
+    },
+    {
+      label: "drops the vault_replace_in_note sentence when that tool is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedLine: "To replace a block, use vault_replace_span (one atomic step).",
+    },
+  ])("vault_delete_span's routing line $label", ({ disabledTools, expectedLine }) => {
+    const routingLine = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: "the last line for end_anchor.\n",
+      endMarker: "\n\nParameters:",
+    })
+    expect(routingLine).toBe(`the last line for end_anchor.\n${expectedLine}`)
+  })
+
   const PATCH_NOTE_EXAMPLE =
     'Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })'
   const MOVE_REMOVAL_STEP =

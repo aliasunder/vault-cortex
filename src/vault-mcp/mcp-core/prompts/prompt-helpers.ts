@@ -34,8 +34,9 @@ export const maxCharsArg = z
   .describe(MAX_CHARS_DESCRIPTION)
 
 /** One bullet line for a note: path, plus title when it adds information. */
-export const formatNoteLine = (note: { path: string; title: string }): string =>
-  note.title.length > 0 ? `- ${note.path} — ${note.title}` : `- ${note.path}`
+export const formatNoteLine = (note: { path: string; title: string }): string => {
+  return note.title.length > 0 ? `- ${note.path} — ${note.title}` : `- ${note.path}`
+}
 
 /** Wraps assembled text as a single user-role prompt message. */
 export const textResult = (text: string): GetPromptResult => ({
@@ -50,17 +51,24 @@ export const capContent = (
   text: string,
   maxChars: number | undefined,
   toolName: string | undefined,
-): string =>
-  maxChars !== undefined && text.length > maxChars
-    ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters${toolName ? ` — use ${toolName} for the full content` : ""})`
-    : text
+): string => {
+  if (!maxChars) return text
+
+  // Taking code points rather than UTF-16 units keeps an emoji whole; a cut
+  // through its surrogate pair would show as a replacement character.
+  const keptText = text[Symbol.iterator]().take(maxChars).toArray().join("")
+
+  if (keptText.length === text.length) return text
+  return `${keptText}\n\n…(truncated at ${maxChars} characters${toolName ? ` — use ${toolName} for the full content` : ""})`
+}
 
 /** Escapes any closing `</vault-content>` tag in the body so an attacker who
  *  controls vault content cannot break out of the data-marker boundary. The
  *  slash is HTML-entity-escaped (`&#x2F;`), preserving readability while making
  *  the closing tag syntactically inert to an LLM parsing XML structure. */
-export const escapeVaultContentClosingTag = (text: string): string =>
-  text.replace(/<\/vault-content\s*>/gi, "<&#x2F;vault-content>")
+export const escapeVaultContentClosingTag = (text: string): string => {
+  return text.replace(/<\/vault-content\s*>/gi, "<&#x2F;vault-content>")
+}
 
 /** Wraps vault content in XML data markers so consuming LLMs treat it as data,
  *  not instruction — defense-in-depth for shared/synced vault scenarios. Content

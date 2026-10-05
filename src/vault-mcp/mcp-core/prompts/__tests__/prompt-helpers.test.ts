@@ -38,6 +38,17 @@ describe("capContent", () => {
     const result = capContent("a".repeat(20), 5, undefined)
     expect(result).toBe("aaaaa\n\n…(truncated at 5 characters)")
   })
+
+  it("keeps an emoji whole when the cut falls on it", () => {
+    // The emoji is the 5th character but spans UTF-16 units 5 and 6.
+    const result = capContent("abcd🎉efgh", 5, undefined)
+    expect(result).toBe("abcd🎉\n\n…(truncated at 5 characters)")
+  })
+
+  it("returns emoji text in full when its characters fit the cap", () => {
+    // 5 characters, but 10 UTF-16 units.
+    expect(capContent("🎉".repeat(5), 5, undefined)).toBe("🎉".repeat(5))
+  })
 })
 
 describe("escapeVaultContentClosingTag", () => {

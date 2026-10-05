@@ -2971,6 +2971,30 @@ keep me
     expect(result).toBe(`Deleted 1 line from long.md: "${"z".repeat(80)}…"`)
   })
 
+  it("keeps an emoji whole when the preview cut falls on it", async () => {
+    // The emoji is the 80th character but spans UTF-16 units 80 and 81.
+    const emojiLine = "z".repeat(79) + "🎉 tail"
+    await writeTestNote("emoji.md", `---\ntitle: Emoji\n---\n\n${emojiLine}\nkeep me\n`)
+    const result = await deleteSpan(
+      { vaultPath: vault, path: "emoji.md", startAnchor: "🎉 tail" },
+      logger,
+    )
+
+    expect(result).toBe(`Deleted 1 line from emoji.md: "${"z".repeat(79)}🎉…"`)
+  })
+
+  it("previews a line of 80 emoji in full", async () => {
+    // 80 characters, but 160 UTF-16 units.
+    const emojiLine = "🎉".repeat(80)
+    await writeTestNote("emoji.md", `---\ntitle: Emoji\n---\n\n${emojiLine}\nkeep me\n`)
+    const result = await deleteSpan(
+      { vaultPath: vault, path: "emoji.md", startAnchor: "🎉🎉" },
+      logger,
+    )
+
+    expect(result).toBe(`Deleted 1 line from emoji.md: "${emojiLine}"`)
+  })
+
   it("deletes the first matching line when first_match is set on the start anchor", async () => {
     const content = `---
 title: Dups
@@ -3987,6 +4011,13 @@ def second():
       expect(await readGapNote()).toBe(PROPERTIES + "\nPara1\n")
     })
 
+    it("keeps one blank line fewer than the double gap above the note's deleted last block", async () => {
+      await writeGapNote("\nPara1\n\n\nPara2\n")
+      await deleteSpan({ vaultPath: vault, path: "gaps.md", startAnchor: "Para2" }, logger)
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\nPara1\n\n")
+    })
+
     it("keeps the blank lines that end the note when they outnumber the gap above the deleted line", async () => {
       await writeGapNote("\nA\nX\n\n\n")
       await deleteSpan({ vaultPath: vault, path: "gaps.md", startAnchor: "X" }, logger)
@@ -4041,6 +4072,26 @@ def second():
       )
 
       expect(await readGapNote()).toBe(PROPERTIES + "\nbefore\nnew\nafter\n\n\nend\n")
+    })
+
+    it("leaves no blank line at the end of the note when content ending in a line break replaces its last block", async () => {
+      await writeGapNote("\nPara1\n\nPara2\n")
+      await replaceSpan(
+        { vaultPath: vault, path: "gaps.md", startAnchor: "Para2", content: "New\n" },
+        logger,
+      )
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\nPara1\n\nNew\n")
+    })
+
+    it("keeps the blank lines that end the note below the replaced line", async () => {
+      await writeGapNote("\nA\nold\n\n\n")
+      await replaceSpan(
+        { vaultPath: vault, path: "gaps.md", startAnchor: "old", content: "new" },
+        logger,
+      )
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\nA\nnew\n\n\n")
     })
   })
 
@@ -4256,6 +4307,26 @@ def second():
       )
 
       expect(result).toEqual({ message: "Replaced 1 occurrence in gaps.md", count: 1 })
+      expect(await readGapNote()).toBe(PROPERTIES + "\nA\n\nB\n")
+    })
+
+    it("keeps every blank line left after removing line breaks from the start of the body", async () => {
+      await writeGapNote("\n\n\n\n\nB\n")
+      await replaceInNote(
+        { vaultPath: vault, path: "gaps.md", oldText: "\n\n", newText: "" },
+        logger,
+      )
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\n\n\nB\n")
+    })
+
+    it("closes the gap around a removed match that carries a line break on each side", async () => {
+      await writeGapNote("\nA\n\nX\n\nB\n")
+      await replaceInNote(
+        { vaultPath: vault, path: "gaps.md", oldText: "\nX\n", newText: "" },
+        logger,
+      )
+
       expect(await readGapNote()).toBe(PROPERTIES + "\nA\n\nB\n")
     })
   })

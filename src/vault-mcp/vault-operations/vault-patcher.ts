@@ -168,9 +168,14 @@ const writePatchedNote = async (
   return Buffer.byteLength(serialized, "utf8")
 }
 
-/** Truncates anchor/preview text to keep error messages and confirmations short. */
+/** Truncates anchor/preview text to 80 characters to keep error messages and
+ *  confirmations short. */
 const truncateForMessage = (text: string): string => {
-  return text.length > 80 ? text.slice(0, 80) + "…" : text
+  // Taking code points rather than UTF-16 units keeps an emoji whole; a cut
+  // through its surrogate pair would show as a replacement character.
+  const preview = text[Symbol.iterator]().take(80).toArray().join("")
+
+  return preview.length < text.length ? preview + "…" : text
 }
 
 // ── Gap measurement for collapseEmptyLineRunsAtEdits ────────────
