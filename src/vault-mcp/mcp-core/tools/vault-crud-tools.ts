@@ -1235,7 +1235,6 @@ Errors:
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-- "the note would open with a properties block the server cannot keep …" — removing every property exposes --- lines at the top of the body; keep one property, or remove those lines first
 
 Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks ("[[Note]]"), keep types consistent (mismatches cause silent query failures).
 

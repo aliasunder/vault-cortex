@@ -23,6 +23,7 @@ import {
   parseNote,
   parseNoteForRewrite,
   stringifyNote,
+  UnkeepableOpeningBlockError,
   UnreadablePropertiesError,
 } from "../obsidian-markdown/frontmatter.js"
 import {
@@ -435,13 +436,23 @@ const rewriteNoteContent = (
 }
 
 /** The error a move aborts with when a note it must rewrite cannot be
- *  planned. A properties-block refusal keeps its class and kind, so the tool
- *  boundary can add repair steps, and says why; a readable block the rewrite
- *  would lose reads "could not rewrite". Any other failure keeps the plain
- *  "could not read" message. */
+ *  planned. The message says which step failed:
+ *  - "could not read": unreadable YAML, or any failure that is not a
+ *    properties-block refusal.
+ *  - "could not rewrite": a block the rewrite would lose, or a rewrite that
+ *    would leave `---` lines at the top of the note.
+ *
+ *  A properties-block refusal keeps its class (and kind), so the tool
+ *  boundary still adds how to fix it. */
 const buildMoveAbortError = (params: { subject: string; error: unknown }): Error => {
   const { subject, error } = params
 
+  if (error instanceof UnkeepableOpeningBlockError) {
+    return new UnkeepableOpeningBlockError(
+      `move aborted: could not rewrite ${subject}: ${error.message}. Nothing was written.`,
+      { cause: error },
+    )
+  }
   if (!(error instanceof UnreadablePropertiesError)) {
     return new Error(`move aborted: could not read ${subject}. Nothing was written.`, {
       cause: error,

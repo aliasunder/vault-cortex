@@ -1,6 +1,9 @@
 import { describe, it, expect, onTestFinished, vi } from "vitest"
 import { logger } from "../../../../logger.js"
-import { UnreadablePropertiesError } from "../../../obsidian-markdown/frontmatter.js"
+import {
+  UnkeepableOpeningBlockError,
+  UnreadablePropertiesError,
+} from "../../../obsidian-markdown/frontmatter.js"
 import type { ToolName } from "../../tool-registry.js"
 import { createToolErrorHandlers, describeTextWindow } from "../tool-helpers.js"
 
@@ -20,6 +23,12 @@ const CARRY_TEXT_STEP =
   "replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines."
 
 const OBSIDIAN_ONLY_STEP = "Fix the properties block in Obsidian."
+
+const OPENING_BLOCK_STEP =
+  "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
+
+const OPENING_BLOCK_MESSAGE =
+  "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs"
 
 const INVALID_YAML_MESSAGE =
   "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
@@ -169,26 +178,45 @@ describe("safeHandler", () => {
     })
   })
 
-  it("adds nothing to a refused write whose cause is an unreadable block", async () => {
+  it("adds nothing to a plain error whose cause is an unreadable block", async () => {
     const result = await runFailingCall({
       isToolEnabled: everyToolServed,
       fail: async () => {
-        throw new Error("the note would open with a properties block the server cannot keep", {
+        throw new Error("cannot delete note", {
           cause: new UnreadablePropertiesError({ kind: "invalid-yaml", message: "broken" }),
         })
       },
     })
 
     expect(result).toEqual({
-      content: [
-        {
-          type: "text",
-          text: "[Error]: the note would open with a properties block the server cannot keep",
-        },
-      ],
+      content: [{ type: "text", text: "[Error]: cannot delete note" }],
       isError: true,
     })
   })
+
+  it.each<{ label: string; isToolEnabled: (name: ToolName) => boolean }>([
+    { label: "every repair tool is served", isToolEnabled: everyToolServed },
+    { label: "no repair tool is served", isToolEnabled: () => false },
+  ])(
+    "appends the way around --- lines to a write that would open with them, when $label",
+    async ({ isToolEnabled }) => {
+      const result = await runFailingCall({
+        isToolEnabled,
+        fail: async () => {
+          throw new UnkeepableOpeningBlockError(OPENING_BLOCK_MESSAGE, {
+            cause: new UnreadablePropertiesError({ kind: "invalid-yaml", message: "broken" }),
+          })
+        },
+      })
+
+      expect(result).toEqual({
+        content: [
+          { type: "text", text: `[Error]: ${OPENING_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}` },
+        ],
+        isError: true,
+      })
+    },
+  )
 
   it.each<{ label: string; disabledTool: ToolName }>([
     { label: "vault_read_note", disabledTool: "vault_read_note" },

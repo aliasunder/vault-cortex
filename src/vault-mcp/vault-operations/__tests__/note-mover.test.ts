@@ -8,6 +8,7 @@ import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
 import { vaultPatcher } from "../vault-patcher.js"
 import {
   parseNoteForRewrite,
+  UnkeepableOpeningBlockError,
   UnreadablePropertiesError,
 } from "../../obsidian-markdown/frontmatter.js"
 import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
@@ -1523,6 +1524,36 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
       "Old/Target.md": await readNote("Old/Target.md"),
       "Hub.md": await readNote("Hub.md"),
       "Notes/Broken.md": await readNote("Notes/Broken.md"),
+    }).toEqual(fixtures)
+  })
+
+  it("aborts as a rewrite failure when a rewritten backlink source would open with a broken block", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    // The empty block reads fine, so the rewrite writes no properties and the
+    // body's own --- lines would become the note's first block
+    const fixtures = {
+      "Old/Target.md": "Target body\n",
+      "Notes/Stacked.md": "---\n---\n---\ntitle: [unclosed\n---\nSee [[Old/Target]]\n",
+    }
+    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
+
+    const refusal = await captureRejection(
+      moveNote({
+        oldPath: "Old/Target.md",
+        newPath: "New/Target.md",
+        backlinkSources: ["Notes/Stacked.md"],
+      }),
+    )
+
+    expect(refusal).toBeInstanceOf(UnkeepableOpeningBlockError)
+    expect(refusal).toHaveProperty(
+      "message",
+      `move aborted: could not rewrite backlink source "Notes/Stacked.md": the note would open with a properties block the server cannot keep: ${UNCLOSED_FLOW_MESSAGE}. Nothing was written.`,
+    )
+    expect(await noteExists("New/Target.md")).toBe(false)
+    expect({
+      "Old/Target.md": await readNote("Old/Target.md"),
+      "Notes/Stacked.md": await readNote("Notes/Stacked.md"),
     }).toEqual(fixtures)
   })
 })

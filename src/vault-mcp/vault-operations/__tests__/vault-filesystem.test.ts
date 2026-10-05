@@ -32,6 +32,7 @@ import {
 import {
   parseNote,
   parseNoteForRewrite,
+  UnkeepableOpeningBlockError,
   UnreadablePropertiesError,
 } from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
@@ -103,11 +104,11 @@ const describeRewriteRefusal = (content: string): { kind: string; message: strin
   }
 }
 
-/** The message of an output refusal, which is a plain Error whose cause is the block refusal. */
+/** The message of an output refusal, an UnkeepableOpeningBlockError whose cause is the block refusal. */
 const describeOutputRefusal = (
   thrown: unknown,
 ): { message: string; causeIsBlockRefusal: boolean } | null => {
-  if (!(thrown instanceof Error) || thrown instanceof UnreadablePropertiesError) return null
+  if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
   return {
     message: thrown.message,
     causeIsBlockRefusal: thrown.cause instanceof UnreadablePropertiesError,

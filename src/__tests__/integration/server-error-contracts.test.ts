@@ -625,6 +625,9 @@ const REPLACE_STEP =
 const CARRY_TEXT_STEP =
   "replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines."
 
+const OPENING_BLOCK_STEP =
+  "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
+
 describe("unreadable properties blocks", () => {
   /** Plants a note straight on disk, as a hand edit or a sync would, and
    *  removes it when the test ends. */
@@ -766,9 +769,26 @@ describe("unreadable properties blocks", () => {
 
     expect(result.isError).toBe(true)
     expect(textContent(result)).toBe(
-      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}`,
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
     )
     await expect(readFile(fullPath, "utf8")).rejects.toThrow("ENOENT")
+  })
+
+  it("refuses a body edit that would leave a note without properties opening with a broken block", async () => {
+    const original = "Intro paragraph\n---\ntitle: [unclosed\n---\nrest\n"
+    const fullPath = await plantNote("Rule Then Block.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: { path: "Rule Then Block.md", start_anchor: "Intro paragraph" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 
   it.each([

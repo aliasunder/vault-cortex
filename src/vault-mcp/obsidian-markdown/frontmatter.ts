@@ -30,6 +30,14 @@ export class UnreadablePropertiesError extends Error {
 }
 
 /**
+ * A write whose result would open with `---` lines the server cannot read
+ * or keep as a properties block. Separate from UnreadablePropertiesError
+ * because no block in the vault is broken: the write would turn body lines
+ * into the opening block, so the repair steps for a broken block do not apply.
+ */
+export class UnkeepableOpeningBlockError extends Error {}
+
+/**
  * Matches a frontmatter opener: `---` alone on the first line (optional
  * BOM, trailing spaces/tabs, CRLF, or a whole-file `---`). Obsidian
  * starts a properties block only on this form; gray-matter alone is
@@ -280,10 +288,7 @@ const assertOpeningBlockIsKeepable = (serialized: string): void => {
   const reading = readPropertiesBlock(blockText)
 
   if (reading.status === "keepable") return
-  // This is a plain Error rather than UnreadablePropertiesError because the
-  // content being written is at fault, not a block already in the vault,
-  // so the repair steps for a broken block do not apply
-  throw new Error(
+  throw new UnkeepableOpeningBlockError(
     `the note would open with a properties block the server cannot keep: ${reading.error.message}`,
     { cause: reading.error },
   )

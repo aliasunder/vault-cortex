@@ -9,6 +9,7 @@ import {
   serializePropertiesBlock,
   stringifyNote,
   mergeFrontmatter,
+  UnkeepableOpeningBlockError,
   UnreadablePropertiesError,
 } from "../frontmatter.js"
 
@@ -65,11 +66,11 @@ const describeRefusal = (thrown: unknown): { kind: string; message: string } | n
   return { kind: thrown.kind, message: thrown.message }
 }
 
-/** The parts of stringifyNote's output refusal, which is a plain Error whose cause is the block refusal. */
+/** The parts of stringifyNote's output refusal, an UnkeepableOpeningBlockError whose cause is the block refusal. */
 const describeOutputRefusal = (
   thrown: unknown,
 ): { message: string; causeIsBlockRefusal: boolean } | null => {
-  if (!(thrown instanceof Error) || thrown instanceof UnreadablePropertiesError) return null
+  if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
   return {
     message: thrown.message,
     causeIsBlockRefusal: thrown.cause instanceof UnreadablePropertiesError,

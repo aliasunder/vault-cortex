@@ -11,7 +11,10 @@ import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { describeError } from "../../../utils/describe-error.js"
-import { UnreadablePropertiesError } from "../../obsidian-markdown/frontmatter.js"
+import {
+  UnkeepableOpeningBlockError,
+  UnreadablePropertiesError,
+} from "../../obsidian-markdown/frontmatter.js"
 
 /** Registers one tool through the enabled-set gate: skips silently when the
  *  config disables the tool, and injects the registry's annotations so group
@@ -150,20 +153,32 @@ const describeUnreadablePropertiesRepair = (params: {
   return `${replaceStep} replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines.`
 }
 
+/** A property makes the server's own block come first, and text above the
+ *  `---` lines or their removal stops the note opening with them. The
+ *  sentence names no tool, so it needs no gating. */
+const OPENING_BLOCK_REMEDY =
+  "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
+
 /** Builds the tool error handlers for one server's enabled tool set. */
 export const createToolErrorHandlers = (
   isToolEnabled: (name: ToolName) => boolean,
 ): ToolErrorHandlers => {
   const repairToolsServed = REPAIR_TOOL_NAMES.every(isToolEnabled)
 
-  /** describeError's text, plus repair steps for an unreadable properties block. */
+  /** describeError's text, plus how to fix a properties-block failure:
+   *  repair steps for a block already in the vault, or a way around `---`
+   *  lines a write would leave at the top of the note. */
   const describeToolError = (error: unknown): string => {
     const message = describeError(error)
+    // A move abort's message already ends with a sentence
+    const separator = message.endsWith(".") ? " " : ". "
 
+    if (error instanceof UnkeepableOpeningBlockError) {
+      return `${message}${separator}${OPENING_BLOCK_REMEDY}`
+    }
     if (!(error instanceof UnreadablePropertiesError)) return message
 
     const repair = describeUnreadablePropertiesRepair({ kind: error.kind, repairToolsServed })
-    const separator = message.endsWith(".") ? " " : ". "
     return `${message}${separator}${repair}`
   }
 
