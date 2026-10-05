@@ -1777,6 +1777,15 @@ describe("file tool handlers", () => {
     })
   })
 
+  it("returns the source of a canvas that is not valid JSON when raw is true", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "Broken.canvas"), "{ not json", "utf8")
+    const result = await readAsset({ path: "Broken.canvas", raw: true })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "{ not json" }],
+    })
+  })
+
   it("rejects raw for an image", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     const png = await sharp({
@@ -1940,6 +1949,22 @@ describe("file tool handlers", () => {
     })
   })
 
+  it("lists a file without an extension under the (none) marker", async () => {
+    const { vault, listAssets } = await setupAssetHarness()
+    await writeFile(join(vault, "license"), "12345", "utf8")
+    await writeFile(join(vault, "photo.png"), "12", "utf8")
+    const result = await listAssets({})
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      files: [
+        { path: "license", extension: "(none)", bytes: 5 },
+        { path: "photo.png", extension: ".png", bytes: 2 },
+      ],
+      extension_counts: { "(none)": 1, ".png": 1 },
+      total: 2,
+      truncated: false,
+    })
+  })
+
   it.each(["PNG", ".PNG"])(
     "filters by extension case-insensitively for %s",
     async (extensionSpelling) => {
@@ -2054,6 +2079,24 @@ describe("DISABLED_TOOLS", () => {
       `${ROUTING_LINE_START} For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's verbatim Markdown.${ROUTING_LINE_END}`,
     )
     expect(readNoteRoutingLine("vault_list_tasks")).toBe(`${ROUTING_LINE_START}${ROUTING_LINE_END}`)
+  })
+
+  it("vault_list_tasks' lane guidance names vault_read_note only while that tool is served", () => {
+    const listTasksRoutingLines = (disabledTools: string): string => {
+      return extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_LIST_TASKS,
+        startMarker: "in one call instead of per-board reads.",
+        endMarker: "\n\nBehavior:",
+      })
+    }
+    const TRIAGE_LINE_END = "in one call instead of per-board reads.\n"
+    const SEARCH_ROUTING = "Prefer vault_search for full-text queries over note content."
+
+    expect(listTasksRoutingLines("")).toBe(
+      `${TRIAGE_LINE_END}Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write. ${SEARCH_ROUTING}`,
+    )
+    expect(listTasksRoutingLines("vault_read_note")).toBe(`${TRIAGE_LINE_END}${SEARCH_ROUTING}`)
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {

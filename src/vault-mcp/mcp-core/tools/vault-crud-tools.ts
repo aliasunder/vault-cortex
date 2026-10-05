@@ -579,6 +579,7 @@ To delete a large multi-line block, prefer vault_delete_span (short anchors inst
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex — exact text only.
+- new_text: after a deletion (new_text=""), every run of consecutive blank lines in the note's body is collapsed to a single blank line.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
