@@ -957,7 +957,7 @@ const moveNote = async (
 
         // Prune from the OLD note's folder — a same-folder rename or a move into a
         // subfolder leaves the source non-empty, so nothing is pruned in those cases.
-        const prunedEmptyFolders = pruneEmptyFolders
+        const prunedFolderCount = pruneEmptyFolders
           ? await pruneEmptyParents({ vaultPath, path: oldPath }, logger)
           : 0
 
@@ -967,7 +967,7 @@ const moveNote = async (
           links_updated: linksUpdated,
           sources_updated: plannedRewrites.length,
           sources_failed: 0,
-          pruned_empty_folders: prunedEmptyFolders,
+          pruned_empty_folders: prunedFolderCount,
         })
 
         return {
@@ -976,7 +976,7 @@ const moveNote = async (
             moved_to: newPath,
             links_updated: linksUpdated,
             updated_notes: plannedRewrites.map((planned) => planned.source).sort(),
-            pruned_empty_folders: prunedEmptyFolders,
+            pruned_empty_folders: prunedFolderCount,
           },
         }
       })

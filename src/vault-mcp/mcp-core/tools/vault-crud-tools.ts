@@ -1025,17 +1025,17 @@ Returns: Confirmation message naming the outcome — "Deleted <path>" for perman
             reqLogger,
           )
         },
-        ({ prunedEmptyFolders, trashLocation }) => {
+        ({ prunedFolderCount, trashLocation }) => {
           const outcome = trashLocation ? "trashed" : "deleted"
           reqLogger.info("tool_result", {
             outcome,
-            prunedEmptyFolders,
-            ...(trashLocation ? { trash_location: trashLocation } : {}),
+            prunedFolderCount,
+            ...(trashLocation ? { trashLocation } : {}),
           })
 
-          const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder"
+          const folderLabel = prunedFolderCount > 1 ? "folders" : "folder"
           const pruneSuffix =
-            prunedEmptyFolders > 0 ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})` : ""
+            prunedFolderCount > 0 ? ` (removed ${prunedFolderCount} empty ${folderLabel})` : ""
           return trashLocation
             ? `Moved ${path} to trash (${trashLocation})${pruneSuffix}`
             : `Deleted ${path}${pruneSuffix}`
@@ -1148,7 +1148,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           reqLogger.info("tool_result", {
             outcome: "moved",
             linksUpdated: result.links_updated,
-            prunedEmptyFolders: result.pruned_empty_folders,
+            prunedFolderCount: result.pruned_empty_folders,
           })
           return JSON.stringify(result)
         },

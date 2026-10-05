@@ -473,7 +473,7 @@ const updateProperties = async (
 type DeleteNoteResult = {
   /** Number of now-empty parent folders removed. Always 0 unless
    *  pruneEmptyFolders was set. */
-  prunedEmptyFolders: number
+  prunedFolderCount: number
   /** Vault-relative path in `.trash/` when the note was moved to trash.
    *  Undefined when permanently deleted. */
   trashLocation?: string
@@ -701,21 +701,21 @@ const deleteNote = async (
       throw new Error(`cannot ${action} "${path}"`, { cause: error })
     }
 
-    const prunedEmptyFolders = params.pruneEmptyFolders
+    const prunedFolderCount = params.pruneEmptyFolders
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
       : 0
 
-    // trash_option is the only record of whether a trashed note is swept
+    // trashOption is the only record of whether a trashed note is swept
     // later ("system") or kept forever ("local") — the result text and the
     // tool_result log say "trashed" for both.
     logger.info("deleted note", {
       path,
-      trash_option: params.trashOption,
-      ...(trashLocation ? { trash_location: trashLocation } : {}),
-      pruned_empty_folders: prunedEmptyFolders,
+      trashOption: params.trashOption,
+      ...(trashLocation ? { trashLocation } : {}),
+      pruned_empty_folders: prunedFolderCount,
     })
     return {
-      prunedEmptyFolders,
+      prunedFolderCount,
       ...(trashLocation ? { trashLocation } : {}),
     }
   })
