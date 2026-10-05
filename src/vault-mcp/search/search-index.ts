@@ -770,6 +770,8 @@ export const createSearchIndex = (
   const deleteStaleChunksStmt = embedder
     ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ? AND chunk_index >= ?`)
     : null
+  /** All vec0 primary-key binds use BigInt to retain INTEGER type;
+   * better-sqlite3 binds numbers as REAL, which vec0 rejects on insert. */
   const insertVectorStmt = embedder
     ? db.prepare(`INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)`)
     : null
@@ -1309,8 +1311,6 @@ export const createSearchIndex = (
       let deletedCount = 0
       for (const staleRowIds of rowIdQueuesByHash.values()) {
         for (const staleRowId of staleRowIds) {
-          /** Vector IDs use BigInt for the INTEGER binding vec0 requires on insert;
-           * ordinary entry rows accept number bindings. */
           deleteMemoryVectorByEntryIdStmt?.run(BigInt(staleRowId))
           deleteMemoryEntryByIdStmt.run(staleRowId)
           deletedCount++
@@ -1598,8 +1598,6 @@ export const createSearchIndex = (
       db.transaction(() => {
         const existingChunk = selectChunkIdStmt.get(notePath, chunk.index)
 
-        /** Bind vector IDs as INTEGER via BigInt on both delete and insert;
-         * vec0 rejects the REAL binding better-sqlite3 uses for numbers on insert. */
         if (existingChunk) {
           deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -1681,7 +1679,6 @@ export const createSearchIndex = (
             )
           }
 
-          /** vec0 rejects REAL primary keys; BigInt binds the entry ID as INTEGER. */
           insertMemoryVectorStmt.run(
             BigInt(row.id),
             Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
@@ -1759,8 +1756,6 @@ export const createSearchIndex = (
       db.transaction(() => {
         const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
 
-        /** Bind vector IDs as INTEGER via BigInt on both delete and insert;
-         * vec0 rejects the REAL binding better-sqlite3 uses for numbers on insert. */
         if (existingChunk) {
           deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }

@@ -517,6 +517,36 @@ describe("noteMatchesSearchFilters", () => {
     expect(noteMatchesSearchFilters(ratedRow, { properties: { ratings: "5" } })).toBe(false)
   })
 
+  it.each([
+    { label: "an object scalar", stored: { a: 1 }, wanted: '{"a":1}' },
+    { label: "an object list member", stored: [{ a: 1 }, { a: 2 }], wanted: '{"a":1}' },
+    { label: "a nested list member", stored: [[1, 2], [3]], wanted: "[1,2]" },
+  ])("matches $label by its serialized JSON text", ({ stored, wanted }) => {
+    const structuredRow = { ...baseRow, properties: JSON.stringify({ meta: stored }) }
+    const propertyFilters = [
+      { key: "meta", value: wanted },
+      { key: "meta", value: `${wanted} ` },
+      { key: "meta", value: "null" },
+      { key: "other", value: wanted },
+    ]
+
+    expect(
+      propertyFilters.map(({ key, value }) => {
+        return noteMatchesSearchFilters(structuredRow, { properties: { [key]: value } })
+      }),
+    ).toEqual([true, false, false, false])
+  })
+
+  it.each([
+    { label: "absent", properties: "{}", expected: false },
+    { label: "explicitly stored", properties: '{"__proto__":{}}', expected: true },
+  ])("treats an $label __proto__ property as data", ({ properties, expected }) => {
+    const prototypeRow = { ...baseRow, properties }
+    const key = "__proto__"
+
+    expect(noteMatchesSearchFilters(prototypeRow, { properties: { [key]: "{}" } })).toBe(expected)
+  })
+
   it("combines multiple filters with AND semantics", () => {
     expect(
       noteMatchesSearchFilters(baseRow, {
