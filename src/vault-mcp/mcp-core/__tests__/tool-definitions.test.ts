@@ -2491,6 +2491,97 @@ describe("DISABLED_TOOLS", () => {
     })
     expect(replaceAdvice).toBe(`To replace a block, ${expectedAdvice}.`)
   })
+
+  const PATCH_NOTE_EXAMPLE =
+    'Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })'
+  const MOVE_REMOVAL_STEP =
+    '3. vault_replace_in_note({ path, old_text: "- [ ] Task text\\n", new_text: "" }) to remove from source'
+  const moveStepsWithRemoval = (removalStep: string): string => {
+    return [
+      "Cross-section move (e.g. completing a task on a board):",
+      "1. vault_read_note to get current content and verify exact text",
+      '2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target',
+      `${removalStep}; on error, re-read and retry until the source copy is gone`,
+      "Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.",
+    ].join("\n")
+  }
+
+  it.each([
+    {
+      label: "lists the move steps while every tool they name is served",
+      disabledTools: "",
+      expectedSection: `${PATCH_NOTE_EXAMPLE}\n\n${moveStepsWithRemoval(`${MOVE_REMOVAL_STEP} (for a large multi-line block, prefer vault_delete_span)`)}`,
+    },
+    {
+      label: "drops only the vault_delete_span aside when that tool is disabled",
+      disabledTools: "vault_delete_span",
+      expectedSection: `${PATCH_NOTE_EXAMPLE}\n\n${moveStepsWithRemoval(MOVE_REMOVAL_STEP)}`,
+    },
+    {
+      label: "drops the move steps when vault_replace_in_note is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedSection: PATCH_NOTE_EXAMPLE,
+    },
+    {
+      label: "drops the move steps when vault_read_note is disabled",
+      disabledTools: "vault_read_note",
+      expectedSection: PATCH_NOTE_EXAMPLE,
+    },
+  ])("vault_patch_note's cross-section move $label", ({ disabledTools, expectedSection }) => {
+    const exampleAndMoveSteps = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "Example: vault_patch_note",
+      endMarker: "\n\nWhen to use:",
+    })
+    expect(exampleAndMoveSteps).toBe(expectedSection)
+  })
+
+  it("vault_replace_in_note drops the vault_delete_span advice when that tool is disabled", () => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_delete_span" }),
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(
+      [
+        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.',
+        'To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span. To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
+      ].join("\n"),
+    )
+  })
+
+  it.each([
+    {
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: '- "start anchor not found"',
+      expectedEntry:
+        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      startMarker: '- "start anchor not found"',
+      expectedEntry:
+        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      startMarker: '- "anchor not found"',
+      expectedEntry: '- "anchor not found" — fragment not on any line',
+    },
+  ])(
+    "$toolName's anchor-not-found entry drops the vault_read_note pointer when that tool is disabled",
+    ({ toolName, startMarker, expectedEntry }) => {
+      const anchorNotFoundEntry = extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_read_note" }),
+        toolName,
+        startMarker,
+        endMarker: '\n- "ambiguous',
+      })
+      expect(anchorNotFoundEntry).toBe(expectedEntry)
+    },
+  )
 })
 
 describe("flag-combination matrix", () => {

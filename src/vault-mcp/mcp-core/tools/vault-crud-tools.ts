@@ -412,19 +412,26 @@ Returns: Confirmation message.`,
     },
   )
 
+  // The move steps call both tools, so they are left out when either one is disabled.
+  const moveToolsEnabled =
+    isToolEnabled("vault_read_note") && isToolEnabled("vault_replace_in_note")
+  const crossSectionMoveText = moveToolsEnabled
+    ? `
+
+Cross-section move (e.g. completing a task on a board):
+1. vault_read_note to get current content and verify exact text
+2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
+3. vault_replace_in_note({ path, old_text: "- [ ] Task text\\n", new_text: "" }) to remove from source${whenToolEnabledText("vault_delete_span", " (for a large multi-line block, prefer vault_delete_span)")}; on error, re-read and retry until the source copy is gone
+Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.`
+    : ""
+
   registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
       description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit.
 
-Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })
-
-Cross-section move (e.g. completing a task on a board):
-1. vault_read_note to get current content and verify exact text
-2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
-3. vault_replace_in_note({ path, old_text: "- [ ] Task text\\n", new_text: "" }) to remove from source (for a large multi-line block, prefer vault_delete_span); on error, re-read and retry until the source copy is gone
-Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.
+Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })${crossSectionMoveText}
 
 When to use: Modifying part of an existing note without overwriting the entire body.
 Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true). Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.
@@ -540,6 +547,27 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     },
   )
 
+  // Joined after filtering so a disabled first tool leaves no leading space.
+  const replaceInNoteAlternatives = [
+    whenToolEnabledText(
+      "vault_delete_span",
+      "To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text).",
+    ),
+    whenToolEnabledText(
+      "vault_replace_span",
+      "To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span.",
+    ),
+    whenToolEnabledText(
+      "vault_patch_note",
+      'To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
+    ),
+  ]
+    .filter(Boolean)
+    .join(" ")
+  const replaceInNoteAlternativesLine = replaceInNoteAlternatives
+    ? `\n${replaceInNoteAlternatives}`
+    : ""
+
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
@@ -549,8 +577,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" }) — removes the whole line, line break included.
 
-When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
-To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text).${whenToolEnabledText("vault_replace_span", " To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span.")}${whenToolEnabledText("vault_patch_note", ' To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.')}
+When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.${replaceInNoteAlternativesLine}
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
@@ -649,7 +676,7 @@ Parameters:
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "path must end in …" — add the .md extension
-- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); verify with vault_read_note
+- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -735,7 +762,7 @@ Parameters:
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "path must end in …" — add the .md extension
-- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); verify with vault_read_note
+- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -830,7 +857,7 @@ Parameters:
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "path must end in …" — add the .md extension
-- "anchor not found" — fragment not on any line; verify with vault_read_note
+- "anchor not found" — fragment not on any line${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
