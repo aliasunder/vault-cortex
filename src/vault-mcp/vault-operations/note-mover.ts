@@ -1,6 +1,7 @@
 /** Moves/renames a note and rewrites every vault-wide link that resolves to it,
  *  mirroring Obsidian's built-in rename. Reuses the link grammar, parsing, and
- *  resolution from ../links.ts so the rewriter and indexer always agree.
+ *  resolution from ../obsidian-markdown/links.ts so the rewriter and indexer
+ *  always agree.
  *
  *  How it comes together — building blocks first, orchestrator last:
  *    1. Target classification — decides IF a link needs rewriting and what form
@@ -333,8 +334,8 @@ const rewriteBody = (
   rewriteLink: RewriteLink,
 ): { body: string; linksRewritten: number } => {
   // Code lines (fence delimiters and fenced content) pass through verbatim;
-  // links.classifyLines owns the fence state machine. The tally runs over a
-  // sequential line walk, so a plain loop with mutable counters.
+  // classifyLines from obsidian-markdown/lines.ts owns the fence state machine.
+  // The tally runs over a sequential line walk, so use a plain loop with mutable counters.
   let linksRewritten = 0
   const outputLines: string[] = []
 
@@ -643,8 +644,6 @@ const moveNote = async (
   // messages on every platform); everything below keys on the filesystem listing's
   // spelling. Listed inputs take the ternary's sync arm — no await before
   // the lock — so lock acquisition stays synchronous for the normal path.
-  // An await here would let two concurrent moves interleave their lock
-  // checks in the gap and both proceed on the same file.
   const oldPath = allNotePaths.includes(canonicalOldPath)
     ? canonicalOldPath
     : await listedSpellingForAliasedPath({
