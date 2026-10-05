@@ -16,9 +16,9 @@ describe("loadConfig", () => {
       expect(config.protectedPathsOverride).toBeNull()
     })
 
-    it("orphanExcludeFolders defaults to Daily Notes, Templates, About Me", () => {
+    it("orphanExcludeFoldersOverride is null when ORPHAN_EXCLUDE_FOLDERS is unset", () => {
       const config = loadConfig(EMPTY_ENV)
-      expect(config.orphanExcludeFolders).toEqual(["Daily Notes", "Templates", "About Me"])
+      expect(config.orphanExcludeFoldersOverride).toBeNull()
     })
 
     it("serviceDocumentationUrl defaults to the GitHub repo", () => {
@@ -48,9 +48,9 @@ describe("loadConfig", () => {
       expect(config.memoryDir).toBe("Profile")
     })
 
-    it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
+    it("leaves the orphan override unset when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
       const config = loadConfig({ MEMORY_DIR: "Profile" })
-      expect(config.orphanExcludeFolders).toEqual(["Daily Notes", "Templates", "Profile"])
+      expect(config.orphanExcludeFoldersOverride).toBeNull()
     })
 
     it.each([
@@ -125,9 +125,9 @@ describe("loadConfig", () => {
       expect(config.dailyNotesFolder).toBe("Journal")
     })
 
-    it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
+    it("leaves the orphan override unset when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
       const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
-      expect(config.orphanExcludeFolders).toEqual(["Journal", "Templates", "About Me"])
+      expect(config.orphanExcludeFoldersOverride).toBeNull()
     })
 
     it("keeps the explicit PROTECTED_PATHS list when DAILY_NOTES_FOLDER is set", () => {
@@ -290,11 +290,19 @@ describe("loadConfig", () => {
   })
 
   describe("ORPHAN_EXCLUDE_FOLDERS (comma-separated)", () => {
+    it.each(["", "   "])("treats %j as no override", (input) => {
+      expect(loadConfig({ ORPHAN_EXCLUDE_FOLDERS: input }).orphanExcludeFoldersOverride).toBeNull()
+    })
+
+    it("preserves a comma-only explicit empty override", () => {
+      expect(loadConfig({ ORPHAN_EXCLUDE_FOLDERS: ", ," }).orphanExcludeFoldersOverride).toEqual([])
+    })
+
     it("overrides the default entirely", () => {
       const config = loadConfig({
         ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch",
       })
-      expect(config.orphanExcludeFolders).toEqual(["Archive", "Scratch"])
+      expect(config.orphanExcludeFoldersOverride).toEqual(["Archive", "Scratch"])
     })
 
     it("does not include MEMORY_DIR when explicitly set", () => {
@@ -302,8 +310,8 @@ describe("loadConfig", () => {
         MEMORY_DIR: "Profile",
         ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch",
       })
-      expect(config.orphanExcludeFolders).toEqual(["Archive", "Scratch"])
-      expect(config.orphanExcludeFolders).not.toContain("Profile")
+      expect(config.orphanExcludeFoldersOverride).toEqual(["Archive", "Scratch"])
+      expect(config.orphanExcludeFoldersOverride).not.toContain("Profile")
     })
 
     it("validates each entry", () => {

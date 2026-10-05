@@ -2,10 +2,9 @@
 
 import { z } from "zod"
 import type { VaultConfig } from "../../config.js"
-import type { Logger } from "../../../logger.js"
 import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
-import { readDailyNotesFileConfig } from "../../vault-operations/daily-notes.js"
+import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
 import { readTrashConfig } from "../../vault-operations/trash-config.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
 import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
@@ -28,32 +27,6 @@ const describeDisplacedLeadingContent = ({
     return `The note's entire pre-existing body (${bytes} bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To add a section below existing content instead, use operation "append".`
   }
   return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
-}
-
-/** The folders that delete and move refuse to touch.
- *  - PROTECTED_PATHS, when set, replaces the defaults entirely, so only the
- *    folders it lists are protected.
- *  - Otherwise the memory dir (protected even when MEMORY_ENABLED is false)
- *    plus the daily notes folder, resolved on each call (DAILY_NOTES_FOLDER →
- *    .obsidian/daily-notes.json → "Daily Notes") so a folder configured only
- *    in the vault is protected too.
- *  Throws when daily-notes.json exists but cannot be read, since the folder
- *  it names is then unknown; DAILY_NOTES_FOLDER or PROTECTED_PATHS bypasses
- *  the file. */
-export const resolveEffectiveProtectedPaths = async (
-  { config, vaultPath }: { config: VaultConfig; vaultPath: string },
-  logger: Logger,
-): Promise<readonly string[]> => {
-  if (config.protectedPathsOverride) return config.protectedPathsOverride
-
-  // loadConfig trims DAILY_NOTES_FOLDER, so a set value is never blank.
-  if (config.dailyNotesFolder) return [config.memoryDir, config.dailyNotesFolder]
-
-  const dailyNotesConfig = await readDailyNotesFileConfig(vaultPath, logger)
-
-  // A whitespace-only folder in daily-notes.json protects nothing.
-  const dailyFolder = dailyNotesConfig.folder.trim()
-  return dailyFolder ? [config.memoryDir, dailyFolder] : [config.memoryDir]
 }
 
 /** Protected-path list for tool descriptions. Descriptions are built once at

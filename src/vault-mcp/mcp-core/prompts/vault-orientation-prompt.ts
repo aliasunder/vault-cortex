@@ -2,6 +2,7 @@
 
 import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
+import { resolveEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../../utils/compare-utf8-bytes.js"
@@ -161,15 +162,6 @@ export const registerVaultOrientationPrompt = ({
           config.memoryEnabled && memoryStore
             ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
             : []
-        const orphanResults = search.findOrphans(
-          {
-            excludeFolders: [...config.orphanExcludeFolders],
-            limit: ORIENTATION_ORPHAN_LIMIT + 1,
-          },
-          reqLogger,
-        )
-        const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
-        const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
         const dailyNotesConfig = await readDailyNotesConfig(
           {
             vaultPath,
@@ -177,6 +169,21 @@ export const registerVaultOrientationPrompt = ({
           },
           reqLogger,
         )
+        const orphanResults = search.findOrphans(
+          {
+            excludeFolders: [
+              ...resolveEffectiveOrphanExcludeFolders({
+                orphanExcludeFoldersOverride: config.orphanExcludeFoldersOverride,
+                memoryDir: config.memoryDir,
+                dailyNotesFolder: dailyNotesConfig.folder,
+              }),
+            ],
+            limit: ORIENTATION_ORPHAN_LIMIT + 1,
+          },
+          reqLogger,
+        )
+        const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
+        const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
         const brokenLinkResult = search.brokenLinkCount(
           { dailyNotesFolder: dailyNotesConfig.folder },
           reqLogger,

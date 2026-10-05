@@ -3,6 +3,7 @@
 import { z } from "zod"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { safeHandler, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
 
@@ -610,20 +611,26 @@ Errors:
     },
   )
 
+  const orphanDefaultDescription = config.orphanExcludeFoldersOverride
+    ? `With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override excludes ${JSON.stringify(config.orphanExcludeFoldersOverride)}.`
+    : `With exclude_folders omitted, defaults are the daily notes folder (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"), "Templates", and ${JSON.stringify(config.memoryDir)}, resolved on each call. ORPHAN_EXCLUDE_FOLDERS replaces that list. Unreadable daily settings warn and fall back.`
+
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
     {
       title: "Find Orphans",
       description: `Find notes with no incoming links from other notes — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan (self-links are ignored).
 
-Example: vault_find_orphans({ exclude_folders: ${JSON.stringify(config.orphanExcludeFolders)} })
+Example: vault_find_orphans({})
+Example: vault_find_orphans({ exclude_folders: ["Archive"], limit: 10 })
 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
-- exclude_folders replaces the defaults, it does not add to them — include the defaults yourself to keep them. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
-- limit (default 50) applies after sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+- ${orphanDefaultDescription}
+- exclude_folders replaces the defaults (including an environment override), it does not add to them — include the defaults yourself to keep them. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
+- limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
@@ -633,7 +640,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         exclude_folders: z
           .array(z.string().min(1))
           .optional()
-          .describe(`Folders to exclude (default ${JSON.stringify(config.orphanExcludeFolders)})`),
+          .describe("Folder paths to exclude (e.g. Projects)"),
         limit: z.number().int().min(1).optional().default(50).describe("Max results (default 50)"),
       },
     },
@@ -646,9 +653,12 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       return safeHandler(
         reqLogger,
         async () => {
+          const excludeFolders =
+            exclude_folders ??
+            (await readEffectiveOrphanExcludeFolders({ config, vaultPath }, reqLogger))
           return search.findOrphans(
             {
-              excludeFolders: exclude_folders ?? [...config.orphanExcludeFolders],
+              excludeFolders: [...excludeFolders],
               limit,
             },
             reqLogger,

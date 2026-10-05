@@ -4,14 +4,14 @@ import { mkdtemp, rm, writeFile, mkdir, readFile, utimes } from "node:fs/promise
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
-import type { z } from "zod"
+import { z } from "zod"
 import { computeEnabledToolNames, registerTools } from "../tool-definitions.js"
 import { TOOL_NAMES, TOOL_REGISTRY } from "../tool-registry.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createSearchIndex } from "../../search/search-index.js"
 import type { SearchIndex } from "../../search/search-index.js"
-import { logger } from "../../../logger.js"
+import { logger, type Logger } from "../../../logger.js"
 
 const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
 
@@ -72,13 +72,16 @@ beforeEach(() => {
 })
 
 /** The registerTool calls a server makes under the config this env produces. */
-const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
+const registerWithConfig = (
+  env: Record<string, string>,
+  context: { vaultPath?: string; search?: SearchIndex; logger?: Logger } = {},
+): RegisterToolCall[] => {
   const server = { registerTool: vi.fn() }
   registerTools({
     server: server as unknown as McpServer,
-    vaultPath: "/test-vault",
-    search: {} as SearchIndex,
-    logger,
+    vaultPath: context.vaultPath ?? "/test-vault",
+    search: context.search ?? ({} as SearchIndex),
+    logger: context.logger ?? logger,
     config: loadConfig(env),
   })
   return server.registerTool.mock.calls as RegisterToolCall[]
@@ -1400,6 +1403,234 @@ describe("vault_search handler", () => {
     if (!unlimitedText) throw new Error("expected text content from unlimited vault_search")
     const unlimitedPayload = JSON.parse(unlimitedText) as { total: number }
     expect(unlimitedPayload.total).toBe(3)
+  })
+})
+
+describe("vault_find_orphans live folder defaults", () => {
+  const setupOrphans = async (
+    options: {
+      settings?: string
+      env?: Record<string, string>
+      paths?: readonly string[]
+    } = {},
+  ) => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "orphan-handler-"))
+    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+    await mkdir(join(vaultPath, ".obsidian"))
+    const settingsPath = join(vaultPath, ".obsidian/daily-notes.json")
+
+    if (options.settings !== undefined) await writeFile(settingsPath, options.settings)
+
+    const search = createSearchIndex(":memory:")
+    const paths = options.paths ?? [
+      "Journal/daily.md",
+      "Journal/nested/daily.md",
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+      "Archive/note.md",
+    ]
+    paths.forEach((filePath, index) => {
+      search.upsertNote(
+        { filePath, rawContent: "# Note\n", fileStat: { mtimeMs: 10000 - index, size: 7 } },
+        logger,
+      )
+    })
+    const requestLogger: Logger = { ...logger, warn: vi.fn(), child: () => requestLogger }
+    const registeredCalls = registerWithConfig(options.env ?? {}, {
+      vaultPath,
+      search,
+      logger: requestLogger,
+    })
+    const orphanCall = registeredCalls.find(([name]) => name === TOOL_NAMES.VAULT_FIND_ORPHANS)
+
+    if (!orphanCall) throw new Error("vault_find_orphans not registered")
+
+    const queryPaths = async (args: { exclude_folders?: string[]; limit?: number } = {}) => {
+      const result = z
+        .object({
+          content: z.array(z.object({ text: z.string() })),
+          isError: z.boolean().optional(),
+        })
+        .parse(await orphanCall[2](args, { requestId: "orphan-request" }))
+      expect(result.isError).toBeUndefined()
+      return z
+        .array(z.object({ path: z.string() }))
+        .parse(JSON.parse(requireTextContent(result)))
+        .map((note) => note.path)
+    }
+    return { settingsPath, queryPaths, requestLogger, toolConfig: orphanCall[1] }
+  }
+
+  it("excludes a file-only daily folder and descendants but keeps sibling decoys", async () => {
+    const { queryPaths } = await setupOrphans({ settings: '{"folder":"Journal"}' })
+    expect(await queryPaths()).toEqual([
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Archive/note.md",
+    ])
+  })
+
+  it("excludes daily notes before a limit of one", async () => {
+    const { queryPaths } = await setupOrphans({ settings: '{"folder":"Journal"}' })
+    expect(await queryPaths({ limit: 1 })).toEqual(["JournalOld/note.md"])
+  })
+
+  it("uses the env daily folder over the file folder without reading malformed settings", async () => {
+    const { queryPaths, requestLogger } = await setupOrphans({
+      settings: "broken",
+      env: { DAILY_NOTES_FOLDER: "Journal" },
+    })
+    expect(await queryPaths()).toEqual([
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Archive/note.md",
+    ])
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it("replaces all defaults with the explicit environment list", async () => {
+    const { queryPaths, requestLogger } = await setupOrphans({
+      settings: "broken",
+      env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" },
+    })
+    expect(await queryPaths()).toEqual([
+      "Journal/daily.md",
+      "Journal/nested/daily.md",
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+    ])
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it("lets a request list replace the environment list", async () => {
+    const { queryPaths } = await setupOrphans({ env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" } })
+    expect(await queryPaths({ exclude_folders: ["Journal"] })).toEqual([
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+      "Archive/note.md",
+    ])
+  })
+
+  it("returns every folder for request [] and bypasses malformed settings", async () => {
+    const { queryPaths, requestLogger } = await setupOrphans({
+      settings: "broken",
+      env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" },
+    })
+    expect(await queryPaths({ exclude_folders: [] })).toEqual([
+      "Journal/daily.md",
+      "Journal/nested/daily.md",
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+      "Archive/note.md",
+    ])
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it("uses a comma-only environment list as no exclusions", async () => {
+    const { queryPaths, requestLogger } = await setupOrphans({
+      settings: "broken",
+      env: { ORPHAN_EXCLUDE_FOLDERS: ", ," },
+    })
+    expect(await queryPaths()).toEqual([
+      "Journal/daily.md",
+      "Journal/nested/daily.md",
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+      "Archive/note.md",
+    ])
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it("excludes a custom memory directory even when memory is disabled", async () => {
+    const { queryPaths } = await setupOrphans({
+      env: { MEMORY_DIR: "Profile", MEMORY_ENABLED: "false" },
+      paths: ["Profile/memory.md", "Profile/sub/memory.md", "About Me/note.md", "ordinary.md"],
+    })
+    expect(await queryPaths()).toEqual(["About Me/note.md", "ordinary.md"])
+  })
+
+  it("applies file folder changes without registering the handler again", async () => {
+    const { queryPaths, settingsPath } = await setupOrphans({
+      settings: '{"folder":"Journal"}',
+      paths: ["Journal/daily.md", "Planner/Daily/daily.md", "ordinary.md"],
+    })
+    expect(await queryPaths()).toEqual(["Planner/Daily/daily.md", "ordinary.md"])
+    await writeFile(settingsPath, '{"folder":"Planner/Daily"}')
+    expect(await queryPaths()).toEqual(["Journal/daily.md", "ordinary.md"])
+  })
+
+  it("follows valid, malformed, and repaired settings in the same process", async () => {
+    const { queryPaths, settingsPath, requestLogger } = await setupOrphans({
+      settings: '{"folder":"Journal"}',
+      paths: ["Journal/daily.md", "Daily Notes/daily.md", "Planner/Daily/daily.md", "ordinary.md"],
+    })
+    expect(await queryPaths()).toEqual([
+      "Daily Notes/daily.md",
+      "Planner/Daily/daily.md",
+      "ordinary.md",
+    ])
+    await writeFile(settingsPath, "broken")
+    expect(await queryPaths()).toEqual([
+      "Journal/daily.md",
+      "Planner/Daily/daily.md",
+      "ordinary.md",
+    ])
+    expect(requestLogger.warn).toHaveBeenCalledTimes(1)
+    expect(requestLogger.warn).toHaveBeenCalledWith(
+      "cannot read daily notes config, using defaults",
+      { error: expect.any(String) },
+    )
+    await writeFile(settingsPath, '{"folder":"Planner/Daily"}')
+    expect(await queryPaths()).toEqual(["Journal/daily.md", "Daily Notes/daily.md", "ordinary.md"])
+  })
+
+  it("uses settings that arrive after handler registration", async () => {
+    const { queryPaths, settingsPath } = await setupOrphans({
+      paths: ["Journal/daily.md", "Daily Notes/daily.md", "ordinary.md"],
+    })
+    expect(await queryPaths()).toEqual(["Journal/daily.md", "ordinary.md"])
+    await writeFile(settingsPath, '{"folder":"Journal"}')
+    expect(await queryPaths()).toEqual(["Daily Notes/daily.md", "ordinary.md"])
+  })
+
+  it("describes live default sources and keeps the schema to parameter meaning", async () => {
+    const { toolConfig } = await setupOrphans({ settings: '{"folder":"Journal"}' })
+    expect(toolConfig.description).toContain(
+      'the daily notes folder (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"), "Templates", and "About Me"',
+    )
+    expect(toolConfig.description).not.toContain("Journal")
+    expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
+      "Folder paths to exclude (e.g. Projects)",
+    )
+  })
+
+  it("describes an explicit environment list instead of implicit default sources", async () => {
+    const { toolConfig } = await setupOrphans({
+      env: { ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch" },
+    })
+    const defaultsLine = toolConfig.description
+      ?.split("\n")
+      .find((line) => line.startsWith("- With exclude_folders"))
+    expect(defaultsLine).toBe(
+      '- With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override excludes ["Archive","Scratch"].',
+    )
   })
 })
 
