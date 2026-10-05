@@ -2195,7 +2195,7 @@ describe("DISABLED_TOOLS", () => {
   const PROPERTY_VALUES_CHECKBOX_LINE =
     '- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.'
   const PROPERTY_VALUES_SEARCH_LINE =
-    '- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.'
+    '- vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
   const PROPERTY_VALUES_NULL_LINE = "- null values are skipped."
 
   it.each([

@@ -348,7 +348,11 @@ Prefer vault_list_property_values when you need the full list of values for a sp
 Parameters:
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to scan the entire vault.
 
-Behavior: Only frontmatter properties count; inline Dataview fields (key:: value) are not listed. count is the number of notes that have the key, including notes where its value is empty (null). sample_values are the key's 3 most frequent values, counting each array element separately, returned as strings (checkbox values as "1" and "0"); null values are skipped.
+Behavior:
+- Only frontmatter properties count; inline Dataview fields (key:: value) are not listed.
+- count is the number of notes that have the key, including notes where its value is empty (null).
+- sample_values are the key's 3 most frequent displayed strings. Values with the same string are grouped before choosing samples, counting each array element separately; ties use binary text order.
+- Checkbox values appear as "1" and "0"; null values are skipped.
 
 Errors:
 - An empty vault or folder returns an empty array, not an error.
@@ -392,14 +396,14 @@ Parameters:
 
 Behavior:
 - Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]). Array elements are unpacked and counted individually, so the sum of counts may exceed the note count.
-- Values are grouped first and turned into strings after, so a number and the same digits written as text (1 and "1") come back as two separate "1" rows.
-- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.${whenToolEnabledText("vault_search_by_property", `\n- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.`)}
+- Values with the same displayed string share one row with combined occurrence counts: number 1 and text "1" count together, while text "1.0" stays separate. Grouping happens before limit.
+- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.${whenToolEnabledText("vault_search_by_property", `\n- vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.`)}
 - null values are skipped.
 
 Errors:
 - An unknown key or empty folder returns an empty array, not an error.
 
-Returns: JSON array of { value, count } sorted by count descending.`,
+Returns: JSON array of { value, count } sorted by count descending, then by value in binary text order ("10" before "2").`,
       inputSchema: {
         key: z
           .string()
@@ -438,7 +442,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match). Matching is exact and case-sensitive; an unknown key or unmatched value returns an empty array, not an error.
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match). An unknown key or unmatched value returns an empty array, not an error.
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
@@ -447,7 +451,10 @@ When to use: Finding notes by metadata when you don't have a text query.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
 
 Parameters:
-- key + value are both exact and case-sensitive — no partial matching or globbing. Values are compared as text: pass a number as its digits and a checkbox as "1" or "0" (true is stored as 1, false as 0).
+- key is exact and case-sensitive. Text values match exactly and case-sensitively, with no partial matching or globbing. Stored numbers also match numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4".
+- Numeric matching accepts complete finite YAML core numeric forms: signed decimals, leading-zero decimals, .5, 4., exponents, 0x hexadecimal and 0o octal. Whitespace, final line breaks, prefixes like "4abc", comments, expressions, 0b binary, separators, non-finite values and overflow match only literal text.
+- Numeric equality uses stored number precision: large integers can round to the same value, and underflow such as "1e-999" matches stored zero.
+- Pass a checkbox as "1" or "0" (true is stored as 1, false as 0); "1.0" does not match a checked checkbox.
 - An array element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
 - limit (default 20) applies after sorting. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
@@ -464,7 +471,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .string()
           .min(1)
           .describe(
-            'Value to match (exact, case-sensitive, e.g. "active", "session-log"). Use vault_list_property_values to discover valid values for a key.',
+            'Value to match (e.g. "active", "4", "1e-7"). Use vault_list_property_values to discover valid values for a key.',
           ),
         folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
         limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),

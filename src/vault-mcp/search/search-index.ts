@@ -360,6 +360,12 @@ export const createSearchIndex = (
   const fileToolsEnabled = options?.fileToolsEnabled ?? false
   const statusRegistry = options?.statusRegistry ?? DEFAULT_STATUS_REGISTRY
   const db = new Database(dbPath)
+
+  /** SQLite's numeric text differs from the strings returned to clients. */
+  db.function("property_value_text", { deterministic: true }, (value: unknown): string => {
+    return String(value)
+  })
+
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
   // better-sqlite3 already defaults sqlite3_busy_timeout to 5000 ms at open;

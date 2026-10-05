@@ -1165,14 +1165,14 @@ export const recentNotes = (
 // json_each exposes key, value and type columns per property; property.type
 // is the JSON type ("array", "text", "integer", ...), not a notes column.
 
-/** Occurrence counts of every value under one property key, most common
- *  first, without a LIMIT so each caller appends its own. json_array() wraps
- *  scalars so the inner json_each works uniformly for both scalar ("active")
- *  and array (["a","b"]) property values. The folder condition is passed in
- *  because it is qualified as n.path: the json_each tables in the FROM clause
- *  expose a path column of their own. */
-const propertyValueCountsSql = (folderCondition: string): string => `
-    SELECT element.value, COUNT(*) as count
+/**
+ * - Scalar wrapping lets json_each count scalars and list members uniformly.
+ * - Grouping displayed text before LIMIT combines numeric and text occurrences.
+ * - Folder filters use n.path because the JSON tables also expose path.
+ */
+const propertyValueCountsSql = (folderCondition: string): string => {
+  return `
+    SELECT property_value_text(element.value) AS value, COUNT(*) as count
     FROM notes n, json_each(n.properties) property, json_each(
       CASE property.type
         WHEN 'array' THEN property.value
@@ -1184,9 +1184,10 @@ const propertyValueCountsSql = (folderCondition: string): string => `
     -- typeof filters on SQL storage class: excludes nulls (typeof 'null');
     -- nested objects/arrays pass through as typeof 'text'
     AND typeof(element.value) IN ('text', 'integer', 'real')
-    GROUP BY element.value
-    ORDER BY count DESC, element.value
+    GROUP BY property_value_text(element.value)
+    ORDER BY count DESC, property_value_text(element.value)
 `
+}
 
 /** Returns all frontmatter property keys with note counts and top 3 sample
  *  values. Sample ranking counts value occurrences: a value listed twice in
@@ -1228,7 +1229,7 @@ export const listPropertyKeys = (
     return {
       key: keyRow.key,
       count: keyRow.count,
-      sample_values: sampleRows.map((sampleRow) => String(sampleRow.value)),
+      sample_values: sampleRows.map((sampleRow) => sampleRow.value),
     }
   })
 
@@ -1261,10 +1262,10 @@ export const listPropertyValues = (
   if (escapedFolder) sqlParams.folder = escapedFolder
 
   const rows = context.db
-    .prepare<Record<string, unknown>, { value: string | number; count: number }>(sql)
+    .prepare<Record<string, unknown>, { value: string; count: number }>(sql)
     .all(sqlParams)
   const results = rows.map((row) => ({
-    value: String(row.value),
+    value: row.value,
     count: row.count,
   }))
   logger.info("listed property values", {
@@ -1274,7 +1275,19 @@ export const listPropertyValues = (
   return results
 }
 
-/** Finds notes where a frontmatter property matches a value (exact match). */
+const parseFinitePropertyNumber = (value: string): number | null => {
+  /** Matches YAML core integer/decimal forms; the final lookahead rejects trailing newlines.
+   * https://yaml.org/spec/1.2.2/#1032-tag-resolution */
+  const propertyNumberLiteral =
+    /^(?:[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|0x[0-9a-fA-F]+|0o[0-7]+)(?![\s\S])/
+
+  if (!propertyNumberLiteral.test(value)) return null
+
+  const numericValue = Number(value)
+
+  return Number.isFinite(numericValue) ? numericValue : null
+}
+
 export const searchByProperty = (
   context: SearchQueryContext,
   params: {
@@ -1290,13 +1303,14 @@ export const searchByProperty = (
     ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
   const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
+  const numericValue = parseFinitePropertyNumber(params.value)
 
-  // EXISTS (not a FROM join) suffices because only a yes/no match per note
-  // is needed, not value counts. Two branches inside handle different
-  // property shapes:
-  // - Array properties (tags: ["a","b"]): check if @value is IN the array
-  // - Scalar properties (status: "active"): check direct equality
-  // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
+  /**
+   * - EXISTS keeps each matching note singular even when list values repeat.
+   * - Exact text comparison preserves strings, checkboxes and JSON text.
+   * - Guarded REAL comparison uses the same binary64 values as JavaScript;
+   *   JSON's decimal spelling can otherwise become a different SQLite int64.
+   */
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes n
@@ -1306,12 +1320,16 @@ export const searchByProperty = (
         AND (
           (property.type = 'array'
            AND EXISTS (
-             SELECT 1 FROM json_each(property.value)
-             WHERE CAST(value AS TEXT) = @value
+             SELECT 1 FROM json_each(property.value) element
+             WHERE CAST(element.value AS TEXT) = @value
+               OR (element.type IN ('integer', 'real')
+                   AND CAST(element.value AS REAL) = @numericValue)
            ))
           OR
           (property.type != 'array'
-           AND CAST(property.value AS TEXT) = @value)
+           AND (CAST(property.value AS TEXT) = @value
+                OR (property.type IN ('integer', 'real')
+                    AND CAST(property.value AS REAL) = @numericValue)))
         )
     )
     ${folderCondition}
@@ -1322,6 +1340,7 @@ export const searchByProperty = (
   const sqlParams: Record<string, unknown> = {
     key: params.key,
     value: params.value,
+    numericValue,
     limit,
   }
 

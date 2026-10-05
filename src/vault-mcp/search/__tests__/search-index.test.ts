@@ -11,6 +11,8 @@ import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "..
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 
+const realSqliteVec = await vi.importActual<typeof sqliteVec>("sqlite-vec")
+
 let index: SearchIndex
 
 beforeEach(() => {
@@ -66,6 +68,40 @@ const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number 
   mtimeMs,
   size,
 })
+
+/** The factory keeps its connection private; capture it only during construction for test cleanup. */
+const createPropertyTestIndex = (): SearchIndex => {
+  const loadSpy = vi.spyOn(sqliteVec, "load").mockImplementation((database) => {
+    if (!(database instanceof Database)) throw new Error("expected a SQLite database")
+
+    onTestFinished(() => {
+      database.close()
+    })
+    realSqliteVec.load(database)
+  })
+
+  try {
+    return createSearchIndex(":memory:")
+  } finally {
+    loadSpy.mockRestore()
+  }
+}
+
+const seedPropertyNotes = (
+  propertyIndex: SearchIndex,
+  notes: ReadonlyArray<{ filePath: string; frontmatter: string }>,
+): void => {
+  for (const note of notes) {
+    propertyIndex.upsertNote(
+      {
+        filePath: note.filePath,
+        rawContent: `---\n${note.frontmatter}\n---\nsearchable body\n`,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+  }
+}
 
 /** Expected NoteMetadata.modified for a testStat mtime — same epoch-ms → ISO
  *  conversion the index performs, computed independently in the test's zone. */
@@ -2230,21 +2266,16 @@ describe("listPropertyValues", () => {
     ])
   })
 
-  it("returns a number and the same digits as text as two separate rows", () => {
-    const propertyIndex = createSearchIndex(":memory:")
-    propertyIndex.upsertNote(
-      { filePath: "number.md", rawContent: "---\nrank: 1\n---\nbody\n", fileStat: testStat(1000) },
-      logger,
-    )
-    propertyIndex.upsertNote(
-      { filePath: "text.md", rawContent: '---\nrank: "1"\n---\nbody\n', fileStat: testStat(1000) },
-      logger,
-    )
+  it("combines scalar numbers and identical displayed text into one occurrence count", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "number-a.md", frontmatter: "rank: 4" },
+      { filePath: "number-b.md", frontmatter: "rank: 4" },
+      { filePath: "text.md", frontmatter: 'rank: "4"' },
+    ])
 
-    const values = propertyIndex.listPropertyValues({ key: "rank" }, logger)
-    expect(values).toEqual([
-      { value: "1", count: 1 },
-      { value: "1", count: 1 },
+    expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+      { value: "4", count: 3 },
     ])
   })
 
@@ -2640,6 +2671,403 @@ describe("property keys containing JSON path syntax", () => {
     )
 
     expect(results.map((result) => result.path)).toEqual(["Projects/published.md"])
+  })
+})
+
+describe("displayed property value grouping", () => {
+  it("combines scalar and repeated list members across numeric, text, and checkbox values", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "scalar.md", frontmatter: "rank: 4" },
+      {
+        filePath: "list.md",
+        frontmatter: 'rank: [4, "4", 4.0, true, 1, "1", false, 0, "0", null, "", "4.0"]',
+      },
+      { filePath: "null.md", frontmatter: "rank: null" },
+    ])
+
+    expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+      { value: "4", count: 4 },
+      { value: "0", count: 3 },
+      { value: "1", count: 3 },
+      { value: "", count: 1 },
+      { value: "4.0", count: 1 },
+    ])
+    expect(propertyIndex.listPropertyKeys({}, logger)).toEqual([
+      { key: "rank", count: 3, sample_values: ["4", "0", "1"] },
+    ])
+  })
+
+  it("combines objects and nested arrays with their identical JSON text without deeper expansion", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "object.md", frontmatter: "rank: {a: 1}" },
+      { filePath: "object-text.md", frontmatter: `rank: '{"a":1}'` },
+      { filePath: "nested.md", frontmatter: `rank: [[2, 3], '[2,3]', null, ""]` },
+    ])
+
+    expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+      { value: "[2,3]", count: 2 },
+      { value: '{"a":1}', count: 2 },
+      { value: "", count: 1 },
+    ])
+  })
+
+  it("combines occurrences before the value limit and scopes both counting queries by folder and key", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "Projects/numbers.md", frontmatter: "rank: [1, 1, 1]" },
+      { filePath: "Projects/text.md", frontmatter: 'rank: ["1", "1", "1"]' },
+      { filePath: "Projects/decoy.md", frontmatter: "rank: [2, 2, 2, 2]" },
+      { filePath: "Projects/other-key.md", frontmatter: "other: [2, 2, 2, 2, 2, 2, 2]" },
+      { filePath: "Other/outside.md", frontmatter: "rank: [2, 2, 2, 2, 2, 2, 2]" },
+      { filePath: "ProjectsOld/sibling.md", frontmatter: "rank: [2, 2, 2, 2, 2, 2, 2]" },
+    ])
+
+    expect(
+      propertyIndex.listPropertyValues({ key: "rank", folder: "projects", limit: 1 }, logger),
+    ).toEqual([{ value: "1", count: 6 }])
+    expect(propertyIndex.listPropertyKeys({ folder: "projects" }, logger)).toEqual([
+      { key: "rank", count: 3, sample_values: ["1", "2"] },
+      { key: "other", count: 1, sample_values: ["2"] },
+    ])
+  })
+
+  it("fills top-three sample slots with distinct combined values before dropping lower-ranked decoys", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "numbers.md", frontmatter: "rank: [1, 1, 1]" },
+      { filePath: "text.md", frontmatter: 'rank: ["1", "1", "1"]' },
+      { filePath: "second.md", frontmatter: "rank: [2, 2, 2, 2]" },
+      { filePath: "third.md", frontmatter: "rank: [3, 3]" },
+      { filePath: "fourth.md", frontmatter: "rank: 4" },
+    ])
+
+    expect(propertyIndex.listPropertyKeys({}, logger)).toEqual([
+      { key: "rank", count: 5, sample_values: ["1", "2", "3"] },
+    ])
+  })
+
+  it("orders equal-count displayed strings by UTF-8 bytes rather than numeric or UTF-16 order", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "values.md", frontmatter: 'rank: [2, 10, "😀", "\uE000"]' },
+    ])
+
+    expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+      { value: "10", count: 1 },
+      { value: "2", count: 1 },
+      { value: "\uE000", count: 1 },
+      { value: "😀", count: 1 },
+    ])
+    expect(propertyIndex.listPropertyKeys({}, logger)).toEqual([
+      { key: "rank", count: 1, sample_values: ["10", "2", "\uE000"] },
+    ])
+  })
+
+  it.each([
+    { label: "a precise decimal", source: "43.65322512345678", displayed: "43.65322512345678" },
+    { label: "a small exponent", source: "0.0000001", displayed: "1e-7" },
+    { label: "a large exponent", source: "1e21", displayed: "1e+21" },
+    {
+      label: "a rounded large integer",
+      source: "12345678901234567890",
+      displayed: "12345678901234567000",
+    },
+  ])(
+    "preserves the displayed number for $label and combines its scalar, list, and text occurrences",
+    ({ source, displayed }) => {
+      const propertyIndex = createPropertyTestIndex()
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "scalar.md", frontmatter: `rank: ${source}` },
+        { filePath: "list.md", frontmatter: `rank: [${source}]` },
+        { filePath: "text.md", frontmatter: `rank: ${JSON.stringify(displayed)}` },
+      ])
+
+      expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+        { value: displayed, count: 3 },
+      ])
+      expect(propertyIndex.listPropertyKeys({}, logger)).toEqual([
+        { key: "rank", count: 3, sample_values: [displayed] },
+      ])
+    },
+  )
+})
+
+describe("numeric property search", () => {
+  it.each([
+    {
+      label: "a precise decimal",
+      source: "43.65322512345678",
+      displayed: "43.65322512345678",
+      exponent: "4.365322512345678e1",
+    },
+    { label: "a small exponent", source: "0.0000001", displayed: "1e-7", exponent: "1e-7" },
+    { label: "a large exponent", source: "1e21", displayed: "1e+21", exponent: "1e21" },
+    {
+      label: "a rounded large integer",
+      source: "12345678901234567890",
+      displayed: "12345678901234567000",
+      exponent: "1.2345678901234567e19",
+    },
+    {
+      label: "a positive int64 binary64 mismatch",
+      source: "1000000000000000128",
+      displayed: "1000000000000000100",
+      exponent: "1.000000000000000128e18",
+    },
+    {
+      label: "a negative int64 binary64 mismatch",
+      source: "-1000000000000000128",
+      displayed: "-1000000000000000100",
+      exponent: "-1.000000000000000128e18",
+    },
+  ])(
+    "finds scalar and list numbers from source, listed, and exponent forms for $label",
+    ({ source, displayed, exponent }) => {
+      const propertyIndex = createPropertyTestIndex()
+      const queryValues = [...new Set([source, displayed, exponent])]
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "Projects/scalar.md", frontmatter: `rank: ${source}` },
+        { filePath: "Projects/list.md", frontmatter: `rank: [${source}, ${source}]` },
+        { filePath: "Projects/wrong-key.md", frontmatter: `other: ${source}` },
+        { filePath: "ProjectsOld/sibling.md", frontmatter: `rank: ${source}` },
+        { filePath: "Other/outside.md", frontmatter: `rank: ${source}` },
+        ...queryValues.map((queryValue, queryNumber) => ({
+          filePath: `Projects/text-${queryNumber}.md`,
+          frontmatter: `rank: ${JSON.stringify(queryValue)}`,
+        })),
+      ])
+
+      queryValues.forEach((queryValue, queryNumber) => {
+        const results = propertyIndex.searchByProperty(
+          { key: "rank", value: queryValue, folder: "projects" },
+          logger,
+        )
+        expect(results.map((result) => result.path)).toEqual([
+          "Projects/list.md",
+          "Projects/scalar.md",
+          `Projects/text-${queryNumber}.md`,
+        ])
+      })
+    },
+  )
+
+  it.each([
+    {
+      label: "the exact integer below 2^53",
+      source: "9007199254740991",
+      alias: "9.007199254740991e15",
+      differentNumber: "9007199254740992",
+    },
+    {
+      label: "a rounded positive alias at 2^53",
+      source: "9007199254740992",
+      alias: "9007199254740993",
+      differentNumber: "9007199254740994",
+    },
+    {
+      label: "a rounded negative alias at 2^53",
+      source: "-9007199254740992",
+      alias: "-9007199254740993",
+      differentNumber: "-9007199254740994",
+    },
+    { label: "underflow to zero", source: "0", alias: "1e-999", differentNumber: "1" },
+  ])(
+    "matches the stored JavaScript number for $label while keeping exact text and checkboxes distinct",
+    ({ source, alias, differentNumber }) => {
+      const propertyIndex = createPropertyTestIndex()
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "a-source.md", frontmatter: `rank: ${source}` },
+        { filePath: "b-alias.md", frontmatter: `rank: ${alias}` },
+        { filePath: "c-list.md", frontmatter: `rank: [${source}, ${alias}]` },
+        { filePath: "d-source-text.md", frontmatter: `rank: ${JSON.stringify(source)}` },
+        { filePath: "e-alias-text.md", frontmatter: `rank: ${JSON.stringify(alias)}` },
+        { filePath: "f-checkbox.md", frontmatter: "rank: false" },
+        { filePath: "g-different-number.md", frontmatter: `rank: ${differentNumber}` },
+      ])
+
+      const results = propertyIndex.searchByProperty({ key: "rank", value: alias }, logger)
+      expect(results.map((result) => result.path)).toEqual([
+        "a-source.md",
+        "b-alias.md",
+        "c-list.md",
+        "e-alias-text.md",
+      ])
+
+      const sourceResults = propertyIndex.searchByProperty({ key: "rank", value: source }, logger)
+      const exactSourcePaths = ["a-source.md", "b-alias.md", "c-list.md", "d-source-text.md"]
+      const sourcePaths = source === "0" ? [...exactSourcePaths, "f-checkbox.md"] : exactSourcePaths
+      expect(sourceResults.map((result) => result.path)).toEqual(sourcePaths)
+    },
+  )
+
+  it.each([
+    { label: "canonical digits", queryValue: "4", numberValue: "4" },
+    { label: "leading-zero decimal", queryValue: "04", numberValue: "4" },
+    { label: "explicit positive sign", queryValue: "+4", numberValue: "4" },
+    { label: "decimal fraction", queryValue: "4.0", numberValue: "4" },
+    { label: "leading decimal point", queryValue: ".5", numberValue: "0.5" },
+    { label: "signed leading decimal point", queryValue: "-.5", numberValue: "-0.5" },
+    { label: "trailing decimal point", queryValue: "4.", numberValue: "4" },
+    { label: "decimal exponent", queryValue: "4e0", numberValue: "4" },
+    { label: "signed uppercase exponent", queryValue: "4E+0", numberValue: "4" },
+    { label: "hexadecimal", queryValue: "0x10", numberValue: "16" },
+    { label: "octal", queryValue: "0o10", numberValue: "8" },
+    { label: "a checkbox-like numeric spelling", queryValue: "1.0", numberValue: "1" },
+  ])(
+    "accepts $label for stored numbers without normalizing literal text or checkboxes",
+    ({ queryValue, numberValue }) => {
+      const propertyIndex = createPropertyTestIndex()
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "a-number.md", frontmatter: `rank: ${numberValue}` },
+        { filePath: "b-list.md", frontmatter: `rank: [${numberValue}]` },
+        { filePath: "c-exact-text.md", frontmatter: `rank: ${JSON.stringify(queryValue)}` },
+        { filePath: "d-list-text.md", frontmatter: `rank: [${JSON.stringify(queryValue)}]` },
+        { filePath: "e-decoy-text.md", frontmatter: 'rank: "4.00"' },
+        { filePath: "f-checkbox.md", frontmatter: "rank: true" },
+        { filePath: "g-list-checkbox.md", frontmatter: "rank: [true]" },
+        ...(queryValue === numberValue
+          ? []
+          : [
+              {
+                filePath: "h-canonical-text.md",
+                frontmatter: `rank: ${JSON.stringify(numberValue)}`,
+              },
+            ]),
+      ])
+
+      const results = propertyIndex.searchByProperty({ key: "rank", value: queryValue }, logger)
+      expect(results.map((result) => result.path)).toEqual([
+        "a-number.md",
+        "b-list.md",
+        "c-exact-text.md",
+        "d-list-text.md",
+      ])
+    },
+  )
+
+  it.each([
+    { label: "empty text", queryValue: "" },
+    { label: "whitespace", queryValue: " " },
+    { label: "leading whitespace", queryValue: " 4" },
+    { label: "trailing whitespace", queryValue: "4 " },
+    { label: "a final newline", queryValue: "4\n" },
+    { label: "a final CRLF", queryValue: "4\r\n" },
+    { label: "a numeric prefix", queryValue: "4cats" },
+    { label: "a comment", queryValue: "4 # comment" },
+    { label: "an expression", queryValue: "2+2" },
+    { label: "binary notation", queryValue: "0b100" },
+    { label: "a separator", queryValue: "1_000" },
+    { label: "an uppercase hexadecimal prefix", queryValue: "0X10" },
+    { label: "an uppercase octal prefix", queryValue: "0O10" },
+    { label: "signed hexadecimal", queryValue: "+0x10" },
+    { label: "Infinity", queryValue: "Infinity" },
+    { label: "YAML infinity", queryValue: ".inf" },
+    { label: "NaN", queryValue: "NaN" },
+    { label: "YAML NaN", queryValue: ".nan" },
+    { label: "overflow", queryValue: "1e999" },
+  ])("keeps $label as an exact text query without a numeric match", ({ queryValue }) => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "a-text.md", frontmatter: `rank: ${JSON.stringify(queryValue)}` },
+      { filePath: "b-list-text.md", frontmatter: `rank: [${JSON.stringify(queryValue)}]` },
+      { filePath: "c-numbers.md", frontmatter: "rank: [0, 1, 4, 16, 1000]" },
+      { filePath: "d-checkbox.md", frontmatter: "rank: false" },
+      { filePath: "e-other-text.md", frontmatter: 'rank: "4"' },
+    ])
+
+    const results = propertyIndex.searchByProperty({ key: "rank", value: queryValue }, logger)
+    expect(results.map((result) => result.path)).toEqual(["a-text.md", "b-list-text.md"])
+  })
+
+  it.each([
+    { label: "object JSON", structuredValue: "{a: 1}", queryValue: '{"a":1}' },
+    { label: "nested-list JSON", structuredValue: "[[2, 3]]", queryValue: "[2,3]" },
+  ])("preserves exact matching for $label", ({ structuredValue, queryValue }) => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "a-structured.md", frontmatter: `rank: ${structuredValue}` },
+      { filePath: "b-text.md", frontmatter: `rank: ${JSON.stringify(queryValue)}` },
+      { filePath: "c-number.md", frontmatter: "rank: 1" },
+    ])
+
+    const results = propertyIndex.searchByProperty({ key: "rank", value: queryValue }, logger)
+    expect(results.map((result) => result.path)).toEqual(["a-structured.md", "b-text.md"])
+  })
+
+  it("preserves checkbox digit matching in scalar and list properties", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "a-checkbox-list.md", frontmatter: "rank: [true, false]" },
+      { filePath: "b-number-list.md", frontmatter: "rank: [1, 0]" },
+      { filePath: "c-text-list.md", frontmatter: 'rank: ["1", "0"]' },
+      { filePath: "d-checked.md", frontmatter: "rank: true" },
+      { filePath: "e-unchecked.md", frontmatter: "rank: false" },
+    ])
+
+    const checkedResults = propertyIndex.searchByProperty({ key: "rank", value: "1" }, logger)
+    const uncheckedResults = propertyIndex.searchByProperty({ key: "rank", value: "0" }, logger)
+
+    expect(checkedResults.map((result) => result.path)).toEqual([
+      "a-checkbox-list.md",
+      "b-number-list.md",
+      "c-text-list.md",
+      "d-checked.md",
+    ])
+    expect(uncheckedResults.map((result) => result.path)).toEqual([
+      "a-checkbox-list.md",
+      "b-number-list.md",
+      "c-text-list.md",
+      "e-unchecked.md",
+    ])
+  })
+
+  it("preserves mtime/path ordering and applies the limit after numeric matching", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "z-list.md", frontmatter: "rank: [4]" },
+      { filePath: "a-number.md", frontmatter: "rank: 4" },
+      { filePath: "b-text.md", frontmatter: 'rank: "4.0"' },
+    ])
+    propertyIndex.upsertNote(
+      { filePath: "newest.md", rawContent: "---\nrank: 4\n---\nbody\n", fileStat: testStat(2000) },
+      logger,
+    )
+
+    const results = propertyIndex.searchByProperty({ key: "rank", value: "4.0", limit: 2 }, logger)
+    expect(results.map((result) => result.path)).toEqual(["newest.md", "a-number.md"])
+  })
+
+  it("leaves full-text property number/string distinction and boolean-to-number normalization unchanged", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "number.md", frontmatter: "rank: 4\nreviewed: 1" },
+      { filePath: "text.md", frontmatter: 'rank: "4"\nreviewed: "1"' },
+      { filePath: "checkbox.md", frontmatter: "rank: 5\nreviewed: true" },
+      { filePath: "false.md", frontmatter: "rank: 5\nreviewed: false" },
+      { filePath: "other-key.md", frontmatter: "other: 4" },
+    ])
+
+    const numberResults = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { rank: 4 } } },
+      logger,
+    )
+    const textResults = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { rank: "4" } } },
+      logger,
+    )
+    const checkboxResults = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { reviewed: true } } },
+      logger,
+    )
+
+    expect(numberResults.map((result) => result.path)).toEqual(["number.md"])
+    expect(textResults.map((result) => result.path)).toEqual(["text.md"])
+    expect(checkboxResults.map((result) => result.path).toSorted()).toEqual([
+      "checkbox.md",
+      "number.md",
+    ])
   })
 })
 
