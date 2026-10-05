@@ -191,12 +191,12 @@ export const fullTextSearch = (
     queryParams.push(params.filters.type)
   }
 
-  // The key is matched as data through json_each, never spliced into a JSON
-  // path; the Property queries section header below states why. A list
-  // property matches when any element equals the value; a scalar property
-  // must equal it. The comparison is type-exact (the string "4" never
-  // matches the number 4), unlike searchByProperty, which takes only
-  // strings and compares as text.
+  /**
+   * - Matching keys through json_each preserves literal dots and brackets.
+   * - A list matches any equal member; a scalar must equal the value.
+   * - Text "4" never matches number 4 here; searchByProperty also matches
+   *   complete finite numeric input strings to numbers.
+   */
   if (params.filters?.properties) {
     for (const [key, value] of Object.entries(params.filters.properties)) {
       conditions.push(`EXISTS (
