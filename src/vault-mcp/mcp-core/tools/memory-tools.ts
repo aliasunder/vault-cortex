@@ -5,6 +5,14 @@ import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 
+/** Errors entries for a memory file whose properties block the server
+ *  refuses. Reads refuse only YAML they cannot read; writes also refuse a
+ *  block a rewrite would lose. The error carries the repair steps. */
+const MEMORY_BLOCK_READ_ERROR_ENTRY =
+  '- "memory file …: properties block is not valid YAML …" — the error names the file and says how to repair it'
+const MEMORY_BLOCK_WRITE_ERROR_ENTRY =
+  "- \"memory file …: properties block …\" — the file's properties block can't be read, or a rewrite would lose it; the error says how to repair it"
+
 export const registerMemoryTools = ({
   registerTool,
   safeHandler,
@@ -64,6 +72,7 @@ Errors:
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — pass the file's bare name: no folder or slash, and no leading dot (that would be a hidden file; memory files are always visible notes)
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
+${MEMORY_BLOCK_READ_ERROR_ENTRY}; without file, one such file fails the whole read
 
 Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact), same shape as vault_memory_recall entries. An empty match returns { entries: [], total: 0 }.`,
       inputSchema: {
@@ -172,6 +181,7 @@ Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by f
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
+${MEMORY_BLOCK_READ_ERROR_ENTRY}; one such file fails the whole listing
 
 Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); bytes is the on-disk file size; headings lists H1 and H2 headings in order, with entry_count on H2s; leading_callout is the top-of-file callout ({ type, title, body }; by convention a "Scope of this file" block describing what belongs in the file), or null; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter). The server does not enforce either policy.`,
       inputSchema: {},
@@ -303,6 +313,7 @@ Errors:
 - "entry contains a control character" / "section contains a control character" — the value includes a non-printable control byte; remove it before writing.
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — use a bare file name: no folder or slash, and no leading dot (that would create a hidden file, invisible in Obsidian and to every listing).
 - "section not created: … is nearly identical to existing section …" — near-duplicate guard; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section.
+${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
@@ -401,6 +412,7 @@ Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
+${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 
 Returns: Confirmation message.`,
       inputSchema: {

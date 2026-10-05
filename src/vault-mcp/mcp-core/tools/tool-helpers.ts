@@ -163,6 +163,14 @@ const describePropertiesBlockRepair = (params: {
 const OPENING_BLOCK_REMEDY =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
 
+/** The Errors entry of every tool that rewrites a note, led by when the tool
+ *  rewrites it for tools that do so only sometimes. The error itself carries
+ *  the repair steps, so the entry points at them and names no tool. */
+export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): string => {
+  const conditionClause = rewriteCondition ? `${rewriteCondition}, ` : ""
+  return `- "properties block …" — ${conditionClause}the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it`
+}
+
 /** Builds the tool error handlers for one server's enabled tool set. */
 export const createToolErrorHandlers = (
   isToolEnabled: (name: ToolName) => boolean,

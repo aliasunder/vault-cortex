@@ -3,7 +3,7 @@
 import { z } from "zod"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { dateFilterSchema } from "./tool-helpers.js"
+import { dateFilterSchema, describePropertiesBlockErrorEntry } from "./tool-helpers.js"
 import { taskMutations } from "../../vault-operations/task-mutations.js"
 
 export const registerTaskTools = ({
@@ -252,6 +252,7 @@ Errors:
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
 - "invalid date" — a date param fails calendar validation
 - "concurrent write in progress" — another write to this note is in flight; retry
+${describePropertiesBlockErrorEntry()}
 
 Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. A trailing signifier in description or subtasks text (an emoji field like "🔁 every week", or a Dataview [key:: value] field) that the plugin's parser recognizes as a field — followed only by other recognized fields — is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set. The write still succeeds either way; when the stored line would read back differently than submitted, the result carries an advisories array naming each divergence.
 
@@ -499,6 +500,7 @@ Errors:
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
 - "concurrent write in progress" — another write to this note is in flight; retry
+${describePropertiesBlockErrorEntry()}
 
 Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. A trailing signifier in description or add_subtasks text (an emoji field like "🔁 every week", or a Dataview [key:: value] field) that the plugin's parser recognizes as a field — followed only by other recognized fields — is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set. The write still succeeds either way; when the stored line would read back differently than this call set, the result carries an advisories array naming each divergence. The dates a status change stamps or clears (the ✅/❌ dates) produce no advisories on their own — but a description signifier that changes what the stamped date parses back as is still reported.
 
