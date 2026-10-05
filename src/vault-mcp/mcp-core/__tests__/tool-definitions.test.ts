@@ -786,9 +786,11 @@ describe("optional selector params reject an empty string", () => {
 })
 
 describe("optional filter lists reject an empty array", () => {
-  // An empty "match any of these" list can select nothing, so it is a caller
-  // mistake. Without min(1) the call succeeds and the empty or unfiltered
-  // result reads as a real answer.
+  // - A "match any of these" list (the four below) selects nothing when empty,
+  //   so an empty one is a caller mistake. Without min(1) the call succeeds
+  //   and the empty or unfiltered result reads as a real answer.
+  // - A "require all of these" list (vault_search's tags and related) stays
+  //   valid when empty, because requiring no tags is no constraint.
   it.each([
     { tool: TOOL_NAMES.VAULT_LIST_FILES, field: "extensions", validValue: [".png"] },
     { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "priority", validValue: ["high"] },

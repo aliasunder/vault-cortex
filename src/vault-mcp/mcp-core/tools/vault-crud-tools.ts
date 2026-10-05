@@ -670,7 +670,7 @@ Parameters:
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "path must end in …" — add the .md extension
-- "anchor not found" — fragment not on any line (end_anchor: on no line at or after the start line); verify with vault_read_note
+- "start anchor not found" / "end anchor not found" — fragment not on any line (end_anchor: on no line at or after the start line); verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -758,7 +758,7 @@ Parameters:
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "path must end in …" — add the .md extension
-- "anchor not found" — fragment not on any line (end_anchor: on no line at or after the start line); verify with vault_read_note
+- "start anchor not found" / "end anchor not found" — fragment not on any line (end_anchor: on no line at or after the start line); verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
