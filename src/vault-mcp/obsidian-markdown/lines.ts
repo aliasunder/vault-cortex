@@ -111,7 +111,7 @@ export const trimBlankEdgeLines = (lines: readonly string[]): readonly string[] 
  *  empty lines that separated the edited text from the nearest non-empty line on
  *  each side in the note before the edit, or from the body's edge when no such
  *  line exists. */
-type EmptyLineEdit = Readonly<{ boundary: number; gapAbove: number; gapBelow: number }>
+export type EmptyLineEdit = Readonly<{ boundary: number; gapAbove: number; gapBelow: number }>
 
 /** A run of consecutive empty lines, as a half-open index range. */
 type EmptyLineRun = Readonly<{ start: number; end: number }>

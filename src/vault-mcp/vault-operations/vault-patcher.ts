@@ -14,7 +14,12 @@ import {
   linesBeforeFirstHeading,
   type HeadingInfo,
 } from "../obsidian-markdown/headings.js"
-import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.js"
+import {
+  splitIntoLines,
+  trimBlankEdgeLines,
+  collapseEmptyLineRunsAtEdits,
+  type EmptyLineEdit,
+} from "../obsidian-markdown/lines.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -142,7 +147,7 @@ const readNoteForPatch = async (
     fullPath,
     data: parsed.data,
     // splitIntoLines normalizes CRLF-authored (Windows) notes to LF-only lines
-    // so body matching and blank-run collapse (collapseBlankRuns) stay
+    // so body matching and the blank-line gap closing after an edit stay
     // consistent, and the note is rewritten as LF.
     lines: splitIntoLines(parsed.content),
     beforeBytes: Buffer.byteLength(fileContent, "utf8"),
@@ -166,9 +171,96 @@ const writePatchedNote = async (
 const truncateForMessage = (text: string): string =>
   text.length > 80 ? text.slice(0, 80) + "…" : text
 
-/** Collapses runs of 3+ newlines down to one blank line, so removing content
- *  doesn't leave a visible multi-line gap. */
-const collapseBlankRuns = (body: string): string => body.replace(/\n{3,}/g, "\n\n")
+// ── Gap measurement for collapseEmptyLineRunsAtEdits ────────────
+
+/** Empty lines at the start of `lines`, or all of them when none holds text. */
+const countLeadingEmptyLines = (lines: readonly string[]): number => {
+  const firstTextIndex = lines.findIndex((line) => line !== "")
+
+  return firstTextIndex === -1 ? lines.length : firstTextIndex
+}
+
+/** Empty lines at the end of `lines`, or all of them when none holds text. */
+const countTrailingEmptyLines = (lines: readonly string[]): number => {
+  const lastTextIndex = lines.findLastIndex((line) => line !== "")
+
+  return lines.length - 1 - lastTextIndex
+}
+
+/** Consecutive line breaks in `text` that end just before index `end`. */
+const countLineBreaksEndingAt = (text: string, end: number): number => {
+  // The scan's length is the answer, so a loop is its plainest shape.
+  let start = end
+  while (start > 0 && text[start - 1] === "\n") {
+    start--
+  }
+  return end - start
+}
+
+/** Consecutive line breaks in `text` that start at index `start`. */
+const countLineBreaksStartingAt = (text: string, start: number): number => {
+  // The scan's length is the answer, so a loop is its plainest shape.
+  let end = start
+  while (end < text.length && text[end] === "\n") {
+    end++
+  }
+  return end - start
+}
+
+/** Empty lines in a run of line breaks. When a line of text sits beyond the run,
+ *  one break ends that line rather than an empty one. */
+const countEmptyLinesInBreaks = (params: { lineBreaks: number; textBeyond: boolean }): number => {
+  const breaksEndingText = params.textBeyond ? 1 : 0
+
+  return Math.max(0, params.lineBreaks - breaksEndingText)
+}
+
+/** Edit points for a `replaceInNote` deletion, one per removed match that sits
+ *  on line boundaries once removed. A match that leaves text on its line joins
+ *  no gaps, so it gets no edit point. Each gap counts the line breaks beside the
+ *  match in the original body plus any at the match's own edges. */
+const listTextDeletionEdits = (params: {
+  body: string
+  bodyParts: readonly string[]
+  removedText: string
+}): EmptyLineEdit[] => {
+  const { body, bodyParts, removedText } = params
+
+  const updatedBody = bodyParts.join("")
+  const removedLeadingBreaks = countLineBreaksStartingAt(removedText, 0)
+  const removedTrailingBreaks = countLineBreaksEndingAt(removedText, removedText.length)
+  const edits: EmptyLineEdit[] = []
+  // Each match's position depends on every part before it, so the walk carries
+  // running totals; recomputing them per match would be quadratic in matches.
+  let updatedOffset = 0
+  let lineBreaksBeforeMatch = 0
+  for (const [matchIndex, partBeforeMatch] of bodyParts.slice(0, -1).entries()) {
+    updatedOffset += partBeforeMatch.length
+    lineBreaksBeforeMatch += partBeforeMatch.split("\n").length - 1
+
+    const startsLine = updatedOffset === 0 || updatedBody[updatedOffset - 1] === "\n"
+    const endsLine = updatedOffset === updatedBody.length || updatedBody[updatedOffset] === "\n"
+    const sitsOnLineBoundaries = startsLine && endsLine
+
+    if (!sitsOnLineBoundaries) continue
+    const matchStart = updatedOffset + matchIndex * removedText.length
+    const matchEnd = matchStart + removedText.length
+    const breaksAboveMatch = countLineBreaksEndingAt(body, matchStart)
+    const breaksBelowMatch = countLineBreaksStartingAt(body, matchEnd)
+    edits.push({
+      boundary: lineBreaksBeforeMatch,
+      gapAbove: countEmptyLinesInBreaks({
+        lineBreaks: breaksAboveMatch + removedLeadingBreaks,
+        textBeyond: breaksAboveMatch < matchStart,
+      }),
+      gapBelow: countEmptyLinesInBreaks({
+        lineBreaks: removedTrailingBreaks + breaksBelowMatch,
+        textBeyond: matchEnd + breaksBelowMatch < body.length,
+      }),
+    })
+  }
+  return edits
+}
 
 /** Resolves an anchor substring to the single body line that contains it,
  *  searching at or after `fromLine`. The match must be unique by default:
@@ -387,23 +479,24 @@ const replaceInNote = async (
       throw new Error(`text not found in "${path}": "${truncateForMessage(oldText)}"`)
     }
 
-    const idx = body.indexOf(oldText)
-    const { updatedBody, count } = replaceAllOccurrences
-      ? {
-          count: body.split(oldText).length - 1,
-          updatedBody: body.split(oldText).join(newText),
-        }
-      : {
-          count: 1,
-          updatedBody: body.slice(0, idx) + newText + body.slice(idx + oldText.length),
-        }
+    const matchIndex = body.indexOf(oldText)
+    const bodyParts = replaceAllOccurrences
+      ? body.split(oldText)
+      : [body.slice(0, matchIndex), body.slice(matchIndex + oldText.length)]
+    const count = bodyParts.length - 1
+    const updatedLines = bodyParts.join(newText).split("\n")
 
-    // When deleting text (newText is empty), collapse runs of 3+ blank
-    // lines down to 1 blank line so removals don't leave visible gaps.
-    const normalizedBody = newText.length === 0 ? collapseBlankRuns(updatedBody) : updatedBody
+    // A deletion closes the gap each removed match leaves; a replacement with
+    // text writes every line as given.
+    const isDeletion = newText.length === 0
+    const writtenLines = isDeletion
+      ? collapseEmptyLineRunsAtEdits({
+          lines: updatedLines,
+          edits: listTextDeletionEdits({ body, bodyParts, removedText: oldText }),
+        })
+      : updatedLines
 
-    const updatedLines = normalizedBody.split("\n")
-    const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
+    const afterBytes = await writePatchedNote(fullPath, data, writtenLines, logger)
     logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
     return {
       message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
@@ -453,8 +546,19 @@ const deleteSpan = async (
 
     const removedLines = lines.slice(startLine, endLine + 1)
     const remainingLines = lines.toSpliced(startLine, removedLines.length)
-    const normalizedBody = collapseBlankRuns(remainingLines.join("\n"))
-    const afterBytes = await writePatchedNote(fullPath, data, normalizedBody.split("\n"), logger)
+    // An anchor never matches an empty line, so the empty lines around the span
+    // stay behind and meet at startLine; that joined gap keeps the wider side.
+    const writtenLines = collapseEmptyLineRunsAtEdits({
+      lines: remainingLines,
+      edits: [
+        {
+          boundary: startLine,
+          gapAbove: countTrailingEmptyLines(lines.slice(0, startLine)),
+          gapBelow: countLeadingEmptyLines(lines.slice(endLine + 1)),
+        },
+      ],
+    })
+    const afterBytes = await writePatchedNote(fullPath, data, writtenLines, logger)
 
     logger.info("deleted span", {
       path,
@@ -511,8 +615,25 @@ const replaceSpan = async (
     const replacedLineCount = endLine - startLine + 1
     const contentLines = content.split("\n")
     const updatedLines = lines.toSpliced(startLine, replacedLineCount, ...contentLines)
-    const normalizedBody = collapseBlankRuns(updatedLines.join("\n"))
-    const afterBytes = await writePatchedNote(fullPath, data, normalizedBody.split("\n"), logger)
+    // The content's empty edge lines meet the empty lines that surrounded the
+    // old span, once at the top and once at the bottom; each joined gap keeps
+    // the wider side, and the content's interior is written as given.
+    const writtenLines = collapseEmptyLineRunsAtEdits({
+      lines: updatedLines,
+      edits: [
+        {
+          boundary: startLine,
+          gapAbove: countTrailingEmptyLines(lines.slice(0, startLine)),
+          gapBelow: countLeadingEmptyLines(contentLines),
+        },
+        {
+          boundary: startLine + contentLines.length,
+          gapAbove: countTrailingEmptyLines(contentLines),
+          gapBelow: countLeadingEmptyLines(lines.slice(endLine + 1)),
+        },
+      ],
+    })
+    const afterBytes = await writePatchedNote(fullPath, data, writtenLines, logger)
 
     logger.info("replaced span", {
       path,
