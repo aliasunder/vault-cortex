@@ -98,7 +98,7 @@ const formatMemoryOutline = (outlines: readonly MemoryFileOutline[]): string =>
   outlines.map(formatMemoryOutlineEntry).join("\n")
 
 /** Formats the broken-link count for the stats line, including excluded
- *  forward-refs when present. Returns "" when there are no broken links. */
+ *  forward-refs when present. Returns "" when both counts are zero. */
 const formatBrokenLinkSegment = (result: {
   count: number
   excludedFolder: string | null

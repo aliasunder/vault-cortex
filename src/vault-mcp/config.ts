@@ -40,7 +40,7 @@ const parseVaultFolderList = (raw: string): string[] =>
 
 /** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
  *  Structural checks only — structurally unsafe results (traversal,
- *  separators, empty) are rejected. Warns when the format contains
+ *  leading/trailing slashes, empty) are rejected. Warns when the format contains
  *  unsupported tokens. Returns the raw moment string unchanged. */
 const validateDailyNotesFormat = (momentFormat: string): string => {
   const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(momentToLuxonFormat(momentFormat))
@@ -122,6 +122,7 @@ export type VaultConfig = Readonly<{
   /** PROTECTED_PATHS as the user set it; null when unset, in which case the
    *  protected set (memory dir + daily notes folder) is resolved per call. */
   protectedPathsOverride: readonly string[] | null
+  /** Null uses per-call defaults; an empty list excludes no folders. */
   orphanExcludeFoldersOverride: readonly string[] | null
   serviceDocumentationUrl: string
   /** When true, the embedding pipeline is active — notes are chunked, embedded

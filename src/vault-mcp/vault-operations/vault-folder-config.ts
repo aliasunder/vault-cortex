@@ -39,6 +39,7 @@ export const resolveEffectiveOrphanExcludeFolders = ({
 }): readonly string[] => {
   if (orphanExcludeFoldersOverride) return orphanExcludeFoldersOverride
 
+  /** Whitespace-only settings exclude no daily folder; spaces in a nonblank folder name stay. */
   return dailyNotesFolder.trim()
     ? [dailyNotesFolder, "Templates", memoryDir]
     : ["Templates", memoryDir]
@@ -59,10 +60,7 @@ export const readEffectiveOrphanExcludeFolders = async (
     })
   }
 
-  const dailyNotesConfig = await readDailyNotesConfig(
-    { vaultPath, envSettings: { format: config.dailyNotesFormat } },
-    logger,
-  )
+  const dailyNotesConfig = await readDailyNotesConfig({ vaultPath }, logger)
   return resolveEffectiveOrphanExcludeFolders({
     orphanExcludeFoldersOverride: null,
     memoryDir: config.memoryDir,
