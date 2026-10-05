@@ -375,7 +375,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
-- "the note would open with a properties block the server cannot keep …" — body starts with --- lines whose YAML is not valid key-value pairs; pass properties separately, or start the body without --- lines
+- "the note would open with a properties block the server cannot keep …" — body starts with --- lines that are not plain key-value YAML (invalid YAML, a list, a single value, or a YAML tag); pass properties separately, or start the body without --- lines
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
@@ -1222,13 +1222,13 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true, the given properties replace the whole properties block instead (null writes an empty property, {} removes the block); this is how to repair a block that cannot be read. Body is never modified.
+      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true, the given properties replace the whole properties block instead (null writes an empty property, {} removes the block). A merge refuses a block it cannot keep — invalid YAML, a list, a single value, or a YAML tag — so replace is how to repair one. Body is never modified.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })
 
 When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.
-Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }) — arrays are replaced entirely, not appended to.
+Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a block — arrays are replaced entirely, not appended to.
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
@@ -1238,7 +1238,7 @@ Errors:
 
 Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks ("[[Note]]"), keep types consistent (mismatches cause silent query failures).
 
-Returns: Confirmation message.`,
+Returns: "Updated properties on <path>", or "Replaced properties on <path>" with replace: true.`,
       inputSchema: {
         path: z
           .string()
@@ -1248,9 +1248,7 @@ Returns: Confirmation message.`,
           ),
         properties: z
           .record(z.string().min(1), z.unknown())
-          .describe(
-            "Properties to merge, or with replace the complete new set. A null value deletes that key when merging and writes an empty property when replacing.",
-          ),
+          .describe("Properties to merge, or with replace the complete new set."),
         replace: z
           .boolean()
           .optional()
