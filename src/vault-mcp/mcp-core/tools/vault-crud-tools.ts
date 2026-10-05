@@ -423,7 +423,7 @@ Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Act
 Cross-section move (e.g. completing a task on a board):
 1. vault_read_note to get current content and verify exact text
 2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
-3. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source (for a large multi-line block, prefer vault_delete_span); on error, re-read and retry until the source copy is gone
+3. vault_replace_in_note({ path, old_text: "- [ ] Task text\\n", new_text: "" }) to remove from source (for a large multi-line block, prefer vault_delete_span); on error, re-read and retry until the source copy is gone
 Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.
 
 When to use: Modifying part of an existing note without overwriting the entire body.
@@ -554,7 +554,7 @@ To delete a large multi-line block, prefer vault_delete_span (short anchors inst
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
-- new_text: non-empty new_text replaces the match exactly. After a deletion (new_text=""), the blank lines above and below each removed match join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one). A match that leaves text on its line changes no blank lines; where matches empty their lines, the joined gap keeps at least one blank line, so include the line break in old_text to remove the line. Blank lines outside the joined gaps never change.
+- new_text: non-empty new_text replaces the match exactly. After a deletion (new_text=""), the blank lines above and below each removed match join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one). A match that leaves text on its line changes no blank lines; where matches empty their lines, the joined gap keeps at least one blank line unless it ends the note, so include the line break in old_text to remove the line. Blank lines outside the joined gaps never change.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:

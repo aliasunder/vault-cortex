@@ -4152,6 +4152,13 @@ def second():
       expect(await readGapNote()).toBe(PROPERTIES + "\nA\n")
     })
 
+    it("leaves no blank line at the end of the note after removing its last line's text alone", async () => {
+      await writeGapNote("\nA\nX\n")
+      await replaceInNote({ vaultPath: vault, path: "gaps.md", oldText: "X", newText: "" }, logger)
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\nA\n")
+    })
+
     it("keeps the blank lines that end the note when they outnumber the gap above the removed line", async () => {
       await writeGapNote("\nA\nX\n\n\n")
       await replaceInNote(
