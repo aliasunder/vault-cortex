@@ -574,9 +574,8 @@ const moveNoteToTrash = async (
       // existing row for it belongs to an earlier, separately-removed
       // occupant. Recording replaces that row; a move that does not record
       // must clear it, or the next sweep would read the stale row and unlink
-      // this fresh file. Both writes are fail-open: the move already
-      // happened, so a failure can't be "aborted" — throwing here would hand
-      // the moved note to the cleanup path above.
+      // this fresh file. Both writes are fail-open: the note has already moved,
+      // so a bookkeeping failure is logged rather than reported as a failed move.
       const tryClearStaleTrashEntry = (): void => {
         if (!params.clearStaleTrashEntry) return
         try {

@@ -75,7 +75,8 @@ type RewriteContext = {
 }
 
 /** Which of Obsidian's link forms a raw target used to resolve, so the
- *  replacement can be written back in the same style. */
+ *  replacement can be written back in the same style.
+ *  The absolute form starts at the vault root without a leading slash. */
 type LinkForm = "basename" | "absolute" | "relative"
 
 /** Which side of the vault a link points at. Notes are checked first — a
@@ -424,18 +425,18 @@ const rewriteNoteContent = (
 
 // ── Orchestration ───────────────────────────────────────────────
 
-/** The index's spelling for a path the index does not contain verbatim.
+/** The filesystem listing's spelling for a path it does not contain verbatim.
  *
- *  - Why: backlink queries, rewrite planning, and the vault-wide scan key on
- *    the index's on-disk spelling, so a case-aliased input (one file, two
+ *  - Why: rewrite planning and the vault-wide scan key on
+ *    the listing's on-disk spelling, so a case-aliased input (one file, two
  *    spellings on a case-insensitive filesystem) would silently miss every
  *    backlink.
- *  - Guard: the input and the indexed spelling must name the same file
+ *  - Guard: the input and the listed spelling must name the same file
  *    (inode comparison), so on a case-sensitive filesystem a distinct
  *    case-variant sibling is never substituted for the requested note.
  *  - No match: the input passes through unchanged and the move fails
  *    cleanly at its not-found check. */
-const indexedSpellingForAliasedPath = async (params: {
+const listedSpellingForAliasedPath = async (params: {
   vaultPath: string
   path: string
   allNotePaths: readonly string[]
@@ -445,21 +446,19 @@ const indexedSpellingForAliasedPath = async (params: {
   if (!inputStats) return params.path
 
   const foldedPath = caseFoldPath(params.path)
-  const indexedSpelling = params.allNotePaths.find(
+  const listedSpelling = params.allNotePaths.find(
     (notePath) => caseFoldPath(notePath) === foldedPath,
   )
 
-  if (!indexedSpelling) return params.path
+  if (!listedSpelling) return params.path
 
-  const indexedStats = await statOrNull(resolveSafePath(params.vaultPath, indexedSpelling))
+  const listedStats = await statOrNull(resolveSafePath(params.vaultPath, listedSpelling))
   // ino is the file's identity on disk, independent of its name; dev is the
   // filesystem it lives on. Both must match — inode numbers repeat across
   // filesystems, so ino alone can name two different files.
   const namesSameFile =
-    indexedStats !== null &&
-    indexedStats.ino === inputStats.ino &&
-    indexedStats.dev === inputStats.dev
-  return namesSameFile ? indexedSpelling : params.path
+    listedStats !== null && listedStats.ino === inputStats.ino && listedStats.dev === inputStats.dev
+  return namesSameFile ? listedSpelling : params.path
 }
 
 /** True when both spellings resolve to one existing file (inode equality) —
@@ -608,7 +607,7 @@ const moveNote = async (
     vaultPath,
     notePath: params.oldPath,
   })
-  // The destination doesn't exist yet, so newPath has no index-alias variant
+  // The destination doesn't exist yet, so newPath has no listed alias spelling
   // — this canonical form is final, unlike oldPath, which is rebound below.
   const newPath = resolveVaultRelativePath({
     vaultPath,
@@ -641,14 +640,14 @@ const moveNote = async (
     }))
 
   // Guards above run on the caller's canonical spelling (stable error
-  // messages on every platform); everything below keys on the index's
-  // spelling. Indexed inputs take the ternary's sync arm — no await before
+  // messages on every platform); everything below keys on the filesystem listing's
+  // spelling. Listed inputs take the ternary's sync arm — no await before
   // the lock — so lock acquisition stays synchronous for the normal path.
   // An await here would let two concurrent moves interleave their lock
   // checks in the gap and both proceed on the same file.
   const oldPath = allNotePaths.includes(canonicalOldPath)
     ? canonicalOldPath
-    : await indexedSpellingForAliasedPath({
+    : await listedSpellingForAliasedPath({
         vaultPath,
         path: canonicalOldPath,
         allNotePaths,
