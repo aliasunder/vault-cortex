@@ -11,12 +11,11 @@ import type { DisplacedLeadingContent } from "../../vault-operations/vault-patch
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { describePropertiesBlockErrorEntry, describeTextWindow } from "./tool-helpers.js"
-
-/** The Errors entry of the edits that can leave `---` lines at the top of a
- *  note with no properties. The error carries the ways around it. */
-const OPENING_BLOCK_ERROR_ENTRY =
-  '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties; the error says how to avoid it'
+import {
+  describePropertiesBlockErrorEntry,
+  describeTextWindow,
+  OPENING_BLOCK_ERROR_ENTRY,
+} from "./tool-helpers.js"
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -382,7 +381,7 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
 ${describePropertiesBlockErrorEntry("with overwrite: true")}
-- "the note would open with a properties block the server cannot keep …" — with no properties passed, a body opening with --- lines becomes the properties block, and these hold invalid YAML, a list, a single value, or a YAML tag; pass properties, or start the body without --- lines
+- "the note would open with a properties block the server cannot keep …" — with no properties passed, a body opening with --- lines becomes the properties block, and the text between them is invalid YAML, a list, a single value, or a YAML tag; pass properties, or start the body without --- lines
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 

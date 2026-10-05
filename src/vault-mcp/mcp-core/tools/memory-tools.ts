@@ -4,6 +4,7 @@ import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { OPENING_BLOCK_ERROR_ENTRY } from "./tool-helpers.js"
 
 /** Errors entries for a memory file whose properties block the server
  *  refuses. Reads refuse only YAML they cannot read; writes also refuse a
@@ -314,6 +315,7 @@ Errors:
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — use a bare file name: no folder or slash, and no leading dot (that would create a hidden file, invisible in Obsidian and to every listing).
 - "section not created: … is nearly identical to existing section …" — near-duplicate guard; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section.
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
+${OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
@@ -413,6 +415,7 @@ Errors:
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
+${OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: Confirmation message.`,
       inputSchema: {

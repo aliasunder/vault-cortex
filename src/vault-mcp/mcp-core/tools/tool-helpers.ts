@@ -163,6 +163,11 @@ const describePropertiesBlockRepair = (params: {
 const OPENING_BLOCK_REMEDY =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
 
+/** The Errors entry of every tool whose write can leave `---` lines at the
+ *  top of a note with no properties. The error carries the ways around it. */
+export const OPENING_BLOCK_ERROR_ENTRY =
+  '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties, around text that can\'t be kept as properties; the error says how to avoid it'
+
 /** The Errors entry of every tool that rewrites a note, led by when the tool
  *  rewrites it for tools that do so only sometimes. The error itself carries
  *  the repair steps, so the entry points at them and names no tool. */
