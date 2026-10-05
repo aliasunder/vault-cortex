@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { parseNote, UnreadablePropertiesError } from "../../obsidian-markdown/frontmatter.js"
+import { parseNote, UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 vi.mock("node:fs/promises", { spy: true })
@@ -3048,7 +3048,7 @@ describe("memory file with a properties block the server cannot read or keep", (
 
   /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
   const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
-    if (!(thrown instanceof UnreadablePropertiesError)) return null
+    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
     return { kind: thrown.kind, message: thrown.message }
   }
 

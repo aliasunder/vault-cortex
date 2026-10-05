@@ -9,7 +9,7 @@ import { vaultPatcher } from "../vault-patcher.js"
 import {
   parseNoteForRewrite,
   UnkeepableOpeningBlockError,
-  UnreadablePropertiesError,
+  UnsupportedPropertiesBlockError,
 } from "../../obsidian-markdown/frontmatter.js"
 import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
 import { fileExists, statOrNull } from "../../../utils/fs.js"
@@ -1394,7 +1394,7 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
 
   /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
   const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
-    if (!(thrown instanceof UnreadablePropertiesError)) return null
+    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
     return { kind: thrown.kind, message: thrown.message }
   }
 

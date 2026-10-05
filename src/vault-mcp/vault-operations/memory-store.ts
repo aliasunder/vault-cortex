@@ -7,7 +7,7 @@ import {
   parseNote,
   parseNoteForRewrite,
   stringifyNote,
-  UnreadablePropertiesError,
+  UnsupportedPropertiesBlockError,
 } from "../obsidian-markdown/frontmatter.js"
 import type { ParsedNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
@@ -120,7 +120,7 @@ export type MemoryEntryPolicy = "append-only" | "living"
  *  as the append-only default — the safe reading, since append-only forbids
  *  destructive maintenance. */
 const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy => {
-  return typeof value === "string" && value === "living" ? "living" : "append-only"
+  return value === "living" ? "living" : "append-only"
 }
 
 export type MemoryFileOutline = Readonly<{
@@ -416,10 +416,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
-  /** Parses a memory file's content with the read or the rewrite rule. A
-   *  properties-block refusal is rethrown naming the file, because a caller
-   *  asking by bare name, or listing every file, cannot otherwise tell which
-   *  file to repair. */
+  /** Parses a memory file's content with parseNote (`read`) or
+   *  parseNoteForRewrite (`rewrite`). A properties-block refusal is rethrown
+   *  naming the file, because a caller asking by bare name, or listing every
+   *  file, cannot otherwise tell which file to repair. */
   const parseMemoryFileContent = (params: {
     content: string
     filename: string
@@ -430,9 +430,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         ? parseNoteForRewrite(params.content)
         : parseNote(params.content)
     } catch (error) {
-      if (!(error instanceof UnreadablePropertiesError)) throw error
+      if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
 
-      throw new UnreadablePropertiesError({
+      throw new UnsupportedPropertiesBlockError({
         message: `memory file "${memoryDir}/${params.filename}": ${error.message}`,
         kind: error.kind,
         cause: error,

@@ -24,7 +24,7 @@ import {
   parseNoteForRewrite,
   stringifyNote,
   UnkeepableOpeningBlockError,
-  UnreadablePropertiesError,
+  UnsupportedPropertiesBlockError,
 } from "../obsidian-markdown/frontmatter.js"
 import {
   resolveSafePath,
@@ -421,9 +421,10 @@ const rewriteNoteContent = (
 
   if (linksRewritten === 0) return null
 
-  // Only a real rewrite gets here; a note with no link to change moves
-  // byte-for-byte whatever readable properties block it holds. The rewrite
-  // below would drop a list, single-value or tagged block, so refuse it instead.
+  // Called only for its refusal; its result matches `parsed`. parseNote above
+  // reads a list, single-value or tagged block, but the stringifyNote below
+  // would drop it. A note with no link to change returned earlier and moves
+  // byte-for-byte, block and all.
   parseNoteForRewrite(rawContent)
 
   const rewrittenData = frontmatterResult.value
@@ -453,13 +454,13 @@ const buildMoveAbortError = (params: { subject: string; error: unknown }): Error
       { cause: error },
     )
   }
-  if (!(error instanceof UnreadablePropertiesError)) {
+  if (!(error instanceof UnsupportedPropertiesBlockError)) {
     return new Error(`move aborted: could not read ${subject}. Nothing was written.`, {
       cause: error,
     })
   }
   const failedStep = error.kind === "invalid-yaml" ? "read" : "rewrite"
-  return new UnreadablePropertiesError({
+  return new UnsupportedPropertiesBlockError({
     message: `move aborted: could not ${failedStep} ${subject}: ${error.message}. Nothing was written.`,
     kind: error.kind,
     cause: error,
@@ -591,6 +592,8 @@ const discoverBacklinksFromFilesystem = async (
         }
         return linkTargets.some(resolvesToMovedNote) ? candidatePath : null
       } catch (error) {
+        // A failed file read and YAML the parser cannot read both land here;
+        // either way the note is skipped rather than aborting the whole scan
         logger.warn("backlink scan: skipping unreadable note", {
           path: candidatePath,
           error: describeError(error),
@@ -819,7 +822,7 @@ const moveNote = async (
               linksRewritten: rewrite?.linksRewritten ?? 0,
             }
           } catch (error) {
-            logger.error("note move aborted: could not read the note being moved", {
+            logger.error("note move aborted: could not read/plan the note being moved", {
               from: oldPath,
               to: newPath,
               error: describeError(error),

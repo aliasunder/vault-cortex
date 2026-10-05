@@ -33,7 +33,7 @@ import {
   parseNote,
   parseNoteForRewrite,
   UnkeepableOpeningBlockError,
-  UnreadablePropertiesError,
+  UnsupportedPropertiesBlockError,
 } from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
@@ -90,7 +90,7 @@ const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => 
 
 /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
 const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
-  if (!(thrown instanceof UnreadablePropertiesError)) return null
+  if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
   return { kind: thrown.kind, message: thrown.message }
 }
 
@@ -111,7 +111,7 @@ const describeOutputRefusal = (
   if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
   return {
     message: thrown.message,
-    causeIsBlockRefusal: thrown.cause instanceof UnreadablePropertiesError,
+    causeIsBlockRefusal: thrown.cause instanceof UnsupportedPropertiesBlockError,
   }
 }
 

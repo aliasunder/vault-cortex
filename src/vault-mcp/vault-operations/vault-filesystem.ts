@@ -254,12 +254,14 @@ export const atomicWriteFileExclusive = async (
   }
 }
 
-/** Combines body + frontmatter into a gray-matter serialized string. Merges with existing frontmatter if file already exists; keys set to null are removed. */
+/** Combines body + frontmatter into a note string. Merges with existing frontmatter if file already exists; keys set to null are removed. */
 const serializeNote = (
   existing: string | null,
   body: string,
   frontmatter?: Record<string, unknown>,
 ): string => {
+  // A new note has no properties to delete, so the merge only drops the keys
+  // the caller set to null rather than writing them as empty properties
   if (!existing) return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}))
 
   const parsed = parseNoteForRewrite(existing)
@@ -389,7 +391,8 @@ const readNoteSection = async (
   return lines.slice(target.startLine, target.bodyEndLine).join("\n")
 }
 
-/** Parses a note's YAML frontmatter and returns the properties as an object. */
+/** A block holding a list or a single value returns `{}`; YAML the parser
+ *  cannot read throws. */
 const readNoteProperties = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
@@ -447,7 +450,9 @@ const writeNote = async (
   })
 }
 
-/** Merges properties into an existing note's YAML frontmatter without touching the body. Keys set to null are removed. */
+/** Merges properties into an existing note's YAML frontmatter. Keys set to
+ *  null are removed. The body's text is kept, and the note ends with a
+ *  newline as every rewrite does; replaceProperties adds none. */
 const updateProperties = async (
   params: {
     vaultPath: string
@@ -477,9 +482,9 @@ const updateProperties = async (
 }
 
 /** Replaces a note's whole properties block, keeping the body's bytes. The
- *  old block is never parsed, so this repairs a block that is not valid YAML
- *  or holds a list or a single value. A null value writes an empty property;
- *  `{}` removes the block. */
+ *  old block is never parsed, so this repairs a block that is not valid
+ *  YAML, holds a list or a single value, or uses a YAML tag. A null value
+ *  writes an empty property; `{}` removes the block. */
 const replaceProperties = async (
   params: {
     vaultPath: string
@@ -933,6 +938,8 @@ const statAssets = async (
 ): Promise<{ path: string; bytes: number }[]> => {
   const stattedEntries = await mapWithConcurrency({
     items: params.paths,
+    // Caps how many stat calls run at once, so a listing of thousands of
+    // assets is statted in batches rather than all at the same moment
     concurrency: 16,
     mapper: async (assetPath) => {
       const fileStats = await statOrNull(resolveSafePath(params.vaultPath, assetPath))

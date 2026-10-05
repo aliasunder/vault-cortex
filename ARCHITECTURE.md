@@ -169,12 +169,12 @@ The edit tools differ in how they locate the lines they change — by heading, b
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
-`vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair a block that is not valid YAML.
+`vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
 
 Every tool handles a note's properties block by the same rules, so a write never silently drops one:
 
 - **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
-- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in each backlink source it plans to update, and the other three only in a note where it must rewrite a link.
+- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in each backlink source it plans to update, and a list, a single value or a tag only in a note where it must rewrite a link.
 - **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit that removes the text above such lines, or a call that removes every property.
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
   - For a block already in the vault, repair steps when all three repair tools are served: `vault_read_note`, `vault_update_properties` with `replace: true`, and `vault_patch_note` to put back prose the block held. Otherwise it points at Obsidian.

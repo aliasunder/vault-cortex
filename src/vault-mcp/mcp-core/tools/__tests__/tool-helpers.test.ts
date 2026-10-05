@@ -2,7 +2,7 @@ import { describe, it, expect, onTestFinished, vi } from "vitest"
 import { logger } from "../../../../logger.js"
 import {
   UnkeepableOpeningBlockError,
-  UnreadablePropertiesError,
+  UnsupportedPropertiesBlockError,
 } from "../../../obsidian-markdown/frontmatter.js"
 import type { ToolName } from "../../tool-registry.js"
 import { createToolErrorHandlers, describeTextWindow } from "../tool-helpers.js"
@@ -35,11 +35,11 @@ const INVALID_YAML_MESSAGE =
 
 /** A handler that fails the way a write on a broken properties block does. */
 const failWithUnreadableBlock = (
-  kind: UnreadablePropertiesError["kind"],
+  kind: UnsupportedPropertiesBlockError["kind"],
   message: string,
 ): (() => Promise<string>) => {
   return async () => {
-    throw new UnreadablePropertiesError({ kind, message })
+    throw new UnsupportedPropertiesBlockError({ kind, message })
   }
 }
 
@@ -183,7 +183,7 @@ describe("safeHandler", () => {
       isToolEnabled: everyToolServed,
       fail: async () => {
         throw new Error("cannot delete note", {
-          cause: new UnreadablePropertiesError({ kind: "invalid-yaml", message: "broken" }),
+          cause: new UnsupportedPropertiesBlockError({ kind: "invalid-yaml", message: "broken" }),
         })
       },
     })
@@ -204,7 +204,7 @@ describe("safeHandler", () => {
         isToolEnabled,
         fail: async () => {
           throw new UnkeepableOpeningBlockError(OPENING_BLOCK_MESSAGE, {
-            cause: new UnreadablePropertiesError({ kind: "invalid-yaml", message: "broken" }),
+            cause: new UnsupportedPropertiesBlockError({ kind: "invalid-yaml", message: "broken" }),
           })
         },
       })

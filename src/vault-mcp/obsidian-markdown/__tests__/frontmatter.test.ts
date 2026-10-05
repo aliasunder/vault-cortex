@@ -10,7 +10,7 @@ import {
   stringifyNote,
   mergeFrontmatter,
   UnkeepableOpeningBlockError,
-  UnreadablePropertiesError,
+  UnsupportedPropertiesBlockError,
 } from "../frontmatter.js"
 
 /** Written as a code point so no invisible literal hides in the source. */
@@ -62,7 +62,7 @@ const catchThrown = (run: () => unknown): unknown => {
 
 /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
 const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
-  if (!(thrown instanceof UnreadablePropertiesError)) return null
+  if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
   return { kind: thrown.kind, message: thrown.message }
 }
 
@@ -73,7 +73,7 @@ const describeOutputRefusal = (
   if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
   return {
     message: thrown.message,
-    causeIsBlockRefusal: thrown.cause instanceof UnreadablePropertiesError,
+    causeIsBlockRefusal: thrown.cause instanceof UnsupportedPropertiesBlockError,
   }
 }
 

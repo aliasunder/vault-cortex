@@ -1951,7 +1951,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ? lineEdits.map((edit) => {
           // Identify the description entry by its formatted prefix —
           // formatChange produces "description: ..." strings.
-          if (edit.change?.startsWith("description:")) {
+          if (edit.change.startsWith("description:")) {
             return formatChange({
               field: "description",
               before: taskBefore.description,

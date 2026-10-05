@@ -13,7 +13,7 @@ import type { ToolAvailability } from "../tool-availability.js"
 import { describeError } from "../../../utils/describe-error.js"
 import {
   UnkeepableOpeningBlockError,
-  UnreadablePropertiesError,
+  UnsupportedPropertiesBlockError,
 } from "../../obsidian-markdown/frontmatter.js"
 
 /** Registers one tool through the enabled-set gate: skips silently when the
@@ -101,15 +101,15 @@ type ToolHandlerResult = {
 }
 
 /** The try/catch wrappers every tool handler runs inside. Built per server
- *  from the enabled tool set, because the repair steps they add to an
- *  unreadable properties block name tools a server may not serve. */
+ *  from the enabled tool set, because the repair steps they add for a
+ *  refused properties block name tools a server may not serve. */
 type ToolErrorHandlers = {
   /** Wraps a handler with try/catch. A throw is logged as `tool_error` and
    *  returned as an isError result whose text is describeError's
-   *  `[ErrorName]: message`, so the error's cause and stack never reach the
-   *  client. The format callback produces the full content-block array —
-   *  text, image, or mixed (the SDK union) — for tools whose results aren't a
-   *  single text block. */
+   *  `[ErrorName]: message`, plus how to fix a properties-block refusal, so
+   *  the error's cause and stack never reach the client. The format callback
+   *  produces the full content-block array — text, image, or mixed (the SDK
+   *  union) — for tools whose results aren't a single text block. */
   safeHandlerContent: <T>(
     logger: Logger,
     fn: () => Promise<T>,
@@ -125,7 +125,7 @@ type ToolErrorHandlers = {
   ) => Promise<ToolHandlerResult>
 }
 
-/** The tools an unreadable-properties repair walks through: a raw read, a
+/** The tools a properties-block repair walks through: a raw read, a
  *  whole-block replace, and a body edit to put prose back. */
 const REPAIR_TOOL_NAMES = [
   "vault_read_note",
@@ -133,11 +133,11 @@ const REPAIR_TOOL_NAMES = [
   "vault_patch_note",
 ] as const satisfies readonly ToolName[]
 
-/** How an agent repairs an unreadable properties block, by the kind of
- *  block. The steps need a raw read, a whole-block replace and a body edit;
- *  without all three, the note can only be fixed in Obsidian. */
-const describeUnreadablePropertiesRepair = (params: {
-  kind: UnreadablePropertiesError["kind"]
+/** How an agent repairs a properties block the server refuses, by the kind
+ *  of block. Without all three repair tools, the note can only be fixed in
+ *  Obsidian. */
+const describePropertiesBlockRepair = (params: {
+  kind: UnsupportedPropertiesBlockError["kind"]
   repairToolsServed: boolean
 }): string => {
   if (!params.repairToolsServed) return "Fix the properties block in Obsidian."
@@ -145,12 +145,16 @@ const describeUnreadablePropertiesRepair = (params: {
   const replaceStep =
     "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties."
 
-  if (params.kind === "explicit-tag") {
-    return `${replaceStep} The tag cannot be kept; write the value without it.`
+  switch (params.kind) {
+    case "explicit-tag":
+      return `${replaceStep} The tag cannot be kept; write the value without it.`
+    // replace drops the whole block, and a block of invalid YAML, a list or a
+    // single value is often prose written as body text, so that text has to
+    // be carried over
+    case "invalid-yaml":
+    case "not-key-value":
+      return `${replaceStep} replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines.`
   }
-  // replace drops the whole block, and a block that fails to parse is often
-  // prose written as body text, so that text has to be carried over
-  return `${replaceStep} replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines.`
 }
 
 /** A property makes the server's own block come first, and text above the
@@ -176,9 +180,9 @@ export const createToolErrorHandlers = (
     if (error instanceof UnkeepableOpeningBlockError) {
       return `${message}${separator}${OPENING_BLOCK_REMEDY}`
     }
-    if (!(error instanceof UnreadablePropertiesError)) return message
+    if (!(error instanceof UnsupportedPropertiesBlockError)) return message
 
-    const repair = describeUnreadablePropertiesRepair({ kind: error.kind, repairToolsServed })
+    const repair = describePropertiesBlockRepair({ kind: error.kind, repairToolsServed })
     return `${message}${separator}${repair}`
   }
 
@@ -190,11 +194,11 @@ export const createToolErrorHandlers = (
     try {
       const result = await fn()
       return { content: format(result) }
-    } catch (err) {
+    } catch (error) {
       // The log keeps the bare message; the repair steps are for the client
-      logger.warn("tool_error", { error: describeError(err) })
+      logger.warn("tool_error", { error: describeError(error) })
       return {
-        content: [{ type: "text" as const, text: describeToolError(err) }],
+        content: [{ type: "text" as const, text: describeToolError(error) }],
         isError: true as const,
       }
     }

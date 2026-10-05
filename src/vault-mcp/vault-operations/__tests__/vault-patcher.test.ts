@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
-import { UnreadablePropertiesError } from "../../obsidian-markdown/frontmatter.js"
+import { UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const {
@@ -2083,7 +2083,7 @@ describe("patchNote — properties block a rewrite would lose", () => {
 
   /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
   const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
-    if (!(thrown instanceof UnreadablePropertiesError)) return null
+    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
     return { kind: thrown.kind, message: thrown.message }
   }
 
