@@ -174,6 +174,20 @@ describe("collapseEmptyLineRunsAtEdits", () => {
 
     expect(collapsed).toEqual(["A", "", "", "B"])
   })
+
+  it("never adds empty lines to a run shorter than its widest gap", () => {
+    // The first edit sits between two lines of text (a run of no lines); the
+    // second's gap counts more lines than its one-line run holds.
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "B", "", "C"],
+      edits: [
+        { boundary: 1, gapAbove: 0, gapBelow: 0 },
+        { boundary: 2, gapAbove: 3, gapBelow: 0 },
+      ],
+    })
+
+    expect(collapsed).toEqual(["A", "B", "", "C"])
+  })
 })
 
 // ── splitIntoLines ───────────────────────────────────────────────

@@ -2465,6 +2465,32 @@ describe("DISABLED_TOOLS", () => {
     })
     expect(behaviorTail).toBe(expectedLines.join("\n"))
   })
+
+  it.each([
+    {
+      label: "names vault_replace_span while it is served",
+      disabledTools: "",
+      expectedAdvice: "use vault_replace_span (one atomic step)",
+    },
+    {
+      label: "falls back to delete then vault_patch_note when vault_replace_span is disabled",
+      disabledTools: "vault_replace_span",
+      expectedAdvice: "delete it here, then vault_patch_note to add the new content",
+    },
+    {
+      label: "says only to delete here when vault_replace_span and vault_patch_note are disabled",
+      disabledTools: "vault_replace_span,vault_patch_note",
+      expectedAdvice: "delete it here",
+    },
+  ])("vault_delete_span's replace advice $label", ({ disabledTools, expectedAdvice }) => {
+    const replaceAdvice = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: "To replace a block,",
+      endMarker: "\n\nParameters:",
+    })
+    expect(replaceAdvice).toBe(`To replace a block, ${expectedAdvice}.`)
+  })
 })
 
 describe("flag-combination matrix", () => {
