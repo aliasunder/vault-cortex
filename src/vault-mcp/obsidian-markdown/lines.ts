@@ -8,14 +8,14 @@
  *
  *  pageTextByLines is the shared line-paging primitive used by both vault_read_note
  *  and vault_read_file to deliver text in 1-based line windows, and
- *  collapseEmptyLineRunsAtEdits closes the blank-line gap a note edit leaves. */
+ *  collapseEmptyLineRunsAtEdits shrinks the run of empty lines a note edit leaves. */
 
 // ── Line splitting ──────────────────────────────────────────────
 
 /** Splits note content into lines, stripping a trailing CR so CRLF-authored
  *  (Windows) notes split into LF-only lines. The single home for this
  *  normalization: every site that turns a note's body into lines for parsing or
- *  editing should use it, so heading/section/callout parsing and blank-run
+ *  editing should use it, so heading/section/callout parsing and empty-line
  *  handling behave identically regardless of the file's line endings. */
 export const splitIntoLines = (content: string): string[] =>
   content.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
@@ -107,21 +107,24 @@ export const trimBlankEdgeLines = (lines: readonly string[]): readonly string[] 
 
 // ── Edit-gap collapsing ─────────────────────────────────────────
 
-/** An edit point sits before line `boundary`. `gapAbove` and `gapBelow` count the
- *  empty lines that separated the edited text from the nearest non-empty line on
- *  each side in the note before the edit, or from the body's edge when no such
- *  line exists. */
+/** A point where an edit brought two sides together. A side is note text that
+ *  stayed, or content the edit inserted.
+ *  - `boundary`: the index, in the edited lines, where the side below starts.
+ *  - `gapAbove` / `gapBelow`: the empty lines each side had at its facing edge
+ *    before the edit, up to its nearest line of text or the body's edge. */
 export type EmptyLineEdit = Readonly<{ boundary: number; gapAbove: number; gapBelow: number }>
 
 /** A run of consecutive empty lines, as a half-open index range. */
 type EmptyLineRun = Readonly<{ start: number; end: number }>
 
+/** A run of empty lines that one or more edits touch, with the widest gap any of
+ *  those edits brought to it. */
 type PooledRun = Readonly<{ run: EmptyLineRun; widestGap: number }>
 
 /** The empty lines directly above `boundary` plus those at and below it. */
 const findEmptyRunAt = (lines: readonly string[], boundary: number): EmptyLineRun => {
-  // Scanning outward from the boundary costs the run's length rather than the
-  // note's; each scan's stopping point is the answer, so loops are the plainest shape.
+  // Two cursors walk outward from the boundary until each meets text or the
+  // body's edge, so the cost is the run's length rather than the note's.
   let start = boundary
   while (start > 0 && lines[start - 1] === "") {
     start--
@@ -133,29 +136,33 @@ const findEmptyRunAt = (lines: readonly string[], boundary: number): EmptyLineRu
   return { start, end }
 }
 
-const listDroppedIndexes = ({ run, widestGap }: PooledRun): number[] => {
+/** The indexes, in the edited lines, of the empty lines a run drops: every line
+ *  after the ones it keeps. */
+const listExcessEmptyLineIndexes = ({ run, widestGap }: PooledRun): number[] => {
   const runLength = run.end - run.start
 
-  // A single empty line is never removed, so an edit that leaves one behind
-  // (text deleted from a line between two lines of text) keeps it.
-  if (runLength < 2) return []
-  // Lines emptied by removing their text can form a run with no gap on either
-  // side; keeping one leaves the same gap a single emptied line leaves.
+  // The run keeps its widest gap, bounded on both sides:
+  // - at least one line, because lines emptied by removing their text can form
+  //   a run with no gap on either side, and two emptied lines should leave the
+  //   same single empty line that one emptied line leaves;
+  // - at most the run's length, because a gap can count line breaks the edit
+  //   removed (a match's own leading or trailing breaks).
   const keptLength = Math.min(runLength, Math.max(widestGap, 1))
+
   return Array.from(
     { length: runLength - keptLength },
     (_, offset) => run.start + keptLength + offset,
   )
 }
 
-/** Shrinks the run of empty lines touching each edit point to its widest gap, and
- *  never below one line, so an edit closes the gap it joined without growing it or
- *  touching any other run.
+/** Shrinks each run of empty lines that an edit point touches to the widest gap
+ *  among its edits (`gapAbove` or `gapBelow`), and never below one line. Runs no
+ *  edit touches stay as they are.
  *
  *  - "Empty" means exactly `""`: a line of spaces is text here, unlike in
  *    trimBlankEdgeLines.
- *  - Edits that land in one run pool their gaps, and every run is measured on the
- *    lines as given, so dropping lines in one run never shifts another edit. */
+ *  - Every run is measured on the lines as given, so dropping lines in one run
+ *    never shifts another edit's boundary. */
 export const collapseEmptyLineRunsAtEdits = (params: {
   lines: readonly string[]
   edits: readonly EmptyLineEdit[]
@@ -171,6 +178,8 @@ export const collapseEmptyLineRunsAtEdits = (params: {
   // which would be quadratic. Starts as an empty range before line 0.
   let previousRun: EmptyLineRun = { start: -1, end: -1 }
   for (const edit of edits) {
+    // The run found around a boundary always has start <= boundary <= end, so a
+    // boundary at either end of the previous run touches that same run.
     const isInPreviousRun = edit.boundary >= previousRun.start && edit.boundary <= previousRun.end
     const run = isInPreviousRun ? previousRun : findEmptyRunAt(lines, edit.boundary)
     const pooledGap = pooledRunsByStart.get(run.start)?.widestGap ?? 0
@@ -179,7 +188,8 @@ export const collapseEmptyLineRunsAtEdits = (params: {
     previousRun = run
   }
 
-  const droppedIndexes = new Set([...pooledRunsByStart.values()].flatMap(listDroppedIndexes))
+  const excessLineIndexes = [...pooledRunsByStart.values()].flatMap(listExcessEmptyLineIndexes)
+  const droppedIndexes = new Set(excessLineIndexes)
   return lines.filter((_, index) => !droppedIndexes.has(index))
 }
 
@@ -247,14 +257,14 @@ const tryOpenFence = (innerContent: string, quoteDepth: number): FenceResult | n
  *  §4.5 fence transition shared by every fence-aware walk.
  *
  *  The line's `> ` markers are stripped before fence matching, so fences inside
- *  callouts/blockquotes (e.g. `> \`\`\``) are recognized. A
- *  fence opened at blockquote depth N closes only at the same depth; a line at
- *  lower depth closes it implicitly (the blockquote container ended), and a line
- *  at higher depth is content inside the fence.
+ *  callouts/blockquotes (e.g. `> \`\`\``) are recognized. A fence opened at
+ *  blockquote depth N closes only at the same depth; a line at lower depth
+ *  closes it implicitly (the blockquote container ended), and a line at higher
+ *  depth is content inside the fence.
  *
  *  Returns `lineIsCode` — whether this line is inside a fenced code block —
- *  which accounts for depth changes. Callers should use it instead of the
- *  previous `isFenceDelimiter || openFence !== null` pattern.
+ *  which accounts for depth changes. Callers should use it rather than
+ *  recomputing it from `isFenceDelimiter` and `openFence`.
  *
  *  Lazy continuation (CommonMark allows omitting `> ` on continuation lines
  *  inside a blockquote) is out of scope: Obsidian's own renderer does not fully
