@@ -217,8 +217,8 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 **Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
 
-- **Value discovery:** identical displayed strings share one occurrence count before value limits or sample selection; each list member counts separately
-- **Property search:** text matches exactly; complete finite YAML core numeric literals also match stored numbers at JavaScript number precision. Checkboxes retain exact `"1"` / `"0"` matching
+- **Value discovery:** identical displayed strings share one occurrence count before value limits or sample selection; number `1` and text `"1"` count together, while text `"1.0"` stays separate. Each list member counts separately
+- **Property search:** text matches exactly; complete finite YAML core numeric literals also match stored numbers at JavaScript number precision. Input `"04"` matches number `4` and text `"04"`, but not text `"4"`; checkboxes retain exact `"1"` / `"0"` matching
 
 **Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`).
 

@@ -306,6 +306,8 @@ export const fullTextSearch = (
       >(sql)
       .all(...queryParams)
 
+    /** The result contract caps scores at four significant digits; SQL ranks
+     * at full precision, so returned scores can tie without reordering hits. */
     const results: SearchResult[] = rows.map((row) =>
       noteRowToSearchResult({
         row,
@@ -658,8 +660,12 @@ export const memoryRecall = async (
   const distancesByKey = new Map(vectorRows.map((row) => [memoryEntryFusionKey(row), row.distance]))
   const ftsKeys = new Set(ftsRows.map((row) => memoryEntryFusionKey(row)))
 
-  // Lexical hits always pass; only the lowest-fused vector-only candidates
-  // fall off once the rerank window cap is reached.
+  /**
+   * - Lexical hits consume rerank slots because their scores select the final
+   *   limit-capped entries, even though they bypass relevance rejection.
+   * - Once the window fills, omit only lower-fused vector-only candidates;
+   *   dropping lexical hits would lose matches on distinctive names.
+   */
   const candidates: MemoryRecallCandidate[] = []
   for (const { identifier: entryKey, score } of fusedScores) {
     const row = rowsByKey.get(entryKey)
@@ -799,6 +805,9 @@ export const searchByFolder = (
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   const escapedFolder = escapeLikeWildcards(stripTrailingSlashes(params.folder))
+
+  /** LIKE's % crosses slashes, so nonrecursive browsing must exclude a second
+   * slash after the folder prefix to keep subfolder notes out. */
   const condition = recursive
     ? "path LIKE ? || '/%' ESCAPE '\\'"
     : "path LIKE ? || '/%' ESCAPE '\\' AND path NOT LIKE ? || '/%/%' ESCAPE '\\'"
@@ -1307,7 +1316,9 @@ export const searchByProperty = (
 
   /**
    * - EXISTS keeps each matching note singular even when list values repeat.
-   * - Exact text comparison preserves strings, checkboxes and JSON text.
+   * - Exact text comparison preserves strings and serialized JSON values.
+   * - Checkboxes have JSON types true/false and values 1/0; only the text arm
+   *   matches them, so "1.0" cannot match a checked checkbox.
    * - Guarded REAL comparison uses the same binary64 values as JavaScript;
    *   JSON's decimal spelling can otherwise become a different SQLite int64.
    */

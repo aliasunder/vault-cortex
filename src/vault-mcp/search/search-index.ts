@@ -361,7 +361,8 @@ export const createSearchIndex = (
   const statusRegistry = options?.statusRegistry ?? DEFAULT_STATUS_REGISTRY
   const db = new Database(dbPath)
 
-  /** SQLite's numeric text differs from the strings returned to clients. */
+  /** Group by JavaScript's client spelling: String(1e-7) is "1e-7",
+   * while SQLite's CAST to TEXT produces "1.0e-07". */
   db.function("property_value_text", { deterministic: true }, (value: unknown): string => {
     return String(value)
   })
@@ -1308,6 +1309,8 @@ export const createSearchIndex = (
       let deletedCount = 0
       for (const staleRowIds of rowIdQueuesByHash.values()) {
         for (const staleRowId of staleRowIds) {
+          /** Vector IDs use BigInt for the INTEGER binding vec0 requires on insert;
+           * ordinary entry rows accept number bindings. */
           deleteMemoryVectorByEntryIdStmt?.run(BigInt(staleRowId))
           deleteMemoryEntryByIdStmt.run(staleRowId)
           deletedCount++
@@ -1595,6 +1598,8 @@ export const createSearchIndex = (
       db.transaction(() => {
         const existingChunk = selectChunkIdStmt.get(notePath, chunk.index)
 
+        /** Bind vector IDs as INTEGER via BigInt on both delete and insert;
+         * vec0 rejects the REAL binding better-sqlite3 uses for numbers on insert. */
         if (existingChunk) {
           deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -1675,6 +1680,8 @@ export const createSearchIndex = (
               `embedBatch returned ${String(embeddings.length)} vectors for ${String(batchRows.length)} entries`,
             )
           }
+
+          /** vec0 rejects REAL primary keys; BigInt binds the entry ID as INTEGER. */
           insertMemoryVectorStmt.run(
             BigInt(row.id),
             Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
@@ -1752,6 +1759,8 @@ export const createSearchIndex = (
       db.transaction(() => {
         const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
 
+        /** Bind vector IDs as INTEGER via BigInt on both delete and insert;
+         * vec0 rejects the REAL binding better-sqlite3 uses for numbers on insert. */
         if (existingChunk) {
           deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -1834,9 +1843,12 @@ export const createSearchIndex = (
     })()
   }
 
-  /** Drops the entire index and re-indexes every .md file in the vault.
-   *  Returns the note count and a background embedding promise. The server
-   *  can start accepting requests immediately — embedding is progressive. */
+  /**
+   * - Rebuilds note, task, link and file-content indexes from visible vault files.
+   * - Retains vectors and memory entries to reuse unchanged embeddings.
+   * - Returns the note count and a background embedding promise so requests
+   *   can start before embedding finishes.
+   */
   const rebuildFromVault = async (
     params: { vaultPath: string },
     logger: Logger,
