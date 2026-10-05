@@ -7,7 +7,8 @@
  *  same logic and they can never disagree about where code or comments begin.
  *
  *  pageTextByLines is the shared line-paging primitive used by both vault_read_note
- *  and vault_read_file to deliver text in 1-based line windows. */
+ *  and vault_read_file to deliver text in 1-based line windows, and
+ *  collapseEmptyLineRunsAtEdits closes the blank-line gap a note edit leaves. */
 
 // ── Line splitting ──────────────────────────────────────────────
 
@@ -104,6 +105,69 @@ export const trimBlankEdgeLines = (lines: readonly string[]): readonly string[] 
   return lines.slice(firstContentIndex, lastContentIndex + 1)
 }
 
+// ── Edit-gap collapsing ─────────────────────────────────────────
+
+/** An edit point sits before line `boundary`. `gapAbove` and `gapBelow` count the
+ *  empty lines that separated the edited text from the nearest non-empty line on
+ *  each side in the note before the edit, or from the body's edge when no such
+ *  line exists. */
+type EmptyLineEdit = Readonly<{ boundary: number; gapAbove: number; gapBelow: number }>
+
+/** A run of consecutive empty lines, as a half-open index range. */
+type EmptyLineRun = Readonly<{ start: number; end: number }>
+
+type PooledRun = Readonly<{ run: EmptyLineRun; widestGap: number }>
+
+/** The empty lines directly above `boundary` plus those at and below it. */
+const findEmptyRunAt = (lines: readonly string[], boundary: number): EmptyLineRun => {
+  const lastTextAbove = lines.findLastIndex((line, index) => index < boundary && line !== "")
+  const firstTextBelow = lines.findIndex((line, index) => index >= boundary && line !== "")
+  return {
+    start: lastTextAbove + 1,
+    end: firstTextBelow === -1 ? lines.length : firstTextBelow,
+  }
+}
+
+const listDroppedIndexes = ({ run, widestGap }: PooledRun): number[] => {
+  const runLength = run.end - run.start
+
+  // A single empty line is never removed, so an edit that leaves one behind
+  // (text deleted from a line between two lines of text) keeps it.
+  if (runLength < 2) return []
+  const keptLength = Math.min(runLength, widestGap)
+  return Array.from(
+    { length: runLength - keptLength },
+    (_, offset) => run.start + keptLength + offset,
+  )
+}
+
+/** Shrinks the run of empty lines touching each edit point to its widest gap, so
+ *  an edit closes the gap it joined without growing it or touching any other run.
+ *
+ *  - "Empty" means exactly `""`: a line of spaces is text here, unlike in
+ *    trimBlankEdgeLines.
+ *  - Edits that land in one run pool their gaps, and every run is measured on the
+ *    lines as given, so dropping lines in one run never shifts another edit. */
+export const collapseEmptyLineRunsAtEdits = (params: {
+  lines: readonly string[]
+  edits: readonly EmptyLineEdit[]
+}): string[] => {
+  const { lines, edits } = params
+
+  // Keyed by the run's first line, so a second edit in the same run widens the
+  // pooled gap instead of replacing it.
+  const pooledRunsByStart = new Map<number, PooledRun>()
+  for (const edit of edits) {
+    const run = findEmptyRunAt(lines, edit.boundary)
+    const pooledGap = pooledRunsByStart.get(run.start)?.widestGap ?? 0
+    const widestGap = Math.max(pooledGap, edit.gapAbove, edit.gapBelow)
+    pooledRunsByStart.set(run.start, { run, widestGap })
+  }
+
+  const droppedIndexes = new Set([...pooledRunsByStart.values()].flatMap(listDroppedIndexes))
+  return lines.filter((_, index) => !droppedIndexes.has(index))
+}
+
 // ── Blockquote prefix stripping ─────────────────────────────────
 
 /** Matches one blockquote marker: up to 3 spaces indent + `>` + optional
@@ -167,8 +231,7 @@ const tryOpenFence = (innerContent: string, quoteDepth: number): FenceResult | n
 /** Advances the fenced-code state machine by one line — the single CommonMark
  *  §4.5 fence transition shared by every fence-aware walk.
  *
- *  Blockquote-aware: the line's `> ` markers are stripped before fence matching,
- *  so fences inside callouts/blockquotes (e.g. `> \`\`\``) are recognized. A
+ *  The line's `> ` markers are stripped before fence matching, so fences inside callouts/blockquotes (e.g. `> \`\`\``) are recognized. A
  *  fence opened at blockquote depth N closes only at the same depth; a line at
  *  lower depth closes it implicitly (the blockquote container ended), and a line
  *  at higher depth is content inside the fence.
