@@ -392,7 +392,7 @@ When to use: Enumerating possible values for a property key before calling vault
 Parameters:
 - key is case-sensitive and must match exactly as returned by vault_list_property_keys.
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case.
-- limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Nothing in the response signals truncation: exactly limit values may mean more exist, which is common for keys with many distinct values like "title" or "created"; raise limit to check.
+- limit applies after sorting by count descending, so you always get the most-used values first. Nothing in the response signals truncation: exactly limit values may mean more exist, which is common for keys with many distinct values like "title" or "created"; raise limit to check.
 
 Behavior:
 - Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]). Array elements are unpacked and counted individually, so the sum of counts may exceed the note count.
@@ -442,7 +442,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match). An unknown key or unmatched value returns an empty array, not an error.
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match).
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
@@ -457,9 +457,14 @@ Parameters:
 - Pass a checkbox as "1" or "0" (true is stored as 1, false as 0); "1.0" does not match a checked checkbox.
 - An array element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
-- limit (default 20) applies after sorting. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+- limit applies after sorting. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.`,
+Errors:
+- An unknown key or unmatched value returns an empty array, not an error.
+
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
+- leading_callout appears only when the note has a leading callout.
+- additional_properties appears only when frontmatter has keys outside title, tags, type, created, and related.`,
       inputSchema: {
         key: z
           .string()
