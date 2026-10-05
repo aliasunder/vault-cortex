@@ -1264,8 +1264,10 @@ describe("deleteNote — trash behavior", () => {
       logger,
     )
 
-    expect(result.trashLocation).toBe(".trash/Empty/Sub/leaf.md")
-    expect(result.prunedFolderCount).toBe(2)
+    expect(result).toEqual({
+      trashLocation: ".trash/Empty/Sub/leaf.md",
+      prunedFolderCount: 2,
+    })
     await expect(stat(join(vault, "Empty"))).rejects.toThrow(/ENOENT/)
   })
 
