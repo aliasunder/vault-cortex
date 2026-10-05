@@ -41,6 +41,15 @@ const describeProtectedPaths = (config: VaultConfig): string => {
   return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
 }
 
+/** Sentences that point to other tools, each already "" when its tool is
+ *  disabled, as one line that starts with a line break. Empty sentences drop out
+ *  before the join, so none leaves a leading space or an empty line. */
+const formatServedSentencesLine = (gatedSentences: readonly string[]): string => {
+  const servedSentences = gatedSentences.filter(Boolean).join(" ")
+
+  return servedSentences ? `\n${servedSentences}` : ""
+}
+
 export const registerVaultCrudTools = ({
   registerTool,
   isToolEnabled,
@@ -412,10 +421,11 @@ Returns: Confirmation message.`,
     },
   )
 
-  // The move steps call both tools, so they are left out when either one is disabled.
-  const moveToolsEnabled =
+  // The move steps and the leading-callout edit each call vault_read_note, then
+  // vault_replace_in_note, so both are left out when either tool is disabled.
+  const readAndReplaceInNoteEnabled =
     isToolEnabled("vault_read_note") && isToolEnabled("vault_replace_in_note")
-  const crossSectionMoveText = moveToolsEnabled
+  const crossSectionMoveText = readAndReplaceInNoteEnabled
     ? `
 
 Cross-section move (e.g. completing a task on a board):
@@ -423,6 +433,11 @@ Cross-section move (e.g. completing a task on a board):
 2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
 3. vault_replace_in_note({ path, old_text: "- [ ] Task text\\n", new_text: "" }) to remove from source${whenToolEnabledText("vault_delete_span", " (for a large multi-line block, prefer vault_delete_span)")}; on error, re-read and retry until the source copy is gone
 Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.`
+    : ""
+  const leadingCalloutEditText = readAndReplaceInNoteEnabled
+    ? `
+
+Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).`
     : ""
 
   registerTool(
@@ -434,7 +449,7 @@ Add at the target before deleting from the source — the two writes are not ato
 Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })${crossSectionMoveText}
 
 When to use: Modifying part of an existing note without overwriting the entire body.
-Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true). Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.
+Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true).${whenToolEnabledText("vault_replace_in_note", " Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.")}
 
 Operations:
 - append: add content at end of section (or end of file if no heading)
@@ -446,9 +461,7 @@ Heading-targeted ops keep the matched heading and write content verbatim. No sep
 
 Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, the pre-existing content becomes the new section's body. The write still succeeds and the confirmation says so — use insert_before on the first heading to place a section above it instead.
 
-Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted — edit their content via vault_replace_in_note instead.
-
-Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).
+Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
@@ -547,8 +560,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     },
   )
 
-  // Joined after filtering so a disabled first tool leaves no leading space.
-  const replaceInNoteAlternatives = [
+  const replaceInNoteAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_delete_span",
       "To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text).",
@@ -561,12 +573,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
       "vault_patch_note",
       'To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
     ),
-  ]
-    .filter(Boolean)
-    .join(" ")
-  const replaceInNoteAlternativesLine = replaceInNoteAlternatives
-    ? `\n${replaceInNoteAlternatives}`
-    : ""
+  ])
 
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
@@ -587,7 +594,7 @@ Parameters:
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
 - "path must end in …" — add the .md extension
-- "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
+- "text not found" — old_text does not appear in the note body${whenToolEnabledText("vault_read_note", "; verify exact text with vault_read_note")}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
@@ -742,6 +749,17 @@ Returns: Confirmation with the number of lines the span covered and a preview of
     },
   )
 
+  const replaceSpanAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_replace_in_note",
+      "Prefer vault_replace_in_note for small in-place text changes (typos, renaming).",
+    ),
+    whenToolEnabledText(
+      "vault_delete_span",
+      "Prefer vault_delete_span when removing without replacement.",
+    ),
+  ])
+
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
@@ -751,8 +769,7 @@ Returns: Confirmation with the number of lines the span covered and a preview of
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
 
-When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place text changes (typos, renaming).")}${whenToolEnabledText("vault_delete_span", " Prefer vault_delete_span when removing without replacement.")}
+When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${replaceSpanAlternativesLine}
 
 Parameters:
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced.
@@ -838,6 +855,17 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
     },
   )
 
+  const insertAtAnchorAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_patch_note",
+      "Prefer vault_patch_note for heading-targeted inserts (append/prepend to a section).",
+    ),
+    whenToolEnabledText(
+      "vault_replace_span",
+      "Prefer vault_replace_span when replacing a block rather than inserting next to it.",
+    ),
+  ])
+
   registerTool(
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
@@ -847,8 +875,7 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
 
-When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.
-${whenToolEnabledText("vault_patch_note", "Prefer vault_patch_note for heading-targeted inserts (append/prepend to a section).")}${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span when replacing a block rather than inserting next to it.")}
+When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.${insertAtAnchorAlternativesLine}
 
 Parameters:
 - anchor locates a full line — the insert never splits a line.
