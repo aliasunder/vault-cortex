@@ -139,20 +139,16 @@ const findEmptyRunAt = (lines: readonly string[], boundary: number): EmptyLineRu
 /** The indexes, in the edited lines, of the empty lines a run drops: every line
  *  after the ones it keeps. */
 const listExcessEmptyLineIndexes = ({ run, widestGap }: PooledRun): number[] => {
-  const runLength = run.end - run.start
+  const runIndexes = Array.from({ length: run.end - run.start }, (_, offset) => run.start + offset)
 
-  // The run keeps its widest gap, bounded on both sides:
-  // - at least one line, because lines emptied by removing their text can form
-  //   a run with no gap on either side, and two emptied lines should leave the
-  //   same single empty line that one emptied line leaves;
-  // - at most the run's length, because a gap can count line breaks the edit
-  //   removed (a match's own leading or trailing breaks).
-  const keptLength = Math.min(runLength, Math.max(widestGap, 1))
+  // The run keeps its widest gap and at least one line: lines emptied by
+  // removing their text can form a run with no gap on either side, and two
+  // emptied lines should leave the same single empty line one emptied line
+  // leaves. A gap wider than the run (it can count line breaks the edit
+  // removed) keeps the whole run.
+  const keptLength = Math.max(widestGap, 1)
 
-  return Array.from(
-    { length: runLength - keptLength },
-    (_, offset) => run.start + keptLength + offset,
-  )
+  return runIndexes.slice(keptLength)
 }
 
 /** Shrinks each run of empty lines that an edit point touches to the widest gap

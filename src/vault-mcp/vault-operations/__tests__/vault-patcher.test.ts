@@ -4240,6 +4240,24 @@ def second():
 
       expect(await readGapNote()).toBe(PROPERTIES + "\nP\n\n\nfirst  last\n")
     })
+
+    it("joins two lines exactly as asked when the removed match is the line break that ends a line", async () => {
+      await writeGapNote("Title\n\nIntro\n")
+      await replaceInNote({ vaultPath: vault, path: "gaps.md", oldText: "\n", newText: "" }, logger)
+
+      expect(await readGapNote()).toBe(PROPERTIES + "Title\nIntro\n")
+    })
+
+    it("removes line breaks exactly as asked when old_text is only line breaks", async () => {
+      await writeGapNote("\nA\n\n\n\nB\n")
+      const result = await replaceInNote(
+        { vaultPath: vault, path: "gaps.md", oldText: "\n\n", newText: "" },
+        logger,
+      )
+
+      expect(result).toEqual({ message: "Replaced 1 occurrence in gaps.md", count: 1 })
+      expect(await readGapNote()).toBe(PROPERTIES + "\nA\n\nB\n")
+    })
   })
 })
 
