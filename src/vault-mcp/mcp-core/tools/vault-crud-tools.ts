@@ -552,7 +552,7 @@ To delete a large multi-line block, prefer vault_delete_span (short anchors inst
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex — exact text only.
-- new_text: after a deletion (new_text=""), every run of consecutive blank lines in the note's body is collapsed to a single blank line.
+- new_text: after a deletion (new_text=""), the blank lines on both sides of a removed match join into one gap that keeps as many as the wider side had, and no other blank line changes. A match removed from inside a line changes no blank lines, and a line emptied between two lines of text stays.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
@@ -639,7 +639,7 @@ Parameters:
 - start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is deleted.
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
-- After the deletion, every run of consecutive blank lines in the note's body is collapsed to a single blank line.
+- The blank lines above and below the deleted lines join into one gap that keeps as many as the wider side had; no other blank line in the note changes.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
@@ -725,9 +725,8 @@ ${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range (never cuts mid-line).
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is replaced.
-- content: a trailing newline adds a blank line after the new block.
+- content: a trailing newline leaves a blank line after the new block. Blank lines at the start and end of content join the blank lines around the replaced lines, and each joined gap keeps as many as its wider side had; blank lines inside content and elsewhere in the note are written as given.
 - first_match applies to both anchors independently.
-- After the replacement, every run of consecutive blank lines in the note's body — including runs within the replacement text — is collapsed to a single blank line.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
