@@ -109,7 +109,7 @@ Errors:
 - "file not found" — nothing exists at that path; discover valid paths via vault_list_files
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable, matching Obsidian)
 - "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB)
-- "text output too large" — a text file or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
+- "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
 - "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input; paging applies only to text results, and an image always comes back as its image block
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
