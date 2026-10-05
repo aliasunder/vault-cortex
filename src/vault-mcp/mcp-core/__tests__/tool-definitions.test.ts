@@ -1069,7 +1069,7 @@ describe("vault_delete_note Errors list reflects OBSIDIAN_SYNC", () => {
     ])
   })
 
-  it("leaves those three errors out under OBSIDIAN_SYNC=true, where they cannot occur", () => {
+  it("leaves the trash-move and trash-setting errors out under OBSIDIAN_SYNC=true", () => {
     expect(deleteNoteErrorLeads({ OBSIDIAN_SYNC: "true" })).toEqual([
       '- "cannot delete protected path"',
       '- "path must end in …"',

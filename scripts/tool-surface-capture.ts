@@ -199,11 +199,11 @@ export const measureToolListChars = (tools: readonly Tool[]): number => {
  *  - embedding-off renders the search tools' keyword-only text, which default
  *    never shows.
  *
- *  Every other combo drops tools or cross-references from one of these two, so
- *  its total is smaller than a checked total. Its average per tool can still
- *  exceed that cap's `CHARS_PER_TOOL_ALLOWANCE` (memory-off drops five small
- *  tools), so the allowance bounds the two checked lists, not every combo's
- *  average. */
+ *  Every other combo drops tools, cross-references, or Errors entries from one
+ *  of these two, so its total is smaller than a checked total. Its average per
+ *  tool can still exceed that cap's `CHARS_PER_TOOL_ALLOWANCE` (memory-off
+ *  drops five small tools), so the allowance bounds the two checked lists, not
+ *  every combo's average. */
 export const SIZE_CAPPED_COMBO_NAMES = ["default", "embedding-off"] as const
 
 /** Byte-exact committed form: pre-serialized so vitest writes the file

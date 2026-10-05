@@ -27,8 +27,10 @@ Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
 Example: vault_list_tasks({ top_level_only: true, path: "TASKS.md" }) — board cards only, excluding checklist sub-items
 
-When to use: Reading task status and order on one board (path + sort_by: "position"), and any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
-Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown. Prefer vault_search for full-text queries over note content.
+When to use: Reading task status and order on one board (path + sort_by: "position"; add status: "all" to include done and cancelled cards). Also any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
+Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write. Prefer vault_search for full-text queries over note content.
+
+Behavior: Reads the search index, which picks up a file change within a few seconds, so a task written moments ago may still show its old state.
 
 Parameters:
 - status: virtual values expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
