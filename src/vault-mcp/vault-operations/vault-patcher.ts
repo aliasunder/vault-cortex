@@ -229,7 +229,7 @@ type LineBreakRun = Readonly<{ start: number; end: number }>
 /** Edit points for a `replaceInNote` deletion. `bodyParts` is the body split at
  *  every removed match, so `bodyParts.join(removedText)` is the original body.
  *  - Only a match whose removal leaves an empty line where it sat gets an edit
- *    point; a match that leaves text on its line changes no empty lines.
+ *    point; any other removal is written exactly as asked.
  *  - Each gap counts the empty lines between the match's text and the nearest
  *    text on that side of the original body. */
 const listTextDeletionEdits = (params: {

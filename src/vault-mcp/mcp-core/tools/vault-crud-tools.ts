@@ -554,7 +554,7 @@ To delete a large multi-line block, prefer vault_delete_span (short anchors inst
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
-- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") of a match that starts and ends at a line boundary joins the empty lines above and below it into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); where matches empty their lines, the gap keeps at least one blank line unless it ends the note, so include the line break in old_text to remove the line. Any other deletion, such as text inside a line or a line break that joins two lines, is written exactly as asked. Blank lines outside the joined gaps never change.
+- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") that leaves an empty line where the match was joins the empty lines above and below it into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); where matches empty their lines, the gap keeps at least one blank line unless it ends the note, so include the line break in old_text to remove the line. Any other deletion, such as text inside a line or a line break that joins two lines, is written exactly as asked. Blank lines outside the joined gaps never change.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
