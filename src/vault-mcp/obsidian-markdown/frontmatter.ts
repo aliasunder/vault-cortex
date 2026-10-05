@@ -303,6 +303,20 @@ export const stringifyNote = (body: string, data: object): string => {
 }
 
 /**
+ * Replaces a note's whole properties block with `properties` and keeps the
+ * body's bytes exactly, adding no newline. The old block is never parsed,
+ * so a block the server cannot read or keep can still be replaced. `{}`
+ * removes the block.
+ */
+export const replacePropertiesBlock = (content: string, properties: object): string => {
+  const { body } = splitPropertiesBlock(content)
+  const replaced = `${serializePropertiesBlock(properties)}${body}`
+
+  assertOpeningBlockIsKeepable(replaced)
+  return replaced
+}
+
+/**
  * Merges `updates` into `existing` frontmatter. A key explicitly set to
  * null in `updates` is removed. Nulls already present in `existing`
  * (e.g. Obsidian empty properties like `due:`) are preserved — only the

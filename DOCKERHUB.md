@@ -108,7 +108,7 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 | **Properties** | `vault_list_property_keys` | All property keys with sample values |
 |  | `vault_list_property_values` | Distinct values for a property key |
 |  | `vault_search_by_property` | Find notes by property key-value |
-|  | `vault_update_properties` | Add or update properties without touching the body |
+|  | `vault_update_properties` | Add, update, or replace properties without touching the body |
 | **Links** | `vault_get_backlinks` | Notes linking to a given path |
 |  | `vault_get_outgoing_links` | Links from a given note |
 |  | `vault_find_orphans` | Notes with no incoming links |

@@ -6,6 +6,10 @@ import { tmpdir } from "node:os"
 import { noteMover } from "../note-mover.js"
 import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
 import { vaultPatcher } from "../vault-patcher.js"
+import {
+  parseNoteForRewrite,
+  UnreadablePropertiesError,
+} from "../../obsidian-markdown/frontmatter.js"
 import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
 import { fileExists, statOrNull } from "../../../utils/fs.js"
 import type { Logger } from "../../../logger.js"
@@ -1367,6 +1371,159 @@ describe("moveNote — failure safety", () => {
       sourcesFailed: 0,
       prunedFolderCount: 0,
     })
+  })
+})
+
+describe("moveNote — properties blocks the server cannot read or keep", () => {
+  const LIST_BLOCK_MESSAGE =
+    "properties block holds a list, not key-value pairs, so rewriting the note would delete it"
+
+  const UNCLOSED_FLOW_MESSAGE =
+    "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
+
+  /** Awaits a call that must reject and returns what it rejected with. */
+  const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
+    try {
+      await pending
+    } catch (error) {
+      return error
+    }
+    throw new Error("expected the call to reject, but it resolved")
+  }
+
+  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
+  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
+    if (!(thrown instanceof UnreadablePropertiesError)) return null
+    return { kind: thrown.kind, message: thrown.message }
+  }
+
+  /** The refusal parseNoteForRewrite gives a note's content, or null when a rewrite keeps it. */
+  const describeRewriteRefusal = (content: string): { kind: string; message: string } | null => {
+    try {
+      parseNoteForRewrite(content)
+      return null
+    } catch (error) {
+      return describeRefusal(error)
+    }
+  }
+
+  it("aborts when a backlink source it must rewrite holds a list block", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    const fixtures = {
+      "Old/Target.md": "Target body\n",
+      "Hub.md": "Links [[Old/Target]].\n",
+      "Notes/Listy.md": "---\n- a\n---\nSee [[Old/Target]]\n",
+    }
+    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
+
+    const refusal = await captureRejection(
+      moveNote({
+        oldPath: "Old/Target.md",
+        newPath: "New/Target.md",
+        backlinkSources: ["Hub.md", "Notes/Listy.md"],
+      }),
+    )
+
+    expect(describeRefusal(refusal)).toEqual({
+      kind: "not-key-value",
+      message: `move aborted: could not rewrite backlink source "Notes/Listy.md": ${LIST_BLOCK_MESSAGE}. Nothing was written.`,
+    })
+    expect(await noteExists("New/Target.md")).toBe(false)
+    expect({
+      "Old/Target.md": await readNote("Old/Target.md"),
+      "Hub.md": await readNote("Hub.md"),
+      "Notes/Listy.md": await readNote("Notes/Listy.md"),
+    }).toEqual(fixtures)
+  })
+
+  it.each([
+    {
+      label: "a list block",
+      content: "---\n- a\n- b\n---\nbody\n",
+      rewriteRefusal: { kind: "not-key-value", message: LIST_BLOCK_MESSAGE },
+    },
+    {
+      label: "a single-value block",
+      content: "---\nJust a paragraph.\n---\nbody\n",
+      rewriteRefusal: {
+        kind: "not-key-value",
+        message:
+          "properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it",
+      },
+    },
+    {
+      label: "an explicitly tagged block",
+      content: "---\nstatus: !done\n---\nbody\n",
+      rewriteRefusal: {
+        kind: "explicit-tag",
+        message: "properties block uses the YAML tag !done, which rewriting the note would drop",
+      },
+    },
+  ])(
+    "renames a note holding $label byte-for-byte when it has no links to rewrite",
+    async ({ content, rewriteRefusal }) => {
+      const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+      await writeFixture("Inbox/Draft.md", content)
+      // A rewrite would refuse this block, so the move must not rewrite the note
+      expect(describeRewriteRefusal(content)).toEqual(rewriteRefusal)
+
+      const result = await moveNote({ oldPath: "Inbox/Draft.md", newPath: "Inbox/Spec.md" })
+
+      expect(result).toEqual({
+        moved_to: "Inbox/Spec.md",
+        links_updated: 0,
+        updated_notes: [],
+        pruned_empty_folders: 0,
+      })
+      expect(await noteExists("Inbox/Draft.md")).toBe(false)
+      expect(await readNote("Inbox/Spec.md")).toBe(content)
+    },
+  )
+
+  it("aborts when the note being moved has a block that is not valid YAML", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    const content = "---\ntitle: [unclosed\n---\nbody\n"
+    await writeFixture("Old/Broken.md", content)
+
+    const refusal = await captureRejection(
+      moveNote({ oldPath: "Old/Broken.md", newPath: "New/Broken.md" }),
+    )
+
+    expect(describeRefusal(refusal)).toEqual({
+      kind: "invalid-yaml",
+      message: `move aborted: could not read "Old/Broken.md": ${UNCLOSED_FLOW_MESSAGE}. Nothing was written.`,
+    })
+    expect(await noteExists("New/Broken.md")).toBe(false)
+    expect(await readNote("Old/Broken.md")).toBe(content)
+  })
+
+  it("aborts when a backlink source has a block that is not valid YAML", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    const fixtures = {
+      "Old/Target.md": "Target body\n",
+      "Hub.md": "Links [[Old/Target]].\n",
+      "Notes/Broken.md": "---\ntitle: [unclosed\n---\nSee [[Old/Target]]\n",
+    }
+    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
+
+    const refusal = await captureRejection(
+      moveNote({
+        oldPath: "Old/Target.md",
+        newPath: "New/Target.md",
+        backlinkSources: ["Hub.md", "Notes/Broken.md"],
+      }),
+    )
+
+    expect(describeRefusal(refusal)).toEqual({
+      kind: "invalid-yaml",
+      message: `move aborted: could not read backlink source "Notes/Broken.md": ${UNCLOSED_FLOW_MESSAGE}. Nothing was written.`,
+    })
+    expect(await noteExists("New/Target.md")).toBe(false)
+    expect({
+      "Old/Target.md": await readNote("Old/Target.md"),
+      "Hub.md": await readNote("Hub.md"),
+      "Notes/Broken.md": await readNote("Notes/Broken.md"),
+    }).toEqual(fixtures)
   })
 })
 

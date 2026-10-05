@@ -1,6 +1,8 @@
 import { describe, it, expect, onTestFinished, vi } from "vitest"
 import { logger } from "../../../../logger.js"
-import { describeTextWindow, safeHandlerContent } from "../tool-helpers.js"
+import { UnreadablePropertiesError } from "../../../obsidian-markdown/frontmatter.js"
+import type { ToolName } from "../../tool-registry.js"
+import { createToolErrorHandlers, describeTextWindow } from "../tool-helpers.js"
 
 /** A handler failure whose cause carries detail the client must never see. */
 const failWithCause = async (): Promise<string> => {
@@ -9,12 +11,48 @@ const failWithCause = async (): Promise<string> => {
   })
 }
 
+const everyToolServed = (): boolean => true
+
+const REPLACE_STEP =
+  "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties."
+
+const CARRY_TEXT_STEP =
+  "replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines."
+
+const OBSIDIAN_ONLY_STEP = "Fix the properties block in Obsidian."
+
+const INVALID_YAML_MESSAGE =
+  "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
+
+/** A handler that fails the way a write on a broken properties block does. */
+const failWithUnreadableBlock = (
+  kind: UnreadablePropertiesError["kind"],
+  message: string,
+): (() => Promise<string>) => {
+  return async () => {
+    throw new UnreadablePropertiesError({ kind, message })
+  }
+}
+
+/** The text a single-text-block handler returns for a failing call. */
+const runFailingCall = async (params: {
+  isToolEnabled: (name: ToolName) => boolean
+  fail: () => Promise<string>
+}): Promise<unknown> => {
+  const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+  onTestFinished(() => warnSpy.mockRestore())
+
+  const { safeHandler } = createToolErrorHandlers(params.isToolEnabled)
+  return safeHandler(logger, params.fail, (text) => text)
+}
+
 describe("safeHandlerContent", () => {
   it("returns a throw as an isError result holding only the error's name and message", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
 
-    const result = await safeHandlerContent(logger, failWithCause, (text) => [
+    const { safeHandlerContent } = createToolErrorHandlers(everyToolServed)
+    const result = await safeHandlerContent(logger, failWithCause, (text: string) => [
       { type: "text", text },
     ])
 
@@ -30,13 +68,142 @@ describe("safeHandlerContent", () => {
     const rootWarnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => rootWarnSpy.mockRestore())
 
-    await safeHandlerContent(requestLogger, failWithCause, (text) => [{ type: "text", text }])
+    const { safeHandlerContent } = createToolErrorHandlers(everyToolServed)
+    await safeHandlerContent(requestLogger, failWithCause, (text: string) => [
+      { type: "text", text },
+    ])
 
     expect(requestWarnSpy).toHaveBeenCalledTimes(1)
     expect(requestWarnSpy).toHaveBeenCalledWith("tool_error", {
       error: "[RangeError]: limit out of range",
     })
     expect(rootWarnSpy).not.toHaveBeenCalled()
+  })
+
+  it("appends the repair steps to an unreadable properties block", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const { safeHandlerContent } = createToolErrorHandlers(everyToolServed)
+    const result = await safeHandlerContent(
+      logger,
+      failWithUnreadableBlock("invalid-yaml", INVALID_YAML_MESSAGE),
+      (text: string) => [{ type: "text", text }],
+    )
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: ${INVALID_YAML_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("logs the bare message without the repair steps", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const { safeHandlerContent } = createToolErrorHandlers(everyToolServed)
+    await safeHandlerContent(
+      logger,
+      failWithUnreadableBlock("invalid-yaml", INVALID_YAML_MESSAGE),
+      (text: string) => [{ type: "text", text }],
+    )
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("tool_error", {
+      error: `[Error]: ${INVALID_YAML_MESSAGE}`,
+    })
+  })
+})
+
+describe("safeHandler", () => {
+  it.each([
+    {
+      label: "invalid YAML",
+      kind: "invalid-yaml" as const,
+      message: INVALID_YAML_MESSAGE,
+      text: `[Error]: ${INVALID_YAML_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+    },
+    {
+      label: "a block that is not key-value pairs",
+      kind: "not-key-value" as const,
+      message: "properties block holds a list, not key-value pairs",
+      text: `[Error]: properties block holds a list, not key-value pairs. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+    },
+    {
+      label: "an explicit tag",
+      kind: "explicit-tag" as const,
+      message: "properties block uses the YAML tag !done",
+      text: `[Error]: properties block uses the YAML tag !done. ${REPLACE_STEP} The tag cannot be kept; write the value without it.`,
+    },
+    {
+      label: "a message that already ends with a period",
+      kind: "invalid-yaml" as const,
+      message: 'move aborted: could not read "A.md": broken. Nothing was written.',
+      text: `[Error]: move aborted: could not read "A.md": broken. Nothing was written. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+    },
+  ])("appends the repair steps for $label", async ({ kind, message, text }) => {
+    const result = await runFailingCall({
+      isToolEnabled: everyToolServed,
+      fail: failWithUnreadableBlock(kind, message),
+    })
+
+    expect(result).toEqual({ content: [{ type: "text", text }], isError: true })
+  })
+
+  it("adds nothing to a plain error", async () => {
+    const result = await runFailingCall({
+      isToolEnabled: everyToolServed,
+      fail: async () => {
+        throw new Error("note not found")
+      },
+    })
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: note not found" }],
+      isError: true,
+    })
+  })
+
+  it("adds nothing to a refused write whose cause is an unreadable block", async () => {
+    const result = await runFailingCall({
+      isToolEnabled: everyToolServed,
+      fail: async () => {
+        throw new Error("the note would open with a properties block the server cannot keep", {
+          cause: new UnreadablePropertiesError({ kind: "invalid-yaml", message: "broken" }),
+        })
+      },
+    })
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: the note would open with a properties block the server cannot keep",
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it.each<{ label: string; disabledTool: ToolName }>([
+    { label: "vault_read_note", disabledTool: "vault_read_note" },
+    { label: "vault_update_properties", disabledTool: "vault_update_properties" },
+    { label: "vault_patch_note", disabledTool: "vault_patch_note" },
+  ])("points at Obsidian when $label is not served", async ({ disabledTool }) => {
+    const result = await runFailingCall({
+      isToolEnabled: (name) => name !== disabledTool,
+      fail: failWithUnreadableBlock("invalid-yaml", INVALID_YAML_MESSAGE),
+    })
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[Error]: ${INVALID_YAML_MESSAGE}. ${OBSIDIAN_ONLY_STEP}` }],
+      isError: true,
+    })
   })
 })
 

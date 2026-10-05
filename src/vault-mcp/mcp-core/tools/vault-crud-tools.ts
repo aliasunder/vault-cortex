@@ -11,7 +11,7 @@ import type { DisplacedLeadingContent } from "../../vault-operations/vault-patch
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js"
+import { describeTextWindow } from "./tool-helpers.js"
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -53,6 +53,8 @@ const formatServedSentencesLine = (gatedSentences: readonly string[]): string =>
 export const registerVaultCrudTools = ({
   registerTool,
   isToolEnabled,
+  safeHandler,
+  safeHandlerContent,
   whenToolEnabledText,
   vaultPath,
   search,
@@ -373,6 +375,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
+- "the note would open with a properties block the server cannot keep …" — body starts with --- lines whose YAML is not valid key-value pairs; pass properties separately, or start the body without --- lines
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
@@ -1219,9 +1222,10 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update a note's frontmatter properties via shallow merge — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Body is never modified.
+      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true, the given properties replace the whole properties block instead (null writes an empty property, {} removes the block); this is how to repair a block that cannot be read. Body is never modified.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
+Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })
 
 When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.
 Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }) — arrays are replaced entirely, not appended to.
@@ -1244,21 +1248,31 @@ Returns: Confirmation message.`,
           ),
         properties: z
           .record(z.string().min(1), z.unknown())
-          .describe("Properties to merge; a null value deletes that key."),
+          .describe(
+            "Properties to merge, or with replace the complete new set. A null value deletes that key when merging and writes an empty property when replacing.",
+          ),
+        replace: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Replace the whole properties block instead of merging (default: false)."),
       },
     },
-    async ({ path, properties }, extra) => {
+    async ({ path, properties, replace }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
       })
-      reqLogger.info("tool_call", { path })
+      reqLogger.info("tool_call", { path, replace })
+      const writeProperties = replace ? vaultFs.replaceProperties : vaultFs.updateProperties
       return safeHandler(
         reqLogger,
-        () => vaultFs.updateProperties({ vaultPath, path, properties }, reqLogger),
+        () => writeProperties({ vaultPath, path, properties }, reqLogger),
         () => {
-          reqLogger.info("tool_result", { outcome: "properties_updated" })
-          return `Updated properties on ${path}`
+          reqLogger.info("tool_result", {
+            outcome: replace ? "properties_replaced" : "properties_updated",
+          })
+          return `${replace ? "Replaced" : "Updated"} properties on ${path}`
         },
       )
     },

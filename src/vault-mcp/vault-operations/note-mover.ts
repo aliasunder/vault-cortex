@@ -19,7 +19,12 @@
 
 import { readFile, mkdir, rename, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
-import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
+import {
+  parseNote,
+  parseNoteForRewrite,
+  stringifyNote,
+  UnreadablePropertiesError,
+} from "../obsidian-markdown/frontmatter.js"
 import {
   resolveSafePath,
   resolveVaultRelativePath,
@@ -415,6 +420,11 @@ const rewriteNoteContent = (
 
   if (linksRewritten === 0) return null
 
+  // Only a real rewrite gets here; a note with no link to change moves
+  // byte-for-byte whatever its properties block holds. The rewrite below
+  // would drop a list, single-value or tagged block, so refuse it instead.
+  parseNoteForRewrite(rawContent)
+
   const rewrittenData = frontmatterResult.value
 
   if (typeof rewrittenData !== "object" || rewrittenData === null) {
@@ -422,6 +432,27 @@ const rewriteNoteContent = (
   }
   const content = stringifyNote(bodyResult.body, rewrittenData)
   return { content, linksRewritten }
+}
+
+/** The error a move aborts with when a note it must rewrite cannot be
+ *  planned. A properties-block refusal keeps its class and kind, so the tool
+ *  boundary can add repair steps, and says why; a readable block the rewrite
+ *  would lose reads "could not rewrite". Any other failure keeps the plain
+ *  "could not read" message. */
+const buildMoveAbortError = (params: { subject: string; error: unknown }): Error => {
+  const { subject, error } = params
+
+  if (!(error instanceof UnreadablePropertiesError)) {
+    return new Error(`move aborted: could not read ${subject}. Nothing was written.`, {
+      cause: error,
+    })
+  }
+  const failedStep = error.kind === "invalid-yaml" ? "read" : "rewrite"
+  return new UnreadablePropertiesError({
+    message: `move aborted: could not ${failedStep} ${subject}: ${error.message}. Nothing was written.`,
+    kind: error.kind,
+    cause: error,
+  })
 }
 
 // ── Orchestration ───────────────────────────────────────────────
@@ -782,9 +813,7 @@ const moveNote = async (
               to: newPath,
               error: describeError(error),
             })
-            throw new Error(`move aborted: could not read "${oldPath}". Nothing was written.`, {
-              cause: error,
-            })
+            throw buildMoveAbortError({ subject: `"${oldPath}"`, error })
           }
         }
         const { content: movedContent, linksRewritten: movedLinksRewritten } = await planMovedNote()
@@ -815,12 +844,7 @@ const moveNote = async (
                   to: newPath,
                   error: describeError(error),
                 })
-                throw new Error(
-                  `move aborted: could not read backlink source "${source}". Nothing was written.`,
-                  {
-                    cause: error,
-                  },
-                )
+                throw buildMoveAbortError({ subject: `backlink source "${source}"`, error })
               }
             },
           })

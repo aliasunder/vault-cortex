@@ -4,10 +4,10 @@ import { z } from "zod"
 import { getDailyNote } from "../../vault-operations/daily-notes.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { safeHandler } from "./tool-helpers.js"
 
 export const registerDailyNoteTools = ({
   registerTool,
+  safeHandler,
   isToolEnabled,
   whenToolEnabledText,
   vaultPath,

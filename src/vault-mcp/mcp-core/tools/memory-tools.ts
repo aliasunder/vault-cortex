@@ -4,10 +4,10 @@ import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { safeHandler } from "./tool-helpers.js"
 
 export const registerMemoryTools = ({
   registerTool,
+  safeHandler,
   formatEnabledToolList,
   whenToolEnabledText,
   vaultPath,

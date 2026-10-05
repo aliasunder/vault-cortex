@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { parseNote } from "../../obsidian-markdown/frontmatter.js"
+import { parseNote, UnreadablePropertiesError } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 vi.mock("node:fs/promises", { spy: true })
@@ -3033,4 +3033,181 @@ created: 2026-01-01T00:00:00-05:00
       getMemoryEntries({ vaultPath: vault, file: "Ghost", onOrAfter: "2026-05-01" }, logger),
     ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
   })
+})
+
+describe("memory file with a properties block the server cannot read or keep", () => {
+  /** Awaits a call that must reject and returns what it rejected with. */
+  const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
+    try {
+      await pending
+    } catch (error) {
+      return error
+    }
+    throw new Error("expected the call to reject, but it resolved")
+  }
+
+  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
+  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
+    if (!(thrown instanceof UnreadablePropertiesError)) return null
+    return { kind: thrown.kind, message: thrown.message }
+  }
+
+  const UNCLOSED_FLOW_MESSAGE =
+    "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
+
+  /** A memory body under a given block, holding one entry deleteMemory can match. */
+  const buildMemoryFile = (block: string): string => {
+    return `${block}# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry\n`
+  }
+
+  const BROKEN_MD = buildMemoryFile("---\ntitle: [unclosed\n---\n")
+
+  const BROKEN_REFUSAL = {
+    kind: "invalid-yaml",
+    message: `memory file "About Me/Broken.md": ${UNCLOSED_FLOW_MESSAGE}`,
+  }
+
+  const plantBrokenFile = async (content: string): Promise<void> => {
+    await writeFile(join(vault, "About Me/Broken.md"), content, "utf8")
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
+  }
+
+  it.each([
+    {
+      label: "listMemoryFiles",
+      read: () => listMemoryFiles({ vaultPath: vault }, logger),
+    },
+    {
+      label: "getMemory with no file",
+      read: () => getMemory({ vaultPath: vault }, logger),
+    },
+    {
+      label: "getMemory for the file",
+      read: () => getMemory({ vaultPath: vault, file: "Broken" }, logger),
+    },
+    {
+      label: "getMemory for a section of the file",
+      read: () => getMemory({ vaultPath: vault, file: "Broken", section: "Notes" }, logger),
+    },
+    {
+      label: "getMemoryEntries for the file",
+      read: () => {
+        return getMemoryEntries(
+          { vaultPath: vault, file: "Broken", onOrAfter: "2026-01-01" },
+          logger,
+        )
+      },
+    },
+  ])("$label names the unreadable file", async ({ read }) => {
+    await plantBrokenFile(BROKEN_MD)
+
+    expect(describeRefusal(await captureRejection(read()))).toEqual(BROKEN_REFUSAL)
+  })
+
+  it("updateMemory names the unreadable file and leaves it unchanged", async () => {
+    await plantBrokenFile(BROKEN_MD)
+
+    const refusal = await captureRejection(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Broken",
+          section: "Notes (newest first)",
+          entry: "new entry",
+          date: "2026-05-06",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeRefusal(refusal)).toEqual(BROKEN_REFUSAL)
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(BROKEN_MD)
+  })
+
+  it("deleteMemory names the unreadable file and leaves it unchanged", async () => {
+    await plantBrokenFile(BROKEN_MD)
+
+    const refusal = await captureRejection(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Broken",
+          section: "Notes (newest first)",
+          date: "2026-05-05",
+          entry: "kept entry",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeRefusal(refusal)).toEqual(BROKEN_REFUSAL)
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(BROKEN_MD)
+  })
+
+  const UNKEEPABLE_BLOCK_CASES = [
+    {
+      label: "a list block",
+      content: buildMemoryFile("---\n- a\n- b\n---\n"),
+      refusal: {
+        kind: "not-key-value",
+        message:
+          'memory file "About Me/Broken.md": properties block holds a list, not key-value pairs, so rewriting the note would delete it',
+      },
+    },
+    {
+      label: "an explicitly tagged block",
+      content: buildMemoryFile("---\nstatus: !done\n---\n"),
+      refusal: {
+        kind: "explicit-tag",
+        message:
+          'memory file "About Me/Broken.md": properties block uses the YAML tag !done, which rewriting the note would drop',
+      },
+    },
+  ]
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "updateMemory refuses $label, keeping its kind, and leaves the file unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await plantBrokenFile(content)
+
+      const refusal = await captureRejection(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Broken",
+            section: "Notes (newest first)",
+            entry: "new entry",
+            date: "2026-05-06",
+          },
+          logger,
+        ),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "deleteMemory refuses $label, keeping its kind, and leaves the file unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await plantBrokenFile(content)
+
+      const refusal = await captureRejection(
+        deleteMemory(
+          {
+            vaultPath: vault,
+            file: "Broken",
+            section: "Notes (newest first)",
+            date: "2026-05-05",
+            entry: "kept entry",
+          },
+          logger,
+        ),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
+    },
+  )
 })

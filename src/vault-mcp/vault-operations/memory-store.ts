@@ -3,7 +3,13 @@
 import { readFile, readdir, mkdir, access } from "node:fs/promises"
 import { constants, type Dirent } from "node:fs"
 import { join, basename, dirname, resolve } from "node:path"
-import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
+import {
+  parseNote,
+  parseNoteForRewrite,
+  stringifyNote,
+  UnreadablePropertiesError,
+} from "../obsidian-markdown/frontmatter.js"
+import type { ParsedNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull, statOrNull } from "../../utils/fs.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -410,6 +416,30 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
+  /** Parses a memory file's content with the read or the rewrite rule. A
+   *  properties-block refusal is rethrown naming the file, because a caller
+   *  asking by bare name, or listing every file, cannot otherwise tell which
+   *  file to repair. */
+  const parseMemoryFileContent = (params: {
+    content: string
+    filename: string
+    rule: "read" | "rewrite"
+  }): ParsedNote => {
+    try {
+      return params.rule === "rewrite"
+        ? parseNoteForRewrite(params.content)
+        : parseNote(params.content)
+    } catch (error) {
+      if (!(error instanceof UnreadablePropertiesError)) throw error
+
+      throw new UnreadablePropertiesError({
+        message: `memory file "${memoryDir}/${params.filename}": ${error.message}`,
+        kind: error.kind,
+        cause: error,
+      })
+    }
+  }
+
   // A memory file is a bare name, never a path — a separator would let a
   // name like "../../outside" escape the memory directory (and the vault)
   // entirely, so reject it at the single point every memory path goes through.
@@ -684,7 +714,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         concurrency: memoryReadConcurrency,
         mapper: async (filename) => {
           const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
-          return parseNote(raw).content.trim()
+          return parseMemoryFileContent({ content: raw, filename, rule: "read" }).content.trim()
         },
       })
       logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
@@ -692,7 +722,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-    const parsed = parseNote(raw)
+    const parsed = parseMemoryFileContent({
+      content: raw,
+      filename: `${params.file}.md`,
+      rule: "read",
+    })
 
     if (!params.section) {
       logger.info("get memory", { mode: "file", file: params.file })
@@ -728,7 +762,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-    const parsed = parseNote(raw)
+    const parsed = parseMemoryFileContent({
+      content: raw,
+      filename: `${params.file}.md`,
+      rule: "read",
+    })
     const lines = splitIntoLines(parsed.content)
 
     // parseMemoryEntries returns every H2 entry in document order, each
@@ -840,7 +878,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "created-file"
       }
 
-      const parsed = parseNote(existingContent)
+      const parsed = parseMemoryFileContent({
+        content: existingContent,
+        filename: `${params.file}.md`,
+        rule: "rewrite",
+      })
       const contentLines = splitIntoLines(parsed.content)
       const sections = parseSections(contentLines)
       const match = findSection(sections, params.section, 2)
@@ -958,7 +1000,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       concurrency: memoryReadConcurrency,
       mapper: async (filename) => {
         const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
-        const parsed = parseNote(raw)
+        const parsed = parseMemoryFileContent({ content: raw, filename, rule: "read" })
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
         const lines = splitIntoLines(parsed.content)
@@ -1025,7 +1067,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // read-modify-write can't be interleaved and lose a write.
     return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
       const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-      const parsed = parseNote(raw)
+      const parsed = parseMemoryFileContent({
+        content: raw,
+        filename: `${params.file}.md`,
+        rule: "rewrite",
+      })
       const lines = splitIntoLines(parsed.content)
       const match = resolveSection({ lines, section: params.section, file: params.file })
 

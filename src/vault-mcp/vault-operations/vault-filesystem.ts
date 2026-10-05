@@ -10,7 +10,13 @@ import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import { withExclusiveFileLock, withFileLock } from "../../utils/file-write-lock.js"
 import { links } from "../obsidian-markdown/links.js"
-import { parseNote, stringifyNote, mergeFrontmatter } from "../obsidian-markdown/frontmatter.js"
+import {
+  parseNote,
+  parseNoteForRewrite,
+  replacePropertiesBlock,
+  stringifyNote,
+  mergeFrontmatter,
+} from "../obsidian-markdown/frontmatter.js"
 import {
   parseHeadings,
   findHeading,
@@ -256,7 +262,7 @@ const serializeNote = (
 ): string => {
   if (!existing) return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}))
 
-  const parsed = parseNote(existing)
+  const parsed = parseNoteForRewrite(existing)
   const mergedData = frontmatter ? mergeFrontmatter(parsed.data, frontmatter) : parsed.data
   return stringifyNote(body, mergedData)
 }
@@ -458,11 +464,41 @@ const updateProperties = async (
     if (existing === null) {
       throw new Error(`note not found: "${params.path}"`)
     }
-    const parsed = parseNote(existing)
+    const parsed = parseNoteForRewrite(existing)
     const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
     const serialized = stringifyNote(parsed.content, mergedProperties)
     await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("updated properties", {
+      path: params.path,
+      beforeBytes: Buffer.byteLength(existing, "utf8"),
+      afterBytes: Buffer.byteLength(serialized, "utf8"),
+    })
+  })
+}
+
+/** Replaces a note's whole properties block, keeping the body's bytes. The
+ *  old block is never parsed, so this repairs a block that is not valid YAML
+ *  or holds a list or a single value. A null value writes an empty property;
+ *  `{}` removes the block. */
+const replaceProperties = async (
+  params: {
+    vaultPath: string
+    path: string
+    properties: Record<string, unknown>
+  },
+  logger: Logger,
+): Promise<void> => {
+  assertPathHasExtension(params.path, ".md")
+  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  return withExclusiveFileLock(fullPath, async () => {
+    const existing = await readFileOrNull(fullPath)
+
+    if (existing === null) {
+      throw new Error(`note not found: "${params.path}"`)
+    }
+    const serialized = replacePropertiesBlock(existing, params.properties)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
+    logger.info("replaced properties", {
       path: params.path,
       beforeBytes: Buffer.byteLength(existing, "utf8"),
       afterBytes: Buffer.byteLength(serialized, "utf8"),
@@ -917,6 +953,7 @@ export const vaultFs = {
   readNoteProperties,
   writeNote,
   updateProperties,
+  replaceProperties,
   deleteNote,
   listNotes,
   listAssets,

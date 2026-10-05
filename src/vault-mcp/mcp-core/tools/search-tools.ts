@@ -5,10 +5,11 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { safeHandler, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
+import { formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
 
 export const registerSearchTools = ({
   registerTool,
+  safeHandler,
   whenToolEnabledText,
   search,
   vaultPath,

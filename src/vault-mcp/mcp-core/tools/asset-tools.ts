@@ -6,7 +6,7 @@ import type { AssetReadResult } from "../../vault-operations/asset-operations.js
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js"
+import { describeTextWindow } from "./tool-helpers.js"
 
 type ContentBlock =
   { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
@@ -74,6 +74,8 @@ const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
 
 export const registerAssetTools = ({
   registerTool,
+  safeHandler,
+  safeHandlerContent,
   vaultPath,
   logger: sessionLogger,
   config,

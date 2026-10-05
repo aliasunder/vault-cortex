@@ -150,7 +150,7 @@ Group modules register through a gated wrapper that skips disabled names and inj
 | `vault_list_notes`        | `folder?, glob?`                                                                  | readOnlyHint     |
 | `vault_delete_note`       | `path, prune_empty_folders?`                                                      | destructiveHint  |
 | `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint  |
-| `vault_update_properties` | `path, properties`                                                                | destructiveHint  |
+| `vault_update_properties` | `path, properties, replace?`                                                      | destructiveHint  |
 
 `vault_read_note` supports four read shapes:
 
@@ -169,7 +169,14 @@ The edit tools differ in how they locate the lines they change — by heading, b
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
-`vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+`vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair a block that is not valid YAML.
+
+Every tool handles a note's properties block by the same rules, so a write never silently drops one:
+
+- **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
+- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move adds this refusal only when it must rewrite a link inside such a note.
+- **New content** is refused when the written note would open with a block the server could not read or keep — a body that starts with `---` lines becomes the properties block when no properties are passed.
+- **Refusals** carry the server's own message, with the line and column for invalid YAML. For a block already in the vault, the tool appends repair steps (`vault_read_note`, then `vault_update_properties` with `replace: true`) when those tools are served, and points at Obsidian otherwise.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 

@@ -612,6 +612,196 @@ describe("path is not a file", () => {
   })
 })
 
+// ── Unreadable properties blocks ─────────────────────────────
+
+const UNCLOSED_BLOCK_NOTE = "---\ntitle: [unclosed\n---\nBody line\n"
+
+const UNCLOSED_BLOCK_MESSAGE =
+  "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
+
+const REPLACE_STEP =
+  "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties."
+
+const CARRY_TEXT_STEP =
+  "replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines."
+
+describe("unreadable properties blocks", () => {
+  /** Plants a note straight on disk, as a hand edit or a sync would, and
+   *  removes it when the test ends. */
+  const plantNote = async (notePath: string, content: string): Promise<string> => {
+    const fullPath = join(serverVaultPath, notePath)
+    await writeFile(fullPath, content)
+    onTestFinished(() => rm(fullPath, { force: true }))
+    return fullPath
+  }
+
+  it("returns the planted text from a full read, so an agent can see the broken block", async () => {
+    await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Broken Properties.md" },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(textContent(result)).toBe(UNCLOSED_BLOCK_NOTE)
+  })
+
+  it("refuses a merge with the server's message and the repair steps", async () => {
+    const fullPath = await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Broken Properties.md", properties: { status: "done" } },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
+  })
+
+  it("repairs the block with replace: true, after which a merge keeps, overwrites and deletes keys", async () => {
+    const fullPath = await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const replaced = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: {
+        path: "Broken Properties.md",
+        properties: { title: "Fixed", draft: true, keep: 1 },
+        replace: true,
+      },
+    })
+
+    expect(replaced.isError).not.toBe(true)
+    expect(textContent(replaced)).toBe("Replaced properties on Broken Properties.md")
+    expect(await readFile(fullPath, "utf8")).toBe(
+      "---\ntitle: Fixed\ndraft: true\nkeep: 1\n---\nBody line\n",
+    )
+
+    const merged = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Broken Properties.md", properties: { title: "Final", draft: null } },
+    })
+
+    expect(merged.isError).not.toBe(true)
+    expect(await readFile(fullPath, "utf8")).toBe("---\ntitle: Final\nkeep: 1\n---\nBody line\n")
+  })
+
+  it.each([
+    {
+      label: "a prose block that fails as invalid YAML",
+      content: "---\n[[Some Link]] is related\n---\nBody line\n",
+      prose: "[[Some Link]] is related\n",
+    },
+    {
+      label: "a single-value prose block",
+      content: "---\nJust a paragraph.\n---\nBody line\n",
+      prose: "Just a paragraph.\n",
+    },
+  ])("repairs $label by replacing it and putting the prose back", async ({ content, prose }) => {
+    const fullPath = await plantNote("Prose Block.md", content)
+
+    const replaced = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Prose Block.md", properties: {}, replace: true },
+    })
+    const prepended = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: { path: "Prose Block.md", operation: "prepend", content: prose },
+    })
+
+    expect(replaced.isError).not.toBe(true)
+    expect(prepended.isError).not.toBe(true)
+    // A no-heading prepend leaves one blank line before the old body
+    expect(await readFile(fullPath, "utf8")).toBe(`${prose}\nBody line\n`)
+  })
+
+  it("tells an agent editing a single-value prose block to carry its text over", async () => {
+    await plantNote("Prose Block.md", "---\nJust a paragraph.\n---\nBody line\n")
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: { path: "Prose Block.md", old_text: "Body line", new_text: "Edited line" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+    )
+  })
+
+  it("repairs a list block by replacing it with properties that keep the items", async () => {
+    const fullPath = await plantNote("List Block.md", "---\n- alpha\n- beta\n---\nBody line\n")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "List Block.md", properties: { items: ["alpha", "beta"] }, replace: true },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(await readFile(fullPath, "utf8")).toBe(
+      "---\nitems:\n  - alpha\n  - beta\n---\nBody line\n",
+    )
+  })
+
+  it("refuses a vault_write_note body that would open the note with a broken block", async () => {
+    const fullPath = join(serverVaultPath, "New Broken.md")
+    onTestFinished(() => rm(fullPath, { force: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "New Broken.md", body: "---\ntitle: [unclosed\n---\nBody\n" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}`,
+    )
+    await expect(readFile(fullPath, "utf8")).rejects.toThrow("ENOENT")
+  })
+
+  it.each([
+    { label: "with properties", properties: { title: "Fixed" } },
+    { label: "without properties", properties: undefined },
+  ])("refuses a vault_write_note overwrite $label on a broken note", async ({ properties }) => {
+    const fullPath = await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Broken Properties.md", body: "New body\n", overwrite: true, properties },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
+  })
+
+  it("names a broken memory file when listing memory files", async () => {
+    await plantNote("About Me/Broken Memory.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({ client, name: "vault_list_memory_files", args: {} })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: memory file "About Me/Broken Memory.md": ${UNCLOSED_BLOCK_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+    )
+  })
+})
+
 // ── Heading not found ────────────────────────────────────────
 
 describe("heading not found", () => {
