@@ -1,14 +1,24 @@
+import matter from "gray-matter"
+import { DateTime } from "luxon"
+import { stringify as stringifyYaml } from "yaml"
 import { describe, it, expect } from "vitest"
-import { parseNote, stringifyNote, mergeFrontmatter } from "../frontmatter.js"
+import {
+  parseNote,
+  parseNoteForRewrite,
+  splitPropertiesBlock,
+  serializePropertiesBlock,
+  stringifyNote,
+  mergeFrontmatter,
+  UnreadablePropertiesError,
+} from "../frontmatter.js"
 
 /** Written as a code point so no invisible literal hides in the source. */
 const BOM = String.fromCharCode(0xfeff)
 
 /**
- * Multi Column Markdown template from issue #485 — a `--- <text>` first
- * line that gray-matter alone reads as an unregistered parser-engine
- * name and throws on. Obsidian treats the file as plain text with no
- * properties.
+ * Multi Column Markdown template — a `--- <text>` first line that
+ * gray-matter alone reads as an unregistered parser-engine name and throws
+ * on. Obsidian treats the file as plain text with no properties.
  */
 const MULTI_COLUMN_NOTE = [
   "--- start-multi-column: ExampleRegion1",
@@ -30,10 +40,46 @@ const MULTI_COLUMN_NOTE = [
   "",
 ].join("\n")
 
+const SINGLE_VALUE_MESSAGE =
+  "properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it"
+
+const LIST_MESSAGE =
+  "properties block holds a list, not key-value pairs, so rewriting the note would delete it"
+
+const UNCLOSED_FLOW_MESSAGE =
+  "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
+
+/** Runs a call that must throw and returns what it threw. */
+const catchThrown = (run: () => unknown): unknown => {
+  try {
+    run()
+  } catch (error) {
+    return error
+  }
+  throw new Error("expected the call to throw, but it returned")
+}
+
+/** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
+const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
+  if (!(thrown instanceof UnreadablePropertiesError)) return null
+  return { kind: thrown.kind, message: thrown.message }
+}
+
+/** The parts of stringifyNote's output refusal, which is a plain Error whose cause is the block refusal. */
+const describeOutputRefusal = (
+  thrown: unknown,
+): { message: string; causeIsBlockRefusal: boolean } | null => {
+  if (!(thrown instanceof Error) || thrown instanceof UnreadablePropertiesError) return null
+  return {
+    message: thrown.message,
+    causeIsBlockRefusal: thrown.cause instanceof UnreadablePropertiesError,
+  }
+}
+
 // ── parseNote ────────────────────────────────────────────────────
 
 describe("parseNote", () => {
-  it("returns the issue #485 Multi Column template as body with no frontmatter", () => {
+  it("returns the Multi Column template as body with no frontmatter", () => {
     expect(parseNote(MULTI_COLUMN_NOTE)).toEqual({
       data: {},
       content: MULTI_COLUMN_NOTE,
@@ -123,14 +169,338 @@ describe("parseNote", () => {
     expect(parseNote("---\n---\n")).toEqual({ data: {}, content: "" })
   })
 
-  it("throws on invalid YAML inside a real fenced block", () => {
-    expect(() => parseNote("---\ntitle: [unclosed\n---\nbody\n")).toThrow(
-      "Flow sequence in block collection must be sufficiently indented",
-    )
+  it.each([
+    {
+      label: "an unclosed flow sequence",
+      note: "---\ntitle: [unclosed\n---\nbody\n",
+      message: UNCLOSED_FLOW_MESSAGE,
+    },
+    {
+      label: "a duplicate key",
+      note: "---\na: 1\na: 2\n---\nbody\n",
+      message: "properties block is not valid YAML at line 3, column 1: Map keys must be unique",
+    },
+    {
+      label: "tab indentation",
+      note: "---\na:\n\tb: 1\n---\nbody\n",
+      message:
+        "properties block is not valid YAML at line 3, column 1: Tabs are not allowed as indentation",
+    },
+    {
+      label: "a nested implicit key",
+      note: "---\ntitle: a: b\n---\nbody\n",
+      message:
+        "properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+    },
+    {
+      label: "an unbalanced quote",
+      note: '---\ntitle: "abc\n---\nbody\n',
+      message: 'properties block is not valid YAML at line 2, column 12: Missing closing "quote',
+    },
+    {
+      label: "an alias with no anchor, which has no position",
+      note: "---\nsummary: *bold*\n---\nbody\n",
+      message:
+        "properties block is not valid YAML: Unresolved alias (the anchor must be set before the alias): bold*",
+    },
+  ])("refuses $label with the server's own message", ({ note, message }) => {
+    expect(describeRefusal(catchThrown(() => parseNote(note)))).toEqual({
+      kind: "invalid-yaml",
+      message,
+    })
+  })
+
+  it("reports the same position when the same note is parsed again", () => {
+    const note = "---\ntitle: [unclosed\n---\nbody\n"
+
+    expect(describeRefusal(catchThrown(() => parseNote(note)))).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
+    expect(describeRefusal(catchThrown(() => parseNote(note)))).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
+  })
+
+  it("reports the note's own line when the note starts with a BOM", () => {
+    expect(
+      describeRefusal(catchThrown(() => parseNote(BOM + "---\ntitle: [unclosed\n---\nbody\n"))),
+    ).toEqual({ kind: "invalid-yaml", message: UNCLOSED_FLOW_MESSAGE })
+  })
+
+  it("reports the note's own line in a CRLF note", () => {
+    expect(
+      describeRefusal(catchThrown(() => parseNote("---\r\na: 1\r\na: 2\r\n---\r\nbody\r\n"))),
+    ).toEqual({
+      kind: "invalid-yaml",
+      message: "properties block is not valid YAML at line 3, column 1: Map keys must be unique",
+    })
+  })
+
+  it.each([
+    { label: "a list block", note: "---\n- a\n- b\n---\nbody\n", data: {} },
+    { label: "a false block", note: "---\nfalse\n---\nbody\n", data: {} },
+    { label: "a zero block", note: "---\n0\n---\nbody\n", data: {} },
+    { label: 'a "" block', note: '---\n""\n---\nbody\n', data: {} },
+    { label: "a prose block", note: "---\nJust a paragraph.\n---\nbody\n", data: {} },
+    { label: "a null block", note: "---\nnull\n---\nbody\n", data: {} },
+    { label: "a ~ block", note: "---\n~\n---\nbody\n", data: {} },
+    { label: "a comment-only block", note: "---\n# a comment\n---\nbody\n", data: {} },
+    { label: "a custom tag", note: "---\nstatus: !done\n---\nbody\n", data: { status: "" } },
+    {
+      label: "a !!timestamp tag",
+      note: "---\nq: !!timestamp 2024-01-01\n---\nbody\n",
+      // The yaml library hands back a JS Date for this tag, so the expected value is one
+      data: { q: DateTime.fromISO("2024-01-01", { zone: "utc" }).toJSDate() },
+    },
+  ])("reads $label as it always has", ({ note, data }) => {
+    expect(parseNote(note)).toEqual({ data, content: "body\n" })
+  })
+})
+
+// ── parseNoteForRewrite ──────────────────────────────────────────
+
+describe("parseNoteForRewrite", () => {
+  it.each([
+    {
+      label: "a list block",
+      note: "---\n- a\n- b\n---\nbody\n",
+      kind: "not-key-value",
+      message: LIST_MESSAGE,
+    },
+    {
+      label: "a false block",
+      note: "---\nfalse\n---\nbody\n",
+      kind: "not-key-value",
+      message: SINGLE_VALUE_MESSAGE,
+    },
+    {
+      label: "a zero block",
+      note: "---\n0\n---\nbody\n",
+      kind: "not-key-value",
+      message: SINGLE_VALUE_MESSAGE,
+    },
+    {
+      label: 'a "" block',
+      note: '---\n""\n---\nbody\n',
+      kind: "not-key-value",
+      message: SINGLE_VALUE_MESSAGE,
+    },
+    {
+      label: "a prose block between --- lines",
+      note: "---\nJust a paragraph.\n---\nbody\n",
+      kind: "not-key-value",
+      message: SINGLE_VALUE_MESSAGE,
+    },
+    {
+      label: "a custom tag",
+      note: "---\nstatus: !done\n---\nbody\n",
+      kind: "explicit-tag",
+      message: "properties block uses the YAML tag !done, which rewriting the note would drop",
+    },
+    {
+      label: "the bare ! tag",
+      note: "---\na: ! 12\n---\nbody\n",
+      kind: "explicit-tag",
+      message: "properties block uses the YAML tag !, which rewriting the note would drop",
+    },
+    {
+      label: "a !!str tag",
+      note: "---\nn: !!str 123\n---\nbody\n",
+      kind: "explicit-tag",
+      message: "properties block uses the YAML tag !!str, which rewriting the note would drop",
+    },
+    {
+      label: "a !!float tag",
+      note: "---\nr: !!float 1\n---\nbody\n",
+      kind: "explicit-tag",
+      message: "properties block uses the YAML tag !!float, which rewriting the note would drop",
+    },
+    {
+      label: "a !!timestamp tag",
+      note: "---\nq: !!timestamp 2024-01-01\n---\nbody\n",
+      kind: "explicit-tag",
+      message:
+        "properties block uses the YAML tag !!timestamp, which rewriting the note would drop",
+    },
+    {
+      label: "a !!map tag on a list",
+      note: "---\nm: !!map [one, two]\n---\nbody\n",
+      kind: "explicit-tag",
+      message: "properties block uses the YAML tag !!map, which rewriting the note would drop",
+    },
+    {
+      label: "unreadable YAML",
+      note: "---\ntitle: [unclosed\n---\nbody\n",
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    },
+  ])("refuses $label", ({ note, kind, message }) => {
+    expect(describeRefusal(catchThrown(() => parseNoteForRewrite(note)))).toEqual({
+      kind,
+      message,
+    })
+  })
+
+  it.each([
+    { label: "a null block", note: "---\nnull\n---\nbody\n", data: {} },
+    { label: "a ~ block", note: "---\n~\n---\nbody\n", data: {} },
+    { label: "an empty block", note: "---\n---\nbody\n", data: {} },
+    { label: "a comment-only block", note: "---\n# a comment\n---\nbody\n", data: {} },
+    { label: "no block", note: "body\n", data: {} },
+    {
+      label: "a mapping of every implicit scalar type",
+      note: "---\na: 1\nb: 2.5\nc: true\nd: null\ne: ~\nf: 2024-01-01\ng: text\nh: [x, y]\nj: {k: v}\n---\nbody\n",
+      data: {
+        a: 1,
+        b: 2.5,
+        c: true,
+        d: null,
+        e: null,
+        f: "2024-01-01",
+        g: "text",
+        h: ["x", "y"],
+        j: { k: "v" },
+      },
+    },
+  ])("accepts $label", ({ note, data }) => {
+    expect(parseNoteForRewrite(note)).toEqual({ data, content: "body\n" })
+  })
+})
+
+// ── splitPropertiesBlock ─────────────────────────────────────────
+
+describe("splitPropertiesBlock", () => {
+  it.each([
+    {
+      label: "a --- closer",
+      note: "---\ntitle: x\n---\nbody\n",
+      blockText: "\ntitle: x",
+      body: "body\n",
+    },
+    {
+      label: "a ---- closer, whose last dash stays in the body",
+      note: "---\ntitle: x\n----\nbody\n",
+      blockText: "\ntitle: x",
+      body: "-\nbody\n",
+    },
+    {
+      label: "a ---, closer",
+      note: "---\ntitle: x\n---,\nbody\n",
+      blockText: "\ntitle: x",
+      body: ",\nbody\n",
+    },
+    {
+      label: "a closer with trailing spaces",
+      note: "---\ntitle: x\n---   \nbody\n",
+      blockText: "\ntitle: x",
+      body: "   \nbody\n",
+    },
+    {
+      label: "a ---text closer",
+      note: "---\ntitle: x\n---text\nbody\n",
+      blockText: "\ntitle: x",
+      body: "text\nbody\n",
+    },
+    {
+      label: "a Multi Column opener, which is no block",
+      note: "--- start-multi-column: X\ntext\n--- end-multi-column\n",
+      blockText: null,
+      body: "--- start-multi-column: X\ntext\n--- end-multi-column\n",
+    },
+    {
+      label: "a ---text first line, which is no block",
+      note: "---text\ntitle: x\n---\nbody\n",
+      blockText: null,
+      body: "---text\ntitle: x\n---\nbody\n",
+    },
+    {
+      label: "CRLF line endings",
+      note: "---\r\ntitle: x\r\n---\r\nbody\r\n",
+      blockText: "\r\ntitle: x\r",
+      body: "body\r\n",
+    },
+    {
+      label: "a BOM before a block",
+      note: BOM + "---\ntitle: x\n---\nbody\n",
+      blockText: "\ntitle: x",
+      body: "body\n",
+    },
+    {
+      label: "a BOM with no block",
+      note: BOM + "plain body\n",
+      blockText: null,
+      body: "plain body\n",
+    },
+    {
+      label: "a closer at the end of the file",
+      note: "---\ntitle: x\n---",
+      blockText: "\ntitle: x",
+      body: "",
+    },
+    { label: "an empty block", note: "---\n---\nbody\n", blockText: "", body: "body\n" },
+    { label: "an empty body", note: "---\ntitle: x\n---\n", blockText: "\ntitle: x", body: "" },
+    {
+      label: "a body with no trailing newline",
+      note: "---\ntitle: x\n---\nbody",
+      blockText: "\ntitle: x",
+      body: "body",
+    },
+    {
+      label: "an opener with no closer",
+      note: "---\ntitle: x\nbody\n",
+      blockText: null,
+      body: "---\ntitle: x\nbody\n",
+    },
+  ])("splits $label without parsing the YAML", ({ note, blockText, body }) => {
+    expect(splitPropertiesBlock(note)).toEqual({ blockText, body })
+  })
+
+  it("splits a block that would not parse", () => {
+    expect(splitPropertiesBlock("---\ntitle: [unclosed\n---\nbody\n")).toEqual({
+      blockText: "\ntitle: [unclosed",
+      body: "body\n",
+    })
+  })
+})
+
+// ── serializePropertiesBlock ─────────────────────────────────────
+
+describe("serializePropertiesBlock", () => {
+  it.each([
+    {
+      label: "a mapping",
+      data: { title: "x", tags: ["a", "b"] },
+      block: "---\ntitle: x\ntags:\n  - a\n  - b\n---\n",
+    },
+    { label: "no properties", data: {}, block: "" },
+    { label: "a null value as an empty property", data: { due: null }, block: "---\ndue:\n---\n" },
+    {
+      label: "a value ending in blank lines, trimmed like gray-matter",
+      data: { note: "line\n\n" },
+      block: "---\nnote: |+\n  line\n---\n",
+    },
+  ])("serializes $label", ({ data, block }) => {
+    expect(serializePropertiesBlock(data)).toBe(block)
   })
 })
 
 // ── stringifyNote ────────────────────────────────────────────────
+
+/**
+ * gray-matter's stringify with the YAML options the server has always
+ * used — the implementation stringifyNote replaced, kept here as an
+ * independent check that every write's bytes are unchanged.
+ */
+const GRAY_MATTER_STRINGIFY_OPTIONS = {
+  engines: {
+    yaml: {
+      parse: (): Record<string, unknown> => ({}),
+      stringify: (data: object): string => stringifyYaml(data, { lineWidth: 0, nullStr: "" }),
+    },
+  },
+}
 
 describe("stringifyNote", () => {
   it("prepends a frontmatter block above a body that opens with plugin syntax", () => {
@@ -163,6 +533,51 @@ describe("stringifyNote", () => {
       data: { title: "x" },
       content: pluginBody,
     })
+  })
+
+  it.each([
+    { label: "a null first", body: "body\n", data: { due: null, title: "x" } },
+    { label: "a null last", body: "body\n", data: { title: "x", due: null } },
+    { label: "a null alone", body: "body\n", data: { due: null } },
+    { label: "nested values", body: "body\n", data: { meta: { a: [1, { b: "c" }] } } },
+    { label: "a multi-line string", body: "body\n", data: { text: "one\ntwo\nthree" } },
+    { label: "--- inside a string", body: "body\n", data: { text: "a\n---\nb" } },
+    { label: "a value ending in blank lines", body: "body\n", data: { note: "line\n\n" } },
+    { label: "no properties", body: "body\n", data: {} },
+    { label: "a body with no trailing newline", body: "body", data: { title: "x" } },
+    { label: "an empty body", body: "", data: { title: "x" } },
+  ])("writes the same bytes as gray-matter for $label", ({ body, data }) => {
+    expect(stringifyNote(body, data)).toBe(
+      matter.stringify({ content: body }, data, GRAY_MATTER_STRINGIFY_OPTIONS),
+    )
+  })
+
+  it("refuses an empty-data body that would open the note with a prose block", () => {
+    const thrown = catchThrown(() => stringifyNote("---\n\nSome text\n\n---\nbody\n", {}))
+
+    expect(describeOutputRefusal(thrown)).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${SINGLE_VALUE_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+  })
+
+  it("refuses removing the last property when a broken second block would then open the note", () => {
+    const { content } = parseNote("---\na: 1\n---\n---\ntitle: [unclosed\n---\nbody\n")
+    const thrown = catchThrown(() => stringifyNote(content, {}))
+
+    expect(describeOutputRefusal(thrown)).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${UNCLOSED_FLOW_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+  })
+
+  it.each([
+    { label: "a valid block", body: "---\ntitle: ok\n---\nbody\n" },
+    { label: "a CRLF block", body: "---\r\ntitle: ok\r\n---\r\nbody\r\n" },
+    { label: "a Multi Column opener", body: "--- start-multi-column: X\ntext\n" },
+    { label: "a horizontal rule with no closer", body: "---\nno closer here\n" },
+  ])("writes an empty-data body that opens with $label verbatim", ({ body }) => {
+    expect(stringifyNote(body, {})).toBe(body)
   })
 })
 
