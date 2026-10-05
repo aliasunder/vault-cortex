@@ -1293,10 +1293,10 @@ export const listPropertyValues = (
 }
 
 const parseFinitePropertyNumber = (value: string): number | null => {
-  /** Matches YAML core integer/decimal forms; the final lookahead rejects trailing newlines.
+  /** A whole YAML 1.2 core int or float: optional sign, digits with an optional fraction and exponent, or 0x hex / 0o octal.
    * https://yaml.org/spec/1.2.2/#1032-tag-resolution */
   const propertyNumberLiteral =
-    /^(?:[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|0x[0-9a-fA-F]+|0o[0-7]+)(?![\s\S])/
+    /^(?:[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|0x[0-9a-fA-F]+|0o[0-7]+)$/
 
   if (!propertyNumberLiteral.test(value)) return null
 
@@ -1305,6 +1305,8 @@ const parseFinitePropertyNumber = (value: string): number | null => {
   return Number.isFinite(numericValue) ? numericValue : null
 }
 
+/** Finds notes where a frontmatter property matches a value: text exactly,
+ * and a value written as a YAML core number also matches stored numbers equal to it. */
 export const searchByProperty = (
   context: SearchQueryContext,
   params: {
