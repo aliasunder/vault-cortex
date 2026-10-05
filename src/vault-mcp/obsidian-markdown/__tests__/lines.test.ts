@@ -82,6 +82,18 @@ describe("collapseEmptyLineRunsAtEdits", () => {
     expect(collapsed).toEqual(["A", "", "B"])
   })
 
+  it("keeps one empty line of a longer run whose gaps were both zero", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "B"],
+      edits: [
+        { boundary: 1, gapAbove: 0, gapBelow: 0 },
+        { boundary: 2, gapAbove: 0, gapBelow: 0 },
+      ],
+    })
+
+    expect(collapsed).toEqual(["A", "", "B"])
+  })
+
   it("leaves runs that no edit touches", () => {
     const collapsed = collapseEmptyLineRunsAtEdits({
       lines: ["top", "", "", "middle", "", "", "end"],

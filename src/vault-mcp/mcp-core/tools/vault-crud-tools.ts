@@ -546,13 +546,14 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
       description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
+Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" }) — removes the whole line, line break included.
 
 When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
 To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text).${whenToolEnabledText("vault_replace_span", " To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span.")}${whenToolEnabledText("vault_patch_note", ' To relocate content between headings, vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.')}
 
 Parameters:
-- old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex — exact text only.
-- new_text: after a deletion (new_text=""), the blank lines on both sides of a removed match join into one gap that keeps as many as the wider side had, and no other blank line changes. A match removed from inside a line changes no blank lines, and a line emptied between two lines of text stays.
+- old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
+- new_text: after a deletion (new_text=""), the blank lines on both sides of a removed match join into one gap that keeps as many as the wider side had (at the end of the note, its final line break counts as one), and no other blank line changes. A match whose removal leaves text on its line changes no blank lines. Lines whose whole text is removed between two lines of text leave one empty line, so include the line break in old_text to remove a line.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
@@ -636,10 +637,9 @@ When to use: Removing a block you have already read — a table row, callout, or
 ${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). ")}To replace a block, ${whenToolEnabledText("vault_replace_span", "prefer vault_replace_span (one atomic step); otherwise ")}delete it here${whenToolEnabledText("vault_patch_note", ", then vault_patch_note to add the new content")}.
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
+- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Omit end_anchor for a single-line delete. The blank lines above and below the removed lines join into one gap that keeps as many as the wider side had (at the end of the note, its final line break counts as one); no other blank line in the note changes.
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is deleted.
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
-- The blank lines above and below the deleted lines join into one gap that keeps as many as the wider side had; no other blank line in the note changes.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
@@ -649,7 +649,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
-Returns: Confirmation with lines removed and a truncated preview of the deleted text.`,
+Returns: Confirmation with lines removed and a preview of the deleted text, cut at 80 characters.`,
       inputSchema: {
         path: z
           .string()
@@ -723,9 +723,8 @@ When to use: Replacing a block you have already read — a table row, callout, o
 ${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place text changes (typos, renaming).")}${whenToolEnabledText("vault_delete_span", " Prefer vault_delete_span when removing without replacement.")}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line).
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is replaced.
-- content: a trailing newline leaves a blank line after the new block. Blank lines at the start and end of content join the blank lines around the replaced lines, and each joined gap keeps as many as its wider side had; blank lines inside content and elsewhere in the note are written as given.
+- content: a trailing newline leaves a blank line after the new block unless the block ends the note. Blank lines at the start and end of content join the blank lines around the replaced lines, and each joined gap keeps as many as its wider side had (at the end of the note, its final line break counts as one); blank lines inside content are written as given, and no other blank line in the note changes.
 - first_match applies to both anchors independently.
 
 Errors:

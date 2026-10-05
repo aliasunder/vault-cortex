@@ -139,15 +139,18 @@ const listDroppedIndexes = ({ run, widestGap }: PooledRun): number[] => {
   // A single empty line is never removed, so an edit that leaves one behind
   // (text deleted from a line between two lines of text) keeps it.
   if (runLength < 2) return []
-  const keptLength = Math.min(runLength, widestGap)
+  // Lines emptied by removing their text can form a run with no gap on either
+  // side; keeping one leaves the same gap a single emptied line leaves.
+  const keptLength = Math.min(runLength, Math.max(widestGap, 1))
   return Array.from(
     { length: runLength - keptLength },
     (_, offset) => run.start + keptLength + offset,
   )
 }
 
-/** Shrinks the run of empty lines touching each edit point to its widest gap, so
- *  an edit closes the gap it joined without growing it or touching any other run.
+/** Shrinks the run of empty lines touching each edit point to its widest gap, and
+ *  never below one line, so an edit closes the gap it joined without growing it or
+ *  touching any other run.
  *
  *  - "Empty" means exactly `""`: a line of spaces is text here, unlike in
  *    trimBlankEdgeLines.
@@ -243,7 +246,8 @@ const tryOpenFence = (innerContent: string, quoteDepth: number): FenceResult | n
 /** Advances the fenced-code state machine by one line — the single CommonMark
  *  §4.5 fence transition shared by every fence-aware walk.
  *
- *  The line's `> ` markers are stripped before fence matching, so fences inside callouts/blockquotes (e.g. `> \`\`\``) are recognized. A
+ *  The line's `> ` markers are stripped before fence matching, so fences inside
+ *  callouts/blockquotes (e.g. `> \`\`\``) are recognized. A
  *  fence opened at blockquote depth N closes only at the same depth; a line at
  *  lower depth closes it implicitly (the blockquote container ended), and a line
  *  at higher depth is content inside the fence.

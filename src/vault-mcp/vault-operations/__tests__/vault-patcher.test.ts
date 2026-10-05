@@ -4067,6 +4067,22 @@ def second():
       expect(await readGapNote()).toBe(PROPERTIES + "\nA\n\nB\n")
     })
 
+    it("leaves one empty line where consecutive lines' text was removed between two lines of text", async () => {
+      await writeGapNote("\nA\nX\nX\nB\n")
+      await replaceInNote(
+        {
+          vaultPath: vault,
+          path: "gaps.md",
+          oldText: "X",
+          newText: "",
+          replaceAllOccurrences: true,
+        },
+        logger,
+      )
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\nA\n\nB\n")
+    })
+
     it("leaves a code block's double gap when removing a trailing comment from the line below it", async () => {
       const codeBody =
         "\n```python\ndef a():\n    return 1\n\n\ndef b():  # TODO\n    return 2\n```\n"
