@@ -13,11 +13,8 @@ export type RemoteEnvAnswers = {
   vaultPassword?: string
 }
 
-// Optional env blocks are synced from deploy/<mode>/.env.example by
-// npm run sync:cli-env-blocks. Edit the deploy/ files, then re-run the script.
-// cli/src/templates.test.ts asserts the CLI optional block vars match the
-// deploy/ .env.example optional vars, so a new var breaks CI until both
-// surfaces carry it.
+// Run npm run sync:cli-env-blocks after editing deploy/<mode>/.env.example.
+// cli/src/__tests__/templates.test.ts checks that both surfaces list the same optional vars.
 
 // ┌─────────────────────────────────────────────────────────────────────────┐
 // │ GENERATED — do not edit between sync markers.                          │
