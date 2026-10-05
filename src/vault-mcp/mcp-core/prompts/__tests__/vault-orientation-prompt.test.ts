@@ -93,6 +93,14 @@ describe("vault-orientation live orphan folders", () => {
     )
   })
 
+  it("describes an empty filtered result without claiming excluded notes are linked", async () => {
+    const { orphanSection } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: ["Journal/daily.md"],
+    })
+    expect(await orphanSection()).toBe("No orphans found after folder exclusions.")
+  })
+
   it("lets explicit environment folders replace all defaults", async () => {
     const { orphanSection } = await setupOrphanPrompt({
       settings: '{"folder":"Journal"}',
@@ -311,7 +319,8 @@ describe("vault-orientation handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
     const text = textOf(await handler(fakeExtra))
 
-    expect(text).toContain("No orphans found — every note has at least one incoming link.")
+    const orphanSection = text.split("## Orphans\n")[1]?.split("\n\n## Memory")[0]
+    expect(orphanSection).toBe("No orphans found after folder exclusions.")
   })
 
   it("shows property adoption rates with count/total format", async () => {

@@ -234,7 +234,7 @@ export const registerVaultOrientationPrompt = ({
                 `${orphanCountLabel} orphan notes (no incoming links):`,
                 ...orphans.map(formatNoteLine),
               ].join("\n")
-            : "No orphans found — every note has at least one incoming link."
+            : "No orphans found after folder exclusions."
 
         const memorySectionContent =
           memoryFiles.length > 0
