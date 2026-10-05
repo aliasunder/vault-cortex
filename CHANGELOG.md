@@ -113,6 +113,17 @@
 
 
 
+
+## [0.54.9] — 2026-10-05
+
+### Bug Fixes
+
+- **tools:** Tighten 27 tool definitions and reject empty filter lists (#636)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.8
+
 ## [0.54.8] — 2026-10-03
 
 ### Bug Fixes
