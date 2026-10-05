@@ -2021,18 +2021,23 @@ describe("listPropertyKeys", () => {
 
   it("returns all property keys with counts", () => {
     const keys = index.listPropertyKeys({}, logger)
-    expect(keys.length).toBeGreaterThan(0)
-    const titleKey = keys.find((entry) => entry.key === "title")
-    expect(titleKey).toBeDefined()
-    expect(titleKey?.count).toBe(3)
+    expect(keys).toEqual([
+      { key: "tags", count: 3, sample_values: ["project", "active", "done"] },
+      { key: "title", count: 3, sample_values: ["Active Project", "Done Project", "Plain Note"] },
+      { key: "priority", count: 2, sample_values: ["high", "low"] },
+      { key: "status", count: 2, sample_values: ["done", "in-progress"] },
+      { key: "type", count: 2, sample_values: ["project"] },
+    ])
   })
 
   it("includes sample_values for each key", () => {
     const keys = index.listPropertyKeys({}, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
-    expect(statusKey).toBeDefined()
-    expect(statusKey?.sample_values).toContain("in-progress")
-    expect(statusKey?.sample_values).toContain("done")
+    expect(statusKey).toEqual({
+      key: "status",
+      count: 2,
+      sample_values: ["done", "in-progress"],
+    })
   })
 
   it("returns at most 3 sample values", () => {
@@ -2048,7 +2053,11 @@ describe("listPropertyKeys", () => {
     }
     const keys = index.listPropertyKeys({}, logger)
     const varietyKey = keys.find((entry) => entry.key === "variety")
-    expect(varietyKey?.sample_values.length).toBeLessThanOrEqual(3)
+    expect(varietyKey).toEqual({
+      key: "variety",
+      count: 5,
+      sample_values: ["value-0", "value-1", "value-2"],
+    })
   })
 
   it("sorts by count descending", () => {
