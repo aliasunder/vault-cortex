@@ -71,6 +71,19 @@ beforeEach(() => {
   calls = mockServer.registerTool.mock.calls as RegisterToolCall[]
 })
 
+/** The registerTool calls a server makes under the config this env produces. */
+const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
+  const server = { registerTool: vi.fn() }
+  registerTools({
+    server: server as unknown as McpServer,
+    vaultPath: "/test-vault",
+    search: {} as SearchIndex,
+    logger,
+    config: loadConfig(env),
+  })
+  return server.registerTool.mock.calls as RegisterToolCall[]
+}
+
 const findCall = (name: string): RegisterToolCall | undefined => {
   return calls.find(([toolName]) => toolName === name)
 }
@@ -428,18 +441,7 @@ describe("annotations", () => {
 
 describe("config interpolation in descriptions", () => {
   const CUSTOM_MEMORY_DIR = "Profile"
-  const customConfig = loadConfig({ MEMORY_DIR: CUSTOM_MEMORY_DIR })
-  const customCalls = (() => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: customConfig,
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
-  })()
+  const customCalls = registerWithConfig({ MEMORY_DIR: CUSTOM_MEMORY_DIR })
 
   /** Like requireCall, but over the custom-config registration — throws
    *  instead of returning undefined so call sites need no non-null assertion. */
@@ -783,6 +785,24 @@ describe("optional selector params reject an empty string", () => {
   })
 })
 
+describe("optional filter lists reject an empty array", () => {
+  // An empty "match any of these" list can select nothing, so it is a caller
+  // mistake. Without min(1) the call succeeds and the empty or unfiltered
+  // result reads as a real answer.
+  it.each([
+    { tool: TOOL_NAMES.VAULT_LIST_FILES, field: "extensions", validValue: [".png"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "priority", validValue: ["high"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "status", validValue: ["todo"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "heading", validValue: ["Active"] },
+  ])("$tool $field rejects [] and accepts a list or no value", ({ tool, field, validValue }) => {
+    const [, config] = requireCall(tool)
+    const fieldSchema = config.inputSchema?.[field]
+    expect(fieldSchema?.safeParse([]).success).toBe(false)
+    expect(fieldSchema?.safeParse(validValue).success).toBe(true)
+    expect(fieldSchema?.safeParse(undefined).success).toBe(true)
+  })
+})
+
 describe("vault_update_memory handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
@@ -991,19 +1011,6 @@ describe("vault_read_note outline mode", () => {
 })
 
 describe("vault_search description reflects EMBEDDING_ENABLED", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
-    })
-    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
-    return registeredCalls
-  }
-
   const findSearchDescription = (registeredCalls: RegisterToolCall[]): string => {
     const searchCall = registeredCalls.find(([name]) => name === TOOL_NAMES.VAULT_SEARCH)
 
@@ -1034,19 +1041,48 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
   })
 })
 
-describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
+describe("vault_delete_note Errors list reflects OBSIDIAN_SYNC", () => {
+  /** Each Errors entry up to its first em dash, in listed order. */
+  const deleteNoteErrorLeads = (env: Record<string, string>): string[] => {
+    const errorsSection = extractDescriptionSection({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+      startMarker: "Errors:",
+      endMarker: "\n\nReturns:",
     })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    const [, ...errorEntries] = errorsSection.split("\n")
+    return errorEntries.map((entry) => entry.slice(0, entry.indexOf(" — ")))
   }
 
+  it("lists the trash-move and trash-setting errors when the server does not sync", () => {
+    expect(deleteNoteErrorLeads({})).toEqual([
+      '- "cannot delete protected path"',
+      '- "path must end in …"',
+      '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked"',
+      '- "concurrent write in progress"',
+      '- "note not found: …"',
+      '- "cannot move to trash …',
+      '- any other "cannot move to trash …"',
+      '- any other "cannot delete …"',
+      '- "cannot read trash config from .obsidian/app.json"',
+      '- "cannot read daily notes config from .obsidian/daily-notes.json"',
+    ])
+  })
+
+  it("leaves those three errors out under OBSIDIAN_SYNC=true, where they cannot occur", () => {
+    expect(deleteNoteErrorLeads({ OBSIDIAN_SYNC: "true" })).toEqual([
+      '- "cannot delete protected path"',
+      '- "path must end in …"',
+      '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked"',
+      '- "concurrent write in progress"',
+      '- "note not found: …"',
+      '- any other "cannot delete …"',
+      '- "cannot read daily notes config from .obsidian/daily-notes.json"',
+    ])
+  })
+})
+
+describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
   const findRecallDescription = (registeredCalls: RegisterToolCall[]): string => {
     const recallCall = registeredCalls.find(([name]) => name === TOOL_NAMES.VAULT_MEMORY_RECALL)
 
@@ -1086,15 +1122,7 @@ describe("MEMORY_ENABLED=false", () => {
   const NON_MEMORY_TOOL_COUNT = ALL_TOOL_NAMES.length - MEMORY_TOOLS.length
 
   const registerWithDisabledMemory = (): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ MEMORY_ENABLED: "false" }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ MEMORY_ENABLED: "false" })
   }
 
   it("does not register memory tools", () => {
@@ -1133,15 +1161,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   const EXPECTED_NON_FILE_TOOLS = ALL_TOOL_NAMES.filter((toolName) => !FILE_TOOL_SET.has(toolName))
 
   const registerWithDisabledFileTools = (): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ FILE_TOOLS_ENABLED: "false" }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ FILE_TOOLS_ENABLED: "false" })
   }
 
   it("does not register file tools", () => {
@@ -1176,15 +1196,7 @@ describe("READONLY_MODE=true", () => {
   )
 
   const registerReadOnly = (extraEnv: Record<string, string> = {}): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ READONLY_MODE: "true", ...extraEnv }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ READONLY_MODE: "true", ...extraEnv })
   }
 
   it("does not register mutating tools", () => {
@@ -1958,18 +1970,6 @@ describe("file tool handlers", () => {
 })
 
 describe("DISABLED_TOOLS", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
-  }
-
   it("hides exactly the named tools and keeps every other tool", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_write_note,vault_find_orphans",
@@ -2033,6 +2033,25 @@ describe("DISABLED_TOOLS", () => {
       ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
     )
     expect(enabledReadNoteCall?.[1].description).toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
+  })
+
+  it("vault_read_note's board guidance names vault_list_tasks only while that tool is served", () => {
+    const readNoteRoutingLine = (disabledTools: string): string => {
+      return extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_READ_NOTE,
+        startMarker: "Prefer vault_search",
+        endMarker: "\n\nSection boundaries:",
+      })
+    }
+    const ROUTING_LINE_START = "Prefer vault_search when you don't know the path."
+    const ROUTING_LINE_END =
+      " Prefer vault_get_memory for About Me/ files (returns content without properties). To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links."
+
+    expect(readNoteRoutingLine("")).toBe(
+      `${ROUTING_LINE_START} For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's verbatim Markdown.${ROUTING_LINE_END}`,
+    )
+    expect(readNoteRoutingLine("vault_list_tasks")).toBe(`${ROUTING_LINE_START}${ROUTING_LINE_END}`)
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {

@@ -27,8 +27,8 @@ Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
 Example: vault_list_tasks({ top_level_only: true, path: "TASKS.md" }) — board cards only, excluding checklist sub-items
 
-When to use: Any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
-Prefer vault_read_note (heading mode) to read one specific board lane verbatim. Prefer vault_search for full-text queries over note content.
+When to use: Reading task status and order on one board (path + sort_by: "position"), and any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
+Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown. Prefer vault_search for full-text queries over note content.
 
 Parameters:
 - status: virtual values expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
@@ -60,6 +60,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
         cancelled: dateFilterSchema.describe("Cancelled date (❌ / [cancelled:: ]) bounds"),
         priority: z
           .array(z.enum(["highest", "high", "medium", "low", "lowest", "none"]))
+          .min(1)
           .optional()
           .describe(
             'Priority levels, OR-combined; "none" selects tasks with no priority signifier',

@@ -1121,7 +1121,8 @@ test.
 - New config gating axis → config matrix test in
   `server-integration.test.ts` (tool count + key behavior), and add the
   axis to `SURFACE_AXES` in `scripts/tool-surface-capture.ts` so the
-  snapshot combos cover it.
+  snapshot combos cover it. For a setting that changes only one tool's
+  text, add a single combo to `SURFACE_COMBOS` instead.
 - New prompt → assembly test verifying live vault data, not just the
   instruction wrapper.
 

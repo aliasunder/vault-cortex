@@ -90,7 +90,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 }) // first 20 lines of an oversized section
 
 When to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties. For an oversized note or section, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
-Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabledText("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
+Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_list_tasks", " For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's verbatim Markdown.")}${whenToolEnabledText("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabledText("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading. Paged reads normalize line endings to LF; unpaged reads stay byte-identical.
 
@@ -922,6 +922,18 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
     },
   )
 
+  // Under Obsidian Sync a delete never reads the "Deleted files" setting or
+  // touches .trash/, so the errors those two produce cannot occur.
+  const trashMoveErrorEntries = config.obsidianSyncEnabled
+    ? ""
+    : `
+- "cannot move to trash … — 100 collisions in .trash/" — .trash/ already holds this name and its numbered copies ("Plan 1.md" … "Plan 100.md"); clear old trash copies, then retry
+- any other "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed folder); the note stays put; fix .trash/, then retry`
+  const trashConfigErrorEntry = config.obsidianSyncEnabled
+    ? ""
+    : `
+- "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable; the delete is blocked because a guessed setting could let the retention sweep remove a note set to be kept forever; repair the file, then retry`
+
   registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
@@ -950,11 +962,8 @@ Errors:
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; retry
-- "note not found: …" — the note does not exist${whenToolEnabledText("vault_list_notes", "; verify the path with vault_list_notes before deleting")}
-- "cannot move to trash … — 100 collisions in .trash/" — .trash/ already holds this name and its numbered copies ("Plan 1.md" … "Plan 100.md"); clear old trash copies, then retry
-- any other "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed folder); the note stays put; fix .trash/, then retry
-- any other "cannot delete …" — the permanent delete failed (e.g. permissions); the note stays put; fix the cause, then retry
-- "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable; the delete is blocked because a guessed setting could let the retention sweep remove a note set to be kept forever; repair the file, then retry
+- "note not found: …" — the note does not exist${whenToolEnabledText("vault_list_notes", "; verify the path with vault_list_notes before deleting")}${trashMoveErrorEntries}
+- any other "cannot delete …" — the permanent delete failed (e.g. permissions); the note stays put; fix the cause, then retry${trashConfigErrorEntry}
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 
 Returns: Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<trash path>)" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
