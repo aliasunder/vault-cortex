@@ -2681,6 +2681,30 @@ describe("property keys containing JSON path syntax", () => {
 
     expect(results.map((result) => result.path)).toEqual(["Projects/published.md"])
   })
+
+  it.each([
+    { label: "positive", source: "1000000000000000128", differentNumber: "1000000000000000256" },
+    { label: "negative", source: "-1000000000000000128", differentNumber: "-1000000000000000256" },
+  ])(
+    "fullTextSearch matches $label scalar and list numbers at stored JavaScript precision",
+    ({ source, differentNumber }) => {
+      const propertyIndex = createPropertyTestIndex()
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "list.md", frontmatter: `rank: [${source}, ${source}]` },
+        { filePath: "scalar.md", frontmatter: `rank: ${source}` },
+        { filePath: "text.md", frontmatter: `rank: ${JSON.stringify(String(Number(source)))}` },
+        { filePath: "different.md", frontmatter: `rank: ${differentNumber}` },
+        { filePath: "wrong-key.md", frontmatter: `other: ${source}` },
+      ])
+
+      const results = propertyIndex.fullTextSearch(
+        { query: "searchable", filters: { properties: { rank: Number(source) } } },
+        logger,
+      )
+
+      expect(results.map((result) => result.path).toSorted()).toEqual(["list.md", "scalar.md"])
+    },
+  )
 })
 
 describe("displayed property value grouping", () => {

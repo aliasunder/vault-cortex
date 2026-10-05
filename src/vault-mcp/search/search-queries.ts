@@ -196,6 +196,8 @@ export const fullTextSearch = (
    * - A list matches any equal member; a scalar must equal the value.
    * - Text "4" never matches number 4 here; searchByProperty also matches
    *   complete finite numeric input strings to numbers.
+   * - Numeric JSON values compare as REAL to retain stored JavaScript precision;
+   *   other JSON types keep their original value for exact text and checkbox matching.
    */
   if (params.filters?.properties) {
     for (const [key, value] of Object.entries(params.filters.properties)) {
@@ -204,8 +206,14 @@ export const fullTextSearch = (
         WHERE property.key = ?
           AND (
             (property.type = 'array'
-             AND EXISTS (SELECT 1 FROM json_each(property.value) WHERE value = ?))
-            OR (property.type != 'array' AND property.value = ?)
+             AND EXISTS (
+               SELECT 1 FROM json_each(property.value) element
+               WHERE CASE WHEN element.type IN ('integer', 'real')
+                          THEN CAST(element.value AS REAL) ELSE element.value END = ?
+             ))
+            OR (property.type != 'array'
+                AND CASE WHEN property.type IN ('integer', 'real')
+                         THEN CAST(property.value AS REAL) ELSE property.value END = ?)
           )
       )`)
       // better-sqlite3 cannot bind a JS boolean, and SQLite's JSON functions
