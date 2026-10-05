@@ -230,6 +230,22 @@ const listTextDeletionEdits = (params: {
   const removedLeadingBreaks = countLineBreaksStartingAt(removedText, 0)
   const removedTrailingBreaks = countLineBreaksEndingAt(removedText, removedText.length)
   const edits: EmptyLineEdit[] = []
+
+  // Matches made only of line breaks all sit in one run of them, so a position
+  // inside the last run measured reuses it; rescanning the run for every match
+  // would be quadratic in its length. Starts as an empty range before the body.
+  let lastLineBreakRun = { start: -1, end: -1 }
+  const findLineBreakRunAt = (position: number): Readonly<{ start: number; end: number }> => {
+    const isInLastRun = position >= lastLineBreakRun.start && position <= lastLineBreakRun.end
+
+    if (isInLastRun) return lastLineBreakRun
+    lastLineBreakRun = {
+      start: position - countLineBreaksEndingAt(body, position),
+      end: position + countLineBreaksStartingAt(body, position),
+    }
+    return lastLineBreakRun
+  }
+
   // Each match's position depends on every part before it, so the walk carries
   // running totals; recomputing them per match would be quadratic in matches.
   let updatedOffset = 0
@@ -245,8 +261,8 @@ const listTextDeletionEdits = (params: {
     if (!sitsOnLineBoundaries) continue
     const matchStart = updatedOffset + matchIndex * removedText.length
     const matchEnd = matchStart + removedText.length
-    const breaksAboveMatch = countLineBreaksEndingAt(body, matchStart)
-    const breaksBelowMatch = countLineBreaksStartingAt(body, matchEnd)
+    const breaksAboveMatch = matchStart - findLineBreakRunAt(matchStart).start
+    const breaksBelowMatch = findLineBreakRunAt(matchEnd).end - matchEnd
     edits.push({
       boundary: lineBreaksBeforeMatch,
       gapAbove: countEmptyLinesInBreaks({

@@ -120,12 +120,17 @@ type PooledRun = Readonly<{ run: EmptyLineRun; widestGap: number }>
 
 /** The empty lines directly above `boundary` plus those at and below it. */
 const findEmptyRunAt = (lines: readonly string[], boundary: number): EmptyLineRun => {
-  const lastTextAbove = lines.findLastIndex((line, index) => index < boundary && line !== "")
-  const firstTextBelow = lines.findIndex((line, index) => index >= boundary && line !== "")
-  return {
-    start: lastTextAbove + 1,
-    end: firstTextBelow === -1 ? lines.length : firstTextBelow,
+  // Scanning outward from the boundary costs the run's length rather than the
+  // note's; each scan's stopping point is the answer, so loops are the plainest shape.
+  let start = boundary
+  while (start > 0 && lines[start - 1] === "") {
+    start--
   }
+  let end = boundary
+  while (end < lines.length && lines[end] === "") {
+    end++
+  }
+  return { start, end }
 }
 
 const listDroppedIndexes = ({ run, widestGap }: PooledRun): number[] => {
@@ -157,11 +162,18 @@ export const collapseEmptyLineRunsAtEdits = (params: {
   // Keyed by the run's first line, so a second edit in the same run widens the
   // pooled gap instead of replacing it.
   const pooledRunsByStart = new Map<number, PooledRun>()
+
+  // Many edits can land in one long run (every match of a replace-all), so an
+  // edit inside the previous edit's run reuses it rather than rescanning it,
+  // which would be quadratic. Starts as an empty range before line 0.
+  let previousRun: EmptyLineRun = { start: -1, end: -1 }
   for (const edit of edits) {
-    const run = findEmptyRunAt(lines, edit.boundary)
+    const isInPreviousRun = edit.boundary >= previousRun.start && edit.boundary <= previousRun.end
+    const run = isInPreviousRun ? previousRun : findEmptyRunAt(lines, edit.boundary)
     const pooledGap = pooledRunsByStart.get(run.start)?.widestGap ?? 0
     const widestGap = Math.max(pooledGap, edit.gapAbove, edit.gapBelow)
     pooledRunsByStart.set(run.start, { run, widestGap })
+    previousRun = run
   }
 
   const droppedIndexes = new Set([...pooledRunsByStart.values()].flatMap(listDroppedIndexes))
