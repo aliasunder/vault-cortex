@@ -290,7 +290,10 @@ describe("loadConfig", () => {
   })
 
   describe("ORPHAN_EXCLUDE_FOLDERS (comma-separated)", () => {
-    it.each(["", "   "])("treats %j as no override", (input) => {
+    it.each([
+      { label: "an empty value", input: "" },
+      { label: "a whitespace-only value", input: "   " },
+    ])("treats $label as no override", ({ input }) => {
       expect(loadConfig({ ORPHAN_EXCLUDE_FOLDERS: input }).orphanExcludeFoldersOverride).toBeNull()
     })
 

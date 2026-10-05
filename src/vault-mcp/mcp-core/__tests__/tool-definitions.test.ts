@@ -1522,23 +1522,29 @@ describe("vault_find_orphans live folder defaults", () => {
     ])
   })
 
-  it("returns every folder for request [] and bypasses malformed settings", async () => {
-    const { queryPaths, requestLogger } = await setupOrphans({
-      settings: "broken",
-      env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" },
-    })
-    expect(await queryPaths({ exclude_folders: [] })).toEqual([
-      "Journal/daily.md",
-      "Journal/nested/daily.md",
-      "JournalOld/note.md",
-      "ordinary.md",
-      "Daily Notes/daily.md",
-      "Templates/template.md",
-      "About Me/memory.md",
-      "Archive/note.md",
-    ])
-    expect(requestLogger.warn).not.toHaveBeenCalled()
-  })
+  it.each([
+    { label: "without an environment override", env: {} },
+    { label: "over an environment override", env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" } },
+  ])(
+    "returns every folder for request [] $label and bypasses malformed settings",
+    async ({ env }) => {
+      const { queryPaths, requestLogger } = await setupOrphans({
+        settings: "broken",
+        env,
+      })
+      expect(await queryPaths({ exclude_folders: [] })).toEqual([
+        "Journal/daily.md",
+        "Journal/nested/daily.md",
+        "JournalOld/note.md",
+        "ordinary.md",
+        "Daily Notes/daily.md",
+        "Templates/template.md",
+        "About Me/memory.md",
+        "Archive/note.md",
+      ])
+      expect(requestLogger.warn).not.toHaveBeenCalled()
+    },
+  )
 
   it("uses a comma-only environment list as no exclusions", async () => {
     const { queryPaths, requestLogger } = await setupOrphans({
