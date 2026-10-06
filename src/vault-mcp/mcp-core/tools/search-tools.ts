@@ -158,7 +158,7 @@ Example: vault_search_by_tag({ tag: "project" })
 
 When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
-Past the 20-result cap, query each child tag separately and the parent tag with exact=true${whenToolEnabledText("vault_search_by_property", ', or list every note carrying one exact tag with vault_search_by_property({ key: "tags", value: "<tag>", limit: 200 })')}.
+Past the 20-result cap, query each child tag separately and the parent tag with exact=true${whenToolEnabledText("vault_search_by_property", ', or list notes carrying one exact tag with vault_search_by_property({ key: "tags", value: "<tag>", limit: 200 })')}.
 
 Parameters:
 - Prefix mode follows the "/" separator: "project" matches itself and its children but does NOT match "my-project" or "projects".
@@ -456,7 +456,7 @@ Prefer vault_search when you also have a text query (it supports property filter
 Parameters:
 - key and text values match exactly and case-sensitively, with no partial matching or globbing.
 - A value written as a complete, finite YAML number (signed or leading-zero decimals, .5, 4., exponents, 0x, 0o) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary, "1e999") matches only as text. Stored precision applies: large integers can round together, and "1e-999" matches 0.
-- Pass a checkbox as "1" or "0" (true is stored as 1, false as 0); "1.0" does not match a checked checkbox.
+- Pass a checkbox as "1" (checked) or "0" (unchecked); a checkbox matches only as text, so "1.0" does not match.
 - An array element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
 - limit applies after sorting. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
@@ -501,7 +501,7 @@ Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 Example: vault_get_backlinks({ path: "Diagrams/architecture.canvas" })
 
 When to use: Understanding what references a note or canvas, assessing its connectivity before editing or deleting, or finding related notes via the graph.
-For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
+For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes nothing else links to, use vault_find_orphans.
 
 Parameters:
 - path: exact vault-relative path including .md or .canvas extension, case-sensitive.

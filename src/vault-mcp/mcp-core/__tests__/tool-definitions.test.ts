@@ -2401,7 +2401,7 @@ describe("DISABLED_TOOLS", () => {
       "Past the 20-result cap, query each child tag separately and the parent tag with exact=true"
 
     expect(pastCapLine("")).toBe(
-      `${CHILD_TAG_ROUTE}, or list every note carrying one exact tag with vault_search_by_property({ key: "tags", value: "<tag>", limit: 200 }).`,
+      `${CHILD_TAG_ROUTE}, or list notes carrying one exact tag with vault_search_by_property({ key: "tags", value: "<tag>", limit: 200 }).`,
     )
     expect(pastCapLine("vault_search_by_property")).toBe(`${CHILD_TAG_ROUTE}.`)
   })
