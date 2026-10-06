@@ -592,9 +592,8 @@ const discoverBacklinksFromFilesystem = async (
         }
         return linkTargets.some(resolvesToMovedNote) ? candidatePath : null
       } catch (error) {
-        // A failed file read and YAML the parser cannot read both land here;
-        // either way the note is skipped rather than aborting the whole scan
-        logger.warn("backlink scan: skipping unreadable note", {
+        // Skipped rather than aborting the whole scan
+        logger.warn("backlink scan: skipping a note that could not be read or parsed", {
           path: candidatePath,
           error: describeError(error),
         })

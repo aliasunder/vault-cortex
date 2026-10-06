@@ -619,11 +619,8 @@ const UNCLOSED_BLOCK_NOTE = "---\ntitle: [unclosed\n---\nBody line\n"
 const UNCLOSED_BLOCK_MESSAGE =
   "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
 
-const REPLACE_STEP =
-  "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties."
-
-const CARRY_TEXT_STEP =
-  "replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines."
+const CARRY_TEXT_REPAIR_STEPS =
+  "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties; 4. add the copied text back to the body with vault_patch_note, without the --- lines."
 
 const OPENING_BLOCK_STEP =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
@@ -662,7 +659,7 @@ describe("unreadable properties blocks", () => {
 
     expect(result.isError).toBe(true)
     expect(textContent(result)).toBe(
-      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
     )
     expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
   })
@@ -738,7 +735,7 @@ describe("unreadable properties blocks", () => {
 
     expect(result.isError).toBe(true)
     expect(textContent(result)).toBe(
-      `[Error]: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+      `[Error]: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it. ${CARRY_TEXT_REPAIR_STEPS}`,
     )
   })
 
@@ -805,7 +802,7 @@ describe("unreadable properties blocks", () => {
 
     expect(result.isError).toBe(true)
     expect(textContent(result)).toBe(
-      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
     )
     expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
   })
@@ -817,7 +814,7 @@ describe("unreadable properties blocks", () => {
 
     expect(result.isError).toBe(true)
     expect(textContent(result)).toBe(
-      `[Error]: memory file "About Me/Broken Memory.md": ${UNCLOSED_BLOCK_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+      `[Error]: memory file "About Me/Broken Memory.md": ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
     )
   })
 })

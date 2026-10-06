@@ -212,17 +212,21 @@ describe("registerTools", () => {
     )
   })
 
-  it("vault_patch_note's example edits a note that is not a task board", () => {
+  it("vault_patch_note's examples edit notes that are not task boards", () => {
     // Task boards belong to vault_create_task and vault_update_task, so an
     // example that appends a card would steer agents to the wrong tool.
-    const example = extractDescriptionSection({
+    const examples = extractDescriptionSection({
       registeredCalls: calls,
       toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
       startMarker: "Example: vault_patch_note",
       endMarker: "\n\nWhen to use:",
     })
-    expect(example).toBe(
-      'Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })',
+    expect(examples).toBe(
+      [
+        'Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })',
+        'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })',
+        'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "insert_before", heading: "Phase 2", content: "## Phase 1\\nDone.\\n\\n" })',
+      ].join("\n"),
     )
   })
 

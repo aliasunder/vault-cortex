@@ -16,11 +16,11 @@ const failWithCause = async (): Promise<string> => {
 
 const everyToolServed = (): boolean => true
 
-const REPLACE_STEP =
-  "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties."
+const CARRY_TEXT_REPAIR_STEPS =
+  "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties; 4. add the copied text back to the body with vault_patch_note, without the --- lines."
 
-const CARRY_TEXT_STEP =
-  "replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines."
+const TAG_REPAIR_STEPS =
+  "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties. The tag cannot be kept; write the value without it."
 
 const OBSIDIAN_ONLY_STEP = "Fix the properties block in Obsidian."
 
@@ -104,7 +104,7 @@ describe("safeHandlerContent", () => {
       content: [
         {
           type: "text",
-          text: `[Error]: ${INVALID_YAML_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+          text: `[Error]: ${INVALID_YAML_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
         },
       ],
       isError: true,
@@ -135,25 +135,25 @@ describe("safeHandler", () => {
       label: "invalid YAML",
       kind: "invalid-yaml" as const,
       message: INVALID_YAML_MESSAGE,
-      text: `[Error]: ${INVALID_YAML_MESSAGE}. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+      text: `[Error]: ${INVALID_YAML_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
     },
     {
       label: "a block that is not key-value pairs",
       kind: "not-key-value" as const,
       message: "properties block holds a list, not key-value pairs",
-      text: `[Error]: properties block holds a list, not key-value pairs. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+      text: `[Error]: properties block holds a list, not key-value pairs. ${CARRY_TEXT_REPAIR_STEPS}`,
     },
     {
       label: "an explicit tag",
       kind: "explicit-tag" as const,
       message: "properties block uses the YAML tag !done",
-      text: `[Error]: properties block uses the YAML tag !done. ${REPLACE_STEP} The tag cannot be kept; write the value without it.`,
+      text: `[Error]: properties block uses the YAML tag !done. ${TAG_REPAIR_STEPS}`,
     },
     {
       label: "a message that already ends with a period",
       kind: "invalid-yaml" as const,
       message: 'move aborted: could not read "A.md": broken. Nothing was written.',
-      text: `[Error]: move aborted: could not read "A.md": broken. Nothing was written. ${REPLACE_STEP} ${CARRY_TEXT_STEP}`,
+      text: `[Error]: move aborted: could not read "A.md": broken. Nothing was written. ${CARRY_TEXT_REPAIR_STEPS}`,
     },
   ])("appends the repair steps for $label", async ({ kind, message, text }) => {
     const result = await runFailingCall({

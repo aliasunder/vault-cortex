@@ -2168,7 +2168,7 @@ describe("moveNote — filesystem backlink verification", () => {
     expect(await readNote("Good.md")).toBe("Link: [[Bar]]\n")
     // The ghost note should have been logged as a warning
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      "backlink scan: skipping unreadable note",
+      "backlink scan: skipping a note that could not be read or parsed",
       expect.objectContaining({ path: "Ghost.md" }),
     )
   })

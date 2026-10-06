@@ -297,12 +297,13 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
       description: `Append a dated entry to a section of a memory file in ${config.memoryDir}/. The server prefixes the date automatically ("- **YYYY-MM-DD**: entry text") and inserts newest-first by default. Idempotent — an exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare \`entry-policy: living\` in frontmatter (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries is expected maintenance rather than a violation.
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
+Example: vault_update_memory({ file: "Routines", section: "Current routines", entry: "Gym Mon/Wed at 6am", options: { date: "2026-10-01", position: "bottom" } }) — a backdated entry placed below the existing ones
 
 When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
 Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note). A new section name nearly identical to an existing heading (an HTML-entity slip, typo, or spacing variation) is rejected, so a mistyped name cannot silently fragment the file — names differing only in digits (e.g. "2025" vs "2026") are distinct.
 
 Parameters:
-- options.position — "top" (default, newest-first) inserts above existing entries; "bottom" appends below them.
+- options.date only sets the bullet's date; placement follows options.position, so a backdated entry is not sorted among the existing ones.
 
 Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.
 
@@ -317,7 +318,7 @@ Errors:
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
+Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a note to fill in the placeholder scope callout when the file is new; an exact duplicate returns "Entry already exists in ${config.memoryDir}/<file>.md → ## <section> — nothing was written."`,
       inputSchema: {
         file: z
           .string()
@@ -398,6 +399,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
       description: `Delete a single dated entry from a memory file in ${config.memoryDir}/. Both date and entry text are required for exact matching — ensures only the intended entry is removed.
 
 Example: vault_delete_memory({ file: "Opinions", section: "AI tooling & memory (newest first)", date: "2026-05-01", entry: "Prefer X over Y" })
+Example: vault_delete_memory({ file: "Routines", section: "Current routines", date: "2026-03-10", entry: "Gym Tue/Thu at 7am" }) — prune an expired entry from an entry-policy: living file
 
 When to use: Removing an entry that was wrong when it was written — a mistake, a misattribution, or something never true. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state via vault_update_memory instead (newest-first naturally supersedes). The exception is a file whose frontmatter declares \`entry-policy: living\` (check via vault_list_memory_files) — a current-state file where deleting an expired entry is the intended maintenance. Call vault_get_memory(file, section) first to see exact entry text for matching.
 Prefer vault_delete_note for deleting entire non-protected notes.
@@ -417,7 +419,7 @@ Errors:
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Returns: Confirmation message.`,
+Returns: "Deleted entry from ${config.memoryDir}/<file>.md → ## <section>".`,
       inputSchema: {
         file: z
           .string()

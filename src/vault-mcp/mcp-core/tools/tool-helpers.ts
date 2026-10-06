@@ -142,18 +142,15 @@ const describePropertiesBlockRepair = (params: {
 }): string => {
   if (!params.repairToolsServed) return "Fix the properties block in Obsidian."
 
-  const replaceStep =
-    "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties."
-
   switch (params.kind) {
     case "explicit-tag":
-      return `${replaceStep} The tag cannot be kept; write the value without it.`
+      return "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties. The tag cannot be kept; write the value without it."
     // replace drops the whole block, and a block of invalid YAML, a list or a
     // single value is often prose written as body text, so that text has to
-    // be carried over
+    // be copied before the replace and put back after it
     case "invalid-yaml":
     case "not-key-value":
-      return `${replaceStep} replace removes everything between the --- lines, so first copy any text there that is not a property, then add it back to the body with vault_patch_note, without the --- lines.`
+      return "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties; 4. add the copied text back to the body with vault_patch_note, without the --- lines."
   }
 }
 
