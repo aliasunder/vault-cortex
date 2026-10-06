@@ -640,10 +640,8 @@ const moveNote = async (
       pathB: newPath,
     }))
 
-  // Guards above run on the caller's canonical spelling (stable error
-  // messages on every platform); everything below keys on the filesystem listing's
-  // spelling. Listed inputs take the ternary's sync arm — no await before
-  // the lock — so lock acquisition stays synchronous for the normal path.
+  // Guards use canonical spelling; file operations use the listing's spelling.
+  // Ordinary moves with listed inputs lock immediately, so conflicting writes fail fast.
   const oldPath = allNotePaths.includes(canonicalOldPath)
     ? canonicalOldPath
     : await listedSpellingForAliasedPath({
