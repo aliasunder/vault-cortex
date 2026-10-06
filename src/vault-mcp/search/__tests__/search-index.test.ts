@@ -6330,7 +6330,7 @@ describe("canvas note catalog reuse", () => {
         },
         logger,
       ),
-    ).toThrow(poison.message)
+    ).toThrow(new Error(poison.message))
     poison.disarm()
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
@@ -6379,7 +6379,7 @@ describe("canvas note catalog reuse", () => {
       throw failure
     })
     await expect(search.rebuildFromVault({ vaultPath: directory }, rebuildLogger)).rejects.toThrow(
-      failure.message,
+      failure,
     )
     search.upsertNonMdFile("Target.canvas", 100)
     scans.mockClear()
