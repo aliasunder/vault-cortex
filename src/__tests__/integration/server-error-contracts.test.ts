@@ -905,20 +905,28 @@ describe("unreadable properties blocks", () => {
     expect(await readFile(fullPath, "utf8")).toBe(LIST_BLOCK_NOTE)
   })
 
-  it("refuses a vault_read_note properties_only read of invalid YAML with the repair steps", async () => {
-    await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+  // The note has a "Plan" heading, so only the broken block can fail the heading read
+  it.each([
+    { mode: "properties_only", modeArgs: { properties_only: true } },
+    { mode: "outline", modeArgs: { outline: true } },
+    { mode: "heading", modeArgs: { heading: "Plan" } },
+  ])(
+    "refuses a vault_read_note $mode read of invalid YAML with the repair steps",
+    async ({ modeArgs }) => {
+      await plantNote("Broken Properties.md", "---\ntitle: [unclosed\n---\n## Plan\nStep one\n")
 
-    const result = await callTool({
-      client,
-      name: "vault_read_note",
-      args: { path: "Broken Properties.md", properties_only: true },
-    })
+      const result = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Broken Properties.md", ...modeArgs },
+      })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
-    )
-  })
+      expect(result.isError).toBe(true)
+      expect(textContent(result)).toBe(
+        `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+      )
+    },
+  )
 
   it("aborts a vault_move_note of a note whose block is not valid YAML, writing nothing", async () => {
     const fullPath = await plantNote("Broken Move.md", UNCLOSED_BLOCK_NOTE)

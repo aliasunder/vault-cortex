@@ -2608,6 +2608,69 @@ describe("DISABLED_TOOLS", () => {
     expect(ambiguousHeadingEntry).toBe(expectedEntry)
   })
 
+  it.each([
+    {
+      label: "names both partial-edit tools while they are served",
+      disabledTools: "",
+      expectedEntry:
+        '- "note already exists" — set overwrite: true to replace it, or use vault_patch_note / vault_replace_in_note for partial edits',
+    },
+    {
+      label: "names only vault_patch_note when vault_replace_in_note is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedEntry:
+        '- "note already exists" — set overwrite: true to replace it, or use vault_patch_note for partial edits',
+    },
+    {
+      label: "names only vault_replace_in_note when vault_patch_note is disabled",
+      disabledTools: "vault_patch_note",
+      expectedEntry:
+        '- "note already exists" — set overwrite: true to replace it, or use vault_replace_in_note for partial edits',
+    },
+    {
+      label: "offers only overwrite when both partial-edit tools are disabled",
+      disabledTools: "vault_patch_note,vault_replace_in_note",
+      expectedEntry: '- "note already exists" — set overwrite: true to replace it',
+    },
+  ])("vault_write_note's already-exists entry $label", ({ disabledTools, expectedEntry }) => {
+    const alreadyExistsEntry = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_WRITE_NOTE,
+      startMarker: '- "note already exists"',
+      endMarker: '\n- "path must end',
+    })
+    expect(alreadyExistsEntry).toBe(expectedEntry)
+  })
+
+  it.each([
+    {
+      label: "names vault_write_note and vault_read_note while they are served",
+      disabledTools: "",
+      expectedLine:
+        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a block. Arrays are replaced entirely, not appended to.",
+    },
+    {
+      label: "drops the vault_write_note sentence when that tool is disabled",
+      disabledTools: "vault_write_note",
+      expectedLine:
+        "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a block. Arrays are replaced entirely, not appended to.",
+    },
+    {
+      label: "drops the vault_read_note sentence when that tool is disabled",
+      disabledTools: "vault_read_note",
+      expectedLine:
+        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Arrays are replaced entirely, not appended to.",
+    },
+  ])("vault_update_properties's routing line $label", ({ disabledTools, expectedLine }) => {
+    const routingLine = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
+      startMarker: "the full note body.\n",
+      endMarker: "\n\nErrors:",
+    })
+    expect(routingLine).toBe(`the full note body.\n${expectedLine}`)
+  })
+
   const PATCH_NOTE_WHEN_TO_USE =
     "When to use: Modifying part of an existing note without overwriting the entire body."
   const PATCH_NOTE_WRITE_NOTE_SENTENCE =

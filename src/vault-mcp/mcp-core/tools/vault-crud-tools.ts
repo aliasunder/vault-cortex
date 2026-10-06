@@ -361,6 +361,15 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
     },
   )
 
+  // The "note already exists" remedy names only the partial-edit tools the
+  // server serves, and drops the clause when it serves neither.
+  const partialEditToolNames = (["vault_patch_note", "vault_replace_in_note"] as const)
+    .filter(isToolEnabled)
+    .join(" / ")
+  const partialEditAdvice = partialEditToolNames
+    ? `, or use ${partialEditToolNames} for partial edits`
+    : ""
+
   registerTool(
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
@@ -374,7 +383,7 @@ When to use: Creating a new note. Set overwrite: true only when you intend to re
 Prefer vault_update_properties for property-only edits (no body round-trip).${whenToolEnabledText("vault_update_memory", `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`)}
 
 Errors:
-- "note already exists" — set overwrite: true to replace it, or use ${whenToolEnabledText("vault_patch_note", "vault_patch_note / ")}vault_replace_in_note for partial edits
+- "note already exists" — set overwrite: true to replace it${partialEditAdvice}
 - "path must end in …" — add the .md extension
 - "cannot write note …: that path is not a file" — a folder already has this name; choose another path
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
@@ -1255,7 +1264,7 @@ Example: vault_update_properties({ path: "Projects/todo.md", properties: { statu
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })
 
 When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.
-Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a block. Arrays are replaced entirely, not appended to.
+${whenToolEnabledText("vault_write_note", "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). ")}${whenToolEnabledText("vault_read_note", "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a block. ")}Arrays are replaced entirely, not appended to.
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
