@@ -652,13 +652,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           const excludeFolders =
             exclude_folders ??
             (await readEffectiveOrphanExcludeFolders({ config, vaultPath }, reqLogger))
-          return search.findOrphans(
-            {
-              excludeFolders: [...excludeFolders],
-              limit,
-            },
-            reqLogger,
-          )
+          return search.findOrphans({ excludeFolders, limit }, reqLogger)
         },
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })

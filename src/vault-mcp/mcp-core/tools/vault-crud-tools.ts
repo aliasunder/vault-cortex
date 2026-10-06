@@ -489,7 +489,8 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     ),
   ])
 
-  // The edit and delete tools' Errors entries keep a remedy when the tool they point to is disabled.
+  // The edit and delete tools' not-found remedies name vault_list_notes or vault_read_note
+  // only while that tool is served; otherwise they fall back to a check that needs no tool.
   const listNotesEnabled = isToolEnabled("vault_list_notes")
   const noteNotFoundCheckRemedy = listNotesEnabled
     ? "check vault_list_notes for valid paths"
@@ -1123,12 +1124,14 @@ Returns: Confirmation message naming the outcome — "Deleted <path>" for perman
               pruneEmptyFolders,
               trashOption,
               // Only "system" moves are swept later, so only they are recorded;
-              // "local" is the user's keep-forever trash.
+              // "local" is Obsidian's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
-              // Always passed. If an earlier delete left a row for this .trash/
-              // path (the user emptied .trash/ by hand), the sweep would still
-              // remove whatever lands there, including a "local" note meant
-              // to be kept.
+              // The retention sweep deletes the file at each expired
+              // trash_entries row's path, and a row can outlive its file when
+              // .trash/ is emptied by hand. A move that does not record clears
+              // the row at its landed path, so the sweep cannot remove the new
+              // file, such as a "local" note meant to be kept. A "none" delete
+              // lands nothing in .trash/ and never calls it.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,

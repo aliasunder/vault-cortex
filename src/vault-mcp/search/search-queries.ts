@@ -1482,7 +1482,7 @@ export const getOutgoingLinks = (
 /** Finds notes with no incoming links (orphans). */
 export const findOrphans = (
   context: SearchQueryContext,
-  params: { excludeFolders?: string[] | undefined; limit?: number | undefined },
+  params: { excludeFolders?: readonly string[] | undefined; limit?: number | undefined },
   logger: Logger,
 ): NoteMetadata[] => {
   const excludeFolders = params.excludeFolders ?? []

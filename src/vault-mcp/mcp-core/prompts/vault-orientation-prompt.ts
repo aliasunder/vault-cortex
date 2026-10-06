@@ -173,13 +173,11 @@ export const registerVaultOrientationPrompt = ({
         )
         const orphanResults = search.findOrphans(
           {
-            excludeFolders: [
-              ...resolveEffectiveOrphanExcludeFolders({
-                orphanExcludeFoldersOverride: config.orphanExcludeFoldersOverride,
-                memoryDir: config.memoryDir,
-                dailyNotesFolder: dailyNotesConfig.folder,
-              }),
-            ],
+            excludeFolders: resolveEffectiveOrphanExcludeFolders({
+              orphanExcludeFoldersOverride: config.orphanExcludeFoldersOverride,
+              memoryDir: config.memoryDir,
+              dailyNotesFolder: dailyNotesConfig.folder,
+            }),
             limit: ORIENTATION_ORPHAN_LIMIT + 1,
           },
           reqLogger,
@@ -321,8 +319,8 @@ export const registerVaultOrientationPrompt = ({
           brokenLinks: brokenLinkResult.count,
         })
         return textResult(orientationSurvey)
-      } catch (err) {
-        const message = describeError(err)
+      } catch (error) {
+        const message = describeError(error)
         reqLogger.error("prompt_error", { error: message })
         const fallbackTools = formatEnabledToolList([
           "vault_list_tags",
