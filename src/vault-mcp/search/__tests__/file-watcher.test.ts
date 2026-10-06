@@ -931,12 +931,12 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
       await realEmbed(params, requestLogger)
       recoveredFinished.resolve(undefined)
     })
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation((message) => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation((message) => {
       if (message === "file content embedding failed") failureLogged.resolve(undefined)
     })
     const debugSpy = vi.spyOn(logger, "debug")
     onTestFinished(() => {
-      warnSpy.mockRestore()
+      errorSpy.mockRestore()
       debugSpy.mockRestore()
     })
     const filePath = join(testVault, "content.txt")
@@ -952,7 +952,7 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     releaseFailure.reject(new Error("controlled file model failure"))
     await failureLogged.promise
     await recoveredEntered.promise
-    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content embedding failed", {
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("file content embedding failed", {
       path: "content.txt",
       error: "[Error]: controlled file model failure",
     })

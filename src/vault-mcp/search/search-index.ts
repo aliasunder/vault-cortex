@@ -310,7 +310,7 @@ export type OutgoingLinkEntry = {
 // Links between notes are tracked in a `links` table (source → target)
 // to power backlink queries, outgoing link lookups, and orphan detection.
 // The link grammar — recognizing, parsing, and resolving links — lives in
-// ../links.ts; this section only composes it for indexing.
+// ../obsidian-markdown/links.ts; this section only composes it for indexing.
 //
 // Indexing flow:
 //   1. links.extractFromBody() parses wikilinks ([[target]]) and markdown
@@ -616,8 +616,8 @@ export const createSearchIndex = (
   }
 
   // Prepared statements are compiled once here and reused across all calls.
-  // db.prepare() caches the compiled SQL — calling it inside a function
-  // would re-compile on every invocation.
+  // Each returned statement retains its compiled SQL; preparing inside an
+  // operation would compile it again on every invocation.
   const upsertNotesStmt = db.prepare(`
     INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1157,8 +1157,28 @@ export const createSearchIndex = (
 
     // Re-resolve unresolved links that now match this non-md file — upgrade
     // raw targets (e.g. "Trip Route") to resolved paths ("Trip Route.canvas").
+    const foldedFilePath = filePath.toLowerCase()
+    const foldedBasePath = basePath.toLowerCase()
+    const matchesNewFile = (link: { source: string; target: string }): boolean => {
+      const relativeTarget = posix.join(posix.dirname(link.source), link.target)
+      const targetSuffix = `/${link.target.toLowerCase()}`
+
+      // This broad suffix check includes SQLite LIKE's ASCII case folding;
+      // the resolver remains authoritative for match ordering and exact case.
+      return (
+        filePath === link.target ||
+        filePath === relativeTarget ||
+        foldedFilePath.endsWith(targetSuffix) ||
+        basePath === link.target ||
+        basePath === relativeTarget ||
+        foldedBasePath.endsWith(targetSuffix) ||
+        baseFilename === link.target
+      )
+    }
     const unresolvedLinks = selectUnresolvedLinksStmt.all()
     for (const link of unresolvedLinks) {
+      if (!matchesNewFile(link)) continue
+
       const resolvedPath = resolveNonMarkdownFile({ target: link.target, sourcePath: link.source })
 
       if (resolvedPath !== null) {
@@ -2076,9 +2096,14 @@ export const createSearchIndex = (
       if (!fileStat) return null
       return { relativePath: file.relativePath, bytes: fileStat.size }
     }
-    const nonMarkdownFileSizes = (await Promise.all(allNonMdFiles.map(readFileSize))).filter(
-      (entry) => entry !== null,
-    )
+    /** Bound filesystem work so a large vault cannot open every file at once. */
+    const REBUILD_IO_CONCURRENCY = 16
+    const nonMarkdownFileSizeResults = await mapWithConcurrency({
+      items: allNonMdFiles,
+      concurrency: REBUILD_IO_CONCURRENCY,
+      mapper: readFileSize,
+    })
+    const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
     const canvasFiles = allNonMdFiles.filter((file) => file.relativePath.endsWith(".canvas"))
     // PDF and text files are only read when file content FTS is enabled —
     // without the tables, the extraction is wasted I/O.
@@ -2093,9 +2118,12 @@ export const createSearchIndex = (
       : []
 
     // Read canvas files for content indexing + link extraction.
-    const readCanvasContent = async (
-      file: RebuildFilePaths,
-    ): Promise<RebuildFileContent | null> => {
+    const readRebuildFileContent = async (params: {
+      file: RebuildFilePaths
+      sourceKind: "canvas file" | "text file" | "note"
+    }): Promise<RebuildFileContent | null> => {
+      const { file, sourceKind } = params
+
       try {
         const [content, fileStat] = await Promise.all([
           readFile(file.absolutePath, "utf8"),
@@ -2108,16 +2136,19 @@ export const createSearchIndex = (
           sizeBytes: fileStat.size,
         }
       } catch (error) {
-        logger.warn("skipped unreadable canvas file during rebuild", {
+        logger.warn(`skipped unreadable ${sourceKind} during rebuild`, {
           path: file.relativePath,
           error: describeError(error),
         })
         return null
       }
     }
-    const canvasContents = (await Promise.all(canvasFiles.map(readCanvasContent))).filter(
-      (entry) => entry !== null,
-    )
+    const canvasContentResults = await mapWithConcurrency({
+      items: canvasFiles,
+      concurrency: REBUILD_IO_CONCURRENCY,
+      mapper: (file) => readRebuildFileContent({ file, sourceKind: "canvas file" }),
+    })
+    const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
     // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
     const extractPdfContent = async (file: {
@@ -2158,55 +2189,19 @@ export const createSearchIndex = (
     const pdfContents = pdfResults.filter((entry) => entry !== null)
 
     // Read text files for content indexing (raw UTF-8).
-    const readTextFileContent = async (
-      file: RebuildFilePaths,
-    ): Promise<RebuildFileContent | null> => {
-      try {
-        const [content, fileStat] = await Promise.all([
-          readFile(file.absolutePath, "utf8"),
-          stat(file.absolutePath),
-        ])
-        return {
-          relativePath: file.relativePath,
-          content,
-          modifiedAtMs: fileStat.mtimeMs,
-          sizeBytes: fileStat.size,
-        }
-      } catch (error) {
-        logger.warn("skipped unreadable text file during rebuild", {
-          path: file.relativePath,
-          error: describeError(error),
-        })
-        return null
-      }
-    }
-    const textFileContents = (await Promise.all(textFiles.map(readTextFileContent))).filter(
-      (entry) => entry !== null,
-    )
+    const textFileContentResults = await mapWithConcurrency({
+      items: textFiles,
+      concurrency: REBUILD_IO_CONCURRENCY,
+      mapper: (file) => readRebuildFileContent({ file, sourceKind: "text file" }),
+    })
+    const textFileContents = textFileContentResults.filter((entry) => entry !== null)
 
-    const readNoteContent = async (file: RebuildFilePaths): Promise<RebuildFileContent | null> => {
-      try {
-        const [content, fileStat] = await Promise.all([
-          readFile(file.absolutePath, "utf8"),
-          stat(file.absolutePath),
-        ])
-        return {
-          relativePath: file.relativePath,
-          content,
-          modifiedAtMs: fileStat.mtimeMs,
-          sizeBytes: fileStat.size,
-        }
-      } catch (error) {
-        logger.warn("skipped unreadable note during rebuild", {
-          path: file.relativePath,
-          error: describeError(error),
-        })
-        return null
-      }
-    }
-    const noteContents = (await Promise.all(markdownFiles.map(readNoteContent))).filter(
-      (entry) => entry !== null,
-    )
+    const noteContentResults = await mapWithConcurrency({
+      items: markdownFiles,
+      concurrency: REBUILD_IO_CONCURRENCY,
+      mapper: (file) => readRebuildFileContent({ file, sourceKind: "note" }),
+    })
+    const noteContents = noteContentResults.filter((entry) => entry !== null)
 
     // Notes whose parse or index write throws are skipped with a warning
     // instead of aborting the rebuild — one malformed note must never

@@ -4948,6 +4948,62 @@ describe("file targets written with extensions", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
+  it.each([
+    { label: "full path", target: "assets/photo.png", filePath: "assets/photo.png" },
+    { label: "relative path", target: "../assets/photo.png", filePath: "assets/photo.png" },
+    { label: "filename suffix", target: "photo.png", filePath: "deep/assets/photo.png" },
+    { label: "folded suffix", target: "PHOTO.png", filePath: "deep/assets/photo.png" },
+    { label: "stem path", target: "assets/Route", filePath: "assets/Route.canvas" },
+    { label: "relative stem", target: "../assets/Route", filePath: "assets/Route.canvas" },
+    { label: "stem suffix", target: "assets/Route", filePath: "deep/assets/Route.canvas" },
+    { label: "folded stem suffix", target: "assets/ROUTE", filePath: "deep/assets/Route.canvas" },
+    { label: "bare stem", target: "Route", filePath: "assets/Route.canvas" },
+    { label: "multi-dot stem", target: "photo.png", filePath: "assets/photo.png.canvas" },
+    { label: "literal wildcards", target: "photo_%25.png", filePath: "assets/photo_%25.png" },
+  ])(
+    "re-resolves a $label forward asset link past unrelated candidates",
+    ({ target, filePath }) => {
+      const assetIndex = createSearchIndex(":memory:")
+      assetIndex.upsertNote(
+        {
+          filePath: "Projects/source.md",
+          rawContent: `![[${target}]]\n![[unrelated.png]]`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      assetIndex.upsertNonMdFile("elsewhere/decoy.png", 42)
+      expect(
+        assetIndex
+          .getOutgoingLinks({ path: "Projects/source.md" }, logger)
+          .map((link) => link.path),
+      ).toEqual([target, "unrelated.png"].toSorted())
+
+      assetIndex.upsertNonMdFile(filePath, 100)
+
+      expect(assetIndex.getOutgoingLinks({ path: "Projects/source.md" }, logger)).toEqual(
+        [
+          {
+            path: filePath,
+            title: null,
+            exists: true,
+            kind: "file",
+            bytes: 100,
+            daily_note_forward_ref: false,
+          },
+          {
+            path: "unrelated.png",
+            title: null,
+            exists: false,
+            kind: "note",
+            bytes: null,
+            daily_note_forward_ref: false,
+          },
+        ].toSorted((a, b) => a.path.localeCompare(b.path)),
+      )
+    },
+  )
+
   it("does not let LIKE wildcards in the target match unrelated files via full-path suffix", () => {
     // Only photo1final.png exists — if the _ in the target were treated as a
     // LIKE wildcard it would match (1 satisfies _), giving a false resolution.

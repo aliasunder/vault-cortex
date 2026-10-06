@@ -897,10 +897,11 @@ graph LR
    `/home/obsidian/.config` (persists across restarts for incremental sync —
    critical for embedding ingestion).
 3. **`svc-vault-mcp`** — MCP server. Drops to the same `obsidian` user, so
-   both processes read/write the shared `/vault` volume. On startup: builds
-   the FTS5 search index, bootstraps memory templates if the memory folder
+   both processes read/write the shared `/vault` volume. On startup: bootstraps
+   memory templates if the memory folder
    doesn't exist, `MEMORY_ENABLED` is not `false`, and the server is not in
-   `READONLY_MODE`, then starts the file watcher.
+   `READONLY_MODE`, builds the FTS5 search index including those templates,
+   then starts the file watcher.
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after the full init chain has finished and the sync

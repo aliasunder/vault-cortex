@@ -147,7 +147,7 @@ export const startFileWatcher = (
              *  file handler returns; an older job must leave a newer queued job registered. */
             currentEmbed
               .catch((embedError) => {
-                logger.warn("file content embedding failed", {
+                logger.error("file content embedding failed", {
                   path: relativePath,
                   error: describeError(embedError),
                 })
