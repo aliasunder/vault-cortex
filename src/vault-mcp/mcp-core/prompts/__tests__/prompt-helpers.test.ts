@@ -46,6 +46,12 @@ describe("capContent", () => {
     expect(result).toBe("abcd🎉\n\n…(truncated at 5 characters)")
   })
 
+  it("cuts before a flag the cap would split", () => {
+    // The flag is two code points, the 5th and 6th.
+    const result = capContent("abcd🇨🇦efgh", 5, undefined)
+    expect(result).toBe("abcd\n\n…(truncated at 5 characters)")
+  })
+
   it("returns emoji text in full when its characters fit the cap", () => {
     // 5 characters, but 10 UTF-16 units.
     expect(capContent("🎉".repeat(5), 5, undefined)).toBe("🎉".repeat(5))

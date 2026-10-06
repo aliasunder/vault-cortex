@@ -6,6 +6,7 @@ import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { readFileOrNull } from "../../utils/fs.js"
+import { truncateToCodePointLimit } from "../../utils/truncate-to-code-point-limit.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseHeadings,
@@ -171,9 +172,7 @@ const writePatchedNote = async (
 /** Truncates anchor/preview text to 80 characters to keep error messages and
  *  confirmations short. */
 const truncateForMessage = (text: string): string => {
-  // Taking code points rather than UTF-16 units never cuts through a surrogate
-  // pair, which would show as a replacement character.
-  const preview = text[Symbol.iterator]().take(80).toArray().join("")
+  const preview = truncateToCodePointLimit(text, 80)
 
   return preview.length < text.length ? preview + "…" : text
 }

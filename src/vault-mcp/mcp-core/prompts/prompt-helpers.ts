@@ -7,6 +7,7 @@ import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
 import type { ToolAvailability } from "../tool-availability.js"
+import { truncateToCodePointLimit } from "../../../utils/truncate-to-code-point-limit.js"
 
 export type PromptRegistrationContext = ToolAvailability & {
   server: McpServer
@@ -64,9 +65,7 @@ export const capContent = (
 ): string => {
   if (!maxChars || !exceedsCharCap(text, maxChars)) return text
 
-  // Taking code points rather than UTF-16 units never cuts through a surrogate
-  // pair, which would show as a replacement character.
-  const keptText = text[Symbol.iterator]().take(maxChars).toArray().join("")
+  const keptText = truncateToCodePointLimit(text, maxChars)
 
   return `${keptText}\n\n…(truncated at ${maxChars} characters${toolName ? ` — use ${toolName} for the full content` : ""})`
 }

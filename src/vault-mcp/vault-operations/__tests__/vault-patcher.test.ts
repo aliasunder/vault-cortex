@@ -2983,6 +2983,18 @@ keep me
     expect(result).toBe(`Deleted 1 line from emoji.md: "${"z".repeat(79)}🎉…"`)
   })
 
+  it("ends the preview before a flag the cut would split", async () => {
+    // The flag is two code points, the 80th and 81st.
+    const flagLine = "z".repeat(79) + "🇨🇦 tail"
+    await writeTestNote("flag.md", `---\ntitle: Flag\n---\n\n${flagLine}\nkeep me\n`)
+    const result = await deleteSpan(
+      { vaultPath: vault, path: "flag.md", startAnchor: "🇨🇦 tail" },
+      logger,
+    )
+
+    expect(result).toBe(`Deleted 1 line from flag.md: "${"z".repeat(79)}…"`)
+  })
+
   it("previews a line of 80 emoji in full", async () => {
     // 80 characters, but 160 UTF-16 units.
     const emojiLine = "🎉".repeat(80)
