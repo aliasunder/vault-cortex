@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 
 import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
@@ -3259,6 +3260,198 @@ describe("markdown path requirement", () => {
     expect(() => index.getOutgoingLinks({ path: "Projects/Plan" }, logger)).toThrow(
       /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
     )
+  })
+})
+
+describe("rebuildFromVault bounded I/O", () => {
+  it.each([
+    { operation: "size", extension: ".png", table: "non_md_files", decoyName: "healthy.md" },
+    { operation: "note", extension: ".md", table: "notes", decoyName: "healthy.txt" },
+    { operation: "text", extension: ".txt", table: "file_content", decoyName: "healthy.md" },
+    { operation: "canvas", extension: ".canvas", table: "file_content", decoyName: "healthy.md" },
+  ] as const)(
+    "bounds the $operation pass to 16 operations and indexes its seventeenth item",
+    async ({ operation, extension, table, decoyName }) => {
+      const directory = await mkdtemp(join(tmpdir(), "rebuild-bound-"))
+      const vaultPath = join(directory, "vault")
+      const releaseGate = Promise.withResolvers<undefined>()
+      const boundReached = Promise.withResolvers<undefined>()
+      const pendingRebuilds: Promise<unknown>[] = []
+      const restoreOperations: Array<() => void> = []
+      const openDatabases: Database.Database[] = []
+      onTestFinished(async () => {
+        releaseGate.resolve(undefined)
+        await Promise.allSettled(pendingRebuilds)
+        restoreOperations.forEach((restore) => restore())
+        openDatabases.forEach((database) => database.close())
+        await rm(directory, { recursive: true, force: true })
+      })
+      await mkdir(vaultPath)
+      const targetFiles = Array.from(
+        { length: 17 },
+        (_unused, index) => `source-${String(index).padStart(2, "0")}${extension}`,
+      )
+      for (const fileName of targetFiles) {
+        const content =
+          extension === ".canvas"
+            ? JSON.stringify({
+                nodes: [
+                  {
+                    id: "text",
+                    type: "text",
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 100,
+                    text: "targetquartz",
+                  },
+                ],
+                edges: [],
+              })
+            : "targetquartz"
+        await writeFile(join(vaultPath, fileName), content)
+      }
+      await writeFile(join(vaultPath, decoyName), "decoyamber")
+      const targetPaths = new Set(targetFiles.map((fileName) => join(vaultPath, fileName)))
+      const activePaths = new Set<string>()
+      const startedPaths = new Set<string>()
+      const activeCounts: number[] = []
+      const holdTargetOperation = async (requestedPath: string): Promise<void> => {
+        startedPaths.add(requestedPath)
+        activePaths.add(requestedPath)
+        activeCounts.push(activePaths.size)
+        if (activePaths.size === 16) boundReached.resolve(undefined)
+        await releaseGate.promise
+        activePaths.delete(requestedPath)
+      }
+      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      const actualFsUtils =
+        await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+
+      if (operation === "size") {
+        const statSpy = vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+          if (targetPaths.has(requestedPath)) await holdTargetOperation(requestedPath)
+          return actualFsUtils.statOrNull(requestedPath)
+        })
+        restoreOperations.push(() => statSpy.mockRestore())
+      }
+      if (operation !== "size") {
+        const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+          if (typeof requestedPath === "string" && targetPaths.has(requestedPath))
+            await holdTargetOperation(requestedPath)
+          return actualFs.readFile(requestedPath, options)
+        })
+        restoreOperations.push(() => readSpy.mockRestore())
+      }
+      const dbPath = join(directory, "search.db")
+      const search = createSearchIndex(dbPath, undefined, undefined, { fileToolsEnabled: true })
+      const database = new Database(dbPath, { readonly: true })
+      openDatabases.push(database)
+      const rebuilding = search.rebuildFromVault({ vaultPath }, logger)
+      pendingRebuilds.push(rebuilding)
+      await boundReached.promise
+      await setImmediateAsync()
+
+      expect(activePaths.size).toBe(16)
+      expect(startedPaths.size).toBe(16)
+      expect(database.prepare(`SELECT path FROM ${table}`).all()).toEqual([])
+      releaseGate.resolve(undefined)
+      const rebuilt = await rebuilding
+      await rebuilt.embedding
+
+      expect(Math.max(...activeCounts)).toBe(16)
+      expect(activePaths.size).toBe(0)
+      expect(startedPaths.size).toBe(17)
+      expect(database.prepare(`SELECT path FROM ${table} ORDER BY path`).all()).toEqual(
+        targetFiles.map((path) => ({ path })),
+      )
+      expect(
+        (await search.hybridSearch({ query: "targetquartz" }, logger)).results
+          .map((entry) => entry.path)
+          .toSorted(),
+      ).toEqual(operation === "size" ? [] : targetFiles)
+      expect(
+        (await search.hybridSearch({ query: "decoyamber" }, logger)).results.map(
+          (entry) => entry.path,
+        ),
+      ).toEqual([decoyName])
+    },
+  )
+
+  it("bounds PDF extraction to four operations and indexes its fifth item", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rebuild-pdf-bound-"))
+    const vaultPath = join(directory, "vault")
+    const releaseGate = Promise.withResolvers<undefined>()
+    const boundReached = Promise.withResolvers<undefined>()
+    const pendingRebuilds: Promise<unknown>[] = []
+    const restoreOperations: Array<() => void> = []
+    const openDatabases: Database.Database[] = []
+    onTestFinished(async () => {
+      releaseGate.resolve(undefined)
+      await Promise.allSettled(pendingRebuilds)
+      restoreOperations.forEach((restore) => restore())
+      openDatabases.forEach((database) => database.close())
+      await rm(directory, { recursive: true, force: true })
+    })
+    await mkdir(vaultPath)
+    const targetFiles = Array.from({ length: 5 }, (_unused, index) => `source-${index}.pdf`)
+    const targetMarkers = new Set(targetFiles.map((fileName) => `marker-${fileName}`))
+    for (const fileName of targetFiles)
+      await writeFile(join(vaultPath, fileName), `marker-${fileName}`)
+    await writeFile(join(vaultPath, "healthy.md"), "decoyamber")
+    await writeFile(join(vaultPath, "healthy.txt"), "decoyberyl")
+    const activeMarkers = new Set<string>()
+    const startedMarkers = new Set<string>()
+    const activeCounts: number[] = []
+    const extractSpy = vi.mocked(extractPdfText).mockImplementation(async (pdfData) => {
+      const marker = Buffer.from(pdfData).toString("utf8")
+
+      if (!targetMarkers.has(marker)) throw new Error(`unexpected PDF input: ${marker}`)
+      startedMarkers.add(marker)
+      activeMarkers.add(marker)
+      activeCounts.push(activeMarkers.size)
+      if (activeMarkers.size === 4) boundReached.resolve(undefined)
+      await releaseGate.promise
+      activeMarkers.delete(marker)
+      return { text: "pdfquartz", totalPages: 1 }
+    })
+    restoreOperations.push(() => extractSpy.mockRestore())
+    const dbPath = join(directory, "search.db")
+    const search = createSearchIndex(dbPath, undefined, undefined, { fileToolsEnabled: true })
+    const database = new Database(dbPath, { readonly: true })
+    openDatabases.push(database)
+    const rebuilding = search.rebuildFromVault({ vaultPath }, logger)
+    pendingRebuilds.push(rebuilding)
+    await boundReached.promise
+    await setImmediateAsync()
+
+    expect(activeMarkers.size).toBe(4)
+    expect(startedMarkers.size).toBe(4)
+    releaseGate.resolve(undefined)
+    const rebuilt = await rebuilding
+    await rebuilt.embedding
+
+    expect(Math.max(...activeCounts)).toBe(4)
+    expect(activeMarkers.size).toBe(0)
+    expect(startedMarkers.size).toBe(5)
+    expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual(
+      ["healthy.txt", ...targetFiles].map((path) => ({ path })),
+    )
+    expect(
+      (await search.hybridSearch({ query: "pdfquartz" }, logger)).results
+        .map((entry) => entry.path)
+        .toSorted(),
+    ).toEqual(targetFiles)
+    expect(
+      (await search.hybridSearch({ query: "decoyamber" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.md"])
+    expect(
+      (await search.hybridSearch({ query: "decoyberyl" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.txt"])
   })
 })
 

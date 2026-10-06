@@ -12,6 +12,7 @@ import type { SearchIndex } from "./search-index.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 
@@ -170,9 +171,26 @@ export const startFileWatcher = (
       }
 
       try {
-        const [content, fileStat] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)])
+        const readNoteSource = async (): Promise<{ content: string; fileStat: Stats } | null> => {
+          try {
+            const [content, fileStat] = await Promise.all([
+              readFile(filePath, "utf8"),
+              stat(filePath),
+            ])
+            return { content, fileStat }
+          } catch (error) {
+            if (!isErrnoException(error, "ENOENT")) throw error
+
+            logger.debug("change event skipped, file vanished", { path: relativePath })
+            return null
+          }
+        }
+        const noteSource = await readNoteSource()
 
         if (currentEvents.get(relativePath) !== eventToken) return
+        if (!noteSource) return
+
+        const { content, fileStat } = noteSource
 
         const sourceVersion = search.upsertNote(
           {

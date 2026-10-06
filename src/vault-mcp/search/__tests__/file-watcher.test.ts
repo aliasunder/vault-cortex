@@ -3,6 +3,7 @@ import {
   mkdtemp,
   rm,
   writeFile,
+  stat,
   mkdir,
   rename,
   unlink,
@@ -656,6 +657,98 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     await fire("unlink", "note.md")
     expect(database.prepare("SELECT path FROM notes").all()).toEqual([])
     expect(errorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([{ operation: "read" }, { operation: "stat" }] as const)(
+    "treats a note disappearing during its $operation as a benign source race",
+    async ({ operation }) => {
+      const { testVault, search, database, fire } = await createControlledWatcher()
+      const filePath = join(testVault, "note.md")
+      await writeFile(filePath, "committedamber")
+      await fire("add", "note.md")
+      const missingSource = Object.assign(new Error("controlled missing source"), {
+        code: "ENOENT",
+      })
+      const sourceSpy = operation === "read" ? vi.mocked(readFile) : vi.mocked(stat)
+      sourceSpy.mockRejectedValueOnce(missingSource)
+      const upsertSpy = vi.spyOn(search, "upsertNote")
+      const embedSpy = vi.spyOn(search, "embedNote")
+      const debugSpy = vi.spyOn(logger, "debug")
+      const errorSpy = vi.spyOn(logger, "error")
+      onTestFinished(() => {
+        sourceSpy.mockRestore()
+        debugSpy.mockRestore()
+        errorSpy.mockRestore()
+      })
+
+      await expect(fire("change", "note.md")).resolves.toBeUndefined()
+
+      expect(debugSpy).toHaveBeenCalledExactlyOnceWith("change event skipped, file vanished", {
+        path: "note.md",
+      })
+      expect(errorSpy).not.toHaveBeenCalled()
+      expect(upsertSpy).not.toHaveBeenCalled()
+      expect(embedSpy).not.toHaveBeenCalled()
+      expect(database.prepare("SELECT path, content FROM notes").all()).toEqual([
+        { path: "note.md", content: "committedamber" },
+      ])
+      await unlink(filePath)
+      await fire("unlink", "note.md")
+      expect(database.prepare("SELECT path, content FROM notes").all()).toEqual([])
+      await writeFile(filePath, "recoveredopal")
+      await fire("add", "note.md")
+      expect(database.prepare("SELECT path, content FROM notes").all()).toEqual([
+        { path: "note.md", content: "recoveredopal" },
+      ])
+      expect(upsertSpy).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each([
+    { operation: "read", code: "EACCES" },
+    { operation: "stat", code: "EIO" },
+    { operation: "upsert", code: "ENOENT" },
+    { operation: "embed", code: "ENOENT" },
+  ] as const)("keeps $operation $code failures at error level", async ({ operation, code }) => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    await writeFile(join(testVault, "note.md"), "currentamber")
+    const failure = Object.assign(new Error("controlled operation failure"), { code })
+    const errorSpy = vi.spyOn(logger, "error")
+    const debugSpy = vi.spyOn(logger, "debug")
+    const restoreOperations: Array<() => void> = []
+    onTestFinished(() => {
+      restoreOperations.forEach((restore) => restore())
+      errorSpy.mockRestore()
+      debugSpy.mockRestore()
+    })
+    if (operation === "read") {
+      vi.mocked(readFile).mockRejectedValueOnce(failure)
+      restoreOperations.push(() => vi.mocked(readFile).mockRestore())
+    }
+    if (operation === "stat") {
+      vi.mocked(stat).mockRejectedValueOnce(failure)
+      restoreOperations.push(() => vi.mocked(stat).mockRestore())
+    }
+    if (operation === "upsert") {
+      const upsertSpy = vi.spyOn(search, "upsertNote").mockImplementationOnce(() => {
+        throw failure
+      })
+      restoreOperations.push(() => upsertSpy.mockRestore())
+    }
+    if (operation === "embed") {
+      const embedSpy = vi.spyOn(search, "embedNote").mockRejectedValueOnce(failure)
+      restoreOperations.push(() => embedSpy.mockRestore())
+    }
+
+    await expect(fire("add", "note.md")).resolves.toBeUndefined()
+
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
+      path: "note.md",
+      error: "[Error]: controlled operation failure",
+    })
+    expect(debugSpy).not.toHaveBeenCalledWith("change event skipped, file vanished", {
+      path: "note.md",
+    })
   })
 
   const delayFirstRead = async (filePath: string) => {
