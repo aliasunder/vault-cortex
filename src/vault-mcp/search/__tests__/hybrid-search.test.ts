@@ -348,8 +348,7 @@ Content about deployment costs and infrastructure.
 
       // Only the note inside Work/ should appear
       const paths = results.map((result) => result.path)
-      expect(paths).toContain("Work/inside.md")
-      expect(paths).not.toContain("Personal/outside.md")
+      expect(paths).toEqual(["Work/inside.md"])
     })
 
     it("matches the folder filter case-insensitively for vector-only results, like the FTS leg", async () => {
@@ -436,8 +435,7 @@ Content about deployment costs and infrastructure.
 
       // Only c.md has the "work" tag — a.md (tags: personal, career) excluded
       const paths = results.map((result) => result.path)
-      expect(paths).toContain("c.md")
-      expect(paths).not.toContain("a.md")
+      expect(paths).toEqual(["c.md"])
     })
 
     it("applies type filter to vector-only results", async () => {
@@ -469,8 +467,7 @@ Content about deployment costs and infrastructure.
 
       // Only c.md is type "meeting" — a.md (type: reflection) excluded
       const paths = results.map((result) => result.path)
-      expect(paths).toContain("c.md")
-      expect(paths).not.toContain("a.md")
+      expect(paths).toEqual(["c.md"])
     })
 
     it("applies created filter to vector-only results", async () => {
@@ -753,8 +750,7 @@ The main content discusses RESTful API design and GraphQL alternatives.
 
       // Only c.md has the related link — a.md has no related field
       const paths = results.map((result) => result.path)
-      expect(paths).toContain("c.md")
-      expect(paths).not.toContain("a.md")
+      expect(paths).toEqual(["c.md"])
     })
 
     it("applies properties filter to vector-only results", async () => {
@@ -822,8 +818,7 @@ This project is no longer maintained but had deployment infrastructure.
 
       // Only active.md has status: active
       const paths = results.map((result) => result.path)
-      expect(paths).toContain("active.md")
-      expect(paths).not.toContain("archived.md")
+      expect(paths).toEqual(["active.md"])
     })
   })
 
@@ -988,14 +983,10 @@ This is a note with many words that should be truncated when using a small snipp
 
       await rerankIndex.hybridSearch({ query: "career goals" }, logger)
 
-      expect(mockReranker.rerankPairs).toHaveBeenCalledOnce()
-      const callArgs = mockReranker.rerankPairs.mock.calls[0]
-      expect(callArgs).toBeDefined()
-      const [query, documents] = callArgs ?? []
-      expect(query).toBe("career goals")
-      expect(documents).toHaveLength(2)
-      // Each document text should be non-empty (chunk text from vector hits)
-      expect(documents.every((document: string) => document.length > 0)).toBe(true)
+      expect(mockReranker.rerankPairs).toHaveBeenCalledExactlyOnceWith("career goals", [
+        "Career Goals\n\n\nI aspire to build meaningful products and grow as a technical leader.\nMy targets include shipping a major open source project.",
+        "Project Ideas\n\n\nSome project ideas for the next quarter. Build a CLI tool for vault management.",
+      ])
     })
 
     it("modifies result scores compared to RRF-only ordering", async () => {
@@ -1146,9 +1137,10 @@ describe("hybridSearch — file content vector search", () => {
 
     expect(search_mode).toBe("hybrid")
     // Both should appear — guide.txt via FTS+file vector, career.md via note vector
-    expect(results.map((result) => result.path)).toEqual(["docs/guide.txt", "notes/career.md"])
-    expect(results[0]?.kind).toBe("file")
-    expect(results[0]?.extension).toBe(".txt")
+    expect(results.map(({ path, kind, extension }) => ({ path, kind, extension }))).toEqual([
+      { path: "docs/guide.txt", kind: "file", extension: ".txt" },
+      { path: "notes/career.md", kind: "note", extension: undefined },
+    ])
   })
 
   it("file-only vector hit appears with metadata when no FTS match exists", async () => {
@@ -1182,10 +1174,9 @@ describe("hybridSearch — file content vector search", () => {
 
     // Exactly one result — the file via vector-only (no FTS match)
     expect(search_mode).toBe("hybrid")
-    expect(results.map((result) => result.path)).toEqual(["specs/api-spec.yaml"])
-    expect(results[0]?.kind).toBe("file")
-    expect(results[0]?.extension).toBe(".yaml")
-    expect(results[0]?.folder).toBe("specs")
+    expect(
+      results.map(({ path, kind, extension, folder }) => ({ path, kind, extension, folder })),
+    ).toEqual([{ path: "specs/api-spec.yaml", kind: "file", extension: ".yaml", folder: "specs" }])
   })
 
   it("returns note results when the file content KNN query throws", async () => {

@@ -21,11 +21,9 @@ const DIMENSIONS = 384
 /** Creates a mock embedder that returns deterministic embeddings. */
 const createMockEmbedder = () => ({
   embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
-  embedBatch: vi
-    .fn()
-    .mockImplementation((texts: string[]) =>
-      Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
-    ),
+  embedBatch: vi.fn(async (texts: readonly string[]): Promise<Float32Array[]> => {
+    return texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))
+  }),
 })
 
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
@@ -37,10 +35,7 @@ const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number 
 /** Total entry texts sent to the embedder across all embedBatch calls —
  *  the observable that proves how many entries were actually (re-)embedded. */
 const totalTextsEmbedded = (embedder: ReturnType<typeof createMockEmbedder>): number =>
-  embedder.embedBatch.mock.calls.reduce(
-    (sum: number, call: unknown[]) => sum + (call[0] as string[]).length,
-    0,
-  )
+  embedder.embedBatch.mock.calls.reduce((sum, [texts]) => sum + texts.length, 0)
 
 /** File-backed index plus a second read-only connection for asserting raw
  *  table state — :memory: databases can't be inspected from outside the
@@ -183,10 +178,7 @@ describe("memory entry indexing", () => {
       { sourceVersion: sourceVersion, notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 },
       logger,
     )
-    const embeddedEntryTexts = embedder.embedBatch.mock.calls.flatMap(
-      (call: unknown[]) => call[0] as string[],
-    )
-    expect(embeddedEntryTexts).toEqual([
+    expect(embedder.embedBatch).toHaveBeenCalledExactlyOnceWith([
       "Opinions > Code patterns (newest first)\n- **2026-07-02**: Wrap function bodies in braces.",
       "Opinions > Code patterns (newest first)\n- **2026-05-07**: Immutable over mutable.",
       "Opinions > Process (newest first)\n- **2026-06-25**: Sequential over parallel review.",
@@ -238,10 +230,7 @@ describe("memory entry indexing", () => {
       logger,
     )
 
-    expect(totalTextsEmbedded(embedder)).toBe(1)
-    expect(
-      embedder.embedBatch.mock.calls.flatMap((call: unknown[]) => call[0] as string[]),
-    ).toEqual([
+    expect(embedder.embedBatch).toHaveBeenCalledExactlyOnceWith([
       "Opinions > Code patterns (newest first)\n- **2026-07-11**: Newest opinion lands on top.",
     ])
     // The shifted entries kept their rows; indices were refreshed in place.
@@ -292,7 +281,9 @@ describe("memory entry indexing", () => {
       logger,
     )
 
-    expect(totalTextsEmbedded(embedder)).toBe(1)
+    expect(embedder.embedBatch).toHaveBeenCalledExactlyOnceWith([
+      "Opinions > Code patterns (newest first)\n- **2026-05-07**: Immutable over mutable, always.",
+    ])
     // Still 3 rows and 3 vectors — the old row and its vector are gone, not
     // orphaned beside the new ones.
     expect(selectEntryRows(inspect)).toHaveLength(3)
@@ -405,8 +396,7 @@ describe("memory entry indexing", () => {
     )
 
     const rows = selectEntryRows(inspect)
-    expect(rows).toHaveLength(3)
-    expect(rows.every((row) => row.file === "Beliefs")).toBe(true)
+    expect(rows.map((row) => row.file)).toEqual(["Beliefs", "Beliefs", "Beliefs"])
     // One-time full re-embed under the new name — the documented rename cost.
     expect(totalTextsEmbedded(embedder)).toBe(3)
   })
@@ -459,6 +449,85 @@ describe("memory entry indexing", () => {
 })
 
 describe("memory embedding source versions", () => {
+  it("keeps a committed first batch while rejecting a superseded second batch and recovers", async () => {
+    const { index, embedder, inspect } = await createInspectableMemoryIndex()
+
+    if (!embedder) throw new Error("embedder required")
+    const entryTexts = Array.from({ length: 17 }, (_, entryIndex) => {
+      return `- **2026-07-01**: Practice ${String(entryIndex)} improves reliability.`
+    })
+    const content = `## Practices\n\n${entryTexts.join("\n")}`
+    const secondBatchStarted = Promise.withResolvers<undefined>()
+    const secondBatchModel = Promise.withResolvers<Float32Array[]>()
+    embedder.embedBatch.mockImplementationOnce(async (texts) => {
+      return texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))
+    })
+    embedder.embedBatch.mockImplementationOnce(() => {
+      secondBatchStarted.resolve(undefined)
+      return secondBatchModel.promise
+    })
+    const originalVersion = index.upsertNote(
+      { filePath: "About Me/Opinions.md", rawContent: content, fileStat: testStat(1000) },
+      logger,
+    )
+    const staleJob = index.embedNote(
+      { notePath: "About Me/Opinions.md", rawContent: content, sourceVersion: originalVersion },
+      logger,
+    )
+    await secondBatchStarted.promise
+    const firstBatchVectors = inspect
+      .prepare(
+        "SELECT entry_id, hex(embedding) AS embedding FROM memory_entry_vectors ORDER BY entry_id",
+      )
+      .all()
+    expect(firstBatchVectors).toHaveLength(16)
+    const replacementText = "- **2026-07-01**: Replacement practice improves recovery."
+    const replacementContent = `## Practices\n\n${[...entryTexts.slice(0, 16), replacementText].join("\n")}`
+    const replacementVersion = index.upsertNote(
+      {
+        filePath: "About Me/Opinions.md",
+        rawContent: replacementContent,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    secondBatchModel.resolve([new Float32Array(DIMENSIONS).fill(0.9)])
+    await staleJob
+
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(2)
+    expect(
+      inspect
+        .prepare(
+          "SELECT entry_id, hex(embedding) AS embedding FROM memory_entry_vectors ORDER BY entry_id",
+        )
+        .all(),
+    ).toEqual(firstBatchVectors)
+    expect(selectEntryRows(inspect).map((row) => row.entry_text)).toEqual([
+      ...entryTexts.slice(0, 16),
+      replacementText,
+    ])
+    embedder.embedBatch.mockClear()
+    await index.embedNote(
+      {
+        notePath: "About Me/Opinions.md",
+        rawContent: replacementContent,
+        sourceVersion: replacementVersion,
+      },
+      logger,
+    )
+    expect(embedder.embedBatch).toHaveBeenCalledExactlyOnceWith([
+      `Opinions > Practices\n${replacementText}`,
+    ])
+    expect(countVectors(inspect)).toBe(17)
+    expect(
+      inspect
+        .prepare(
+          "SELECT entry_id, hex(embedding) AS embedding FROM memory_entry_vectors ORDER BY entry_id LIMIT 16",
+        )
+        .all(),
+    ).toEqual(firstBatchVectors)
+  })
+
   it.each(["delete", "recreate", "prune"] as const)(
     "stops an obsolete 17-entry batch after a source %s",
     async (mutation) => {

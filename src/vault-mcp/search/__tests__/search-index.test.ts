@@ -5283,48 +5283,23 @@ It has multiple sentences to verify chunking works correctly.
     })
 
     it("removeNote deletes associated chunks and vectors", async () => {
-      const mockEmbedder = createMockEmbedder()
-      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+      const fixture = await createEmbeddingRaceIndex("note")
+      const originalSourceVersion = fixture.upsert(NOTE_FOR_EMBEDDING)
+      await fixture.embed(NOTE_FOR_EMBEDDING, originalSourceVersion)
+      expect(fixture.chunks()).toHaveLength(1)
+      expect(fixture.vectorCount()).toBe(1)
 
-      const originalSourceVersion = embeddingIndex.upsertNote(
-        {
-          filePath: "test.md",
-          rawContent: NOTE_FOR_EMBEDDING,
-          fileStat: testStat(1000),
-        },
-        logger,
-      )
-      await embeddingIndex.embedNote(
-        {
-          sourceVersion: originalSourceVersion,
-          notePath: "test.md",
-          rawContent: NOTE_FOR_EMBEDDING,
-        },
-        logger,
-      )
+      fixture.remove()
+      expect(fixture.inspect.prepare("SELECT path FROM notes").all()).toEqual([])
+      expect(fixture.chunks()).toEqual([])
+      expect(fixture.vectorCount()).toBe(0)
 
-      // Remove should not throw — cleanup should succeed
-      embeddingIndex.removeNote("test.md")
-
-      // Re-embedding after removal should embed again (not skip via hash)
-      mockEmbedder.embedText.mockClear()
-      const updatedSourceVersion = embeddingIndex.upsertNote(
-        {
-          filePath: "test.md",
-          rawContent: NOTE_FOR_EMBEDDING,
-          fileStat: testStat(2000),
-        },
-        logger,
-      )
-      await embeddingIndex.embedNote(
-        {
-          sourceVersion: updatedSourceVersion,
-          notePath: "test.md",
-          rawContent: NOTE_FOR_EMBEDDING,
-        },
-        logger,
-      )
-      expect(mockEmbedder.embedText).toHaveBeenCalled()
+      fixture.embedder.embedText.mockClear()
+      const updatedSourceVersion = fixture.upsert(NOTE_FOR_EMBEDDING)
+      await fixture.embed(NOTE_FOR_EMBEDDING, updatedSourceVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.chunks()).toHaveLength(1)
+      expect(fixture.vectorCount()).toBe(1)
     })
 
     it("embedNote produces a chunk even for empty content", async () => {
@@ -5343,7 +5318,7 @@ It has multiple sentences to verify chunking works correctly.
 
       // chunker returns at least one chunk (the title-only fallback), so
       // embedText is called even for empty content
-      expect(mockEmbedder.embedText).toHaveBeenCalled()
+      expect(mockEmbedder.embedText).toHaveBeenCalledExactlyOnceWith("empty")
     })
 
     it("embedNote propagates embedder errors to the caller", async () => {

@@ -59,16 +59,20 @@ const waitFor = async (check: () => boolean, timeoutMs = 8000, intervalMs = 100)
  *  regression fails every attempt — retries only absorb the macOS race. */
 const REAL_WATCHER_RETRY = { retry: 2 }
 
-beforeEach(async () => {
-  vault = await mkdtemp(join(tmpdir(), "watcher-test-"))
-  index = createSearchIndex(":memory:")
-})
+const registerSharedVaultHooks = (): void => {
+  beforeEach(async () => {
+    vault = await mkdtemp(join(tmpdir(), "watcher-test-"))
+    index = createSearchIndex(":memory:")
+  })
 
-afterEach(async () => {
-  await rm(vault, { recursive: true })
-})
+  afterEach(async () => {
+    await rm(vault, { recursive: true })
+  })
+}
 
 describe("file-watcher", REAL_WATCHER_RETRY, () => {
+  registerSharedVaultHooks()
+
   it("indexes a new .md file", { timeout: 15000 }, async () => {
     await startFileWatcher(vault, index, {
       stabilityThreshold: 200,
@@ -225,13 +229,13 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 
     await waitFor(() => embedNoteSpy.mock.calls.length > 0)
     const sourceVersion = await capturedVersion.promise
-    expect(embedNoteSpy).toHaveBeenCalledWith(
+    expect(embedNoteSpy).toHaveBeenCalledExactlyOnceWith(
       {
         notePath: "embed-test.md",
         rawContent: "---\ntitle: Embed\n---\n\nEmbed this content\n",
         sourceVersion,
       },
-      expect.anything(), // logger — runtime child logger, not deterministic
+      logger,
     )
   })
 
@@ -280,6 +284,8 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 })
 
 describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
+  registerSharedVaultHooks()
+
   it("indexes a text file into file content FTS", { timeout: 15000 }, async () => {
     const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,
@@ -366,9 +372,9 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
 
     await waitFor(() => embedFileSpy.mock.calls.length > 0)
     const sourceVersion = await capturedVersion.promise
-    expect(embedFileSpy).toHaveBeenCalledWith(
+    expect(embedFileSpy).toHaveBeenCalledExactlyOnceWith(
       { filePath: "data.csv", sourceVersion },
-      expect.anything(), // logger — runtime child logger
+      logger,
     )
   })
 })
@@ -897,6 +903,75 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     },
   )
 
+  it("reports a detached file embedding failure and runs its queued replacement", async () => {
+    const failingEntered = Promise.withResolvers<undefined>()
+    const releaseFailure = Promise.withResolvers<Float32Array>()
+    const recoveredEntered = Promise.withResolvers<undefined>()
+    const releaseRecovered = Promise.withResolvers<Float32Array>()
+    const recoveredFinished = Promise.withResolvers<undefined>()
+    const failureLogged = Promise.withResolvers<undefined>()
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn(async (text: string) => {
+        if (text === "content\n\noldquartz") {
+          failingEntered.resolve(undefined)
+          return releaseFailure.promise
+        }
+        if (text === "content\n\nnewopal") {
+          recoveredEntered.resolve(undefined)
+          return releaseRecovered.promise
+        }
+        return vector
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, database, search, fire } = await createControlledWatcher(embedder)
+    const realEmbed = search.embedFileContent
+    vi.spyOn(search, "embedFileContent").mockImplementation(async (params, requestLogger) => {
+      await realEmbed(params, requestLogger)
+      recoveredFinished.resolve(undefined)
+    })
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation((message) => {
+      if (message === "file content embedding failed") failureLogged.resolve(undefined)
+    })
+    const debugSpy = vi.spyOn(logger, "debug")
+    onTestFinished(() => {
+      warnSpy.mockRestore()
+      debugSpy.mockRestore()
+    })
+    const filePath = join(testVault, "content.txt")
+    await writeFile(filePath, "oldquartz")
+    await fire("change", "content.txt")
+    await failingEntered.promise
+    await writeFile(filePath, "newopal")
+    await fire("change", "content.txt")
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "content.txt", content: "newopal" },
+    ])
+
+    releaseFailure.reject(new Error("controlled file model failure"))
+    await failureLogged.promise
+    await recoveredEntered.promise
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content embedding failed", {
+      path: "content.txt",
+      error: "[Error]: controlled file model failure",
+    })
+    expect(debugSpy).toHaveBeenCalledWith("previous file embed failed, proceeding with current", {
+      path: "content.txt",
+      error: "[Error]: controlled file model failure",
+    })
+    expect(database.prepare("SELECT chunk_text FROM file_content_chunks").all()).toEqual([])
+    releaseRecovered.resolve(vector)
+    await recoveredFinished.promise
+    expect(database.prepare("SELECT file_path, chunk_text FROM file_content_chunks").all()).toEqual(
+      [{ file_path: "content.txt", chunk_text: "content\n\nnewopal" }],
+    )
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 1,
+    })
+    expect(embedder.embedText).toHaveBeenCalledTimes(2)
+  })
+
   it("recovers after a rejected job while another path embeds independently", async () => {
     const failingEntered = Promise.withResolvers<undefined>()
     const releaseFailure = Promise.withResolvers<Float32Array>()
@@ -967,6 +1042,8 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
 })
 
 describe("startFileWatcher — chokidar watch options", () => {
+  registerSharedVaultHooks()
+
   type FakeWatcher = {
     on: (event: string, handler: (...args: unknown[]) => void) => FakeWatcher
   }
@@ -1031,6 +1108,8 @@ describe("startFileWatcher — chokidar watch options", () => {
 // captures the addDir handler, reports test-controlled tracking via
 // getWatched(), and records add() calls — against a real temp vault and index.
 describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
+  registerSharedVaultHooks()
+
   const RESCAN_TEST_OPTIONS = {
     stabilityThreshold: 200,
     pollInterval: 50,
