@@ -244,7 +244,7 @@ When to use: Catching up on vault changes, finding recent work, or orienting aft
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
 Parameters:
-- sort_by + limit interact: "modified" (default) uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort last, so under a small limit they never appear — use "modified" to see them.
+- sort_by + limit interact: "modified" (default) uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
 - "modified" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
 
 Errors:
@@ -515,7 +515,7 @@ Returns: JSON with path (the queried note or canvas), backlinks (array of { path
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
-- A path not in the index returns an empty result (count 0), not an error — find valid paths with vault_search, or with vault_list_notes for notes${whenToolEnabledText("vault_list_files", " and vault_list_files for canvases")}.`,
+- A path nothing links to returns an empty result (count 0), not an error — if you expected links, find valid paths with vault_search, or with vault_list_notes for notes${whenToolEnabledText("vault_list_files", " and vault_list_files for canvases")}.`,
       inputSchema: {
         path: z
           .string()

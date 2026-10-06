@@ -1037,7 +1037,7 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
   // touches .trash/, so the text about that setting, the trash outcomes, and
   // the errors they produce is left out.
   const deleteNoteOpener = config.obsidianSyncEnabled
-    ? `Delete a markdown note for good: this server syncs through Obsidian Sync, which bypasses the vault's "Deleted files" setting; recover a deleted note from Sync's version history (1 month on Standard, 12 months on Plus).`
+    ? `Delete a markdown note for good: this server syncs through Obsidian Sync, so it bypasses the vault's "Deleted files" setting; recover a deleted note from Sync's version history (1 month on Standard, 12 months on Plus).`
     : `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`
   const trashOutcomeEntries = config.obsidianSyncEnabled
     ? ""

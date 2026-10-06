@@ -340,9 +340,14 @@ describe("registerTools", () => {
   })
 
   it("vault_recent_notes description documents sorting behavior", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_RECENT_NOTES)
-    expect(config.description).toContain("filesystem mtime")
-    expect(config.description).toContain("sort last")
+    const sortLine = findDescriptionLine({
+      registeredCalls: [requireCall(TOOL_NAMES.VAULT_RECENT_NOTES)],
+      toolName: TOOL_NAMES.VAULT_RECENT_NOTES,
+      linePrefix: "- sort_by + limit interact",
+    })
+    expect(sortLine).toBe(
+      '- sort_by + limit interact: "modified" (default) uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
+    )
   })
 
   it("vault_read_note description cross-references graph tools", () => {
@@ -1168,7 +1173,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
 
   it("describes permanent deletion and Sync recovery under OBSIDIAN_SYNC=true", () => {
     expect(deleteNoteOpener({ OBSIDIAN_SYNC: "true" })).toBe(
-      "Delete a markdown note for good: this server syncs through Obsidian Sync, which bypasses the vault's \"Deleted files\" setting; recover a deleted note from Sync's version history (1 month on Standard, 12 months on Plus).",
+      "Delete a markdown note for good: this server syncs through Obsidian Sync, so it bypasses the vault's \"Deleted files\" setting; recover a deleted note from Sync's version history (1 month on Standard, 12 months on Plus).",
     )
     expect(deleteNoteBehavior({ OBSIDIAN_SYNC: "true" })).toBe(
       `Behavior:\n${LINKS_AND_PROTECTED_PATHS_ENTRY}`,
