@@ -204,16 +204,25 @@ describe("registerTools", () => {
     expect(config.description).toContain("vault_read_note")
   })
 
-  it("vault_patch_note description includes cross-section move guidance", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
-    expect(config.description).toContain("Cross-section move")
-  })
-
   it("vault_read_note documents the outline response on the outline parameter", () => {
     // The only guard against this drifting from the actual response shape.
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     expect(config.inputSchema?.outline?.description).toBe(
       "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+    )
+  })
+
+  it("vault_patch_note's example edits a note that is not a task board", () => {
+    // Task boards belong to vault_create_task and vault_update_task, so an
+    // example that appends a card would steer agents to the wrong tool.
+    const example = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "Example: vault_patch_note",
+      endMarker: "\n\nWhen to use:",
+    })
+    expect(example).toBe(
+      'Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })',
     )
   })
 
@@ -2464,6 +2473,337 @@ describe("DISABLED_TOOLS", () => {
       endMarker: "\n\nErrors:",
     })
     expect(behaviorTail).toBe(expectedLines.join("\n"))
+  })
+
+  it.each([
+    {
+      label: "names vault_replace_span while it is served",
+      disabledTools: "",
+      expectedAdvice: "use vault_replace_span (one atomic step)",
+    },
+    {
+      label: "falls back to delete then vault_patch_note when vault_replace_span is disabled",
+      disabledTools: "vault_replace_span",
+      expectedAdvice: "delete it here, then vault_patch_note to add the new content",
+    },
+    {
+      label: "says only to delete here when vault_replace_span and vault_patch_note are disabled",
+      disabledTools: "vault_replace_span,vault_patch_note",
+      expectedAdvice: "delete it here",
+    },
+  ])("vault_delete_span's replace advice $label", ({ disabledTools, expectedAdvice }) => {
+    const replaceAdvice = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: "To replace a block,",
+      endMarker: "\n\nParameters:",
+    })
+    expect(replaceAdvice).toBe(`To replace a block, ${expectedAdvice}.`)
+  })
+
+  it.each([
+    {
+      label: "names vault_replace_in_note while it is served",
+      disabledTools: "",
+      expectedLine:
+        "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). To replace a block, use vault_replace_span (one atomic step).",
+    },
+    {
+      label: "drops the vault_replace_in_note sentence when that tool is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedLine: "To replace a block, use vault_replace_span (one atomic step).",
+    },
+  ])("vault_delete_span's routing line $label", ({ disabledTools, expectedLine }) => {
+    const routingLine = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: "the last line for end_anchor.\n",
+      endMarker: "\n\nParameters:",
+    })
+    expect(routingLine).toBe(`the last line for end_anchor.\n${expectedLine}`)
+  })
+
+  it("vault_replace_in_note drops the vault_delete_span advice when that tool is disabled", () => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_delete_span" }),
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(
+      [
+        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.',
+        'To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span. To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
+      ].join("\n"),
+    )
+  })
+
+  it.each([
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      startMarker: '- "text not found"',
+      endMarker: '\n- "absolute path',
+      expectedEntry:
+        '- "text not found" — old_text does not appear in the note body; check old_text\'s letter case, spacing, and line breaks',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: '- "start anchor not found"',
+      endMarker: '\n- "ambiguous',
+      expectedEntry:
+        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); check the fragment\'s letter case and spacing',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      startMarker: '- "start anchor not found"',
+      endMarker: '\n- "ambiguous',
+      expectedEntry:
+        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); check the fragment\'s letter case and spacing',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      startMarker: '- "anchor not found"',
+      endMarker: '\n- "ambiguous',
+      expectedEntry:
+        '- "anchor not found" — fragment not on any line; check the fragment\'s letter case and spacing',
+    },
+  ])(
+    "$toolName's not-found entry keeps a remedy without vault_read_note",
+    ({ toolName, startMarker, endMarker, expectedEntry }) => {
+      const notFoundEntry = extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_read_note" }),
+        toolName,
+        startMarker,
+        endMarker,
+      })
+      expect(notFoundEntry).toBe(expectedEntry)
+    },
+  )
+
+  it.each([
+    {
+      label: "offers vault_replace_in_note while it is served",
+      disabledTools: "",
+      expectedEntry:
+        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or use vault_replace_in_note to target by text content when headings share the same level',
+    },
+    {
+      label: "offers only heading_level when vault_replace_in_note is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedEntry:
+        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate',
+    },
+  ])("vault_patch_note's ambiguous-heading entry $label", ({ disabledTools, expectedEntry }) => {
+    const ambiguousHeadingEntry = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: '- "ambiguous heading"',
+      endMarker: '\n- "operation',
+    })
+    expect(ambiguousHeadingEntry).toBe(expectedEntry)
+  })
+
+  const PATCH_NOTE_WHEN_TO_USE =
+    "When to use: Modifying part of an existing note without overwriting the entire body."
+  const PATCH_NOTE_WRITE_NOTE_SENTENCE =
+    "Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true)."
+  const PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE =
+    "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location."
+  const PATCH_NOTE_CREATE_TASK_SENTENCE = "Prefer vault_create_task for adding a task."
+  const PATCH_NOTE_UPDATE_TASK_SENTENCE =
+    "Prefer vault_update_task for completing or moving a task in one write."
+
+  it.each([
+    {
+      label: "names all four tools while they are served",
+      disabledTools: "",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_replace_in_note sentence when that tool is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_write_note sentence when that tool is disabled",
+      disabledTools: "vault_write_note",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_create_task sentence when that tool is disabled",
+      disabledTools: "vault_create_task",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_update_task sentence when that tool is disabled",
+      disabledTools: "vault_update_task",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "leaves only the when-to-use line when all four tools are disabled",
+      disabledTools: "vault_write_note,vault_replace_in_note,vault_create_task,vault_update_task",
+      expectedSection: PATCH_NOTE_WHEN_TO_USE,
+    },
+  ])("vault_patch_note's when-to-use $label", ({ disabledTools, expectedSection }) => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nOperations:",
+    })
+    expect(whenToUse).toBe(expectedSection)
+  })
+
+  it.each([
+    {
+      label: "names both property editors while they are served",
+      disabledTools: "",
+      expectedLine:
+        "Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
+    },
+    {
+      label: "names only vault_write_note when vault_update_properties is disabled",
+      disabledTools: "vault_update_properties",
+      expectedLine:
+        "Operates on the body only — properties must be edited via vault_write_note's properties parameter.",
+    },
+    {
+      label: "names only vault_update_properties when vault_write_note is disabled",
+      disabledTools: "vault_write_note",
+      expectedLine:
+        "Operates on the body only — properties must be edited via vault_update_properties.",
+    },
+    {
+      label: "drops the clause when both property editors are disabled",
+      disabledTools: "vault_update_properties,vault_write_note",
+      expectedLine: "Operates on the body only.",
+    },
+  ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
+    const bodyOnlyLine = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      startMarker: "Operates on the body only",
+      endMarker: "\n\nExample:",
+    })
+    expect(bodyOnlyLine).toBe(expectedLine)
+  })
+
+  it.each([
+    {
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      expectedEntry: '- "note not found" — path does not exist; check its spelling and letter case',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      expectedEntry: '- "note not found" — path does not exist; check its spelling and letter case',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      expectedEntry: '- "note not found" — check the path\'s spelling and letter case',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      expectedEntry: '- "note not found" — check the path\'s spelling and letter case',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      expectedEntry: '- "note not found" — check the path\'s spelling and letter case',
+    },
+  ])(
+    "$toolName's note-not-found entry keeps a remedy without vault_list_notes",
+    ({ toolName, expectedEntry }) => {
+      const noteNotFoundEntry = extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_list_notes" }),
+        toolName,
+        startMarker: '- "note not found"',
+        endMarker: '\n- "path must end in',
+      })
+      expect(noteNotFoundEntry).toBe(expectedEntry)
+    },
+  )
+
+  const PATCH_NOTE_SECTION_BOUNDARIES =
+    'Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted'
+  const EMPTY_HEADING_EDIT_ADVICE = " — edit their content via vault_replace_in_note instead"
+  const LEADING_CALLOUT_EDIT =
+    "Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it)."
+
+  it.each([
+    {
+      label: "names both tools while both are served",
+      disabledTools: "",
+      expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}${EMPTY_HEADING_EDIT_ADVICE}.\n\n${LEADING_CALLOUT_EDIT}`,
+    },
+    {
+      label:
+        "drops the empty-heading advice and the callout edit when vault_replace_in_note is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}.`,
+    },
+    {
+      label: "drops only the callout edit when vault_read_note is disabled",
+      disabledTools: "vault_read_note",
+      expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}${EMPTY_HEADING_EDIT_ADVICE}.`,
+    },
+  ])("vault_patch_note's section-boundary text $label", ({ disabledTools, expectedSection }) => {
+    const sectionBoundariesText = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "Section boundaries:",
+      endMarker: "\n\nErrors:",
+    })
+    expect(sectionBoundariesText).toBe(expectedSection)
+  })
+
+  const REPLACE_SPAN_WHEN_TO_USE =
+    "When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor."
+  const INSERT_AT_ANCHOR_WHEN_TO_USE =
+    "When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line."
+
+  it.each([
+    {
+      label:
+        "vault_replace_span starts its alternatives line at vault_delete_span when vault_replace_in_note is disabled",
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      disabledTools: "vault_replace_in_note",
+      expectedWhenToUse: `${REPLACE_SPAN_WHEN_TO_USE}\nPrefer vault_delete_span when removing without replacement.`,
+    },
+    {
+      label: "vault_replace_span drops its alternatives line when both tools it names are disabled",
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      disabledTools: "vault_replace_in_note,vault_delete_span",
+      expectedWhenToUse: REPLACE_SPAN_WHEN_TO_USE,
+    },
+    {
+      label:
+        "vault_insert_at_anchor starts its alternatives line at vault_replace_span when vault_patch_note is disabled",
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      disabledTools: "vault_patch_note",
+      expectedWhenToUse: `${INSERT_AT_ANCHOR_WHEN_TO_USE}\nPrefer vault_replace_span when replacing a block rather than inserting next to it.`,
+    },
+    {
+      label:
+        "vault_insert_at_anchor drops its alternatives line when both tools it names are disabled",
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      disabledTools: "vault_patch_note,vault_replace_span",
+      expectedWhenToUse: INSERT_AT_ANCHOR_WHEN_TO_USE,
+    },
+    {
+      label:
+        "vault_replace_in_note drops its alternatives line when all three tools it names are disabled",
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      disabledTools: "vault_delete_span,vault_replace_span,vault_patch_note",
+      expectedWhenToUse:
+        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.',
+    },
+  ])("$label", ({ toolName, disabledTools, expectedWhenToUse }) => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(expectedWhenToUse)
   })
 })
 

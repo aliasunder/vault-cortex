@@ -7,14 +7,15 @@
  *  same logic and they can never disagree about where code or comments begin.
  *
  *  pageTextByLines is the shared line-paging primitive used by both vault_read_note
- *  and vault_read_file to deliver text in 1-based line windows. */
+ *  and vault_read_file to deliver text in 1-based line windows, and
+ *  collapseEmptyLineRunsAtEdits shrinks the run of empty lines a note edit leaves. */
 
 // ── Line splitting ──────────────────────────────────────────────
 
 /** Splits note content into lines, stripping a trailing CR so CRLF-authored
  *  (Windows) notes split into LF-only lines. The single home for this
  *  normalization: every site that turns a note's body into lines for parsing or
- *  editing should use it, so heading/section/callout parsing and blank-run
+ *  editing should use it, so heading/section/callout parsing and empty-line
  *  handling behave identically regardless of the file's line endings. */
 export const splitIntoLines = (content: string): string[] =>
   content.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
@@ -104,6 +105,90 @@ export const trimBlankEdgeLines = (lines: readonly string[]): readonly string[] 
   return lines.slice(firstContentIndex, lastContentIndex + 1)
 }
 
+// ── Edit-gap collapsing ─────────────────────────────────────────
+
+/** A point where an edit brought two sides together. A side is note text that
+ *  stayed, or content the edit inserted.
+ *  - `boundary`: the index, in the edited lines, where the side below starts.
+ *  - `gapAbove` / `gapBelow`: the empty lines each side had at its facing edge
+ *    before the edit, up to its nearest line of text or the body's edge. */
+export type EmptyLineEdit = Readonly<{ boundary: number; gapAbove: number; gapBelow: number }>
+
+/** A run of consecutive empty lines, as a half-open index range. */
+type EmptyLineRun = Readonly<{ start: number; end: number }>
+
+/** A run of empty lines that one or more edits touch, with the widest gap any of
+ *  those edits brought to it. */
+type PooledRun = Readonly<{ run: EmptyLineRun; widestGap: number }>
+
+/** The empty lines directly above `boundary` plus those at and below it. */
+const findEmptyRunAt = (lines: readonly string[], boundary: number): EmptyLineRun => {
+  // Two cursors walk outward from the boundary until each meets text or the
+  // body's edge, so the cost is the run's length rather than the note's.
+  let start = boundary
+  while (start > 0 && lines[start - 1] === "") {
+    start--
+  }
+  let end = boundary
+  while (end < lines.length && lines[end] === "") {
+    end++
+  }
+  return { start, end }
+}
+
+/** The indexes, in the edited lines, of the empty lines a run drops: every line
+ *  after the ones it keeps. */
+const listExcessEmptyLineIndexes = ({ run, widestGap }: PooledRun): number[] => {
+  const runIndexes = Array.from({ length: run.end - run.start }, (_, offset) => run.start + offset)
+
+  // The run keeps its widest gap and at least one line: lines emptied by
+  // removing their text can form a run with no gap on either side, and two
+  // emptied lines should leave the same single empty line one emptied line
+  // leaves. A gap wider than the run (it can count line breaks the edit
+  // removed) keeps the whole run.
+  const keptLength = Math.max(widestGap, 1)
+
+  return runIndexes.slice(keptLength)
+}
+
+/** Shrinks each run of empty lines that an edit point touches to the widest gap
+ *  among its edits (`gapAbove` or `gapBelow`), and never below one line. Runs no
+ *  edit touches stay as they are.
+ *
+ *  - "Empty" means exactly `""`: a line of spaces is text here, unlike in
+ *    trimBlankEdgeLines.
+ *  - Every run is measured on the lines as given, so dropping lines in one run
+ *    never shifts another edit's boundary. */
+export const collapseEmptyLineRunsAtEdits = (params: {
+  lines: readonly string[]
+  edits: readonly EmptyLineEdit[]
+}): string[] => {
+  const { lines, edits } = params
+
+  // Keyed by the run's first line, so a second edit in the same run widens the
+  // pooled gap instead of replacing it.
+  const pooledRunsByStart = new Map<number, PooledRun>()
+
+  // Many edits can land in one long run (every match of a replace-all), so an
+  // edit inside the previous edit's run reuses it rather than rescanning it,
+  // which would be quadratic. Starts as an empty range before line 0.
+  let previousRun: EmptyLineRun = { start: -1, end: -1 }
+  for (const edit of edits) {
+    // The run found around a boundary always has start <= boundary <= end, so a
+    // boundary at either end of the previous run touches that same run.
+    const isInPreviousRun = edit.boundary >= previousRun.start && edit.boundary <= previousRun.end
+    const run = isInPreviousRun ? previousRun : findEmptyRunAt(lines, edit.boundary)
+    const pooledGap = pooledRunsByStart.get(run.start)?.widestGap ?? 0
+    const widestGap = Math.max(pooledGap, edit.gapAbove, edit.gapBelow)
+    pooledRunsByStart.set(run.start, { run, widestGap })
+    previousRun = run
+  }
+
+  const excessLineIndexes = [...pooledRunsByStart.values()].flatMap(listExcessEmptyLineIndexes)
+  const droppedIndexes = new Set(excessLineIndexes)
+  return lines.filter((_, index) => !droppedIndexes.has(index))
+}
+
 // ── Blockquote prefix stripping ─────────────────────────────────
 
 /** Matches one blockquote marker: up to 3 spaces indent + `>` + optional
@@ -167,15 +252,15 @@ const tryOpenFence = (innerContent: string, quoteDepth: number): FenceResult | n
 /** Advances the fenced-code state machine by one line — the single CommonMark
  *  §4.5 fence transition shared by every fence-aware walk.
  *
- *  Blockquote-aware: the line's `> ` markers are stripped before fence matching,
- *  so fences inside callouts/blockquotes (e.g. `> \`\`\``) are recognized. A
- *  fence opened at blockquote depth N closes only at the same depth; a line at
- *  lower depth closes it implicitly (the blockquote container ended), and a line
- *  at higher depth is content inside the fence.
+ *  The line's `> ` markers are stripped before fence matching, so fences inside
+ *  callouts/blockquotes (e.g. `> \`\`\``) are recognized. A fence opened at
+ *  blockquote depth N closes only at the same depth; a line at lower depth
+ *  closes it implicitly (the blockquote container ended), and a line at higher
+ *  depth is content inside the fence.
  *
  *  Returns `lineIsCode` — whether this line is inside a fenced code block —
- *  which accounts for depth changes. Callers should use it instead of the
- *  previous `isFenceDelimiter || openFence !== null` pattern.
+ *  which accounts for depth changes. Callers should use it rather than
+ *  recomputing it from `isFenceDelimiter` and `openFence`.
  *
  *  Lazy continuation (CommonMark allows omitting `> ` on continuation lines
  *  inside a blockquote) is out of scope: Obsidian's own renderer does not fully

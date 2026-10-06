@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   splitIntoLines,
   trimBlankEdgeLines,
+  collapseEmptyLineRunsAtEdits,
   advanceFence,
   advanceComment,
   classifyLines,
@@ -30,6 +31,162 @@ describe("trimBlankEdgeLines", () => {
 
   it("leaves an already-trimmed array unchanged", () => {
     expect(trimBlankEdgeLines(["a", "b"])).toEqual(["a", "b"])
+  })
+})
+
+// ── collapseEmptyLineRunsAtEdits ─────────────────────────────────
+
+describe("collapseEmptyLineRunsAtEdits", () => {
+  it("keeps one empty line where two one-line gaps meet", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "B"],
+      edits: [{ boundary: 2, gapAbove: 1, gapBelow: 1 }],
+    })
+
+    expect(collapsed).toEqual(["A", "", "B"])
+  })
+
+  it("keeps the wider gap when it sat above the edit", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "", "B"],
+      edits: [{ boundary: 3, gapAbove: 2, gapBelow: 1 }],
+    })
+
+    expect(collapsed).toEqual(["A", "", "", "B"])
+  })
+
+  it("keeps the wider gap when it sat below the edit", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "", "B"],
+      edits: [{ boundary: 2, gapAbove: 1, gapBelow: 2 }],
+    })
+
+    expect(collapsed).toEqual(["A", "", "", "B"])
+  })
+
+  it("leaves a run the edit touched from one side only", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "B"],
+      edits: [{ boundary: 1, gapAbove: 0, gapBelow: 2 }],
+    })
+
+    expect(collapsed).toEqual(["A", "", "", "B"])
+  })
+
+  it("leaves a single empty line even when its gaps were smaller", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "B"],
+      edits: [{ boundary: 1, gapAbove: 0, gapBelow: 0 }],
+    })
+
+    expect(collapsed).toEqual(["A", "", "B"])
+  })
+
+  it("keeps one empty line of a longer run whose gaps were both zero", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "B"],
+      edits: [
+        { boundary: 1, gapAbove: 0, gapBelow: 0 },
+        { boundary: 2, gapAbove: 0, gapBelow: 0 },
+      ],
+    })
+
+    expect(collapsed).toEqual(["A", "", "B"])
+  })
+
+  it("leaves runs that no edit touches", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["top", "", "", "middle", "", "", "end"],
+      edits: [{ boundary: 5, gapAbove: 1, gapBelow: 1 }],
+    })
+
+    expect(collapsed).toEqual(["top", "", "", "middle", "", "end"])
+  })
+
+  it("treats a line of spaces as text, not as part of a run", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", " ", "", "B"],
+      edits: [{ boundary: 2, gapAbove: 1, gapBelow: 1 }],
+    })
+
+    expect(collapsed).toEqual(["A", "", " ", "", "B"])
+  })
+
+  it("pools the gaps of two edits in one run when the first edit holds the widest", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "", "", "B"],
+      edits: [
+        { boundary: 2, gapAbove: 3, gapBelow: 0 },
+        { boundary: 4, gapAbove: 0, gapBelow: 1 },
+      ],
+    })
+
+    expect(collapsed).toEqual(["A", "", "", "", "B"])
+  })
+
+  it("pools the gaps of two edits in one run when the second edit holds the widest", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "", "", "B"],
+      edits: [
+        { boundary: 2, gapAbove: 1, gapBelow: 0 },
+        { boundary: 4, gapAbove: 0, gapBelow: 3 },
+      ],
+    })
+
+    expect(collapsed).toEqual(["A", "", "", "", "B"])
+  })
+
+  it("collapses a run at the start of the lines", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["", "", "", "B"],
+      edits: [{ boundary: 0, gapAbove: 0, gapBelow: 2 }],
+    })
+
+    expect(collapsed).toEqual(["", "", "B"])
+  })
+
+  it("collapses a run that ends the lines, for an edit placed after the last line", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", ""],
+      edits: [{ boundary: 4, gapAbove: 2, gapBelow: 0 }],
+    })
+
+    expect(collapsed).toEqual(["A", "", ""])
+  })
+
+  it("measures every run before dropping lines, so an earlier collapse does not shift a later edit", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "", "B", "", "", "", "C"],
+      edits: [
+        { boundary: 2, gapAbove: 1, gapBelow: 1 },
+        { boundary: 6, gapAbove: 2, gapBelow: 0 },
+      ],
+    })
+
+    expect(collapsed).toEqual(["A", "", "B", "", "", "C"])
+  })
+
+  it("returns the lines unchanged when there are no edits", () => {
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "", "", "B"],
+      edits: [],
+    })
+
+    expect(collapsed).toEqual(["A", "", "", "B"])
+  })
+
+  it("never adds empty lines to a run shorter than its widest gap", () => {
+    // The first edit sits between two lines of text (a run of no lines); the
+    // second's gap counts more lines than its one-line run holds.
+    const collapsed = collapseEmptyLineRunsAtEdits({
+      lines: ["A", "B", "", "C"],
+      edits: [
+        { boundary: 1, gapAbove: 0, gapBelow: 0 },
+        { boundary: 2, gapAbove: 3, gapBelow: 0 },
+      ],
+    })
+
+    expect(collapsed).toEqual(["A", "B", "", "C"])
   })
 })
 

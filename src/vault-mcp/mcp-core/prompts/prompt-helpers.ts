@@ -7,6 +7,7 @@ import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
 import type { ToolAvailability } from "../tool-availability.js"
+import { truncateToCodePointLimit } from "../../../utils/truncate-to-code-point-limit.js"
 
 export type PromptRegistrationContext = ToolAvailability & {
   server: McpServer
@@ -34,13 +35,24 @@ export const maxCharsArg = z
   .describe(MAX_CHARS_DESCRIPTION)
 
 /** One bullet line for a note: path, plus title when it adds information. */
-export const formatNoteLine = (note: { path: string; title: string }): string =>
-  note.title.length > 0 ? `- ${note.path} — ${note.title}` : `- ${note.path}`
+export const formatNoteLine = (note: { path: string; title: string }): string => {
+  return note.title.length > 0 ? `- ${note.path} — ${note.title}` : `- ${note.path}`
+}
 
 /** Wraps assembled text as a single user-role prompt message. */
 export const textResult = (text: string): GetPromptResult => ({
   messages: [{ role: "user", content: { type: "text", text } }],
 })
+
+/** Whether capContent would cut `text`: more than `maxChars` characters,
+ *  counted in code points. Always false without a cap. */
+export const exceedsCharCap = (text: string, maxChars: number | undefined): boolean => {
+  // A string never holds more code points than UTF-16 units, so a length
+  // within the cap settles it without walking the text.
+  if (!maxChars || text.length <= maxChars) return false
+
+  return !text[Symbol.iterator]().drop(maxChars).next().done
+}
 
 /** Opt-in safety cap for live content embedded in a prompt. When the caller
  *  passes a max (the max_chars argument) and the content exceeds it, truncate
@@ -50,17 +62,21 @@ export const capContent = (
   text: string,
   maxChars: number | undefined,
   toolName: string | undefined,
-): string =>
-  maxChars !== undefined && text.length > maxChars
-    ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters${toolName ? ` — use ${toolName} for the full content` : ""})`
-    : text
+): string => {
+  if (!maxChars || !exceedsCharCap(text, maxChars)) return text
+
+  const keptText = truncateToCodePointLimit(text, maxChars)
+
+  return `${keptText}\n\n…(truncated at ${maxChars} characters${toolName ? ` — use ${toolName} for the full content` : ""})`
+}
 
 /** Escapes any closing `</vault-content>` tag in the body so an attacker who
  *  controls vault content cannot break out of the data-marker boundary. The
  *  slash is HTML-entity-escaped (`&#x2F;`), preserving readability while making
  *  the closing tag syntactically inert to an LLM parsing XML structure. */
-export const escapeVaultContentClosingTag = (text: string): string =>
-  text.replace(/<\/vault-content\s*>/gi, "<&#x2F;vault-content>")
+export const escapeVaultContentClosingTag = (text: string): string => {
+  return text.replace(/<\/vault-content\s*>/gi, "<&#x2F;vault-content>")
+}
 
 /** Wraps vault content in XML data markers so consuming LLMs treat it as data,
  *  not instruction — defense-in-depth for shared/synced vault scenarios. Content

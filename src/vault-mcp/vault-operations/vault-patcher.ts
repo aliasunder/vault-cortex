@@ -6,6 +6,7 @@ import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { readFileOrNull } from "../../utils/fs.js"
+import { truncateToCodePointLimit } from "../../utils/truncate-to-code-point-limit.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseHeadings,
@@ -14,7 +15,12 @@ import {
   linesBeforeFirstHeading,
   type HeadingInfo,
 } from "../obsidian-markdown/headings.js"
-import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.js"
+import {
+  splitIntoLines,
+  trimBlankEdgeLines,
+  collapseEmptyLineRunsAtEdits,
+  type EmptyLineEdit,
+} from "../obsidian-markdown/lines.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -38,8 +44,9 @@ export type DisplacedLeadingContent = Readonly<{
   firstHeading: PatchedNoteFirstHeading | null
 }>
 
-/** A completed patch: the confirmation line, plus displacement facts when the
- *  write nested pre-existing content inside a newly inserted heading. */
+/** What a completed patch reports — the confirmation line, plus displacement
+ *  facts when the write nested pre-existing content inside a newly inserted
+ *  heading. */
 type PatchNoteResult = Readonly<{
   message: string
   displacedLeadingContent: DisplacedLeadingContent | null
@@ -56,9 +63,9 @@ type PatchNoteResult = Readonly<{
  *  text and report nothing. Detection only — callers insert the caller's own
  *  lines verbatim, line endings untouched. */
 const leadingHeadingOfContent = (contentLines: readonly string[]): HeadingInfo | null => {
-  const normalizedLines = contentLines.map((line) =>
-    line.endsWith("\r") ? line.slice(0, -1) : line,
-  )
+  const normalizedLines = contentLines.map((line) => {
+    return line.endsWith("\r") ? line.slice(0, -1) : line
+  })
   const firstContentLineIndex = normalizedLines.findIndex((line) => line.trim() !== "")
   return (
     parseHeadings(normalizedLines).find(
@@ -142,7 +149,7 @@ const readNoteForPatch = async (
     fullPath,
     data: parsed.data,
     // splitIntoLines normalizes CRLF-authored (Windows) notes to LF-only lines
-    // so body matching and blank-run collapse (collapseBlankRuns) stay
+    // so body matching and the empty-line handling after an edit stay
     // consistent, and the note is rewritten as LF.
     lines: splitIntoLines(parsed.content),
     beforeBytes: Buffer.byteLength(fileContent, "utf8"),
@@ -162,13 +169,149 @@ const writePatchedNote = async (
   return Buffer.byteLength(serialized, "utf8")
 }
 
-/** Truncates anchor/preview text to keep error messages and confirmations short. */
-const truncateForMessage = (text: string): string =>
-  text.length > 80 ? text.slice(0, 80) + "…" : text
+/** Truncates anchor/preview text to 80 characters to keep error messages and
+ *  confirmations short. */
+const truncateForMessage = (text: string): string => {
+  const preview = truncateToCodePointLimit(text, 80)
 
-/** Collapses runs of 3+ newlines down to one blank line, so removing content
- *  doesn't leave a visible multi-line gap. */
-const collapseBlankRuns = (body: string): string => body.replace(/\n{3,}/g, "\n\n")
+  return preview.length < text.length ? preview + "…" : text
+}
+
+// ── Gap measurement for collapseEmptyLineRunsAtEdits ────────────
+
+/** Empty lines at the start of `lines`, or all of them when none holds text. */
+const countLeadingEmptyLines = (lines: readonly string[]): number => {
+  const firstTextIndex = lines.findIndex((line) => line !== "")
+
+  return firstTextIndex === -1 ? lines.length : firstTextIndex
+}
+
+/** Empty lines at the end of `lines`, or all of them when none holds text. */
+const countTrailingEmptyLines = (lines: readonly string[]): number => {
+  const lastTextIndex = lines.findLastIndex((line) => line !== "")
+
+  return lastTextIndex === -1 ? lines.length : lines.length - 1 - lastTextIndex
+}
+
+/** Consecutive line breaks in `text` that end just before index `end`. */
+const countLineBreaksEndingAt = (text: string, end: number): number => {
+  // A cursor walks back one character at a time, so the cost is the run's
+  // length rather than the text's; callers measure a run at every match.
+  let start = end
+  while (start > 0 && text[start - 1] === "\n") {
+    start--
+  }
+  return end - start
+}
+
+/** Consecutive line breaks in `text` that start at index `start`. */
+const countLineBreaksStartingAt = (text: string, start: number): number => {
+  // A cursor walks forward one character at a time, so the cost is the run's
+  // length rather than the text's; callers measure a run at every match.
+  let end = start
+  while (end < text.length && text[end] === "\n") {
+    end++
+  }
+  return end - start
+}
+
+/** Empty lines that a run of line breaks puts between a match and the text
+ *  beyond the run. Between two lines of text, n breaks leave n − 1 empty lines
+ *  (`A\n\nB` has one); with only the body's edge beyond the run, all n count. */
+const countEmptyLinesInBreaks = (params: {
+  lineBreaks: number
+  hasTextBeyond: boolean
+}): number => {
+  const breaksEndingText = params.hasTextBeyond ? 1 : 0
+
+  return Math.max(0, params.lineBreaks - breaksEndingText)
+}
+
+/** A run of consecutive line breaks in a string, as a half-open offset range. */
+type LineBreakRun = Readonly<{ start: number; end: number }>
+
+/** Edit points for a `replaceInNote` deletion. `bodyParts` is the body split at
+ *  every removed match, so `bodyParts.join(removedText)` is the original body.
+ *  - Only a match whose removal leaves an empty line where it sat gets an edit
+ *    point; any other removal is written exactly as asked.
+ *  - Each gap counts the empty lines between the match's text and the nearest
+ *    text on that side of the original body. */
+const listTextDeletionEdits = (params: {
+  body: string
+  bodyParts: readonly string[]
+  removedText: string
+}): EmptyLineEdit[] => {
+  const { body, bodyParts, removedText } = params
+
+  const updatedBody = bodyParts.join("")
+  const removedLeadingBreaks = countLineBreaksStartingAt(removedText, 0)
+  const removedTrailingBreaks = countLineBreaksEndingAt(removedText, removedText.length)
+  const edits: EmptyLineEdit[] = []
+
+  // Matches made only of line breaks all sit in one run of them, so a position
+  // inside the last run measured reuses it; rescanning the run for every match
+  // would be quadratic in its length. Starts as an empty range before the body.
+  let lastLineBreakRun: LineBreakRun = { start: -1, end: -1 }
+  /** The run of line breaks in `body` around `position`. Reuses the last run
+   *  measured when `position` falls inside it, and remembers each new one. */
+  const findLineBreakRunAt = (position: number): LineBreakRun => {
+    const isInLastRun = position >= lastLineBreakRun.start && position <= lastLineBreakRun.end
+
+    if (isInLastRun) return lastLineBreakRun
+    lastLineBreakRun = {
+      start: position - countLineBreaksEndingAt(body, position),
+      end: position + countLineBreaksStartingAt(body, position),
+    }
+    return lastLineBreakRun
+  }
+
+  // The last part has no match after it.
+  const partsBeforeMatches = bodyParts.slice(0, -1)
+
+  // Each match's position depends on every part before it, so the walk carries
+  // two running totals; recomputing them per match would be quadratic in
+  // matches. They locate the point where the removed match's two sides meet,
+  // as an offset into updatedBody and as the index of its updated line.
+  let updatedBodyOffset = 0
+  let updatedLineIndex = 0
+  for (const [earlierMatchCount, partBeforeMatch] of partsBeforeMatches.entries()) {
+    updatedBodyOffset += partBeforeMatch.length
+    updatedLineIndex += partBeforeMatch.split("\n").length - 1
+
+    const startsLine = updatedBodyOffset === 0 || updatedBody[updatedBodyOffset - 1] === "\n"
+    const endsLine =
+      updatedBodyOffset === updatedBody.length || updatedBody[updatedBodyOffset] === "\n"
+    const leavesEmptyLine = startsLine && endsLine
+
+    if (!leavesEmptyLine) continue
+
+    // Offsets into the original body add back the text of every earlier match.
+    const matchStart = updatedBodyOffset + earlierMatchCount * removedText.length
+    const matchEnd = matchStart + removedText.length
+    const breaksAboveMatch = matchStart - findLineBreakRunAt(matchStart).start
+    const breaksBelowMatch = findLineBreakRunAt(matchEnd).end - matchEnd
+    const hasTextAboveRun = breaksAboveMatch < matchStart
+    const hasTextBelowRun = matchEnd + breaksBelowMatch < body.length
+
+    // - Each gap is measured to the match's text, not its edge, so line breaks
+    //   at the match's own start or end count toward the gap they sat in.
+    // - A match made only of line breaks counts them on both sides. Its gap
+    //   below then covers every break from the match to the end of its run,
+    //   more than the removal leaves there, so none of that run is dropped.
+    edits.push({
+      boundary: updatedLineIndex,
+      gapAbove: countEmptyLinesInBreaks({
+        lineBreaks: breaksAboveMatch + removedLeadingBreaks,
+        hasTextBeyond: hasTextAboveRun,
+      }),
+      gapBelow: countEmptyLinesInBreaks({
+        lineBreaks: removedTrailingBreaks + breaksBelowMatch,
+        hasTextBeyond: hasTextBelowRun,
+      }),
+    })
+  }
+  return edits
+}
 
 /** Resolves an anchor substring to the single body line that contains it,
  *  searching at or after `fromLine`. The match must be unique by default:
@@ -186,13 +329,15 @@ const resolveAnchorLine = (params: {
 }): number => {
   const { lines, anchor, fromLine, firstMatch, path, role } = params
   const anchorLabel = role ? `${role} anchor` : "anchor"
-  const matchingLineIndices = lines.flatMap((line, index) =>
-    index >= fromLine && line.includes(anchor) ? [index] : [],
-  )
+  const matchingLineIndices = lines.flatMap((line, index) => {
+    return index >= fromLine && line.includes(anchor) ? [index] : []
+  })
   // The end anchor is searched only at or after the start line; its errors say so.
   const regionSuffix = role === "end" ? " at or after the start anchor" : ""
 
-  if (matchingLineIndices.length === 0) {
+  const matchedIndex = matchingLineIndices[0]
+
+  if (matchedIndex === undefined) {
     throw new Error(
       `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
     )
@@ -200,13 +345,6 @@ const resolveAnchorLine = (params: {
   if (matchingLineIndices.length > 1 && !firstMatch) {
     throw new Error(
       `ambiguous ${anchorLabel} in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}`,
-    )
-  }
-  const matchedIndex = matchingLineIndices[0]
-
-  if (matchedIndex === undefined) {
-    throw new Error(
-      `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
     )
   }
   return matchedIndex
@@ -248,7 +386,8 @@ const resolveSpanLines = (params: {
 
 // ── Exported functions ──────────────────────────────────────────
 
-/** Heading-targeted patch: append, prepend, replace, or insert_before. */
+/** Edits the section under a target heading by one of four operations — append,
+ *  prepend, replace, or insert_before. */
 const patchNote = async (
   params: {
     vaultPath: string
@@ -328,10 +467,11 @@ const patchNote = async (
     // Replace on a section with child headings requires explicit opt-in —
     // without it, the caller may not realize children will be destroyed.
     if (operation === "replace" && !includeChildren) {
-      const childHeadings = headings.filter(
-        (candidate) =>
-          candidate.startLine >= target.bodyStartLine && candidate.startLine < target.bodyEndLine,
-      )
+      const childHeadings = headings.filter((candidate) => {
+        return (
+          candidate.startLine >= target.bodyStartLine && candidate.startLine < target.bodyEndLine
+        )
+      })
 
       if (childHeadings.length > 0) {
         const childList = childHeadings.map((child) => child.text).join(", ")
@@ -382,28 +522,30 @@ const replaceInNote = async (
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
 
     const body = lines.join("\n")
+    const firstMatchOffset = body.indexOf(oldText)
 
-    if (!body.includes(oldText)) {
+    if (firstMatchOffset === -1) {
       throw new Error(`text not found in "${path}": "${truncateForMessage(oldText)}"`)
     }
 
-    const idx = body.indexOf(oldText)
-    const { updatedBody, count } = replaceAllOccurrences
-      ? {
-          count: body.split(oldText).length - 1,
-          updatedBody: body.split(oldText).join(newText),
-        }
-      : {
-          count: 1,
-          updatedBody: body.slice(0, idx) + newText + body.slice(idx + oldText.length),
-        }
+    const bodyParts = replaceAllOccurrences
+      ? body.split(oldText)
+      : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + oldText.length)]
+    const count = bodyParts.length - 1
+    const updatedLines = bodyParts.join(newText).split("\n")
 
-    // When deleting text (newText is empty), collapse runs of 3+ blank
-    // lines down to 1 blank line so removals don't leave visible gaps.
-    const normalizedBody = newText.length === 0 ? collapseBlankRuns(updatedBody) : updatedBody
+    // A deletion stacks the empty lines from both sides of each match into one
+    // run, so that run is shrunk back. A replacement keeps new text between
+    // them, and its line breaks are the caller's, written exactly as given.
+    const isDeletion = newText.length === 0
+    const writtenLines = isDeletion
+      ? collapseEmptyLineRunsAtEdits({
+          lines: updatedLines,
+          edits: listTextDeletionEdits({ body, bodyParts, removedText: oldText }),
+        })
+      : updatedLines
 
-    const updatedLines = normalizedBody.split("\n")
-    const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
+    const afterBytes = await writePatchedNote(fullPath, data, writtenLines, logger)
     logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
     return {
       message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
@@ -435,7 +577,7 @@ const deleteSpan = async (
   if (startAnchor.length === 0) {
     throw new Error("startAnchor cannot be empty")
   }
-  if (endAnchor !== undefined && endAnchor.length === 0) {
+  if (endAnchor === "") {
     throw new Error("endAnchor cannot be empty")
   }
 
@@ -453,8 +595,21 @@ const deleteSpan = async (
 
     const removedLines = lines.slice(startLine, endLine + 1)
     const remainingLines = lines.toSpliced(startLine, removedLines.length)
-    const normalizedBody = collapseBlankRuns(remainingLines.join("\n"))
-    const afterBytes = await writePatchedNote(fullPath, data, normalizedBody.split("\n"), logger)
+
+    // Anchors are non-empty, so they never match an empty line: the empty lines
+    // around the span stay behind and meet at startLine, and that joined run
+    // keeps the wider side's count.
+    const writtenLines = collapseEmptyLineRunsAtEdits({
+      lines: remainingLines,
+      edits: [
+        {
+          boundary: startLine,
+          gapAbove: countTrailingEmptyLines(lines.slice(0, startLine)),
+          gapBelow: countLeadingEmptyLines(lines.slice(endLine + 1)),
+        },
+      ],
+    })
+    const afterBytes = await writePatchedNote(fullPath, data, writtenLines, logger)
 
     logger.info("deleted span", {
       path,
@@ -488,7 +643,7 @@ const replaceSpan = async (
   if (startAnchor.length === 0) {
     throw new Error("startAnchor cannot be empty")
   }
-  if (endAnchor !== undefined && endAnchor.length === 0) {
+  if (endAnchor === "") {
     throw new Error("endAnchor cannot be empty")
   }
   if (content.length === 0) {
@@ -511,8 +666,27 @@ const replaceSpan = async (
     const replacedLineCount = endLine - startLine + 1
     const contentLines = content.split("\n")
     const updatedLines = lines.toSpliced(startLine, replacedLineCount, ...contentLines)
-    const normalizedBody = collapseBlankRuns(updatedLines.join("\n"))
-    const afterBytes = await writePatchedNote(fullPath, data, normalizedBody.split("\n"), logger)
+
+    // Content is a side of both edits: its leading empty lines meet the note's
+    // empty lines above the old span, and its trailing ones meet those below.
+    // Each joined run keeps the wider side's count, and the content's interior
+    // is written as given.
+    const writtenLines = collapseEmptyLineRunsAtEdits({
+      lines: updatedLines,
+      edits: [
+        {
+          boundary: startLine,
+          gapAbove: countTrailingEmptyLines(lines.slice(0, startLine)),
+          gapBelow: countLeadingEmptyLines(contentLines),
+        },
+        {
+          boundary: startLine + contentLines.length,
+          gapAbove: countTrailingEmptyLines(contentLines),
+          gapBelow: countLeadingEmptyLines(lines.slice(endLine + 1)),
+        },
+      ],
+    })
+    const afterBytes = await writePatchedNote(fullPath, data, writtenLines, logger)
 
     logger.info("replaced span", {
       path,

@@ -41,8 +41,18 @@ const describeProtectedPaths = (config: VaultConfig): string => {
   return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
 }
 
+/** Sentences that point to other tools, each already "" when its tool is
+ *  disabled, as one line that starts with a line break. Empty sentences drop out
+ *  before the join, so none leaves a leading space or an empty line. */
+const formatServedSentencesLine = (gatedSentences: readonly string[]): string => {
+  const servedSentences = gatedSentences.filter(Boolean).join(" ")
+
+  return servedSentences ? `\n${servedSentences}` : ""
+}
+
 export const registerVaultCrudTools = ({
   registerTool,
+  isToolEnabled,
   whenToolEnabledText,
   vaultPath,
   search,
@@ -411,22 +421,56 @@ Returns: Confirmation message.`,
     },
   )
 
+  // The leading-callout edit calls vault_read_note, then vault_replace_in_note,
+  // so it is left out when either tool is disabled.
+  const readAndReplaceInNoteEnabled =
+    isToolEnabled("vault_read_note") && isToolEnabled("vault_replace_in_note")
+  const leadingCalloutEditText = readAndReplaceInNoteEnabled
+    ? `
+
+Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).`
+    : ""
+  const patchNoteAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_write_note",
+      "Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true).",
+    ),
+    whenToolEnabledText(
+      "vault_replace_in_note",
+      "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.",
+    ),
+    whenToolEnabledText("vault_create_task", "Prefer vault_create_task for adding a task."),
+    whenToolEnabledText(
+      "vault_update_task",
+      "Prefer vault_update_task for completing or moving a task in one write.",
+    ),
+  ])
+
+  // The edit tools' Errors entries keep a remedy when the tool they point to is disabled.
+  const listNotesEnabled = isToolEnabled("vault_list_notes")
+  const noteNotFoundCheckRemedy = listNotesEnabled
+    ? "check vault_list_notes for valid paths"
+    : "check its spelling and letter case"
+  const noteNotFoundVerifyRemedy = listNotesEnabled
+    ? "verify path with vault_list_notes"
+    : "check the path's spelling and letter case"
+  const readNoteEnabled = isToolEnabled("vault_read_note")
+  const textNotFoundRemedy = readNoteEnabled
+    ? "verify exact text with vault_read_note"
+    : "check old_text's letter case, spacing, and line breaks"
+  const anchorNotFoundRemedy = readNoteEnabled
+    ? "verify with vault_read_note"
+    : "check the fragment's letter case and spacing"
+
   registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
       description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit.
 
-Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })
+Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 
-Cross-section move (e.g. completing a task on a board):
-1. vault_read_note to get current content and verify exact text
-2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
-3. vault_replace_in_note({ path, old_text: "- [ ] Task text", new_text: "" }) to remove from source (for a large multi-line block, prefer vault_delete_span); on error, re-read and retry until the source copy is gone
-Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.
-
-When to use: Modifying part of an existing note without overwriting the entire body.
-Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true). Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.
+When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
 - append: add content at end of section (or end of file if no heading)
@@ -438,15 +482,13 @@ Heading-targeted ops keep the matched heading and write content verbatim. No sep
 
 Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, the pre-existing content becomes the new section's body. The write still succeeds and the confirmation says so — use insert_before on the first heading to place a section above it instead.
 
-Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted — edit their content via vault_replace_in_note instead.
-
-Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).
+Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
 Errors:
-- "note not found" — path does not exist; check vault_list_notes for valid paths
+- "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
 - "path must end in …" — add the .md extension
 - "heading not found" — no heading matches the text; error lists available headings
-- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or${whenToolEnabledText("vault_replace_in_note", " use vault_replace_in_note to")} target by text content when headings share the same level
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate${whenToolEnabledText("vault_replace_in_note", ", or use vault_replace_in_note to target by text content when headings share the same level")}
 - "operation … requires a heading target" — replace and insert_before need a heading
 - "heading cannot be empty" — heading is whitespace only; pass the heading's text
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
@@ -539,26 +581,49 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     },
   )
 
+  const replaceInNoteAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_delete_span",
+      "To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text).",
+    ),
+    whenToolEnabledText(
+      "vault_replace_span",
+      "To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span.",
+    ),
+    whenToolEnabledText(
+      "vault_patch_note",
+      'To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
+    ),
+  ])
+  const servedPropertyEditors = [
+    whenToolEnabledText("vault_update_properties", "vault_update_properties"),
+    whenToolEnabledText("vault_write_note", "vault_write_note's properties parameter"),
+  ].filter(Boolean)
+  const propertyEditClause =
+    servedPropertyEditors.length > 0
+      ? ` — properties must be edited via ${servedPropertyEditors.join(" or ")}`
+      : ""
+
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.
+      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only${propertyEditClause}.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
+Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" }) — removes the whole line, line break included.
 
-When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
-To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text).${whenToolEnabledText("vault_replace_span", " To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span.")}${whenToolEnabledText("vault_patch_note", ' To relocate content between headings, vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.')}
+When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.${replaceInNoteAlternativesLine}
 
 Parameters:
-- old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex — exact text only.
-- new_text: after a deletion (new_text=""), every run of consecutive blank lines in the note's body is collapsed to a single blank line.
+- old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
+- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") that leaves an empty line where the match was joins the empty lines above and below it into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); where matches empty their lines, the gap keeps at least one empty line unless it ends the note, so include the line break in old_text to remove the line. Any other deletion, such as text inside a line or a line break that joins two lines, is written exactly as asked. Empty lines outside the joined gaps never change. A line holding only spaces or tabs counts as text, not as an empty line.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
-- "note not found" — path does not exist; check vault_list_notes for valid paths
+- "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
 - "path must end in …" — add the .md extension
-- "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
+- "text not found" — old_text does not appear in the note body; ${textNotFoundRemedy}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
@@ -623,6 +688,10 @@ Returns: Confirmation message with replacement count (number of occurrences repl
     },
   )
 
+  const replaceBlockAdvice = isToolEnabled("vault_replace_span")
+    ? "use vault_replace_span (one atomic step)"
+    : `delete it here${whenToolEnabledText("vault_patch_note", ", then vault_patch_note to add the new content")}`
+
   registerTool(
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
@@ -633,23 +702,22 @@ Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | A
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). ")}To replace a block, ${whenToolEnabledText("vault_replace_span", "prefer vault_replace_span (one atomic step); otherwise ")}delete it here${whenToolEnabledText("vault_patch_note", ", then vault_patch_note to add the new content")}.
+${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). ")}To replace a block, ${replaceBlockAdvice}.
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
-- end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is deleted.
+- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Omit end_anchor for a single-line delete. The empty lines above and below the removed lines join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
+- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted.
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
-- After the deletion, every run of consecutive blank lines in the note's body is collapsed to a single blank line.
 
 Errors:
-- "note not found" — verify path with vault_list_notes
+- "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "start anchor not found" / "end anchor not found" — fragment not on any line (end_anchor: on no line at or after the start line); verify with vault_read_note
+- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); ${anchorNotFoundRemedy}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
-Returns: Confirmation with lines removed and a truncated preview of the deleted text.`,
+Returns: Confirmation with the number of lines the span covered and a preview of them, cut at 80 characters.`,
       inputSchema: {
         path: z
           .string()
@@ -668,7 +736,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
           .min(1)
           .optional()
           .describe(
-            "Short, unique substring that identifies the LAST line of the block. The entire line is selected. Omit to delete just the single line containing start_anchor.",
+            "Short substring that identifies the LAST line of the block. The entire line is selected. Omit to delete just the single line containing start_anchor.",
           ),
         first_match: z
           .boolean()
@@ -710,29 +778,37 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
     },
   )
 
+  const replaceSpanAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_replace_in_note",
+      "Prefer vault_replace_in_note for small in-place text changes (typos, renaming).",
+    ),
+    whenToolEnabledText(
+      "vault_delete_span",
+      "Prefer vault_delete_span when removing without replacement.",
+    ),
+  ])
+
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
       title: "Replace Span",
-      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Each anchor locates a full line — the entire line is selected, not just the matching substring.${whenToolEnabledText("vault_delete_span", " Same anchor semantics as vault_delete_span.")} Case-sensitive matching. Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
+      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Each anchor locates a full line — the entire line is selected, not just the matching substring. Case-sensitive matching. Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
 
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
 
-When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place text changes (typos, renaming).")}${whenToolEnabledText("vault_delete_span", " Prefer vault_delete_span when removing without replacement.")}
+When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${replaceSpanAlternativesLine}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line).
-- end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is replaced.
-- content: a trailing newline adds a blank line after the new block.
+- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced.
+- content: empty lines at its start and end join the empty lines around the replaced lines, and each joined gap keeps the larger of the two counts (only at the end of the note, the count above drops by one). So content can widen a gap but not narrow it: a trailing newline leaves at least one empty line after the new block unless the block ends the note. Content made only of empty lines joins both sides into one gap. Empty lines inside content are written as given, and no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
 - first_match applies to both anchors independently.
-- After the replacement, every run of consecutive blank lines in the note's body — including runs within the replacement text — is collapsed to a single blank line.
 
 Errors:
-- "note not found" — verify path with vault_list_notes
+- "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "start anchor not found" / "end anchor not found" — fragment not on any line (end_anchor: on no line at or after the start line); verify with vault_read_note
+- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); ${anchorNotFoundRemedy}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -740,7 +816,7 @@ Errors:
 
 Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block.
 
-Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — N counts the lines the span covered, M the lines content supplied.`,
+Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — N counts the lines the span covered, M the line breaks in content plus one.`,
       inputSchema: {
         path: z
           .string()
@@ -759,7 +835,7 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
           .min(1)
           .optional()
           .describe(
-            "Short, unique substring that identifies the LAST line of the block. The entire line is selected. Omit to replace just the single line containing start_anchor.",
+            "Short substring that identifies the LAST line of the block. The entire line is selected. Omit to replace just the single line containing start_anchor.",
           ),
         content: z
           .string()
@@ -808,6 +884,17 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
     },
   )
 
+  const insertAtAnchorAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_patch_note",
+      "Prefer vault_patch_note for heading-targeted inserts (append/prepend to a section).",
+    ),
+    whenToolEnabledText(
+      "vault_replace_span",
+      "Prefer vault_replace_span when replacing a block rather than inserting next to it.",
+    ),
+  ])
+
   registerTool(
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
@@ -817,17 +904,16 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
 
-When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.
-${whenToolEnabledText("vault_patch_note", "Prefer vault_patch_note for heading-targeted inserts (append/prepend to a section).")}${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span when replacing a block rather than inserting next to it.")}
+When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.${insertAtAnchorAlternativesLine}
 
 Parameters:
 - anchor locates a full line — the insert never splits a line.
 - content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
 
 Errors:
-- "note not found" — verify path with vault_list_notes
+- "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "anchor not found" — fragment not on any line; verify with vault_read_note
+- "anchor not found" — fragment not on any line; ${anchorNotFoundRemedy}
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry

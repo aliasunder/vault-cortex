@@ -9,6 +9,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   type RegisterPromptCall,
   fakeExtra,
+  recordingLogger,
+  type LogCall,
   JUNE_16_MIDDAY_MS,
   setupVault,
   setupDailyReviewVault,
@@ -105,6 +107,22 @@ describe("daily-review handler", () => {
     expect(text).toContain("truncated at 30 characters")
     expect(text).toContain("vault_get_daily_note")
     expect(text).not.toContain("runs well past the cap")
+  })
+
+  it("embeds and logs as untruncated a daily note whose emoji fit max_chars in characters", async () => {
+    const logs: LogCall[] = []
+    const { vault, calls } = await setupVault({ logger: recordingLogger(logs) })
+    // 314 characters, but 614 UTF-16 units: under the cap only when counted
+    // the way the cut counts them.
+    const dailyBody = `# 2026-06-16\n\n${"🎉".repeat(300)}`
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), `${dailyBody}\n`, "utf8")
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({ date: "2026-06-16", max_chars: "400" }, fakeExtra))
+    const result = logs.find((call) => call.message === "prompt_result")
+    expect(text).toContain(`date="2026-06-16">\n${dailyBody}\n</vault-content>`)
+    expect(result?.data.truncated).toBe(false)
   })
 
   it("daily-review data markers survive truncation", async () => {
