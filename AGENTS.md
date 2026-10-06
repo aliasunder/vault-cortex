@@ -147,7 +147,7 @@ src/
     authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
     server.ts # Entry point — config, mount routes, listen
-    config.ts # Env-var loader + ServerConfig type (loadConfig)
+    config.ts # Env-var loader + VaultConfig type (loadConfig)
     obsidian-markdown/ # Pure Obsidian/Markdown parsers + transforms (no I/O)
       lines.ts # splitIntoLines (CRLF) + fence state machine + classifyLines + pageTextByLines (line paging)
       frontmatter.ts # gray-matter parse/stringify + frontmatter merge

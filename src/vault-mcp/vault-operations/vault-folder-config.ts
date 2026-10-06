@@ -24,8 +24,8 @@ export const resolveEffectiveProtectedPaths = async (
   const dailyNotesConfig = await readDailyNotesFileConfig(vaultPath, logger)
 
   // A whitespace-only folder in daily-notes.json protects nothing.
-  const dailyFolder = dailyNotesConfig.folder.trim()
-  return dailyFolder ? [config.memoryDir, dailyFolder] : [config.memoryDir]
+  const dailyFolder = dailyNotesConfig.folder
+  return dailyFolder.trim() ? [config.memoryDir, dailyFolder] : [config.memoryDir]
 }
 
 export const resolveEffectiveOrphanExcludeFolders = ({

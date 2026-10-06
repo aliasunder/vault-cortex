@@ -634,6 +634,7 @@ Parameters:
 
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
+- "Expression tree is too large" — the exclusion list exceeds the query's capacity; pass a shorter exclude_folders list, then retry.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {

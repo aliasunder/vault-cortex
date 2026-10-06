@@ -57,6 +57,13 @@ describe("resolveEffectiveProtectedPaths", () => {
     ).toEqual(["About Me"])
   })
 
+  it("preserves spaces in a nonblank file-configured daily folder", async () => {
+    const vaultPath = await createVault('{"folder":" Journal "}')
+    expect(
+      await resolveEffectiveProtectedPaths({ config: loadConfig({}), vaultPath }, logger),
+    ).toEqual(["About Me", " Journal "])
+  })
+
   it("uses DAILY_NOTES_FOLDER without reading the file when the format is unset", async () => {
     const vaultPath = await createVault("broken")
     const requestLogger = { ...logger, warn: vi.fn() }

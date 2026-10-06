@@ -1103,7 +1103,7 @@ The runtime image (`Dockerfile`) minimizes the attack surface:
 | Debian security fixes          | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                                                                                 |
 | Log rotation (Compose)         | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                                                                            |
 | Explicit proxy trust (Express) | `trust proxy` = `TRUST_PROXY_HOPS` (default 0 — direct exposure); the `Forwarded` header is honored only under a non-zero `TRUST_FORWARDED_HOPS` — injected forwarding headers can't spoof the client IP (OAuth rate-limit bucket key, request logs) |
-| `Object.freeze` on config      | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                                                                                       |
+| `Object.freeze` on config      | Prevents accidental mutation of the loaded `VaultConfig` — defense against programming errors                                                                                                                                                        |
 
 ### Durability
 
