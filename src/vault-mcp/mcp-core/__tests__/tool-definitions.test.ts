@@ -1635,8 +1635,11 @@ describe("vault_find_orphans live folder defaults", () => {
 
   it("describes live sources and states the exclusion default in the schema", async () => {
     const { toolConfig } = await setupOrphans({ settings: '{"folder":"Journal"}' })
-    expect(toolConfig.description).toContain(
-      'The daily notes folder is resolved on each call (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes")',
+    const defaultsLine = toolConfig.description
+      ?.split("\n")
+      .find((line) => line.startsWith("- The daily notes folder"))
+    expect(defaultsLine).toBe(
+      '- The daily notes folder is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). ORPHAN_EXCLUDE_FOLDERS replaces the defaults.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(

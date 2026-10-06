@@ -160,12 +160,12 @@ When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no tex
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
 Parameters:
-- tag + exact interact: the prefix match follows the "/" separator, so "project" matches itself and its children but does NOT match "my-project" or "projects". exact=true matches only the literal tag, excluding children.
+- tag + exact interact: the prefix match follows the "/" separator, so "project" matches itself and its children but does NOT match "my-project" or "projects".
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. There is no offset: query each child tag separately${whenToolEnabledText("vault_search_by_property", ', or list every note with one exact tag via vault_search_by_property({ key: "tags", value: "<tag>", limit })')}. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z
           .string()
@@ -250,7 +250,7 @@ Parameters:
 Errors:
 - An empty vault returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted descending by chosen timestamp. created is null when the property is missing; bytes is on-disk file size.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted descending by chosen timestamp. created is null when the property is missing; bytes is on-disk file size.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
@@ -453,9 +453,8 @@ When to use: Finding notes by metadata when you don't have a text query.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
 
 Parameters:
-- key is exact and case-sensitive. Text values match exactly and case-sensitively, with no partial matching or globbing. Stored numbers also match numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4".
-- Numeric matching accepts complete finite YAML core numeric forms: signed decimals, leading-zero decimals, .5, 4., exponents, 0x hexadecimal and 0o octal. Whitespace, final line breaks, prefixes like "4abc", comments, expressions, 0b binary, separators, non-finite values and overflow match only literal text.
-- Numeric equality uses stored number precision: large integers can round to the same value, and underflow such as "1e-999" matches stored zero.
+- key and text values match exactly and case-sensitively, with no partial matching or globbing.
+- A value written as a complete, finite YAML number (signed or leading-zero decimals, .5, 4., exponents, 0x, 0o) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary, "1e999") matches only as text. Stored precision applies: large integers can round together, and "1e-999" matches 0.
 - Pass a checkbox as "1" or "0" (true is stored as 1, false as 0); "1.0" does not match a checked checkbox.
 - An array element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
@@ -518,7 +517,9 @@ Parameters:
 
 Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title), and count. Backlink sources may be notes (.md) or canvas files (.canvas).
 
-Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.`,
+Errors:
+- "path must end in …" — add the .md or .canvas extension
+- A path not in the index returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.`,
       inputSchema: {
         path: z
           .string()
@@ -617,7 +618,7 @@ Errors:
     : `daily notes folder, Templates, ${JSON.stringify(config.memoryDir)}`
   const orphanDefaultDescription = config.orphanExcludeFoldersOverride
     ? "With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override is used."
-    : 'The daily notes folder is resolved on each call (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"). ORPHAN_EXCLUDE_FOLDERS replaces the defaults. For unreadable daily settings, the server logs a warning and uses "Daily Notes".'
+    : 'The daily notes folder is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). ORPHAN_EXCLUDE_FOLDERS replaces the defaults.'
 
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
@@ -626,7 +627,6 @@ Errors:
       description: `Find notes with no incoming links from other notes or canvases — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan (self-links are ignored).
 
 Example: vault_find_orphans({})
-Example: vault_find_orphans({ exclude_folders: ["Archive"], limit: 10 })
 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.

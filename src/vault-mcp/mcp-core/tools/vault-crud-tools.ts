@@ -327,7 +327,7 @@ Behavior: Paths come back sorted by vault-relative path, uppercase before lowerc
 
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault or names the vault root itself (e.g. "."), or is hidden like ".obsidian"; use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
@@ -489,7 +489,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     ),
   ])
 
-  // The edit tools' Errors entries keep a remedy when the tool they point to is disabled.
+  // The edit and delete tools' Errors entries keep a remedy when the tool they point to is disabled.
   const listNotesEnabled = isToolEnabled("vault_list_notes")
   const noteNotFoundCheckRemedy = listNotesEnabled
     ? "check vault_list_notes for valid paths"
@@ -1037,12 +1037,12 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
   const trashMoveErrorEntries = config.obsidianSyncEnabled
     ? ""
     : `
-- "cannot move to trash … — 100 collisions in .trash/" — .trash/ already holds this name and its numbered copies ("Plan 1.md" … "Plan 100.md"); clear old trash copies, then retry
-- any other "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed folder); the note stays put; fix .trash/, then retry`
+- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); clear old copies, then retry
+- any other "cannot move to trash …" — the note stays put; fix .trash/ (e.g. a plain file blocks a needed folder), then retry`
   const trashConfigErrorEntry = config.obsidianSyncEnabled
     ? ""
     : `
-- "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable; the delete is blocked because a guessed setting could let the retention sweep remove a note set to be kept forever; repair the file, then retry`
+- "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable, and a guessed setting could let the retention sweep remove a keep-forever note; repair it, then retry`
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
@@ -1072,9 +1072,9 @@ Errors:
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; retry
-- "note not found: …" — the note does not exist${whenToolEnabledText("vault_list_notes", "; verify the path with vault_list_notes before deleting")}${trashMoveErrorEntries}
-- any other "cannot delete …" — the permanent delete failed (e.g. permissions); the note stays put; fix the cause, then retry${trashConfigErrorEntry}
-- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
+- "note not found: …" — ${noteNotFoundVerifyRemedy}${trashMoveErrorEntries}
+- any other "cannot delete …" — the note stays put; fix the cause (e.g. permissions), then retry${trashConfigErrorEntry}
+- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the protected daily notes folder is unknown; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 
 Returns: Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<trash path>)" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
       inputSchema: {
