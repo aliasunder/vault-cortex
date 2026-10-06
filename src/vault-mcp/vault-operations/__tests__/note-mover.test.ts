@@ -990,9 +990,9 @@ describe("moveNote — guards", () => {
     expect(await noteExists("Projects/todo.md")).toBe(true)
   })
 
-  it("reconciles a case-aliased old path to the index's spelling on any host", async () => {
+  it("reconciles a case-aliased old path to the filesystem listing's spelling on any host", async () => {
     // The stat probe is redirected to the real spelling for the aliased path,
-    // so the index-reconciliation branch runs on every host — CI's
+    // so the listing-reconciliation branch runs on every host — CI's
     // case-sensitive filesystem would otherwise never execute it. The
     // platform-gated pair above covers the real-filesystem behavior.
     const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
@@ -1027,7 +1027,7 @@ describe("moveNote — guards", () => {
 
   it("does not substitute a case-variant sibling that is a different file", async () => {
     // Simulates a case-sensitive vault holding two case-distinct files where
-    // the requested one is not yet indexed — the stat probe reports a real
+    // the requested one is absent from the supplied path list — the stat probe reports a real
     // but different inode for the input, and its existence check stays false.
     // The reconciliation must decline, because matching by folded name alone
     // would move and unlink the sibling, the wrong user-visible note.
@@ -1362,10 +1362,10 @@ describe("moveNote — failure safety", () => {
     expect(vi.mocked(logger.info)).toHaveBeenCalledWith("note move complete", {
       from: "Foo.md",
       to: "Bar.md",
-      links_updated: 1,
-      sources_updated: 1,
-      sources_failed: 0,
-      pruned_empty_folders: 0,
+      linksUpdated: 1,
+      sourcesUpdated: 1,
+      sourcesFailed: 0,
+      prunedFolderCount: 0,
     })
   })
 })
