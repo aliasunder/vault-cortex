@@ -6,7 +6,7 @@ import {
   UnsupportedPropertiesBlockError,
 } from "../../../obsidian-markdown/frontmatter.js"
 import type { ToolName } from "../../tool-registry.js"
-import { createToolErrorHandlers, describeTextWindow } from "../tool-helpers.js"
+import { createSafeHandlers, describeTextWindow } from "../tool-helpers.js"
 
 /** A handler failure whose cause carries detail the client must never see. */
 const failWithCause = async (): Promise<string> => {
@@ -55,7 +55,7 @@ const runFailingCall = async (params: {
   const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
   onTestFinished(() => warnSpy.mockRestore())
 
-  const { safeHandler } = createToolErrorHandlers(params.isToolEnabled)
+  const { safeHandler } = createSafeHandlers(params.isToolEnabled)
   return safeHandler(logger, params.fail, (text) => text)
 }
 
@@ -64,7 +64,7 @@ describe("safeHandlerContent", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
 
-    const { safeHandlerContent } = createToolErrorHandlers(everyToolServed)
+    const { safeHandlerContent } = createSafeHandlers(everyToolServed)
     const result = await safeHandlerContent(logger, failWithCause, (text: string) => [
       { type: "text", text },
     ])
@@ -81,7 +81,7 @@ describe("safeHandlerContent", () => {
     const rootWarnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => rootWarnSpy.mockRestore())
 
-    const { safeHandlerContent } = createToolErrorHandlers(everyToolServed)
+    const { safeHandlerContent } = createSafeHandlers(everyToolServed)
     await safeHandlerContent(requestLogger, failWithCause, (text: string) => [
       { type: "text", text },
     ])
@@ -97,7 +97,7 @@ describe("safeHandlerContent", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
 
-    const { safeHandlerContent } = createToolErrorHandlers(everyToolServed)
+    const { safeHandlerContent } = createSafeHandlers(everyToolServed)
     const result = await safeHandlerContent(
       logger,
       failWithUnreadableBlock("invalid-yaml", INVALID_YAML_MESSAGE),
@@ -119,7 +119,7 @@ describe("safeHandlerContent", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
 
-    const { safeHandlerContent } = createToolErrorHandlers(everyToolServed)
+    const { safeHandlerContent } = createSafeHandlers(everyToolServed)
     await safeHandlerContent(
       logger,
       failWithUnreadableBlock("invalid-yaml", INVALID_YAML_MESSAGE),

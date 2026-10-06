@@ -1279,7 +1279,7 @@ Docker hardening, and durability seatbelts above.
 
 #### Error boundary + info-leak prevention
 
-- **`safeHandler()`** (built per server by `createToolErrorHandlers` in
+- **`safeHandler()`** (built per server by `createSafeHandlers` in
   `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
   return a structured `isError` response with the error's name and message,
   plus how to fix a properties-block refusal — no stack traces, no absolute

@@ -8,7 +8,7 @@ import type { Logger } from "../../logger.js"
 import { TOOL_REGISTRY, TOOL_REGISTRY_BY_NAME } from "./tool-registry.js"
 import type { RegistryEntry, ToolGroup, ToolName } from "./tool-registry.js"
 import { createToolAvailability } from "./tool-availability.js"
-import { createToolErrorHandlers } from "./tools/tool-helpers.js"
+import { createSafeHandlers } from "./tools/tool-helpers.js"
 import type { RegisterGatedTool, ToolRegistrationContext } from "./tools/tool-helpers.js"
 import { registerVaultCrudTools } from "./tools/vault-crud-tools.js"
 import { registerSearchTools } from "./tools/search-tools.js"
@@ -81,7 +81,7 @@ export const registerTools = (params: {
   const availability = createToolAvailability(enabledToolNames)
   const context: ToolRegistrationContext = {
     ...availability,
-    ...createToolErrorHandlers(availability.isToolEnabled),
+    ...createSafeHandlers(availability.isToolEnabled),
     registerTool: createGatedRegisterTool(params.server, enabledToolNames),
     vaultPath: params.vaultPath,
     search: params.search,

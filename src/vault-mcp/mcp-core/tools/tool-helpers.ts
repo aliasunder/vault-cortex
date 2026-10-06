@@ -29,7 +29,7 @@ export type RegisterGatedTool = <InputArgs extends undefined | ZodRawShapeCompat
 ) => void
 
 export type ToolRegistrationContext = ToolAvailability &
-  ToolErrorHandlers & {
+  SafeHandlers & {
     registerTool: RegisterGatedTool
     vaultPath: string
     search: SearchIndex
@@ -104,7 +104,7 @@ type ToolHandlerResult = {
 /** The try/catch wrappers every tool handler runs inside. Built per server
  *  from the enabled tool set, because the repair steps they add for a
  *  refused properties block name tools a server may not serve. */
-type ToolErrorHandlers = {
+type SafeHandlers = {
   /** Wraps a handler with try/catch. A throw is logged as `tool_error` and
    *  returned as an isError result whose text is describeError's
    *  `[ErrorName]: message`, plus how to fix a properties-block refusal, so
@@ -194,10 +194,7 @@ export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): st
   return `- "properties block …" — ${conditionClause}the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it`
 }
 
-/** Builds the tool error handlers for one server's enabled tool set. */
-export const createToolErrorHandlers = (
-  isToolEnabled: (name: ToolName) => boolean,
-): ToolErrorHandlers => {
+export const createSafeHandlers = (isToolEnabled: (name: ToolName) => boolean): SafeHandlers => {
   /** describeError's text, plus how to fix a properties-block failure:
    *  repair steps for a block already in the vault, or a way around `---`
    *  lines a write would leave at the top of the note. */
@@ -219,11 +216,7 @@ export const createToolErrorHandlers = (
     return `${message}${separator}${repair}`
   }
 
-  const safeHandlerContent: ToolErrorHandlers["safeHandlerContent"] = async (
-    logger,
-    fn,
-    format,
-  ) => {
+  const safeHandlerContent: SafeHandlers["safeHandlerContent"] = async (logger, fn, format) => {
     try {
       const result = await fn()
       return { content: format(result) }
@@ -237,7 +230,7 @@ export const createToolErrorHandlers = (
     }
   }
 
-  const safeHandler: ToolErrorHandlers["safeHandler"] = (logger, fn, format) => {
+  const safeHandler: SafeHandlers["safeHandler"] = (logger, fn, format) => {
     return safeHandlerContent(logger, fn, (result) => [
       { type: "text" as const, text: format(result) },
     ])
