@@ -117,7 +117,7 @@ graph TB
 
 **Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks (notes + file content) + sqlite-vec KNN ranks (notes + file content) → RRF fusion → cross-encoder reranking → response.
 
-**Invariant — vault is source of truth:** Vault files are canonical. MCP content edits write to those files, and the watcher and startup rebuild derive the SQLite search index from them.
+**Invariant — vault is source of truth:** Vault files are canonical. MCP content edits must write to those files, never directly to the index. The watcher and startup rebuild derive the SQLite search index from the files.
 
 Embeddings persist across rebuilds to reuse unchanged content and can be regenerated from the vault.
 
