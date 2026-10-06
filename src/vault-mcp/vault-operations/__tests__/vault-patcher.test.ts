@@ -4043,6 +4043,13 @@ def second():
 
       expect(await readGapNote()).toBe(PROPERTIES + "\nbefore\nafter\n\n\nend\n")
     })
+
+    it("keeps the lines of spaces on both sides of the deleted line as text", async () => {
+      await writeGapNote("\nA\n \nX\n \nB\n")
+      await deleteSpan({ vaultPath: vault, path: "gaps.md", startAnchor: "X" }, logger)
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\nA\n \n \nB\n")
+    })
   })
 
   describe("replaceSpan", () => {
@@ -4105,6 +4112,16 @@ def second():
 
       expect(await readGapNote()).toBe(PROPERTIES + "\nA\nnew\n\n\n")
     })
+
+    it("writes a line of spaces at the start of content as text beside the note's empty line", async () => {
+      await writeGapNote("\nA\n\nold\nB\n")
+      await replaceSpan(
+        { vaultPath: vault, path: "gaps.md", startAnchor: "old", content: " \nnew" },
+        logger,
+      )
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\nA\n\n \nnew\nB\n")
+    })
   })
 
   describe("replaceInNote replacement", () => {
@@ -4136,6 +4153,13 @@ def second():
 
       expect(result).toEqual({ message: "Replaced 1 occurrence in gaps.md", count: 1 })
       expect(await readGapNote()).toBe(PROPERTIES + "\nA\n\nB\n\nX\n\nC\n")
+    })
+
+    it("keeps the emptied line between two lines of spaces, which count as text", async () => {
+      await writeGapNote("\nA\n \nX\n \nB\n")
+      await replaceInNote({ vaultPath: vault, path: "gaps.md", oldText: "X", newText: "" }, logger)
+
+      expect(await readGapNote()).toBe(PROPERTIES + "\nA\n \n\n \nB\n")
     })
 
     it("closes the gap at every removed match when replacing all occurrences", async () => {
