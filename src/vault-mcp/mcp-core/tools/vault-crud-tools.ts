@@ -370,6 +370,20 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
     ? `, or use ${partialEditToolNames} for partial edits`
     : ""
 
+  const writeNoteAlternativeLines = [
+    whenToolEnabledText(
+      "vault_update_properties",
+      "Prefer vault_update_properties for property-only edits (no body round-trip).",
+    ),
+    whenToolEnabledText(
+      "vault_update_memory",
+      `Prefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`,
+    ),
+  ]
+    .filter(Boolean)
+    .map((line) => `\n${line}`)
+    .join("")
+
   registerTool(
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
@@ -379,8 +393,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
 
-When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body.
-Prefer vault_update_properties for property-only edits (no body round-trip).${whenToolEnabledText("vault_update_memory", `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`)}
+When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body.${writeNoteAlternativeLines}
 
 Errors:
 - "note already exists" — set overwrite: true to replace it${partialEditAdvice}
@@ -1141,6 +1154,13 @@ Returns: Confirmation message naming the outcome — "Deleted <path>" for perman
     },
   )
 
+  const bodyOrPropertiesEditToolNames = (["vault_patch_note", "vault_update_properties"] as const)
+    .filter(isToolEnabled)
+    .join(" or ")
+  const bodyOrPropertiesEditSentence = bodyOrPropertiesEditToolNames
+    ? ` To only change a note's body or properties, use ${bodyOrPropertiesEditToolNames}.`
+    : ""
+
   registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
@@ -1153,7 +1173,7 @@ Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.m
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use ${whenToolEnabledText("vault_patch_note", "vault_patch_note or ")}vault_update_properties. Protected paths (${describeProtectedPaths(config)}) cannot be moved.
+Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink.${bodyOrPropertiesEditSentence} Protected paths (${describeProtectedPaths(config)}) cannot be moved.
 
 Parameters:
 - prune_empty_folders removes each parent folder of old_path that the move leaves with zero entries, up to but never including the vault root; a folder holding any file, even a hidden .DS_Store, is kept. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call. Without it, empty folders stay, matching Obsidian.

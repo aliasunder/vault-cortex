@@ -2671,6 +2671,71 @@ describe("DISABLED_TOOLS", () => {
     expect(routingLine).toBe(`the full note body.\n${expectedLine}`)
   })
 
+  const WRITE_NOTE_WHEN_TO_USE =
+    "When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body."
+  const WRITE_NOTE_PROPERTIES_LINE =
+    "Prefer vault_update_properties for property-only edits (no body round-trip)."
+  const WRITE_NOTE_MEMORY_LINE =
+    "Prefer vault_update_memory for appending dated entries to About Me/ memory files."
+
+  it.each([
+    {
+      label: "keeps both routing lines while their tools are served",
+      disabledTools: "",
+      expectedLines: [WRITE_NOTE_WHEN_TO_USE, WRITE_NOTE_PROPERTIES_LINE, WRITE_NOTE_MEMORY_LINE],
+    },
+    {
+      label: "drops the vault_update_properties line when that tool is disabled",
+      disabledTools: "vault_update_properties",
+      expectedLines: [WRITE_NOTE_WHEN_TO_USE, WRITE_NOTE_MEMORY_LINE],
+    },
+    {
+      label: "leaves only the when-to-use line when both routing tools are disabled",
+      disabledTools: "vault_update_properties,vault_update_memory",
+      expectedLines: [WRITE_NOTE_WHEN_TO_USE],
+    },
+  ])("vault_write_note's when-to-use $label", ({ disabledTools, expectedLines }) => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_WRITE_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nErrors:",
+    })
+    expect(whenToUse).toBe(expectedLines.join("\n"))
+  })
+
+  it.each([
+    {
+      label: "names both edit tools while they are served",
+      disabledTools: "",
+      expectedSentence:
+        " To only change a note's body or properties, use vault_patch_note or vault_update_properties.",
+    },
+    {
+      label: "names only vault_patch_note when vault_update_properties is disabled",
+      disabledTools: "vault_update_properties",
+      expectedSentence: " To only change a note's body or properties, use vault_patch_note.",
+    },
+    {
+      label: "names only vault_update_properties when vault_patch_note is disabled",
+      disabledTools: "vault_patch_note",
+      expectedSentence: " To only change a note's body or properties, use vault_update_properties.",
+    },
+    {
+      label: "drops the sentence when both edit tools are disabled",
+      disabledTools: "vault_patch_note,vault_update_properties",
+      expectedSentence: "",
+    },
+  ])("vault_move_note's edit routing $label", ({ disabledTools, expectedSentence }) => {
+    const editRouting = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+      startMarker: "which would orphan every backlink.",
+      endMarker: " Protected paths",
+    })
+    expect(editRouting).toBe(`which would orphan every backlink.${expectedSentence}`)
+  })
+
   const PATCH_NOTE_WHEN_TO_USE =
     "When to use: Modifying part of an existing note without overwriting the entire body."
   const PATCH_NOTE_WRITE_NOTE_SENTENCE =
