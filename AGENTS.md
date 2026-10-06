@@ -61,7 +61,7 @@ on a folder for the full list.
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed Claude Code hooks only: settings.json runs hooks/install-deps.sh (nvm, npm ci, sst install) on session start and worktree entry; the rest is gitignored
+.claude/ # Committed Claude Code hooks only: settings.json registers hooks/install-deps.sh (nvm, npm ci, sst install) for session start and worktree entry; the rest is gitignored
 obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
 rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian Sync
 templates/memory/ # About Me/ memory file templates for new vaults
@@ -69,7 +69,7 @@ deploy/ # End-user quickstarts (no clone needed): local/ and remote/ (guide, com
 assets/ # Static assets (not shipped in Docker)
 scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open with a header comment saying what they do
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
-  instance-env.ts # Derives PUBLIC_URL for laptop deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
+  instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; a setting that gates tools goes in its SURFACE_AXES
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
@@ -379,9 +379,9 @@ log would produce N lines during a vault rebuild (one per note), it's
   `const { password, token, ...safe } = payload`. Keep the payload typed
   (no `any`), and never `delete` keys from a copy.
 - If a child-process command contains sensitive values, catch a failure
-  at the call site, log a sanitized description, and rethrow only a new
-  error built from it, without `{ cause }`. The original error message and
-  any cause chain carrying it expose the full command.
+  at the call site and log a sanitized description. A rethrow must be a
+  new error without `{ cause }`: the original message, and any cause chain
+  carrying it, expose the full command.
 - Layer-appropriate messages: internal/data-layer functions describe
   what went wrong in their own domain and never name API surfaces
   (tool names, routes) or prescribe caller-level remediation.
@@ -425,7 +425,7 @@ while writing, not after. `eslint.config.ts` enforces this subset:
   `TOOL_NAMES`).
 
 The rest are the author's responsibility at write time. The list below
-covers the enforced rules and the rest, with reasons:
+covers both kinds, with reasons:
 
 - Functional over OOP. Arrow functions over `function` declarations.
 - Factory/closure pattern for stateful modules (see search-index.ts).
