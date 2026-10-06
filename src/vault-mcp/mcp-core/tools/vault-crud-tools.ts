@@ -439,6 +439,26 @@ Add at the target before deleting from the source — the two writes are not ato
 
 Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).`
     : ""
+  const patchNoteAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_write_note",
+      "Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true).",
+    ),
+    whenToolEnabledText(
+      "vault_replace_in_note",
+      "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.",
+    ),
+  ])
+
+  // The "note not found" entries of the edit tools keep a remedy when
+  // vault_list_notes is disabled; the two wordings match each entry's own.
+  const listNotesEnabled = isToolEnabled("vault_list_notes")
+  const noteNotFoundCheckRemedy = listNotesEnabled
+    ? "check vault_list_notes for valid paths"
+    : "check its spelling and letter case"
+  const noteNotFoundVerifyRemedy = listNotesEnabled
+    ? "verify path with vault_list_notes"
+    : "check the path's spelling and letter case"
 
   registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
@@ -448,8 +468,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
 
 Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })${crossSectionMoveText}
 
-When to use: Modifying part of an existing note without overwriting the entire body.
-Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true).${whenToolEnabledText("vault_replace_in_note", " Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.")}
+When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
 - append: add content at end of section (or end of file if no heading)
@@ -464,7 +483,7 @@ Limitation: A no-heading prepend inserts at body line 0. If the note has content
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
 Errors:
-- "note not found" — path does not exist; check vault_list_notes for valid paths
+- "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
 - "path must end in …" — add the .md extension
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or${whenToolEnabledText("vault_replace_in_note", " use vault_replace_in_note to")} target by text content when headings share the same level
@@ -574,12 +593,20 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
       'To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
     ),
   ])
+  const servedPropertyEditors = [
+    whenToolEnabledText("vault_update_properties", "vault_update_properties"),
+    whenToolEnabledText("vault_write_note", "vault_write_note's properties parameter"),
+  ].filter(Boolean)
+  const propertyEditClause =
+    servedPropertyEditors.length > 0
+      ? ` — properties must be edited via ${servedPropertyEditors.join(" or ")}`
+      : ""
 
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.
+      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only${propertyEditClause}.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" }) — removes the whole line, line break included.
@@ -592,7 +619,7 @@ Parameters:
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
-- "note not found" — path does not exist; check vault_list_notes for valid paths
+- "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
 - "path must end in …" — add the .md extension
 - "text not found" — old_text does not appear in the note body${whenToolEnabledText("vault_read_note", "; verify exact text with vault_read_note")}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
@@ -681,7 +708,7 @@ Parameters:
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
 
 Errors:
-- "note not found" — verify path with vault_list_notes
+- "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
 - "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
@@ -777,7 +804,7 @@ Parameters:
 - first_match applies to both anchors independently.
 
 Errors:
-- "note not found" — verify path with vault_list_notes
+- "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
 - "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
@@ -882,7 +909,7 @@ Parameters:
 - content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
 
 Errors:
-- "note not found" — verify path with vault_list_notes
+- "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
 - "anchor not found" — fragment not on any line${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
