@@ -641,7 +641,7 @@ const moveNote = async (
     }))
 
   // Guards use canonical spelling; file operations use the listing's spelling.
-  // Ordinary moves with listed inputs lock immediately, so conflicting writes fail fast.
+  // Ordinary moves with listed inputs lock before returning a promise; later writes observe the locks.
   const oldPath = allNotePaths.includes(canonicalOldPath)
     ? canonicalOldPath
     : await listedSpellingForAliasedPath({
