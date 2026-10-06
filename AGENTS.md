@@ -47,171 +47,46 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
-The tree lists the main folders and the files an agent most often needs:
-entry points and core modules. Small self-explanatory helpers and routine
-files (READMEs and other top-level docs, compose files, tool configs such as
-`package.json`, `tsconfig.json`, and `eslint.config.ts`, and the `.github/`,
-`.devin/`, and `.husky/` folders) are left out; run `ls` on a folder for the
-full list.
+The tree lists each folder with its main modules named inline. A file gets
+its own line only when its comment states a constraint the name does not
+show. Routine files (READMEs and other top-level docs, compose files, tool
+configs such as `package.json`, `tsconfig.json`, and `eslint.config.ts`, and
+the `.github/`, `.devin/`, and `.husky/` folders) are left out; run `ls` on a
+folder for the full list.
 
 ```text
 server.json # MCP server registry manifest
-render.yaml # Render Blueprint (repo root — Render reads it only from there); backs the Deploy to Render button
+render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed Claude Code session hooks (rest of .claude/ is gitignored)
-  settings.json # SessionStart + PostToolUse(EnterWorktree) → install-deps.sh
-  hooks/
-    install-deps.sh # nvm + npm ci guard for fresh clones and worktrees
-obsidian-headless/ # Lockfile-pinned obsidian-headless for Docker remote target
-rootfs/ # Container filesystem overlay (remote target)
-  etc/s6-overlay/ # init chain + svc-obsidian-sync + svc-vault-mcp (run + finish: restart after setup mode's sign-in; see setup/ below)
-  usr/local/bin/get-sync-token # interactive Obsidian Sync token helper (terminal alternative to setup mode's browser sign-in)
-.env.example # template for Lightsail .env
-templates/ # Bootstrap templates for new vaults
-  memory/ # About Me/ memory file templates
-deploy/ # End-user quickstart (no clone needed)
-  local/ # vault-cortex:latest + bind-mounted vault
-    .env.example # MCP_AUTH_TOKEN + VAULT_PATH
-  remote/ # vault-cortex:remote + named volumes
-    .env.example # + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
-  render/ # Render one-click guide (render.yaml lives at the repo root)
-  railway/ # Railway one-click guide (template definition lives in CONTRIBUTING.md; template itself in Railway)
+.claude/ # Committed session hooks only: settings.json runs hooks/install-deps.sh (nvm + npm ci) on session start and worktree entry; the rest is gitignored
+obsidian-headless/ # Lockfile-pinned obsidian-headless for the remote target
+rootfs/ # Container filesystem overlay (remote target): s6 init chain and services in etc/s6-overlay/, the get-sync-token helper in usr/local/bin/
+templates/memory/ # About Me/ memory file templates for new vaults
+deploy/ # End-user quickstarts (no clone needed): local/ and remote/ (guide, compose file, .env.example), render/ and railway/ (one-click guides; the Railway template definition lives in CONTRIBUTING.md)
 assets/ # Static assets (not shipped in Docker)
-  fonts/
-    DejaVuSans.ttf # Embedded in render script for deterministic text rendering
-scripts/ # Dev/ops helpers (not shipped in Docker)
-  dev.ts # Deployment helper (docker:build/push/publish, lightsail:up over SSH)
+scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open with a header comment saying what they do
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
-  run-sst.ts # Runs local SST commands with the external deployment env
   instance-env.ts # PUBLIC_URL for lightsail:up; must resolve like sst.config.ts and deploy.yml, or the authorizer rejects tokens
-  sync-cli-env-blocks.ts # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
-  lobehub-manifest.ts # Builds lhm.plugin.json from the live MCP tool/prompt registry
-  sync-lobehub-manifest.ts # Writes the gitignored lhm.plugin.json (npm run sync:lobehub-manifest)
-  generate-dockerhub-readme.ts # Generates DOCKERHUB.md from README.md, stripping content Cloudflare's WAF in front of Docker Hub blocks
-  render-social-preview.ts # Renders social-preview.svg → .png via Puppeteer
-  search-eval.ts # Search ranking eval: scores hybrid search against a local judgment file of queries and expected results
-  search-eval-plan.ts # Judgment-file schema, CLI validation, and whether to reuse the snapshot and index
-  search-eval-snapshot.ts # Vault copy the eval runs against, skipping hidden paths and configured prefixes
-  tool-surface-capture.ts # Boots an in-process server per config combo and reads its tools and prompts; feeds the snapshot test, the size report, and the LobeHub manifest
-  tool-surface-size.ts # Per-combo and per-tool size of the MCP tool definitions (npm run report:tool-surface-size)
-cli/ # npx vault-cortex CLI (published as vault-cortex npm package)
-  src/
-    bin.ts # Entry point (version injection + run)
-    main.ts # Top-level wiring (program + init + prompts + docker)
-    program.ts # Commander program definition
-    configure.ts # Configure command (guided settings edit + restart offer)
-    prompts.ts # Interactive prompt flow (mode, vault path, token)
-    optional-settings.ts # Guided optional-settings flow (curated vars, chooser, .env patching)
-    scaffold.ts # File generation (.env)
-    docker.ts # Container management (docker run, health-check wait)
-    lifecycle.ts # Down/logs/restart commands + shared deployment resolution and re-create plumbing
-    env.ts # Environment file handling (.env generation)
-    token.ts # Secure token generation (openssl rand)
-    vault.ts # Vault path validation
-    init.ts # Init command orchestration
-    upgrade.ts # Upgrade command (pull + re-create + health check)
-    get-sync-token.ts # Get-sync-token subcommand (Sync token capture via Obsidian API)
-    __tests__/
-      integration/ # Interactive flows via node-pty in a real PTY
-        pty-harness.ts # PTY spawn + sequential prompt matching + transcript
-        cli-pty.test.ts # init (local + remote), configure, optional settings, non-interactive wiring
-        fixtures/
-          docker # Fake docker binary (bash, configurable via env vars)
-          .obsidian/daily-notes.json # Vault path validation fixture
+  tool-surface-capture.ts # Boots a server per config combo; feeds the snapshot test, the size report, and the LobeHub manifest
+cli/src/ # npx vault-cortex CLI: bin.ts (entry) → main.ts (wiring) → program.ts (Commander), one module per command (init, configure, upgrade, lifecycle, get-sync-token), and the shared modules they use (prompts, docker, env, scaffold, and others)
+  __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness.ts, cli-pty.test.ts, a fake docker binary in fixtures/
 src/
   logger.ts # Root logger (structured JSON, source location)
-  auth.ts # Shared auth utilities (safeEqual, parseBearer)
-  jwt.ts # Minimal JWT sign/verify (HS256, used by Lambda + Express)
-  utils/ # Cross-cutting helpers (no domain logic)
-    file-write-lock.ts # Per-file write locks — serializing, fail-fast, and multi-file fail-fast modes (TOCTOU prevention)
-    map-with-concurrency.ts # Bounded-concurrency async map (batch-based)
-    describe-error.ts # describeError — message from an unknown throw
-    fs.ts # readFileOrNull / readdirOrNull / fileExists / statOrNull / lstatOrNull / realpathOrNull (ENOENT-safe)
-    assert-path-has-extension.ts # Generic path extension assertion (used by note-path validation)
-    case-fold-path.ts # Case- and Unicode-normalization-fold a path for comparison (macOS/Windows bind mounts)
-    compare-utf8-bytes.ts # compareByUtf8Bytes — SQLite-BINARY (UTF-8 byte) string ordering for deterministic tie-breaks
-    has-hidden-path-segment.ts # Shared "is hidden path" predicate (listings, watcher, index, path guard)
-    levenshtein-distance.ts # Levenshtein edit distance (case-sensitive; callers fold case first)
-  __tests__/
-    integration/ # End-to-end: SDK Client + StreamableHTTPClientTransport over real HTTP
-      test-harness.ts # Server lifecycle (spawn, healthz poll, cleanup) + client factory
-      server-integration.test.ts # Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
-      server-error-contracts.test.ts # Documented error paths verified over real HTTP
-      server-oauth-integration.test.ts # OAuth flows: token rotation, client sweep, reuse detection, scope widening
-      fixtures/vault/ # Fixture vault copied to tempdir per server boot
-    docker/ # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
-      docker-harness.ts # docker run/exec/logs/healthz helpers + MCP client factory
-      remote-image-boot.test.ts # s6 init chain end-to-end against the built :remote image, `ob` (the obsidian-headless CLI) stubbed
-      fixtures/ob # POSIX stub for the obsidian-headless CLI, bind-mounted over its cli.js
-  functions/
-    authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
+  auth.ts, jwt.ts # Shared auth utilities; minimal HS256 JWT used by the Lambda and Express
+  utils/ # Generic helpers with no domain logic (admission rules under Module layering)
+  functions/authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
+  __tests__/integration/ # SDK Client over real HTTP: test-harness.ts, happy paths, error contracts, OAuth flows, fixtures/vault/
+  __tests__/docker/ # Remote image boot tests (npm run test:remote-boot): docker-harness.ts, with `ob` stubbed by fixtures/ob
   vault-mcp/
-    server.ts # Entry point — config, mount routes, listen
-    config.ts # Env-var loader + VaultConfig type (loadConfig)
-    obsidian-markdown/ # Pure Obsidian/Markdown parsers + transforms (no I/O)
-      lines.ts # splitIntoLines (CRLF) + fence state machine + classifyLines + pageTextByLines (line paging)
-      frontmatter.ts # gray-matter parse/stringify + frontmatter merge
-      callouts.ts # Leading-callout parser (> [!type] blocks)
-      headings.ts # Shared H1–H6 section-span parser — ATX + setext (read + patch)
-      links.ts # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
-      tasks.ts # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
-      recurrence.ts # Tasks-plugin 🔁 rule parsing + next-occurrence dates (rrule, pinned to the plugin's version)
-      memory-entries.ts # Memory-entry grammar (dated bullets in About Me/ files)
-      canvas.ts # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
-      pdf-engine.ts # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
-      pdf.ts # PDF text extraction: extractPdfText(Uint8Array → { text, totalPages }) + markdown reconstruction
-      moment-format.ts # Moment.js → Luxon format-string conversion (pure, zero imports)
-    vault-operations/ # Vault content read/write/patch (filesystem I/O)
-      vault-filesystem.ts # Read/write/list/delete .md files; read/list/stat non-md assets; outline + section reads
-      vault-patcher.ts # Surgical edits: heading-targeted patch + find-and-replace
-      note-mover.ts # Move/rename a note + rewrite every vault-wide link to it
-      memory-store.ts # About Me/ heading-aware read/append/delete
-      daily-notes.ts # Daily note config reader + path resolver (env settings > daily-notes.json)
-      vault-folder-config.ts # Protected folders + live orphan exclusion defaults
-      task-mutations.ts # Task create + state mutations (status, priority, heading moves, sub-tasks)
-      task-format-config.ts # Tasks-plugin format config reader (emoji vs Dataview) + status registry
-      trash-config.ts # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
-      trash-sweeper.ts # Trash bookkeeping: orphan purge (boot) + retention sweep (boot + daily); trash rows via an injected `TrashEntryStore` (search/ owns the table)
-      asset-operations.ts # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
-    mcp-core/ # MCP protocol surface
-      mcp-router.ts # /mcp session routes + transport lifecycle
-      tool-registry.ts # Declarative registry — tool names, groups, MCP annotations (leaf, zero imports)
-      tool-availability.ts # Enabled-set view shared by tools, prompts, and router — isToolEnabled / whenToolEnabledText / tool-name lists
-      tool-definitions.ts # Tool orchestrator — enabled-set filter chain + gated registration wrapper
-      prompt-definitions.ts # Prompt orchestrator — PROMPT_NAMES + conditional group registration
-      tools/ # Tool group modules (one per data-layer domain)
-        tool-helpers.ts # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + formatNoteMetadata/describeTextWindow
-        vault-crud-tools.ts # 11 tools: read, list, write, patch, replace, delete, move, update-properties, anchor-targeted delete/replace/insert
-        search-tools.ts # 11 tools: search, tags, properties, graph queries
-        task-tools.ts # 3 tools: list-tasks, create-task, update-task
-        memory-tools.ts # 5 tools: get/update/list/delete memory + memory recall
-        daily-note-tools.ts # 1 tool: get daily note
-        asset-tools.ts # 2 tools: read-file, list-files
-      prompts/ # Prompt group modules (one per prompt)
-        prompt-helpers.ts # Shared PromptRegistrationContext type + formatting helpers
-        vault-orientation-prompt.ts # 1 prompt: vault structure + health survey
-        memory-review-prompt.ts # 1 prompt: memory layer reflection
-        daily-review-prompt.ts # 1 prompt: daily note review + reconciliation
-    search/ # SQLite FTS5 + hybrid search + file watching + embedding
-      search-index.ts # Factory: schema, write ops, types, context wiring
-      search-queries.ts # 16 query methods (FTS, memory recall, tags, tasks, links, etc.) + SearchQueryContext
-      hybrid-search.ts # hybridSearch — note/file FTS + vector legs fused by RRF, cross-encoder rerank
-      search-helpers.ts # Pure data transforms (row mappers, filters, link extraction)
-      rrf.ts # Reciprocal Rank Fusion scoring (computeRrfScores)
-      embedder.ts # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
-      reranker.ts # Cross-encoder reranker factory (ms-marco-MiniLM, ONNX)
-      chunker.ts # Heading-aware chunking for embedding
-      file-watcher.ts # chokidar → keeps FTS + vector index current
-    oauth/ # OAuth 2.1 (provider, routes, consent)
-      oauth-provider.ts # OAuthServerProvider — JWT tokens, SQLite persistence
-      oauth-routes.ts # SDK auth router + consent form handler
-    setup/ # Setup mode — browser sign-in to Obsidian Sync when the :remote image boots without a working token
-      setup-server.ts # Entry point svc-vault-mcp runs in setup mode (/setup + /healthz; every other path 503)
-      setup-routes.ts # Public GET /setup page + token-gated POST /setup, 2FA, vault pre-flight, token write, restart signal
-      setup-page.ts # HTML for the flow (sign-in, 2FA, blocked, complete, already configured)
-      obsidian-api.ts # Obsidian's account API as the obsidian-headless CLI calls it (sign-in, vault list, vault key check)
-      vault-key.ts # Vault password → key hash, the derivation `ob sync-setup` uses (scrypt + HKDF; pure)
-      sync-token-store.ts # Writes the token where the Sync client reads it (dir 0700, file 0600)
+    server.ts, config.ts # Entry point and env-var loader, the only loose files here
+    obsidian-markdown/ # Pure parsers and transforms, no I/O: lines, frontmatter, callouts, headings, links, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
+    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations
+    mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions
+      tools/ # One module per data-layer domain (vault-crud, search, task, memory, daily-note, asset) plus tool-helpers.ts
+      prompts/ # One module per prompt (vault-orientation, memory-review, daily-review) plus prompt-helpers.ts
+    search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, chunker, file-watcher
+    oauth/ # OAuth 2.1: oauth-provider, oauth-routes, consent-page
+    setup/ # Setup mode for the :remote image: setup-server (entry), setup-routes, setup-page, obsidian-api, vault-key, sync-token-store
 ```
 
 ### Module layering
@@ -353,14 +228,8 @@ and gating is derived once rather than re-decided per call site:
   sibling surfaces, not a layer stack; a helper both need is either generic
   enough for `utils/` or belongs in that group's own helpers module.
 
-Before editing these rules, read the comments in `eslint.config.ts`.
-`no-restricted-syntax` options replace rather than merge across blocks, so a
-narrower block must restate every selector it still wants.
-`no-restricted-imports` patterns match the import string as written, so a
-pattern must key on the segment the specifier carries: `**/tools/**` matches
-`"../tools/x"`, while `**/mcp-core/tools/**` matches nothing and the rule sits
-inert.
-Validate any new rule with a planted violation.
+Before editing these rules, read the comments in `eslint.config.ts`, and
+validate any new rule with a planted violation.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
@@ -499,8 +368,6 @@ log would produce N lines during a vault rebuild (one per note), it's
   identifiers (`sessionId`), never identity payloads.
 - Redact via destructuring: `const { password, token, ...safe } = payload`
   — no `any`, no `delete` on copies.
-- Every catch logs or re-throws — `.catch(() => {})` and empty catch
-  blocks are banned; a swallowed error hides the failure.
 - If a child-process command contains sensitive values, catch a failure
   at the call site and log a sanitized description. The original error
   message and a rethrow with `{ cause }` can expose the full command.
@@ -1430,8 +1297,8 @@ social preview, CI configs, wiki.json, or any other surface an end
 user or registry sees. Use category names or capability descriptions
 instead. Counts go stale on every tool addition and the drift compounds
 across surfaces. The tools table and prompt table are the source of
-truth; a reader counts from those. Internal docs (AGENTS.md structure
-tree, code comments) may include counts where they help agents gauge
+truth; a reader counts from those. Internal docs (AGENTS.md, code
+comments) may include counts where they help agents gauge
 module size — these are agent-facing and not propagated externally.
 
 Several files outside `src/` reflect the project's feature surface and
@@ -1497,15 +1364,6 @@ pattern:
 CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across
 steps 2–4 after the fact and pin the committed hosted templates (step 8);
 following the checklist avoids the omissions in the first place.
-
-**Regenerating `social-preview.png`:** Run `npm run render:social-preview`.
-The script uses Puppeteer's pinned Chrome for Testing build with an embedded
-DejaVu Sans `@font-face` for deterministic rendering regardless of host system
-fonts. `npm ci` skips the browser download (the `puppeteer.skipDownload` key
-in `package.json` — keeps installs working in environments without a zip
-archiver, e.g. registry build images); the render script installs the browser
-on demand, so the first run downloads it (~350MB on disk). It losslessly
-optimizes the PNG with `optipng` if available (not required).
 
 Not every PR touches these. A new tool in an existing category updates
 the README tools table, `DOCKERHUB.md` (regenerated), and the tool-surface

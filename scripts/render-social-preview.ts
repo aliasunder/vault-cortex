@@ -1,8 +1,11 @@
-// Renders assets/social-preview.svg to assets/social-preview.png using Puppeteer's
-// pinned Chrome for Testing build (installed on demand by the npm script — `npm ci`
-// skips the download via the `puppeteer.skipDownload` key in package.json). Embeds
-// DejaVu Sans via @font-face for deterministic text rendering regardless of host
-// system fonts.
+// Renders assets/social-preview.svg to assets/social-preview.png.
+//
+// - Browser: Puppeteer's pinned Chrome for Testing build. `npm ci` skips its
+//   download (the `puppeteer.skipDownload` key in package.json) so installs work
+//   where no zip archiver exists, such as registry build images. The npm script
+//   installs it on demand, so the first render downloads about 350MB.
+// - Font: DejaVu Sans is embedded via @font-face, so text renders the same
+//   whatever fonts the host has.
 //
 // Usage: npm run render:social-preview
 
