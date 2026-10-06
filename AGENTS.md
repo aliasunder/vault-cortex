@@ -58,7 +58,7 @@ folder for the full list.
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed session hooks only: settings.json runs hooks/install-deps.sh (nvm + npm ci) on session start and worktree entry; the rest is gitignored
+.claude/ # Committed session hooks only: settings.json runs hooks/install-deps.sh (nvm, npm ci, sst install) on session start and worktree entry; the rest is gitignored
 obsidian-headless/ # Lockfile-pinned obsidian-headless for the remote target
 rootfs/ # Container filesystem overlay (remote target): s6 init chain and services in etc/s6-overlay/, the get-sync-token helper in usr/local/bin/
 templates/memory/ # About Me/ memory file templates for new vaults
@@ -68,7 +68,7 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
   instance-env.ts # PUBLIC_URL for lightsail:up; must resolve like sst.config.ts and deploy.yml, or the authorizer rejects tokens
   tool-surface-capture.ts # Boots a server per config combo; feeds the snapshot test, the size report, and the LobeHub manifest
-cli/src/ # npx vault-cortex CLI: bin.ts (entry) → main.ts (wiring) → program.ts (Commander), one module per command (init, configure, upgrade, lifecycle, get-sync-token), and the shared modules they use (prompts, docker, env, scaffold, and others)
+cli/src/ # npx vault-cortex CLI: bin.ts (entry) → main.ts (wiring) → program.ts (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness.ts, cli-pty.test.ts, a fake docker binary in fixtures/
 src/
   logger.ts # Root logger (structured JSON, source location)
