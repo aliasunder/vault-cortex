@@ -297,8 +297,11 @@ describe("loadConfig", () => {
       expect(loadConfig({ ORPHAN_EXCLUDE_FOLDERS: input }).orphanExcludeFoldersOverride).toBeNull()
     })
 
-    it("preserves a comma-only explicit empty override", () => {
-      expect(loadConfig({ ORPHAN_EXCLUDE_FOLDERS: ", ," }).orphanExcludeFoldersOverride).toEqual([])
+    it.each([
+      { label: "a single comma", input: "," },
+      { label: "commas separated by spaces", input: ", ," },
+    ])("$label clears the orphan exclusions", ({ input }) => {
+      expect(loadConfig({ ORPHAN_EXCLUDE_FOLDERS: input }).orphanExcludeFoldersOverride).toEqual([])
     })
 
     it("overrides the default entirely", () => {
