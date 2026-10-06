@@ -1348,9 +1348,9 @@ describe("moveNote — failure safety", () => {
     expect(vi.mocked(logger.info)).toHaveBeenCalledWith("note move complete", {
       from: "Foo.md",
       to: "Bar.md",
-      links_updated: 1,
-      sources_updated: 1,
-      sources_failed: 0,
+      linksUpdated: 1,
+      sourcesUpdated: 1,
+      sourcesFailed: 0,
       prunedFolderCount: 0,
     })
   })

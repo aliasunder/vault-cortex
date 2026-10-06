@@ -906,8 +906,8 @@ const moveNote = async (
                 source: planned.source,
                 from: oldPath,
                 to: newPath,
-                sources_written: sourcesWritten,
-                sources_planned: plannedRewrites.length,
+                sourcesWritten,
+                sourcesPlanned: plannedRewrites.length,
                 error: describeError(error),
               })
               // Neither kind of move can simply be re-run:
@@ -940,8 +940,8 @@ const moveNote = async (
             logger.error("note move failed while deleting the original note", {
               from: oldPath,
               to: newPath,
-              sources_updated: plannedRewrites.length,
-              links_updated: linksUpdated,
+              sourcesUpdated: plannedRewrites.length,
+              linksUpdated,
               error: describeError(error),
             })
             throw new Error(
@@ -960,9 +960,9 @@ const moveNote = async (
         logger.info("note move complete", {
           from: oldPath,
           to: newPath,
-          links_updated: linksUpdated,
-          sources_updated: plannedRewrites.length,
-          sources_failed: 0,
+          linksUpdated,
+          sourcesUpdated: plannedRewrites.length,
+          sourcesFailed: 0,
           prunedFolderCount,
         })
 
