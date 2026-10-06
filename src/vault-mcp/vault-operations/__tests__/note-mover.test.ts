@@ -1556,6 +1556,28 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
       "Notes/Stacked.md": await readNote("Notes/Stacked.md"),
     }).toEqual(fixtures)
   })
+
+  it("aborts as a rewrite failure when the moved note's own rewrite would open with a broken block", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    // The move one folder deeper must rewrite the relative image link, and
+    // with the empty block written back as none, the body's own --- lines
+    // would become the note's first block
+    const content = "---\n---\n---\ntitle: [unclosed\n---\n![[../assets/photo.png]]\n"
+    await writeFixture("assets/photo.png", "img")
+    await writeFixture("Notes/Stacked.md", content)
+
+    const refusal = await captureRejection(
+      moveNote({ oldPath: "Notes/Stacked.md", newPath: "Notes/Sub/Stacked.md" }),
+    )
+
+    expect(refusal).toBeInstanceOf(UnkeepableOpeningBlockError)
+    expect(refusal).toHaveProperty(
+      "message",
+      `move aborted: could not rewrite "Notes/Stacked.md": the note would open with a properties block the server cannot keep: ${UNCLOSED_FLOW_MESSAGE}. Nothing was written.`,
+    )
+    expect(await noteExists("Notes/Sub/Stacked.md")).toBe(false)
+    expect(await readNote("Notes/Stacked.md")).toBe(content)
+  })
 })
 
 describe("moveNote — empty-folder prune", () => {
