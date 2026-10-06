@@ -3768,6 +3768,61 @@ describe("findOrphans", () => {
     expect(orphanPaths).toContain("Projects/orphan.md")
   })
 
+  it("translates oversized exclusions while retaining and logging the SQLite diagnostic", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const excludeFolders = Array.from({ length: 1000 }, (_, folderIndex) => `Folder${folderIndex}`)
+    const queryError = (() => {
+      try {
+        queryIndex.findOrphans({ excludeFolders }, requestLogger)
+      } catch (error) {
+        return error
+      }
+      throw new Error("expected the orphan query to fail")
+    })()
+
+    if (!(queryError instanceof Error) || !(queryError.cause instanceof Database.SqliteError)) {
+      throw new Error("expected a domain error with the original SQLite cause")
+    }
+    expect({
+      message: queryError.message,
+      causeName: queryError.cause.name,
+      causeCode: queryError.cause.code,
+      causeMessage: queryError.cause.message,
+    }).toEqual({
+      message: "too many excluded folders",
+      causeName: "SqliteError",
+      causeCode: "SQLITE_ERROR",
+      causeMessage: "Expression tree is too large (maximum depth 1000)",
+    })
+    expect(requestLogger.warn).toHaveBeenCalledTimes(1)
+    expect(requestLogger.warn).toHaveBeenCalledWith("orphan exclusion query capacity exceeded", {
+      excludedFolderCount: 1000,
+      error: "[SqliteError]: Expression tree is too large (maximum depth 1000)",
+    })
+  })
+
+  it("propagates unrelated SQLite query failures unchanged", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const sqliteError = new Database.SqliteError("no such table: notes", "SQLITE_ERROR")
+    const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementationOnce(() => {
+      throw sqliteError
+    })
+    onTestFinished(() => prepareSpy.mockRestore())
+    const queryError = (() => {
+      try {
+        queryIndex.findOrphans({}, requestLogger)
+      } catch (error) {
+        return error
+      }
+      throw new Error("expected the orphan query to fail")
+    })()
+
+    expect(queryError).toBe(sqliteError)
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+  })
+
   it("excludes connected notes", () => {
     const orphans = index.findOrphans({}, logger)
     const orphanPaths = orphans.map((orphan) => orphan.path)

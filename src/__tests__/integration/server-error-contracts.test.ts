@@ -61,7 +61,7 @@ describe("orphan exclusion query capacity", () => {
       content: [
         {
           type: "text",
-          text: "[SqliteError]: Expression tree is too large (maximum depth 1000)",
+          text: "[Error]: too many excluded folders",
         },
       ],
       isError: true,
