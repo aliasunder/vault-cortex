@@ -171,7 +171,7 @@ The three anchor tools share one resolution rule: a short, case-sensitive substr
 
 `vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
 
-Every tool handles a note's properties block by the same rules, so a write never silently drops one:
+Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
 
 - **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
 - **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in each backlink source it plans to update, and a list, a single value or a tag only in a note where it must rewrite a link.
@@ -179,6 +179,7 @@ Every tool handles a note's properties block by the same rules, so a write never
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
   - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
   - For a `vault_write_note` overwrite of such a note, which replaces the body anyway, the steps skip the prose: replace the block, then run the overwrite again. These steps need only `vault_read_note` and `vault_update_properties`; if either is not served, it points at Obsidian.
+- **YAML comments** are not kept. A rewrite writes the block from its parsed properties, so it drops any comments, and a block holding only comments reads as no properties and is written back as none.
   - For a write that would open the note with such a block, the ways around it: give the note a property, put text above the `---` lines, or remove them.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
@@ -1179,7 +1180,8 @@ Docker hardening, and durability seatbelts above.
   domain.
 - **Properties-block guard** (`frontmatter.ts`): every rewrite refuses a
   note whose properties block it cannot keep, and every write's result is
-  checked before it reaches disk, so no write silently drops a block.
+  checked before it reaches disk, so no write silently drops a block's
+  properties.
   [Vault read/write](#vault-readwrite) gives the full rules and the
   repair path.
 - **Trash claim loop** (`moveNoteToTrash` in `vault-filesystem.ts`): a
