@@ -2251,6 +2251,22 @@ describe("updateProperties", () => {
     })
     expect(await readFile(join(vault, "broken.md"), "utf8")).toBe(content)
   })
+
+  it("refuses to remove the last property when the body would then open with a block it cannot keep", async () => {
+    const original = "---\nold: 1\n---\n---\n\nSome text\n\n---\n"
+    await writeFile(join(vault, "merge.md"), original, "utf8")
+    expect(await readFile(join(vault, "merge.md"), "utf8")).toBe(original)
+
+    const refusal = await captureRejection(
+      updateProperties({ vaultPath: vault, path: "merge.md", properties: { old: null } }, logger),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${SINGLE_VALUE_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+    expect(await readFile(join(vault, "merge.md"), "utf8")).toBe(original)
+  })
 })
 
 describe("writes refuse a properties block a rewrite would lose", () => {

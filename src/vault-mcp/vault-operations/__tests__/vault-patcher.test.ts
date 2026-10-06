@@ -3,7 +3,10 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
-import { UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
+import {
+  UnkeepableOpeningBlockError,
+  UnsupportedPropertiesBlockError,
+} from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const {
@@ -2122,6 +2125,31 @@ describe("patchNote — properties block a rewrite would lose", () => {
       expect(await readTestNote("kept.md")).toBe(content)
     },
   )
+
+  it("refuses a prepend that would open a note with no properties with --- lines it cannot keep", async () => {
+    const original = "Intro\n"
+    await writeTestNote("plain.md", original)
+    expect(await readTestNote("plain.md")).toBe(original)
+
+    const refusal = await captureRejection(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "plain.md",
+          operation: "prepend",
+          content: "---\nJust a paragraph.\n---\n",
+        },
+        logger,
+      ),
+    )
+
+    expect(refusal).toBeInstanceOf(UnkeepableOpeningBlockError)
+    expect(refusal).toHaveProperty(
+      "message",
+      "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it",
+    )
+    expect(await readTestNote("plain.md")).toBe(original)
+  })
 })
 
 describe("patchNote — duplicate-heading guard", () => {

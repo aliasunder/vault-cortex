@@ -1177,6 +1177,11 @@ Docker hardening, and durability seatbelts above.
   read-plan-write span. The trash move, the orphan purge, and the
   retention sweep share one serializing key for the whole `.trash/`
   domain.
+- **Properties-block guard** (`frontmatter.ts`): every rewrite refuses a
+  note whose properties block it cannot keep, and every write's result is
+  checked before it reaches disk, so no write silently drops a block.
+  [Vault read/write](#vault-readwrite) gives the full rules and the
+  repair path.
 - **Trash claim loop** (`moveNoteToTrash` in `vault-filesystem.ts`): a
   delete under Obsidian's `system` (default) or `local` trash setting
   moves the note into `.trash/`. Each candidate name is claimed with an
