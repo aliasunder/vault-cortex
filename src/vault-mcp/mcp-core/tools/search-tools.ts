@@ -383,7 +383,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending,
     TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
     {
       title: "List Property Values",
-      description: `List distinct values for a specific property key with how often each occurs. Useful for discovering the range of values a property takes before searching.
+      description: `List distinct values for a specific property key with how often each occurs.
 
 Example: vault_list_property_values({ key: "status" }) returns [{ value: "done", count: 211 }, { value: "active", count: 47 }, ...]
 

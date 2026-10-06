@@ -2656,6 +2656,54 @@ describe("property keys containing JSON path syntax", () => {
     expect(asString.map((result) => result.path)).toEqual([])
   })
 
+  it.each([
+    { label: "an object scalar", stored: "{a: 1}", other: "{a: 2}", wanted: '{"a":1}' },
+    {
+      label: "an object with a large nested number",
+      stored: "{v: 1e21}",
+      other: "{v: 2e21}",
+      wanted: '{"v":1e+21}',
+    },
+    {
+      label: "an object list member with a small nested number",
+      stored: "[{v: 1e-7}]",
+      other: "[{v: 2e-7}]",
+      wanted: '{"v":1e-7}',
+    },
+    {
+      label: "a nested list member with exponent numbers",
+      stored: "[[1e21, 1e-7]]",
+      other: "[[2e21, 2e-7]]",
+      wanted: "[1e+21,1e-7]",
+    },
+  ])("fullTextSearch matches $label by stored JSON text", ({ stored, other, wanted }) => {
+    const propertyIndex = createPropertyTestIndex()
+    const propertyNotes = [
+      { path: "Projects/matched.md", key: "meta", value: stored, body: "searchable" },
+      { path: "Projects/wrong-key.md", key: "other", value: stored, body: "searchable" },
+      { path: "Projects/wrong-value.md", key: "meta", value: other, body: "searchable" },
+      { path: "Projects/unrelated.md", key: "meta", value: stored, body: "unrelated" },
+    ]
+
+    for (const note of propertyNotes) {
+      propertyIndex.upsertNote(
+        {
+          filePath: note.path,
+          rawContent: `---\n${note.key}: ${note.value}\n---\n${note.body}\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    }
+
+    const results = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { meta: wanted } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/matched.md"])
+  })
+
   it("fullTextSearch's properties filter matches a boolean value", () => {
     index.upsertNote(
       {
