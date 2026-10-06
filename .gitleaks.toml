@@ -14,3 +14,7 @@ regexes = [
 [[allowlists]]
 description = "Test fixture label in oauth-provider.test.ts flagged by generic-api-key on the accessToken keyword. Not a real credential."
 commits = ["fa6e3a53245494dbfbfd78d215fb4406ec98f4da"]
+
+[[allowlists]]
+description = "Folder list in an AGENTS.md Structure-tree comment (\"OAuth flows, fixtures/vault/\") flagged by generic-api-key on the OAuth keyword. Not a credential."
+commits = ["18ee63c02b494d322cde2b22860d3c294dae8e3d"]
