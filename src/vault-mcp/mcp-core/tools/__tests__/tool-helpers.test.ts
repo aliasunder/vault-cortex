@@ -218,6 +218,22 @@ describe("safeHandler", () => {
     },
   )
 
+  it("appends the way around --- lines after a move abort whose message already ends with a period", async () => {
+    const moveAbortMessage = `move aborted: could not rewrite backlink source "A.md": ${OPENING_BLOCK_MESSAGE}. Nothing was written.`
+
+    const result = await runFailingCall({
+      isToolEnabled: everyToolServed,
+      fail: async () => {
+        throw new UnkeepableOpeningBlockError(moveAbortMessage)
+      },
+    })
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[Error]: ${moveAbortMessage} ${OPENING_BLOCK_STEP}` }],
+      isError: true,
+    })
+  })
+
   it.each<{ label: string; disabledTool: ToolName }>([
     { label: "vault_read_note", disabledTool: "vault_read_note" },
     { label: "vault_update_properties", disabledTool: "vault_update_properties" },

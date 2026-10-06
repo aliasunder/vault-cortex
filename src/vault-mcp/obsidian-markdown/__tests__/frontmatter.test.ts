@@ -332,6 +332,24 @@ describe("parseNoteForRewrite", () => {
       message: "properties block uses the YAML tag !!map, which rewriting the note would drop",
     },
     {
+      label: "two tags, naming the first in the block",
+      note: "---\na: !one x\nb: !two y\n---\nbody\n",
+      kind: "explicit-tag",
+      message: "properties block uses the YAML tag !one, which rewriting the note would drop",
+    },
+    {
+      label: "a tagged list as a list, not a tag",
+      note: "---\n!!seq\n- a\n- b\n---\nbody\n",
+      kind: "not-key-value",
+      message: LIST_MESSAGE,
+    },
+    {
+      label: "a tagged single value as a single value, not a tag",
+      note: "---\n!!str hello\n---\nbody\n",
+      kind: "not-key-value",
+      message: SINGLE_VALUE_MESSAGE,
+    },
+    {
       label: "unreadable YAML",
       note: "---\ntitle: [unclosed\n---\nbody\n",
       kind: "invalid-yaml",
@@ -570,6 +588,17 @@ describe("stringifyNote", () => {
       message: `the note would open with a properties block the server cannot keep: ${UNCLOSED_FLOW_MESSAGE}`,
       causeIsBlockRefusal: true,
     })
+  })
+
+  it("writes a body that opens with a broken block when a property goes above it", () => {
+    const body = "---\ntitle: [unclosed\n---\nbody\n"
+
+    // With no properties this body is refused, so the property is what lets it through
+    expect(describeOutputRefusal(catchThrown(() => stringifyNote(body, {})))).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${UNCLOSED_FLOW_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+    expect(stringifyNote(body, { title: "x" })).toBe(`---\ntitle: x\n---\n${body}`)
   })
 
   it.each([

@@ -817,6 +817,63 @@ describe("unreadable properties blocks", () => {
       `[Error]: memory file "About Me/Broken Memory.md": ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
     )
   })
+
+  /** The refusal of a write that would leave a single-value block at the top of a note. */
+  const SINGLE_VALUE_OPENING_BLOCK_ERROR = `[Error]: the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it. ${OPENING_BLOCK_STEP}`
+
+  it("refuses removing every property with replace: true when the body opens with --- lines", async () => {
+    const original = "---\nold: 1\n---\n---\nJust a paragraph.\n---\nBody line\n"
+    const fullPath = await plantNote("Stacked Blocks.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Stacked Blocks.md", properties: {}, replace: true },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  // An empty first block reads as no properties, so these writes would leave
+  // the body's own --- lines at the top of the note
+
+  it("refuses a vault_update_memory write that would open the file with --- lines", async () => {
+    const original =
+      "---\n---\n---\nJust a paragraph.\n---\n# Stacked\n\n## Notes (newest first)\n- **2026-05-05**: kept entry\n"
+    const fullPath = await plantNote("About Me/Stacked Memory.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: {
+        file: "Stacked Memory",
+        section: "Notes (newest first)",
+        entry: "new entry",
+        options: { date: "2026-05-06" },
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  it("refuses a vault_create_task write that would open the note with --- lines", async () => {
+    const original = "---\n---\n---\nJust a paragraph.\n---\n- [ ] Kept task\n"
+    const fullPath = await plantNote("Stacked Tasks.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: { path: "Stacked Tasks.md", description: "New task", block_id: "new-task" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
 })
 
 // ── Heading not found ────────────────────────────────────────

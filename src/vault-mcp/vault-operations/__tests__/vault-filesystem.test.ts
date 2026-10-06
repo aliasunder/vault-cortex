@@ -457,6 +457,12 @@ describe("markdown path requirement", () => {
     ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
+  it("replaceProperties rejects a path without the .md extension", async () => {
+    await expect(
+      replaceProperties({ vaultPath: vault, path: "Projects/Plan", properties: { a: 1 } }, logger),
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
+  })
+
   it("deleteNote rejects a path without the .md extension", async () => {
     await expect(
       deleteNote(
@@ -2427,6 +2433,42 @@ describe("replaceProperties", () => {
       causeIsBlockRefusal: true,
     })
     expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(original)
+  })
+
+  it("replaces the block above a body that opens with --- lines it cannot keep", async () => {
+    // Replacing with {} refuses this note; with a property in front, the body's
+    // --- lines are no longer the note's first block
+    const original = "---\nold: 1\n---\n---\n\nSome text\n\n---\n"
+    await writeFile(join(vault, "repair.md"), original, "utf8")
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(original)
+
+    await replaceProperties(
+      { vaultPath: vault, path: "repair.md", properties: { title: "Fixed" } },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(
+      "---\ntitle: Fixed\n---\n---\n\nSome text\n\n---\n",
+    )
+  })
+
+  it("refuses a note that does not exist and creates nothing", async () => {
+    await expect(
+      replaceProperties(
+        { vaultPath: vault, path: "missing.md", properties: { title: "Fixed" } },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
+    await expect(readFile(join(vault, "missing.md"), "utf8")).rejects.toThrow("ENOENT")
+  })
+
+  it("blocks path traversal", async () => {
+    await expect(
+      replaceProperties(
+        { vaultPath: vault, path: "../escape.md", properties: { title: "Fixed" } },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('path traversal blocked: "../escape.md" escapes vault root'))
   })
 
   it("repairs a broken memory file", async () => {
