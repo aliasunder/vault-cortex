@@ -54,6 +54,9 @@ export const startFileWatcher = (
   // Serializing per path limits model concurrency; source versions reject
   // obsolete results independently of the order jobs finish.
   const pendingEmbeds = new Map<string, Promise<void>>()
+
+  /** Event tokens reject superseded filesystem reads until their handler finishes.
+   *  Source versions belong to the index and protect model work after the handler returns. */
   const currentEvents = new Map<string, symbol>()
 
   /** Indexes an added or modified file: non-md files land in the asset table;
@@ -83,16 +86,15 @@ export const startFileWatcher = (
 
         if (isCanvas || isIndexableNonCanvas) {
           try {
-            let contentToIndex: string
+            const readContentToIndex = async (): Promise<string> => {
+              if (extension !== ".pdf") return await readFile(filePath, "utf8")
 
-            if (extension === ".pdf") {
               const buffer = await readFile(filePath)
               const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
               const pdfResult = await extractPdfText(pdfData)
-              contentToIndex = pdfResult.text
-            } else {
-              contentToIndex = await readFile(filePath, "utf8")
+              return pdfResult.text
             }
+            const contentToIndex = await readContentToIndex()
 
             if (currentEvents.get(relativePath) !== eventToken) return
 
@@ -120,6 +122,9 @@ export const startFileWatcher = (
                 return search.embedFileContent({ filePath: relativePath, sourceVersion }, logger)
               })
             pendingEmbeds.set(relativePath, currentEmbed)
+
+            /** This detached job owns its error reporting and queue cleanup after the
+             *  file handler returns; an older job must leave a newer queued job registered. */
             currentEmbed
               .catch((embedError) => {
                 logger.warn("file content embedding failed", {
@@ -174,8 +179,9 @@ export const startFileWatcher = (
             )
           })
         pendingEmbeds.set(relativePath, currentEmbed)
-        // Awaiting the finally-derived promise routes its rejection to the
-        // catch; awaiting only currentEmbed would leave it unhandled.
+
+        /** This awaited job reports failures through the handler's catch. Await the
+         *  cleanup promise too, so its rejection is handled and newer queued jobs remain registered. */
         await currentEmbed.finally(() => {
           if (pendingEmbeds.get(relativePath) === currentEmbed) {
             pendingEmbeds.delete(relativePath)
@@ -309,9 +315,10 @@ export const startFileWatcher = (
     dirPath: string,
     visitedRealPaths: Set<string>,
   ): Promise<void> => {
+    /** The wrapper lists descendants recursively; symlinked directories are followed below. */
     const entries = await readdirOrNull(dirPath)
 
-    if (entries === null) {
+    if (!entries) {
       logger.debug("rescan skipped, directory vanished", {
         path: relative(vaultPath, dirPath),
       })
@@ -325,7 +332,7 @@ export const startFileWatcher = (
     // — the same benign race as the vanished-listing branch, not an error.
     const realDirPath = await realpathOrNull(dirPath)
 
-    if (realDirPath === null) {
+    if (!realDirPath) {
       logger.debug("rescan skipped, directory vanished", {
         path: relative(vaultPath, dirPath),
       })
@@ -386,7 +393,7 @@ export const startFileWatcher = (
         // directory), registration emits no replay for the write — retry once
         // it settles instead.
         if (isWithinStabilityWindow(fileStat.mtimeMs)) {
-          const parentWatchedBeforeRescan = trackedSiblings !== undefined
+          const parentWatchedBeforeRescan = Boolean(trackedSiblings)
 
           if (parentWatchedBeforeRescan) continue
           scheduleUnstableFileRetry(fullPath)

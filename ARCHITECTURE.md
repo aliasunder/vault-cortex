@@ -117,7 +117,9 @@ graph TB
 
 **Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks (notes + file content) + sqlite-vec KNN ranks (notes + file content) → RRF fusion → cross-encoder reranking → response.
 
-**Invariant — vault is source of truth:** The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. The sqlite-vec embeddings are equally derived — they persist across rebuilds as an optimization but can always be regenerated from the vault.
+**Invariant — vault is source of truth:** Vault files are canonical. MCP content edits write to those files, and the watcher and startup rebuild derive the SQLite search index from them.
+
+Embeddings persist across rebuilds to reuse unchanged content and can be regenerated from the vault.
 
 ## MCP Tools
 
@@ -484,7 +486,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 - **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
 - **Chunk prefixes:** every fragment starts with the note title; aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path (capped at the remaining token budget — leading ancestors are dropped when deep nesting with long names would floor the body budget, keeping the deepest segments; the Section line is suppressed entirely when the title and metadata exhaust the budget), while preamble fragments, a singleton wrapper's aggregate, and the TOC chunk keep the bare title. A heading whose slice is empty emits no section chunk — its name still rides the TOC chunk, and descendant chunks' Section lines carry it when it has children. A top-level heading with children but no body of its own still emits its aggregate (the slice spans the subtree)
-- **Table-of-contents chunk:** each split note with named headings emits one short chunk (folder segments + title on one line, then heading names in document order, truncated at the chunk budget). Generic intent-phrased queries are structurally won by short chunks under the embedding model, so every split note gets one deliberately short chunk, made unique by its folder path
+- **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
 
 Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
