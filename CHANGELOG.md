@@ -111,6 +111,87 @@
 
 
 
+
+
+
+
+## [0.54.10] — 2026-10-06
+
+### Bug Fixes
+
+- **search:** Discard obsolete embedding work and sweep orphan vectors (#644)
+- **deps:** Bump proxy-addr to 2.0.8 (#647)
+- **patcher:** Collapse only the blank-line gap an edit leaves (#640)
+- **search:** Follow daily-note settings in orphan defaults (#642)
+- **search:** Combine property values and match numeric forms (#637)
+
+### Refactoring
+
+- Clarify delete result and trash log names (#645)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.9
+
+### Maintenance
+
+- **deps-dev:** Bump source-map-js from 1.2.1 to 1.2.2 (#648)
+
+### Other Changes
+
+- **deps:** Override katex to 0.18.2 and smol-toml to 1.9.0 (#649)
+- Assert exact parameterized move errors (#646)
+- Assert exact fixed error messages (#639)
+
+## [0.54.9] — 2026-10-05
+
+### Bug Fixes
+
+- **tools:** Tighten 27 tool definitions and reject empty filter lists (#636)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.8
+
+## [0.54.8] — 2026-10-03
+
+### Bug Fixes
+
+- **config:** Read the daily-notes and Tasks-format settings on every call (#630)
+
+### Documentation
+
+- Bust CI badge cache (#632)
+- Update CHANGELOG.md for v0.54.7
+
+### Maintenance
+
+- **deps-dev:** Bump the development group across 1 directory with 10 updates (#635)
+- **deps:** Bump the production group with 2 updates (#633)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.38.1 to 4.38.2 (#634)
+
+## [0.54.7] — 2026-10-01
+
+### Bug Fixes
+
+- **tools:** Clearer definitions for the lowest-scoring tools, plus a size cap (#621)
+- **vault-crud:** Read a null app.json as the default, and pin the unreadable-config error end to end (#629)
+- Vault_list_notes glob within folder, plus listing, move and memory-listing fixes (#622)
+- **search:** Match property keys containing . or [, list properties, and boolean values in property queries (#628)
+- **vault-crud:** Read the Deleted files setting on every delete (#627)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.6
+
+### CI / Infrastructure
+
+- Bump umm-actually to v0.4.10 (#631)
+
+### Maintenance
+
+- **deps-dev:** Bump brace-expansion from 5.0.9 to 5.0.12 (#626)
+
 ## [0.54.6] — 2026-09-30
 
 ### Bug Fixes

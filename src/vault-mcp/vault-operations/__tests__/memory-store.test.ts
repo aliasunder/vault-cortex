@@ -15,6 +15,51 @@ import { tmpdir } from "node:os"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
+vi.mock("node:fs/promises", { spy: true })
+
+const createBlockedMemoryReads = async (vaultPath: string) => {
+  const memoryDir = "Bounded"
+  await mkdir(join(vaultPath, memoryDir))
+  const files = Array.from({ length: 17 }, (_unused, index) => {
+    const name = `Entry-${index.toString().padStart(2, "0")}`
+    return { name, content: index === 16 ? "" : `# ${name}` }
+  })
+  const fileNames = files.map((file) => file.name)
+  const fileContents = files.map((file) => file.content)
+  await Promise.all(
+    files.map((file) => {
+      return writeFile(join(vaultPath, memoryDir, `${file.name}.md`), file.content)
+    }),
+  )
+  const contentByPath = new Map(
+    files.map((file) => {
+      return [join(vaultPath, memoryDir, `${file.name}.md`), file.content] as const
+    }),
+  )
+  const firstBatchStarted = Promise.withResolvers<undefined>()
+  const releaseReads = Promise.withResolvers<undefined>()
+  const startedReads: string[] = []
+  onTestFinished(() => {
+    releaseReads.resolve(undefined)
+    vi.mocked(readFile).mockRestore()
+  })
+  vi.mocked(readFile).mockImplementation(async (filePath) => {
+    const content = contentByPath.get(String(filePath))
+
+    if (content === undefined) throw new Error("unexpected memory fixture path")
+    startedReads.push(String(filePath))
+    if (startedReads.length === 16) firstBatchStarted.resolve(undefined)
+    await releaseReads.promise
+    return content
+  })
+  return {
+    store: createMemoryStore({ memoryDir }),
+    fileNames,
+    fileContents,
+    firstBatchStarted: firstBatchStarted.promise,
+    releaseReads,
+  }
+}
 
 const {
   getMemory,
@@ -85,6 +130,20 @@ afterEach(async () => {
 })
 
 describe("getMemory", () => {
+  it("bounds simultaneous all-file reads and retains every file in order", async () => {
+    const fixture = await createBlockedMemoryReads(vault)
+    const reading = fixture.store.getMemory({ vaultPath: vault }, logger)
+    onTestFinished(async () => {
+      fixture.releaseReads.resolve(undefined)
+      await reading
+    })
+    await fixture.firstBatchStarted
+    expect(readFile).toHaveBeenCalledTimes(16)
+    fixture.releaseReads.resolve(undefined)
+    expect(await reading).toBe(fixture.fileContents.join("\n\n---\n\n"))
+    expect(readFile).toHaveBeenCalledTimes(17)
+  })
+
   // A pre-existing hidden file on disk (created outside the server) must not
   // leak through the concatenate-all read — the enumeration filter, not just
   // the explicit-name rejection, is what excludes it.
@@ -132,9 +191,8 @@ describe("getMemory", () => {
 
   it("returns files in alphabetical order", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
-    const opinionsIdx = result.indexOf("# Opinions")
-    const principlesIdx = result.indexOf("# Principles")
-    expect(opinionsIdx).toBeLessThan(principlesIdx)
+    const memoryTitles = result.split("\n").filter((line) => line.startsWith("# "))
+    expect(memoryTitles).toEqual(["# Opinions", "# Principles"])
   })
 
   it("returns a single file without frontmatter", async () => {
@@ -1779,6 +1837,21 @@ created: 2026-01-01T00:00:00-05:00
 })
 
 describe("listMemoryFiles", () => {
+  it("bounds simultaneous outline reads and retains every file in order", async () => {
+    const fixture = await createBlockedMemoryReads(vault)
+    const reading = fixture.store.listMemoryFiles({ vaultPath: vault }, logger)
+    onTestFinished(async () => {
+      fixture.releaseReads.resolve(undefined)
+      await reading
+    })
+    await fixture.firstBatchStarted
+    expect(readFile).toHaveBeenCalledTimes(16)
+    fixture.releaseReads.resolve(undefined)
+    const outlines = await reading
+    expect(outlines.map((outline) => outline.file)).toEqual(fixture.fileNames)
+    expect(readFile).toHaveBeenCalledTimes(17)
+  })
+
   it("excludes a pre-existing hidden memory file from the outlines", async () => {
     await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)

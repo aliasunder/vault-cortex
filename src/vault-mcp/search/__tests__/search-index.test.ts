@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, symlink } from "node:fs/promises"
+import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
@@ -10,6 +11,14 @@ import { createSearchIndex, INDEXABLE_TEXT_EXTENSIONS } from "../search-index.js
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
+import { statOrNull } from "../../../utils/fs.js"
+import { extractPdfText } from "../../obsidian-markdown/pdf.js"
+
+vi.mock("node:fs/promises", { spy: true })
+vi.mock("../../../utils/fs.js", { spy: true })
+vi.mock("../../obsidian-markdown/pdf.js", { spy: true })
+
+const realSqliteVec = await vi.importActual<typeof sqliteVec>("sqlite-vec")
 
 let index: SearchIndex
 
@@ -61,11 +70,123 @@ const countRow = (row: unknown): { count: number } => {
   throw new Error("expected a count row")
 }
 
+const seedEmbeddingSource = (
+  searchIndex: SearchIndex,
+  params: { notePath: string; rawContent: string },
+): symbol => {
+  return searchIndex.upsertNote(
+    {
+      filePath: params.notePath,
+      rawContent: params.rawContent,
+      fileStat: { mtimeMs: 1000, size: Buffer.byteLength(params.rawContent) },
+    },
+    logger,
+  )
+}
+
+const createEmbeddingRaceIndex = async (sourceKind: "note" | "file") => {
+  const dir = await mkdtemp(join(tmpdir(), "embedding-race-"))
+  onTestFinished(() => rm(dir, { recursive: true, force: true }))
+  const embedder = {
+    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+    }),
+  }
+  const dbPath = join(dir, "index.db")
+  const searchIndex = createSearchIndex(dbPath, embedder, undefined, { fileToolsEnabled: true })
+  const inspect = new Database(dbPath)
+  sqliteVec.load(inspect)
+  onTestFinished(() => {
+    inspect.close()
+  })
+  const path = sourceKind === "note" ? "reuse.md" : "reuse.txt"
+  const chunkTable = sourceKind === "note" ? "note_chunks" : "file_content_chunks"
+  const vectorTable = sourceKind === "note" ? "note_vectors" : "file_content_vectors"
+  const sourceTable = sourceKind === "note" ? "notes" : "file_content"
+  const upsert = (content: string): symbol => {
+    const params = { filePath: path, rawContent: content, fileStat: testStat(1000) }
+
+    return sourceKind === "note"
+      ? searchIndex.upsertNote(params, logger)
+      : searchIndex.upsertFileContent(params, logger)
+  }
+  const embed = (content: string, sourceVersion: symbol): Promise<void> => {
+    return sourceKind === "note"
+      ? searchIndex.embedNote({ notePath: path, rawContent: content, sourceVersion }, logger)
+      : searchIndex.embedFileContent({ filePath: path, sourceVersion }, logger)
+  }
+  const remove = (): void => {
+    if (sourceKind === "note") {
+      searchIndex.removeNote(path)
+      return
+    }
+    searchIndex.removeFileContent({ filePath: path }, logger)
+  }
+  const chunks = (): Array<{ chunk_index: number; chunk_text: string }> => {
+    return inspect
+      .prepare<[], { chunk_index: number; chunk_text: string }>(
+        `SELECT chunk_index, chunk_text FROM ${chunkTable} ORDER BY chunk_index`,
+      )
+      .all()
+  }
+  const vectorCount = (): number => {
+    return countRow(inspect.prepare(`SELECT COUNT(*) AS count FROM ${vectorTable}`).get()).count
+  }
+  return {
+    searchIndex,
+    embedder,
+    inspect,
+    dir,
+    path,
+    sourceTable,
+    upsert,
+    embed,
+    remove,
+    chunks,
+    vectorCount,
+  }
+}
+
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
 const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
   mtimeMs,
   size,
 })
+
+/** The factory keeps its connection private; capture it only during construction for test cleanup. */
+const createPropertyTestIndex = (): SearchIndex => {
+  const loadSpy = vi.spyOn(sqliteVec, "load").mockImplementation((database) => {
+    if (!(database instanceof Database)) throw new Error("expected a SQLite database")
+
+    onTestFinished(() => {
+      database.close()
+    })
+    realSqliteVec.load(database)
+  })
+
+  try {
+    return createSearchIndex(":memory:")
+  } finally {
+    loadSpy.mockRestore()
+  }
+}
+
+const seedPropertyNotes = (
+  propertyIndex: SearchIndex,
+  notes: ReadonlyArray<{ filePath: string; frontmatter: string }>,
+): void => {
+  for (const note of notes) {
+    propertyIndex.upsertNote(
+      {
+        filePath: note.filePath,
+        rawContent: `---\n${note.frontmatter}\n---\nsearchable body\n`,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+  }
+}
 
 /** Expected NoteMetadata.modified for a testStat mtime — same epoch-ms → ISO
  *  conversion the index performs, computed independently in the test's zone. */
@@ -447,7 +568,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // reverse, so the asserted order can come only from the secondary sort
     // keys — whichever way a vec0 build returns tied distances.
     for (const notePath of ["mmm.md", "zzz.md", "aaa.md"]) {
-      tieIndex.upsertNote(
+      const sourceVersion = tieIndex.upsertNote(
         {
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
@@ -455,7 +576,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+      await tieIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath, rawContent: IDENTICAL_NOTE },
+        logger,
+      )
     }
 
     // "orca" shares no stems with the note content, so the FTS leg is empty
@@ -474,7 +598,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // keys — whichever way a vec0 build returns tied distances.
     for (const filePath of ["mmm.txt", "zzz.txt", "aaa.txt"]) {
       tieIndex.upsertNonMdFile(filePath, 100)
-      tieIndex.upsertFileContent(
+      const sourceVersion = tieIndex.upsertFileContent(
         {
           filePath,
           rawContent: identicalFileContent,
@@ -482,7 +606,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedFileContent({ filePath }, logger)
+      await tieIndex.embedFileContent({ sourceVersion: sourceVersion, filePath }, logger)
     }
 
     // "orca" shares no stems with the file content, so the FTS legs are
@@ -500,7 +624,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // post-SQL note filter under either KNN statement — this pins the
     // in-folder statement's ordering keys, not which statement ran.
     for (const notePath of ["docs/mmm.md", "docs/zzz.md", "other/out.md", "docs/aaa.md"]) {
-      tieIndex.upsertNote(
+      const sourceVersion = tieIndex.upsertNote(
         {
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
@@ -508,7 +632,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+      await tieIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath, rawContent: IDENTICAL_NOTE },
+        logger,
+      )
     }
 
     const { results } = await tieIndex.hybridSearch(
@@ -532,7 +659,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // in-folder statement ran.
     for (const filePath of ["docs/mmm.txt", "docs/zzz.txt", "other/out.txt", "docs/aaa.txt"]) {
       tieIndex.upsertNonMdFile(filePath, 100)
-      tieIndex.upsertFileContent(
+      const sourceVersion = tieIndex.upsertFileContent(
         {
           filePath,
           rawContent: identicalFileContent,
@@ -540,7 +667,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedFileContent({ filePath }, logger)
+      await tieIndex.embedFileContent({ sourceVersion: sourceVersion, filePath }, logger)
     }
 
     const { results } = await tieIndex.hybridSearch(
@@ -571,7 +698,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "ggg.md",
       "hhh.md",
     ]) {
-      tieIndex.upsertNote(
+      const sourceVersion = tieIndex.upsertNote(
         {
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
@@ -579,7 +706,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+      await tieIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath, rawContent: IDENTICAL_NOTE },
+        logger,
+      )
     }
 
     const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
@@ -603,7 +733,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "hhh.txt",
     ]) {
       tieIndex.upsertNonMdFile(filePath, 100)
-      tieIndex.upsertFileContent(
+      const sourceVersion = tieIndex.upsertFileContent(
         {
           filePath,
           rawContent: identicalFileContent,
@@ -611,7 +741,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedFileContent({ filePath }, logger)
+      await tieIndex.embedFileContent({ sourceVersion: sourceVersion, filePath }, logger)
     }
 
     const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
@@ -636,7 +766,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "docs/ggg.md",
       "docs/hhh.md",
     ]) {
-      tieIndex.upsertNote(
+      const sourceVersion = tieIndex.upsertNote(
         {
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
@@ -644,7 +774,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+      await tieIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath, rawContent: IDENTICAL_NOTE },
+        logger,
+      )
     }
 
     const { results } = await tieIndex.hybridSearch(
@@ -676,7 +809,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "docs/hhh.txt",
     ]) {
       tieIndex.upsertNonMdFile(filePath, 100)
-      tieIndex.upsertFileContent(
+      const sourceVersion = tieIndex.upsertFileContent(
         {
           filePath,
           rawContent: identicalFileContent,
@@ -684,7 +817,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedFileContent({ filePath }, logger)
+      await tieIndex.embedFileContent({ sourceVersion: sourceVersion, filePath }, logger)
     }
 
     const { results } = await tieIndex.hybridSearch(
@@ -992,6 +1125,31 @@ describe("upsertNote", () => {
     )
     const tags = index.listAllTags({}, logger)
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
+  })
+
+  it("exposes the status registry it was built with", () => {
+    const statusRegistry: ReadonlyMap<string, StatusClassification> = new Map([
+      [" ", "todo"],
+      ["x", "done"],
+      ["D", "done"],
+    ])
+    const registryIndex = createSearchIndex(":memory:", undefined, undefined, {
+      statusRegistry,
+    })
+
+    expect(registryIndex.statusRegistry).toBe(statusRegistry)
+  })
+
+  it("exposes the built-in statuses when no registry is given", () => {
+    expect(index.statusRegistry).toEqual(
+      new Map<string, StatusClassification>([
+        [" ", "todo"],
+        ["x", "done"],
+        ["X", "done"],
+        ["/", "in_progress"],
+        ["-", "cancelled"],
+      ]),
+    )
   })
 
   it("threads the status registry to classify custom task statuses", () => {
@@ -1960,18 +2118,23 @@ describe("listPropertyKeys", () => {
 
   it("returns all property keys with counts", () => {
     const keys = index.listPropertyKeys({}, logger)
-    expect(keys.length).toBeGreaterThan(0)
-    const titleKey = keys.find((entry) => entry.key === "title")
-    expect(titleKey).toBeDefined()
-    expect(titleKey?.count).toBe(3)
+    expect(keys).toEqual([
+      { key: "tags", count: 3, sample_values: ["project", "active", "done"] },
+      { key: "title", count: 3, sample_values: ["Active Project", "Done Project", "Plain Note"] },
+      { key: "priority", count: 2, sample_values: ["high", "low"] },
+      { key: "status", count: 2, sample_values: ["done", "in-progress"] },
+      { key: "type", count: 2, sample_values: ["project"] },
+    ])
   })
 
   it("includes sample_values for each key", () => {
     const keys = index.listPropertyKeys({}, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
-    expect(statusKey).toBeDefined()
-    expect(statusKey?.sample_values).toContain("in-progress")
-    expect(statusKey?.sample_values).toContain("done")
+    expect(statusKey).toEqual({
+      key: "status",
+      count: 2,
+      sample_values: ["done", "in-progress"],
+    })
   })
 
   it("returns at most 3 sample values", () => {
@@ -1987,7 +2150,11 @@ describe("listPropertyKeys", () => {
     }
     const keys = index.listPropertyKeys({}, logger)
     const varietyKey = keys.find((entry) => entry.key === "variety")
-    expect(varietyKey?.sample_values.length).toBeLessThanOrEqual(3)
+    expect(varietyKey).toEqual({
+      key: "variety",
+      count: 5,
+      sample_values: ["value-0", "value-1", "value-2"],
+    })
   })
 
   it("sorts by count descending", () => {
@@ -2205,21 +2372,16 @@ describe("listPropertyValues", () => {
     ])
   })
 
-  it("returns a number and the same digits as text as two separate rows", () => {
-    const propertyIndex = createSearchIndex(":memory:")
-    propertyIndex.upsertNote(
-      { filePath: "number.md", rawContent: "---\nrank: 1\n---\nbody\n", fileStat: testStat(1000) },
-      logger,
-    )
-    propertyIndex.upsertNote(
-      { filePath: "text.md", rawContent: '---\nrank: "1"\n---\nbody\n', fileStat: testStat(1000) },
-      logger,
-    )
+  it("combines scalar numbers and identical displayed text into one occurrence count", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "number-a.md", frontmatter: "rank: 4" },
+      { filePath: "number-b.md", frontmatter: "rank: 4" },
+      { filePath: "text.md", frontmatter: 'rank: "4"' },
+    ])
 
-    const values = propertyIndex.listPropertyValues({ key: "rank" }, logger)
-    expect(values).toEqual([
-      { value: "1", count: 1 },
-      { value: "1", count: 1 },
+    expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+      { value: "4", count: 3 },
     ])
   })
 
@@ -2591,6 +2753,54 @@ describe("property keys containing JSON path syntax", () => {
     expect(asString.map((result) => result.path)).toEqual([])
   })
 
+  it.each([
+    { label: "an object scalar", stored: "{a: 1}", other: "{a: 2}", wanted: '{"a":1}' },
+    {
+      label: "an object with a large nested number",
+      stored: "{v: 1e21}",
+      other: "{v: 2e21}",
+      wanted: '{"v":1e+21}',
+    },
+    {
+      label: "an object list member with a small nested number",
+      stored: "[{v: 1e-7}]",
+      other: "[{v: 2e-7}]",
+      wanted: '{"v":1e-7}',
+    },
+    {
+      label: "a nested list member with exponent numbers",
+      stored: "[[1e21, 1e-7]]",
+      other: "[[2e21, 2e-7]]",
+      wanted: "[1e+21,1e-7]",
+    },
+  ])("fullTextSearch matches $label by stored JSON text", ({ stored, other, wanted }) => {
+    const propertyIndex = createPropertyTestIndex()
+    const propertyNotes = [
+      { path: "Projects/matched.md", key: "meta", value: stored, body: "searchable" },
+      { path: "Projects/wrong-key.md", key: "other", value: stored, body: "searchable" },
+      { path: "Projects/wrong-value.md", key: "meta", value: other, body: "searchable" },
+      { path: "Projects/unrelated.md", key: "meta", value: stored, body: "unrelated" },
+    ]
+
+    for (const note of propertyNotes) {
+      propertyIndex.upsertNote(
+        {
+          filePath: note.path,
+          rawContent: `---\n${note.key}: ${note.value}\n---\n${note.body}\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    }
+
+    const results = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { meta: wanted } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/matched.md"])
+  })
+
   it("fullTextSearch's properties filter matches a boolean value", () => {
     index.upsertNote(
       {
@@ -2616,6 +2826,427 @@ describe("property keys containing JSON path syntax", () => {
 
     expect(results.map((result) => result.path)).toEqual(["Projects/published.md"])
   })
+
+  it.each([
+    { label: "positive", source: "1000000000000000128", differentNumber: "1000000000000000256" },
+    { label: "negative", source: "-1000000000000000128", differentNumber: "-1000000000000000256" },
+  ])(
+    "fullTextSearch matches $label scalar and list numbers at stored JavaScript precision",
+    ({ source, differentNumber }) => {
+      const propertyIndex = createPropertyTestIndex()
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "list.md", frontmatter: `rank: [${source}, ${source}]` },
+        { filePath: "scalar.md", frontmatter: `rank: ${source}` },
+        { filePath: "text.md", frontmatter: `rank: ${JSON.stringify(String(Number(source)))}` },
+        { filePath: "different.md", frontmatter: `rank: ${differentNumber}` },
+        { filePath: "wrong-key.md", frontmatter: `other: ${source}` },
+      ])
+
+      const results = propertyIndex.fullTextSearch(
+        { query: "searchable", filters: { properties: { rank: Number(source) } } },
+        logger,
+      )
+
+      expect(results.map((result) => result.path).toSorted()).toEqual(["list.md", "scalar.md"])
+    },
+  )
+})
+
+describe("displayed property value grouping", () => {
+  it("combines scalar and repeated list members across numeric, text, and checkbox values", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "scalar.md", frontmatter: "rank: 4" },
+      {
+        filePath: "list.md",
+        frontmatter: 'rank: [4, "4", 4.0, true, 1, "1", false, 0, "0", null, "", "4.0"]',
+      },
+      { filePath: "null.md", frontmatter: "rank: null" },
+    ])
+
+    expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+      { value: "4", count: 4 },
+      { value: "0", count: 3 },
+      { value: "1", count: 3 },
+      { value: "", count: 1 },
+      { value: "4.0", count: 1 },
+    ])
+    expect(propertyIndex.listPropertyKeys({}, logger)).toEqual([
+      { key: "rank", count: 3, sample_values: ["4", "0", "1"] },
+    ])
+  })
+
+  it("combines objects and nested arrays with their identical JSON text without deeper expansion", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "object.md", frontmatter: "rank: {a: 1}" },
+      { filePath: "object-text.md", frontmatter: `rank: '{"a":1}'` },
+      { filePath: "nested.md", frontmatter: `rank: [[2, 3], '[2,3]', null, ""]` },
+    ])
+
+    expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+      { value: "[2,3]", count: 2 },
+      { value: '{"a":1}', count: 2 },
+      { value: "", count: 1 },
+    ])
+  })
+
+  it("combines occurrences before the value limit and scopes both counting queries by folder and key", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "Projects/numbers.md", frontmatter: "rank: [1, 1, 1]" },
+      { filePath: "Projects/text.md", frontmatter: 'rank: ["1", "1", "1"]' },
+      { filePath: "Projects/decoy.md", frontmatter: "rank: [2, 2, 2, 2]" },
+      { filePath: "Projects/other-key.md", frontmatter: "other: [2, 2, 2, 2, 2, 2, 2]" },
+      { filePath: "Other/outside.md", frontmatter: "rank: [2, 2, 2, 2, 2, 2, 2]" },
+      { filePath: "ProjectsOld/sibling.md", frontmatter: "rank: [2, 2, 2, 2, 2, 2, 2]" },
+    ])
+
+    expect(
+      propertyIndex.listPropertyValues({ key: "rank", folder: "projects", limit: 1 }, logger),
+    ).toEqual([{ value: "1", count: 6 }])
+    expect(propertyIndex.listPropertyKeys({ folder: "projects" }, logger)).toEqual([
+      { key: "rank", count: 3, sample_values: ["1", "2"] },
+      { key: "other", count: 1, sample_values: ["2"] },
+    ])
+  })
+
+  it("fills top-three sample slots with distinct combined values before dropping lower-ranked decoys", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "numbers.md", frontmatter: "rank: [1, 1, 1]" },
+      { filePath: "text.md", frontmatter: 'rank: ["1", "1", "1"]' },
+      { filePath: "second.md", frontmatter: "rank: [2, 2, 2, 2]" },
+      { filePath: "third.md", frontmatter: "rank: [3, 3]" },
+      { filePath: "fourth.md", frontmatter: "rank: 4" },
+    ])
+
+    expect(propertyIndex.listPropertyKeys({}, logger)).toEqual([
+      { key: "rank", count: 5, sample_values: ["1", "2", "3"] },
+    ])
+  })
+
+  it("orders equal-count displayed strings by UTF-8 bytes rather than numeric or UTF-16 order", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "values.md", frontmatter: 'rank: [2, 10, "😀", "\uE000"]' },
+    ])
+
+    expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+      { value: "10", count: 1 },
+      { value: "2", count: 1 },
+      { value: "\uE000", count: 1 },
+      { value: "😀", count: 1 },
+    ])
+    expect(propertyIndex.listPropertyKeys({}, logger)).toEqual([
+      { key: "rank", count: 1, sample_values: ["10", "2", "\uE000"] },
+    ])
+  })
+
+  it.each([
+    { label: "a precise decimal", source: "43.65322512345678", displayed: "43.65322512345678" },
+    { label: "a small exponent", source: "0.0000001", displayed: "1e-7" },
+    { label: "a large exponent", source: "1e21", displayed: "1e+21" },
+    {
+      label: "a rounded large integer",
+      source: "12345678901234567890",
+      displayed: "12345678901234567000",
+    },
+  ])(
+    "preserves the displayed number for $label and combines its scalar, list, and text occurrences",
+    ({ source, displayed }) => {
+      const propertyIndex = createPropertyTestIndex()
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "scalar.md", frontmatter: `rank: ${source}` },
+        { filePath: "list.md", frontmatter: `rank: [${source}]` },
+        { filePath: "text.md", frontmatter: `rank: ${JSON.stringify(displayed)}` },
+      ])
+
+      expect(propertyIndex.listPropertyValues({ key: "rank" }, logger)).toEqual([
+        { value: displayed, count: 3 },
+      ])
+      expect(propertyIndex.listPropertyKeys({}, logger)).toEqual([
+        { key: "rank", count: 3, sample_values: [displayed] },
+      ])
+    },
+  )
+})
+
+describe("numeric property search", () => {
+  it.each([
+    {
+      label: "a precise decimal",
+      source: "43.65322512345678",
+      displayed: "43.65322512345678",
+      exponent: "4.365322512345678e1",
+    },
+    { label: "a small exponent", source: "0.0000001", displayed: "1e-7", exponent: "1e-7" },
+    { label: "a large exponent", source: "1e21", displayed: "1e+21", exponent: "1e21" },
+    {
+      label: "a rounded large integer",
+      source: "12345678901234567890",
+      displayed: "12345678901234567000",
+      exponent: "1.2345678901234567e19",
+    },
+    {
+      label: "a positive int64 binary64 mismatch",
+      source: "1000000000000000128",
+      displayed: "1000000000000000100",
+      exponent: "1.000000000000000128e18",
+    },
+    {
+      label: "a negative int64 binary64 mismatch",
+      source: "-1000000000000000128",
+      displayed: "-1000000000000000100",
+      exponent: "-1.000000000000000128e18",
+    },
+  ])(
+    "finds scalar and list numbers from source, listed, and exponent forms for $label",
+    ({ source, displayed, exponent }) => {
+      const propertyIndex = createPropertyTestIndex()
+      const queryValues = [...new Set([source, displayed, exponent])]
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "Projects/scalar.md", frontmatter: `rank: ${source}` },
+        { filePath: "Projects/list.md", frontmatter: `rank: [${source}, ${source}]` },
+        { filePath: "Projects/wrong-key.md", frontmatter: `other: ${source}` },
+        { filePath: "ProjectsOld/sibling.md", frontmatter: `rank: ${source}` },
+        { filePath: "Other/outside.md", frontmatter: `rank: ${source}` },
+        ...queryValues.map((queryValue, queryNumber) => ({
+          filePath: `Projects/text-${queryNumber}.md`,
+          frontmatter: `rank: ${JSON.stringify(queryValue)}`,
+        })),
+      ])
+
+      queryValues.forEach((queryValue, queryNumber) => {
+        const results = propertyIndex.searchByProperty(
+          { key: "rank", value: queryValue, folder: "projects" },
+          logger,
+        )
+        expect(results.map((result) => result.path)).toEqual([
+          "Projects/list.md",
+          "Projects/scalar.md",
+          `Projects/text-${queryNumber}.md`,
+        ])
+      })
+    },
+  )
+
+  it.each([
+    {
+      label: "the exact integer below 2^53",
+      source: "9007199254740991",
+      alias: "9.007199254740991e15",
+      differentNumber: "9007199254740992",
+    },
+    {
+      label: "a rounded positive alias at 2^53",
+      source: "9007199254740992",
+      alias: "9007199254740993",
+      differentNumber: "9007199254740994",
+    },
+    {
+      label: "a rounded negative alias at 2^53",
+      source: "-9007199254740992",
+      alias: "-9007199254740993",
+      differentNumber: "-9007199254740994",
+    },
+    { label: "underflow to zero", source: "0", alias: "1e-999", differentNumber: "1" },
+  ])(
+    "matches the stored JavaScript number for $label while keeping exact text and checkboxes distinct",
+    ({ source, alias, differentNumber }) => {
+      const propertyIndex = createPropertyTestIndex()
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "a-source.md", frontmatter: `rank: ${source}` },
+        { filePath: "b-alias.md", frontmatter: `rank: ${alias}` },
+        { filePath: "c-list.md", frontmatter: `rank: [${source}, ${alias}]` },
+        { filePath: "d-source-text.md", frontmatter: `rank: ${JSON.stringify(source)}` },
+        { filePath: "e-alias-text.md", frontmatter: `rank: ${JSON.stringify(alias)}` },
+        { filePath: "f-checkbox.md", frontmatter: "rank: false" },
+        { filePath: "g-different-number.md", frontmatter: `rank: ${differentNumber}` },
+      ])
+
+      const results = propertyIndex.searchByProperty({ key: "rank", value: alias }, logger)
+      expect(results.map((result) => result.path)).toEqual([
+        "a-source.md",
+        "b-alias.md",
+        "c-list.md",
+        "e-alias-text.md",
+      ])
+
+      const sourceResults = propertyIndex.searchByProperty({ key: "rank", value: source }, logger)
+      const exactSourcePaths = ["a-source.md", "b-alias.md", "c-list.md", "d-source-text.md"]
+      const sourcePaths = source === "0" ? [...exactSourcePaths, "f-checkbox.md"] : exactSourcePaths
+      expect(sourceResults.map((result) => result.path)).toEqual(sourcePaths)
+    },
+  )
+
+  it.each([
+    { label: "canonical digits", queryValue: "4", numberValue: "4" },
+    { label: "leading-zero decimal", queryValue: "04", numberValue: "4" },
+    { label: "explicit positive sign", queryValue: "+4", numberValue: "4" },
+    { label: "decimal fraction", queryValue: "4.0", numberValue: "4" },
+    { label: "leading decimal point", queryValue: ".5", numberValue: "0.5" },
+    { label: "signed leading decimal point", queryValue: "-.5", numberValue: "-0.5" },
+    { label: "trailing decimal point", queryValue: "4.", numberValue: "4" },
+    { label: "decimal exponent", queryValue: "4e0", numberValue: "4" },
+    { label: "signed uppercase exponent", queryValue: "4E+0", numberValue: "4" },
+    { label: "hexadecimal", queryValue: "0x10", numberValue: "16" },
+    { label: "octal", queryValue: "0o10", numberValue: "8" },
+    { label: "a checkbox-like numeric spelling", queryValue: "1.0", numberValue: "1" },
+  ])(
+    "accepts $label for stored numbers without normalizing literal text or checkboxes",
+    ({ queryValue, numberValue }) => {
+      const propertyIndex = createPropertyTestIndex()
+      seedPropertyNotes(propertyIndex, [
+        { filePath: "a-number.md", frontmatter: `rank: ${numberValue}` },
+        { filePath: "b-list.md", frontmatter: `rank: [${numberValue}]` },
+        { filePath: "c-exact-text.md", frontmatter: `rank: ${JSON.stringify(queryValue)}` },
+        { filePath: "d-list-text.md", frontmatter: `rank: [${JSON.stringify(queryValue)}]` },
+        { filePath: "e-decoy-text.md", frontmatter: 'rank: "4.00"' },
+        { filePath: "f-checkbox.md", frontmatter: "rank: true" },
+        { filePath: "g-list-checkbox.md", frontmatter: "rank: [true]" },
+        ...(queryValue === numberValue
+          ? []
+          : [
+              {
+                filePath: "h-canonical-text.md",
+                frontmatter: `rank: ${JSON.stringify(numberValue)}`,
+              },
+            ]),
+      ])
+
+      const results = propertyIndex.searchByProperty({ key: "rank", value: queryValue }, logger)
+      expect(results.map((result) => result.path)).toEqual([
+        "a-number.md",
+        "b-list.md",
+        "c-exact-text.md",
+        "d-list-text.md",
+      ])
+    },
+  )
+
+  it.each([
+    { label: "empty text", queryValue: "" },
+    { label: "whitespace", queryValue: " " },
+    { label: "leading whitespace", queryValue: " 4" },
+    { label: "trailing whitespace", queryValue: "4 " },
+    { label: "a final newline", queryValue: "4\n" },
+    { label: "a final CRLF", queryValue: "4\r\n" },
+    { label: "a numeric prefix", queryValue: "4cats" },
+    { label: "a comment", queryValue: "4 # comment" },
+    { label: "an expression", queryValue: "2+2" },
+    { label: "binary notation", queryValue: "0b100" },
+    { label: "a separator", queryValue: "1_000" },
+    { label: "an uppercase hexadecimal prefix", queryValue: "0X10" },
+    { label: "an uppercase octal prefix", queryValue: "0O10" },
+    { label: "signed hexadecimal", queryValue: "+0x10" },
+    { label: "Infinity", queryValue: "Infinity" },
+    { label: "YAML infinity", queryValue: ".inf" },
+    { label: "NaN", queryValue: "NaN" },
+    { label: "YAML NaN", queryValue: ".nan" },
+    { label: "overflow", queryValue: "1e999" },
+  ])("keeps $label as an exact text query without a numeric match", ({ queryValue }) => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "a-text.md", frontmatter: `rank: ${JSON.stringify(queryValue)}` },
+      { filePath: "b-list-text.md", frontmatter: `rank: [${JSON.stringify(queryValue)}]` },
+      { filePath: "c-numbers.md", frontmatter: "rank: [0, 1, 4, 8, 16, 1000]" },
+      { filePath: "d-checkbox.md", frontmatter: "rank: false" },
+      { filePath: "e-other-text.md", frontmatter: 'rank: "4"' },
+    ])
+
+    const results = propertyIndex.searchByProperty({ key: "rank", value: queryValue }, logger)
+    expect(results.map((result) => result.path)).toEqual(["a-text.md", "b-list-text.md"])
+  })
+
+  it.each([
+    { label: "object JSON", structuredValue: "{a: 1}", queryValue: '{"a":1}' },
+    { label: "nested-list JSON", structuredValue: "[[2, 3]]", queryValue: "[2,3]" },
+  ])("preserves exact matching for $label", ({ structuredValue, queryValue }) => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "a-structured.md", frontmatter: `rank: ${structuredValue}` },
+      { filePath: "b-text.md", frontmatter: `rank: ${JSON.stringify(queryValue)}` },
+      { filePath: "c-number.md", frontmatter: "rank: 1" },
+    ])
+
+    const results = propertyIndex.searchByProperty({ key: "rank", value: queryValue }, logger)
+    expect(results.map((result) => result.path)).toEqual(["a-structured.md", "b-text.md"])
+  })
+
+  it("preserves checkbox digit matching in scalar and list properties", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "a-checkbox-list.md", frontmatter: "rank: [true, false]" },
+      { filePath: "b-number-list.md", frontmatter: "rank: [1, 0]" },
+      { filePath: "c-text-list.md", frontmatter: 'rank: ["1", "0"]' },
+      { filePath: "d-checked.md", frontmatter: "rank: true" },
+      { filePath: "e-unchecked.md", frontmatter: "rank: false" },
+    ])
+
+    const checkedResults = propertyIndex.searchByProperty({ key: "rank", value: "1" }, logger)
+    const uncheckedResults = propertyIndex.searchByProperty({ key: "rank", value: "0" }, logger)
+
+    expect(checkedResults.map((result) => result.path)).toEqual([
+      "a-checkbox-list.md",
+      "b-number-list.md",
+      "c-text-list.md",
+      "d-checked.md",
+    ])
+    expect(uncheckedResults.map((result) => result.path)).toEqual([
+      "a-checkbox-list.md",
+      "b-number-list.md",
+      "c-text-list.md",
+      "e-unchecked.md",
+    ])
+  })
+
+  it("preserves mtime/path ordering and applies the limit after numeric matching", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "z-list.md", frontmatter: "rank: [4]" },
+      { filePath: "a-number.md", frontmatter: "rank: 4" },
+      { filePath: "b-text.md", frontmatter: 'rank: "4.0"' },
+    ])
+    propertyIndex.upsertNote(
+      { filePath: "newest.md", rawContent: "---\nrank: 4\n---\nbody\n", fileStat: testStat(2000) },
+      logger,
+    )
+
+    const results = propertyIndex.searchByProperty({ key: "rank", value: "4.0", limit: 2 }, logger)
+    expect(results.map((result) => result.path)).toEqual(["newest.md", "a-number.md"])
+  })
+
+  it("leaves full-text property number/string distinction and boolean-to-number normalization unchanged", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "number.md", frontmatter: "rank: 4\nreviewed: 1" },
+      { filePath: "text.md", frontmatter: 'rank: "4"\nreviewed: "1"' },
+      { filePath: "checkbox.md", frontmatter: "rank: 5\nreviewed: true" },
+      { filePath: "false.md", frontmatter: "rank: 5\nreviewed: false" },
+      { filePath: "other-key.md", frontmatter: "other: 4" },
+    ])
+
+    const numberResults = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { rank: 4 } } },
+      logger,
+    )
+    const textResults = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { rank: "4" } } },
+      logger,
+    )
+    const checkboxResults = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { reviewed: true } } },
+      logger,
+    )
+
+    expect(numberResults.map((result) => result.path)).toEqual(["number.md"])
+    expect(textResults.map((result) => result.path)).toEqual(["text.md"])
+    expect(checkboxResults.map((result) => result.path).toSorted()).toEqual([
+      "checkbox.md",
+      "number.md",
+    ])
+  })
 })
 
 describe("markdown path requirement", () => {
@@ -2629,6 +3260,333 @@ describe("markdown path requirement", () => {
     expect(() => index.getOutgoingLinks({ path: "Projects/Plan" }, logger)).toThrow(
       /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
     )
+  })
+})
+
+describe("rebuildFromVault bounded I/O", () => {
+  it.each([
+    { operation: "size", extension: ".png", table: "non_md_files", decoyName: "healthy.md" },
+    { operation: "note", extension: ".md", table: "notes", decoyName: "healthy.txt" },
+    { operation: "text", extension: ".txt", table: "file_content", decoyName: "healthy.md" },
+    { operation: "canvas", extension: ".canvas", table: "file_content", decoyName: "healthy.md" },
+  ] as const)(
+    "bounds the $operation pass to 16 operations and indexes its seventeenth item",
+    async ({ operation, extension, table, decoyName }) => {
+      const directory = await mkdtemp(join(tmpdir(), "rebuild-bound-"))
+      const vaultPath = join(directory, "vault")
+      const releaseGate = Promise.withResolvers<undefined>()
+      const boundReached = Promise.withResolvers<undefined>()
+      const pendingRebuilds: Promise<unknown>[] = []
+      const restoreOperations: Array<() => void> = []
+      const openDatabases: Database.Database[] = []
+      onTestFinished(async () => {
+        releaseGate.resolve(undefined)
+        await Promise.allSettled(pendingRebuilds)
+        restoreOperations.forEach((restore) => restore())
+        openDatabases.forEach((database) => database.close())
+        await rm(directory, { recursive: true, force: true })
+      })
+      await mkdir(vaultPath)
+      const targetFiles = Array.from(
+        { length: 17 },
+        (_unused, index) => `source-${String(index).padStart(2, "0")}${extension}`,
+      )
+      for (const fileName of targetFiles) {
+        const content =
+          extension === ".canvas"
+            ? JSON.stringify({
+                nodes: [
+                  {
+                    id: "text",
+                    type: "text",
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 100,
+                    text: "targetquartz",
+                  },
+                ],
+                edges: [],
+              })
+            : "targetquartz"
+        await writeFile(join(vaultPath, fileName), content)
+      }
+      await writeFile(join(vaultPath, decoyName), "decoyamber")
+      const targetPaths = new Set(targetFiles.map((fileName) => join(vaultPath, fileName)))
+      const activePaths = new Set<string>()
+      const startedPaths = new Set<string>()
+      const activeCounts: number[] = []
+      const holdTargetOperation = async (requestedPath: string): Promise<void> => {
+        startedPaths.add(requestedPath)
+        activePaths.add(requestedPath)
+        activeCounts.push(activePaths.size)
+        if (activePaths.size === 16) boundReached.resolve(undefined)
+        await releaseGate.promise
+        activePaths.delete(requestedPath)
+      }
+      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      const actualFsUtils =
+        await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+
+      if (operation === "size") {
+        const statSpy = vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+          if (targetPaths.has(requestedPath)) await holdTargetOperation(requestedPath)
+          return actualFsUtils.statOrNull(requestedPath)
+        })
+        restoreOperations.push(() => statSpy.mockRestore())
+      }
+      if (operation !== "size") {
+        const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+          if (typeof requestedPath === "string" && targetPaths.has(requestedPath))
+            await holdTargetOperation(requestedPath)
+          return actualFs.readFile(requestedPath, options)
+        })
+        restoreOperations.push(() => readSpy.mockRestore())
+      }
+      const dbPath = join(directory, "search.db")
+      const search = createSearchIndex(dbPath, undefined, undefined, { fileToolsEnabled: true })
+      const database = new Database(dbPath, { readonly: true })
+      openDatabases.push(database)
+      const rebuilding = search.rebuildFromVault({ vaultPath }, logger)
+      pendingRebuilds.push(rebuilding)
+      await boundReached.promise
+      await setImmediateAsync()
+
+      expect(activePaths.size).toBe(16)
+      expect(startedPaths.size).toBe(16)
+      expect(database.prepare(`SELECT path FROM ${table}`).all()).toEqual([])
+      releaseGate.resolve(undefined)
+      const rebuilt = await rebuilding
+      await rebuilt.embedding
+
+      expect(Math.max(...activeCounts)).toBe(16)
+      expect(activePaths.size).toBe(0)
+      expect(startedPaths.size).toBe(17)
+      expect(database.prepare(`SELECT path FROM ${table} ORDER BY path`).all()).toEqual(
+        targetFiles.map((path) => ({ path })),
+      )
+      expect(
+        (await search.hybridSearch({ query: "targetquartz" }, logger)).results
+          .map((entry) => entry.path)
+          .toSorted(),
+      ).toEqual(operation === "size" ? [] : targetFiles)
+      expect(
+        (await search.hybridSearch({ query: "decoyamber" }, logger)).results.map(
+          (entry) => entry.path,
+        ),
+      ).toEqual([decoyName])
+    },
+  )
+
+  it("bounds PDF extraction to four operations and indexes its fifth item", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rebuild-pdf-bound-"))
+    const vaultPath = join(directory, "vault")
+    const releaseGate = Promise.withResolvers<undefined>()
+    const boundReached = Promise.withResolvers<undefined>()
+    const pendingRebuilds: Promise<unknown>[] = []
+    const restoreOperations: Array<() => void> = []
+    const openDatabases: Database.Database[] = []
+    onTestFinished(async () => {
+      releaseGate.resolve(undefined)
+      await Promise.allSettled(pendingRebuilds)
+      restoreOperations.forEach((restore) => restore())
+      openDatabases.forEach((database) => database.close())
+      await rm(directory, { recursive: true, force: true })
+    })
+    await mkdir(vaultPath)
+    const targetFiles = Array.from({ length: 5 }, (_unused, index) => `source-${index}.pdf`)
+    const targetMarkers = new Set(targetFiles.map((fileName) => `marker-${fileName}`))
+    for (const fileName of targetFiles)
+      await writeFile(join(vaultPath, fileName), `marker-${fileName}`)
+    await writeFile(join(vaultPath, "healthy.md"), "decoyamber")
+    await writeFile(join(vaultPath, "healthy.txt"), "decoyberyl")
+    const activeMarkers = new Set<string>()
+    const startedMarkers = new Set<string>()
+    const activeCounts: number[] = []
+    const extractSpy = vi.mocked(extractPdfText).mockImplementation(async (pdfData) => {
+      const marker = Buffer.from(pdfData).toString("utf8")
+
+      if (!targetMarkers.has(marker)) throw new Error(`unexpected PDF input: ${marker}`)
+      startedMarkers.add(marker)
+      activeMarkers.add(marker)
+      activeCounts.push(activeMarkers.size)
+      if (activeMarkers.size === 4) boundReached.resolve(undefined)
+      await releaseGate.promise
+      activeMarkers.delete(marker)
+      return { text: "pdfquartz", totalPages: 1 }
+    })
+    restoreOperations.push(() => extractSpy.mockRestore())
+    const dbPath = join(directory, "search.db")
+    const search = createSearchIndex(dbPath, undefined, undefined, { fileToolsEnabled: true })
+    const database = new Database(dbPath, { readonly: true })
+    openDatabases.push(database)
+    const rebuilding = search.rebuildFromVault({ vaultPath }, logger)
+    pendingRebuilds.push(rebuilding)
+    await boundReached.promise
+    await setImmediateAsync()
+
+    expect(activeMarkers.size).toBe(4)
+    expect(startedMarkers.size).toBe(4)
+    releaseGate.resolve(undefined)
+    const rebuilt = await rebuilding
+    await rebuilt.embedding
+
+    expect(Math.max(...activeCounts)).toBe(4)
+    expect(activeMarkers.size).toBe(0)
+    expect(startedMarkers.size).toBe(5)
+    expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual(
+      ["healthy.txt", ...targetFiles].map((path) => ({ path })),
+    )
+    expect(
+      (await search.hybridSearch({ query: "pdfquartz" }, logger)).results
+        .map((entry) => entry.path)
+        .toSorted(),
+    ).toEqual(targetFiles)
+    expect(
+      (await search.hybridSearch({ query: "decoyamber" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.md"])
+    expect(
+      (await search.hybridSearch({ query: "decoyberyl" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.txt"])
+  })
+})
+
+describe("rebuildFromVault filesystem failures", () => {
+  const createRebuildVault = async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "rebuild-error-"))
+    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    await writeFile(join(vaultPath, "healthy.md"), "healthyamber")
+    return { vaultPath, search }
+  }
+
+  it.each(["EACCES", "EIO"])("skips a non-markdown %s stat failure and recovers", async (code) => {
+    const { vaultPath, search } = await createRebuildVault()
+    const filePath = join(vaultPath, "image.png")
+    await writeFile(filePath, "image data")
+    const actualFs =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const statSpy = vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      if (requestedPath === filePath)
+        throw Object.assign(new Error("controlled stat failure"), { code })
+      return actualFs.statOrNull(requestedPath)
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      statSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+    await rebuilt.embedding
+
+    expect(rebuilt.count).toBe(1)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unstattable file during rebuild", {
+      path: "image.png",
+      error: "[Error]: controlled stat failure",
+    })
+    expect(
+      search.fullTextSearch({ query: "healthyamber" }, logger).map((entry) => entry.path),
+    ).toEqual(["healthy.md"])
+    search.upsertNote(
+      { filePath: "source.md", rawContent: "![[image.png]]", fileStat: testStat(1000) },
+      logger,
+    )
+    expect(
+      search
+        .getOutgoingLinks({ path: "source.md" }, logger)
+        .map((link) => ({ path: link.path, exists: link.exists })),
+    ).toEqual([{ path: "image.png", exists: false }])
+    statSpy.mockRestore()
+    const recovered = await search.rebuildFromVault({ vaultPath }, logger)
+    await recovered.embedding
+    search.upsertNote(
+      { filePath: "source.md", rawContent: "![[image.png]]", fileStat: testStat(1000) },
+      logger,
+    )
+    expect(
+      search
+        .getOutgoingLinks({ path: "source.md" }, logger)
+        .map((link) => ({ path: link.path, exists: link.exists })),
+    ).toEqual([{ path: "image.png", exists: true }])
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { fileName: "broken.md", sourceKind: "note" },
+    { fileName: "broken.canvas", sourceKind: "canvas file" },
+    { fileName: "broken.txt", sourceKind: "text file" },
+    { fileName: "broken.pdf", sourceKind: "PDF" },
+  ])(
+    "warns and skips an unreadable $sourceKind while indexing healthy files",
+    async ({ fileName, sourceKind }) => {
+      const { vaultPath, search } = await createRebuildVault()
+      const filePath = join(vaultPath, fileName)
+      await writeFile(filePath, "brokenquartz")
+      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+        if (requestedPath === filePath) throw new Error("controlled read failure")
+        return actualFs.readFile(requestedPath, options)
+      })
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => {
+        readSpy.mockRestore()
+        warnSpy.mockRestore()
+      })
+      const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+      await rebuilt.embedding
+
+      expect(rebuilt.count).toBe(1)
+      expect(readSpy).toHaveBeenCalledWith(filePath, ...(fileName.endsWith(".pdf") ? [] : ["utf8"]))
+      expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+        `skipped unreadable ${sourceKind} during rebuild`,
+        { path: fileName, error: "[Error]: controlled read failure" },
+      )
+      expect(
+        (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
+          (entry) => entry.path,
+        ),
+      ).toEqual(["healthy.md"])
+      expect((await search.hybridSearch({ query: "brokenquartz" }, logger)).results).toEqual([])
+    },
+  )
+
+  it("contains a rebuild PDF extraction failure and indexes its next valid extraction", async () => {
+    const { vaultPath, search } = await createRebuildVault()
+    await writeFile(join(vaultPath, "broken.pdf"), "controlled bytes")
+    const extractSpy = vi
+      .mocked(extractPdfText)
+      .mockRejectedValueOnce(new Error("controlled PDF failure"))
+      .mockResolvedValueOnce({ text: "recoveredopal", totalPages: 1 })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      extractSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+    await rebuilt.embedding
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable PDF during rebuild", {
+      path: "broken.pdf",
+      error: "[Error]: controlled PDF failure",
+    })
+    expect(
+      (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.md"])
+    expect((await search.hybridSearch({ query: "recoveredopal" }, logger)).results).toEqual([])
+    const recovered = await search.rebuildFromVault({ vaultPath }, logger)
+    await recovered.embedding
+    expect(
+      (await search.hybridSearch({ query: "recoveredopal" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["broken.pdf"])
+    expect(extractSpy).toHaveBeenCalledTimes(2)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -3154,28 +4112,42 @@ describe("getOutgoingLinks", () => {
     expect(broken?.bytes).toBeNull()
   })
 
-  it("flags daily note forward-refs when the folder is passed", () => {
-    index.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-24.md",
-        rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
+  it.each(["Daily Notes", "Daily Notes/", "Daily Notes///"])(
+    "flags daily note forward-refs with folder %s",
+    (dailyNotesFolder) => {
+      index.upsertNote(
+        {
+          filePath: "Daily Notes/2026-06-24.md",
+          rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
 
-    const links = index.getOutgoingLinks(
-      { path: "Daily Notes/2026-06-24.md", dailyNotesFolder: "Daily Notes" },
-      logger,
-    )
-    const forwardRef = links.find((link) => link.path === "Daily Notes/2026-06-25")
-    expect(forwardRef?.exists).toBe(false)
-    expect(forwardRef?.daily_note_forward_ref).toBe(true)
-
-    const genuinelyBroken = links.find((link) => link.path === "missing")
-    expect(genuinelyBroken?.exists).toBe(false)
-    expect(genuinelyBroken?.daily_note_forward_ref).toBe(false)
-  })
+      const links = index.getOutgoingLinks(
+        { path: "Daily Notes/2026-06-24.md", dailyNotesFolder },
+        logger,
+      )
+      expect(links).toEqual([
+        {
+          path: "Daily Notes/2026-06-25",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: true,
+        },
+        {
+          path: "missing",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: false,
+        },
+      ])
+    },
+  )
 
   it("returns empty for notes with no outgoing links", () => {
     index.upsertNote(
@@ -3232,6 +4204,61 @@ describe("findOrphans", () => {
     const orphans = index.findOrphans({}, logger)
     const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).toContain("Projects/orphan.md")
+  })
+
+  it("translates oversized exclusions while retaining and logging the SQLite diagnostic", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const excludeFolders = Array.from({ length: 1000 }, (_, folderIndex) => `Folder${folderIndex}`)
+    const queryError = (() => {
+      try {
+        queryIndex.findOrphans({ excludeFolders }, requestLogger)
+      } catch (error) {
+        return error
+      }
+      throw new Error("expected the orphan query to fail")
+    })()
+
+    if (!(queryError instanceof Error) || !(queryError.cause instanceof Database.SqliteError)) {
+      throw new Error("expected a domain error with the original SQLite cause")
+    }
+    expect({
+      message: queryError.message,
+      causeName: queryError.cause.name,
+      causeCode: queryError.cause.code,
+      causeMessage: queryError.cause.message,
+    }).toEqual({
+      message: "too many excluded folders",
+      causeName: "SqliteError",
+      causeCode: "SQLITE_ERROR",
+      causeMessage: "Expression tree is too large (maximum depth 1000)",
+    })
+    expect(requestLogger.warn).toHaveBeenCalledTimes(1)
+    expect(requestLogger.warn).toHaveBeenCalledWith("orphan exclusion query capacity exceeded", {
+      excludedFolderCount: 1000,
+      error: "[SqliteError]: Expression tree is too large (maximum depth 1000)",
+    })
+  })
+
+  it("propagates unrelated SQLite query failures unchanged", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const sqliteError = new Database.SqliteError("no such table: notes", "SQLITE_ERROR")
+    const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementationOnce(() => {
+      throw sqliteError
+    })
+    onTestFinished(() => prepareSpy.mockRestore())
+    const queryError = (() => {
+      try {
+        queryIndex.findOrphans({}, requestLogger)
+      } catch (error) {
+        return error
+      }
+      throw new Error("expected the orphan query to fail")
+    })()
+
+    expect(queryError).toBe(sqliteError)
+    expect(requestLogger.warn).not.toHaveBeenCalled()
   })
 
   it("excludes connected notes", () => {
@@ -3750,18 +4777,25 @@ describe("brokenLinkCount", () => {
     expect(outgoing[0]?.kind).toBe("note")
   })
 
-  it("excludes forward-reference links that are valid dates under the daily note folder", () => {
-    index.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-24.md",
-        rawContent:
-          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]].\n",
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
-    expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(1)
-  })
+  it.each(["Daily Notes", "Daily Notes/", "Daily Notes///"])(
+    "excludes daily forward references with folder %s and retains sibling-folder failures",
+    (dailyNotesFolder) => {
+      index.upsertNote(
+        {
+          filePath: "Daily Notes/2026-06-24.md",
+          rawContent:
+            "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]] and [[Daily Notes Extra/missing]].\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      expect(index.brokenLinkCount({ dailyNotesFolder }, logger)).toEqual({
+        count: 2,
+        excludedFolder: dailyNotesFolder,
+        excludedCount: 1,
+      })
+    },
+  )
 
   it("excludes .md-suffixed forward-reference targets", () => {
     index.upsertNote(
@@ -4248,6 +5282,62 @@ describe("file targets written with extensions", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
+  it.each([
+    { label: "full path", target: "assets/photo.png", filePath: "assets/photo.png" },
+    { label: "relative path", target: "../assets/photo.png", filePath: "assets/photo.png" },
+    { label: "filename suffix", target: "photo.png", filePath: "deep/assets/photo.png" },
+    { label: "folded suffix", target: "PHOTO.png", filePath: "deep/assets/photo.png" },
+    { label: "stem path", target: "assets/Route", filePath: "assets/Route.canvas" },
+    { label: "relative stem", target: "../assets/Route", filePath: "assets/Route.canvas" },
+    { label: "stem suffix", target: "assets/Route", filePath: "deep/assets/Route.canvas" },
+    { label: "folded stem suffix", target: "assets/ROUTE", filePath: "deep/assets/Route.canvas" },
+    { label: "bare stem", target: "Route", filePath: "assets/Route.canvas" },
+    { label: "multi-dot stem", target: "photo.png", filePath: "assets/photo.png.canvas" },
+    { label: "literal wildcards", target: "photo_%25.png", filePath: "assets/photo_%25.png" },
+  ])(
+    "re-resolves a $label forward asset link past unrelated candidates",
+    ({ target, filePath }) => {
+      const assetIndex = createSearchIndex(":memory:")
+      assetIndex.upsertNote(
+        {
+          filePath: "Projects/source.md",
+          rawContent: `![[${target}]]\n![[unrelated.png]]`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      assetIndex.upsertNonMdFile("elsewhere/decoy.png", 42)
+      expect(
+        assetIndex
+          .getOutgoingLinks({ path: "Projects/source.md" }, logger)
+          .map((link) => link.path),
+      ).toEqual([target, "unrelated.png"].toSorted())
+
+      assetIndex.upsertNonMdFile(filePath, 100)
+
+      expect(assetIndex.getOutgoingLinks({ path: "Projects/source.md" }, logger)).toEqual(
+        [
+          {
+            path: filePath,
+            title: null,
+            exists: true,
+            kind: "file",
+            bytes: 100,
+            daily_note_forward_ref: false,
+          },
+          {
+            path: "unrelated.png",
+            title: null,
+            exists: false,
+            kind: "note",
+            bytes: null,
+            daily_note_forward_ref: false,
+          },
+        ].toSorted((a, b) => a.path.localeCompare(b.path)),
+      )
+    },
+  )
+
   it("does not let LIKE wildcards in the target match unrelated files via full-path suffix", () => {
     // Only photo1final.png exists — if the _ in the target were treated as a
     // LIKE wildcard it would match (1 satisfies _), giving a false resolution.
@@ -4432,8 +5522,13 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
+      const sourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
 
@@ -4446,8 +5541,15 @@ It has multiple sentences to verify chunking works correctly.
         ranking: { enrichChunkMetadata: true },
       })
 
+      const sourceVersion = seedEmbeddingSource(enrichedIndex, {
+        notePath: "typed.md",
+        rawContent:
+          "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
+      })
+
       await enrichedIndex.embedNote(
         {
+          sourceVersion: sourceVersion,
           notePath: "typed.md",
           rawContent:
             "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
@@ -4467,8 +5569,14 @@ It has multiple sentences to verify chunking works correctly.
         ranking: { enrichChunkMetadata: true },
       })
 
+      const sourceVersion = seedEmbeddingSource(enrichedIndex, {
+        notePath: "bare.md",
+        rawContent: "---\ntitle: Bare Note\n---\n\nBody without metadata.\n",
+      })
+
       await enrichedIndex.embedNote(
         {
+          sourceVersion: sourceVersion,
           notePath: "bare.md",
           rawContent: "---\ntitle: Bare Note\n---\n\nBody without metadata.\n",
         },
@@ -4483,8 +5591,15 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const defaultIndex = createSearchIndex(":memory:", mockEmbedder)
 
+      const sourceVersion = seedEmbeddingSource(defaultIndex, {
+        notePath: "typed.md",
+        rawContent:
+          "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
+      })
+
       await defaultIndex.embedNote(
         {
+          sourceVersion: sourceVersion,
           notePath: "typed.md",
           rawContent:
             "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
@@ -4503,15 +5618,20 @@ It has multiple sentences to verify chunking works correctly.
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
       // First embed
+      const sourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       // Second embed with same content — should skip (hash match)
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
@@ -4521,8 +5641,17 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
+      const originalSourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        {
+          sourceVersion: originalSourceVersion,
+          notePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+        },
         logger,
       )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
@@ -4531,56 +5660,55 @@ It has multiple sentences to verify chunking works correctly.
         "multiple sentences",
         "different content entirely",
       )
-      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: updatedNote }, logger)
+      const updatedSourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: updatedNote,
+      })
+
+      await embeddingIndex.embedNote(
+        { sourceVersion: updatedSourceVersion, notePath: "test.md", rawContent: updatedNote },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
 
     it("removeNote deletes associated chunks and vectors", async () => {
-      const mockEmbedder = createMockEmbedder()
-      const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
+      const fixture = await createEmbeddingRaceIndex("note")
+      const originalSourceVersion = fixture.upsert(NOTE_FOR_EMBEDDING)
+      await fixture.embed(NOTE_FOR_EMBEDDING, originalSourceVersion)
+      expect(fixture.chunks()).toHaveLength(1)
+      expect(fixture.vectorCount()).toBe(1)
 
-      embeddingIndex.upsertNote(
-        {
-          filePath: "test.md",
-          rawContent: NOTE_FOR_EMBEDDING,
-          fileStat: testStat(1000),
-        },
-        logger,
-      )
-      await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
-        logger,
-      )
+      fixture.remove()
+      expect(fixture.inspect.prepare("SELECT path FROM notes").all()).toEqual([])
+      expect(fixture.chunks()).toEqual([])
+      expect(fixture.vectorCount()).toBe(0)
 
-      // Remove should not throw — cleanup should succeed
-      embeddingIndex.removeNote("test.md")
-
-      // Re-embedding after removal should embed again (not skip via hash)
-      mockEmbedder.embedText.mockClear()
-      embeddingIndex.upsertNote(
-        {
-          filePath: "test.md",
-          rawContent: NOTE_FOR_EMBEDDING,
-          fileStat: testStat(2000),
-        },
-        logger,
-      )
-      await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
-        logger,
-      )
-      expect(mockEmbedder.embedText).toHaveBeenCalled()
+      fixture.embedder.embedText.mockClear()
+      const updatedSourceVersion = fixture.upsert(NOTE_FOR_EMBEDDING)
+      await fixture.embed(NOTE_FOR_EMBEDDING, updatedSourceVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.chunks()).toHaveLength(1)
+      expect(fixture.vectorCount()).toBe(1)
     })
 
     it("embedNote produces a chunk even for empty content", async () => {
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      await embeddingIndex.embedNote({ notePath: "empty.md", rawContent: "" }, logger)
+      const sourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "empty.md",
+        rawContent: "",
+      })
+
+      await embeddingIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath: "empty.md", rawContent: "" },
+        logger,
+      )
 
       // chunker returns at least one chunk (the title-only fallback), so
       // embedText is called even for empty content
-      expect(mockEmbedder.embedText).toHaveBeenCalled()
+      expect(mockEmbedder.embedText).toHaveBeenCalledExactlyOnceWith("empty")
     })
 
     it("embedNote propagates embedder errors to the caller", async () => {
@@ -4588,8 +5716,16 @@ It has multiple sentences to verify chunking works correctly.
       mockEmbedder.embedText.mockRejectedValueOnce(new Error("embedding failed"))
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
+      const sourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await expect(
-        embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger),
+        embeddingIndex.embedNote(
+          { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
       ).rejects.toThrow("embedding failed")
     })
   })
@@ -4598,8 +5734,16 @@ It has multiple sentences to verify chunking works correctly.
     it("embedNote is a no-op when no embedder is provided", async () => {
       const noEmbedIndex = createSearchIndex(":memory:")
 
+      const sourceVersion = seedEmbeddingSource(noEmbedIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await expect(
-        noEmbedIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger),
+        noEmbedIndex.embedNote(
+          { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
       ).resolves.toBeUndefined()
     })
 
@@ -5078,7 +6222,260 @@ describe("INDEXABLE_TEXT_EXTENSIONS", () => {
 
 // ── Canvas file content + link graph ──────────────────────────
 
+describe("canvas note catalog reuse", () => {
+  const observeCatalogScans = () => {
+    const scans = vi.fn()
+    const realPrepare: (this: Database.Database, source: string) => Database.Statement =
+      Database.prototype.prepare
+    /** The native method needs its SQLite receiver; count executions rather than preparations. */
+    const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementation(function (
+      this: Database.Database,
+      source: string,
+    ) {
+      const statement = realPrepare.call(this, source)
+
+      if (source.trim() === "SELECT path FROM notes") {
+        const realAll = statement.all.bind(statement)
+        vi.spyOn(statement, "all").mockImplementation((...allParams: unknown[]) => {
+          scans()
+          return realAll(...allParams)
+        })
+      }
+      return statement
+    })
+    onTestFinished(() => prepareSpy.mockRestore())
+    return scans
+  }
+  const canvasWithTarget = (target?: string): string =>
+    JSON.stringify({
+      nodes: target
+        ? [{ id: "file", type: "file", x: 0, y: 0, width: 100, height: 100, file: target }]
+        : [],
+      edges: [],
+    })
+  const saveCanvas = (search: SearchIndex, target?: string): void => {
+    search.upsertFileContent(
+      { filePath: "board.canvas", rawContent: canvasWithTarget(target), fileStat: testStat(1000) },
+      logger,
+    )
+  }
+  const outgoingPaths = (search: SearchIndex): string[] =>
+    search.getOutgoingLinks({ path: "board.canvas" }, logger).map((link) => link.path)
+
+  it("avoids empty-canvas scans and shares one catalog across repeated linked saves", () => {
+    const scans = observeCatalogScans()
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNote(
+      { filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) },
+      logger,
+    )
+    search.upsertNote(
+      { filePath: "Decoy.md", rawContent: "decoyquartz", fileStat: testStat(1000) },
+      logger,
+    )
+    scans.mockClear()
+    saveCanvas(search)
+    expect(scans).not.toHaveBeenCalled()
+    expect(outgoingPaths(search)).toEqual([])
+    for (const _unused of Array.from({ length: 12 })) saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+    saveCanvas(search)
+    expect(outgoingPaths(search)).toEqual([])
+    expect(scans).toHaveBeenCalledTimes(1)
+  })
+
+  it("refreshes the catalog after note additions, deletions and recreation with asset fallback", () => {
+    const scans = observeCatalogScans()
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNonMdFile("Target.canvas", 100)
+    saveCanvas(search, "Target")
+    expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    search.upsertNote(
+      { filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) },
+      logger,
+    )
+    scans.mockClear()
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+    search.removeNote("Target.md")
+    scans.mockClear()
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    search.upsertNote(
+      { filePath: "Target.md", rawContent: "recreatedopal", fileStat: testStat(2000) },
+      logger,
+    )
+    scans.mockClear()
+    saveCanvas(search, "Target")
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+
+  it("keeps committed membership after a failed note upsert rolls back", () => {
+    const poison = installStatementPoison("INSERT INTO tasks")
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNonMdFile("Target.canvas", 100)
+    saveCanvas(search, "Target")
+    poison.arm()
+    expect(() =>
+      search.upsertNote(
+        {
+          filePath: "Target.md",
+          rawContent: "- [ ] task that triggers poison",
+          fileStat: testStat(1000),
+        },
+        logger,
+      ),
+    ).toThrow(new Error(poison.message))
+    poison.disarm()
+    saveCanvas(search, "Target")
+    expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+  })
+
+  it("uses the rebuild catalog for a canvas corpus and later saves", async () => {
+    const scans = observeCatalogScans()
+    const directory = await mkdtemp(join(tmpdir(), "canvas-catalog-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await writeFile(join(directory, "Target.md"), "targetamber")
+    await writeFile(join(directory, "Decoy.md"), "decoyquartz")
+    const canvasNames = Array.from({ length: 9 }, (_unused, position) => `board-${position}.canvas`)
+    for (const canvasName of canvasNames)
+      await writeFile(join(directory, canvasName), canvasWithTarget("Target"))
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    const rebuilt = await search.rebuildFromVault({ vaultPath: directory }, logger)
+    await rebuilt.embedding
+    expect(rebuilt.count).toBe(2)
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(search.getBacklinks({ path: "Target.md" }, logger).map((link) => link.path)).toEqual(
+      canvasNames,
+    )
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+
+  it("drops an uncommitted rebuild catalog on a late outer rollback", async () => {
+    const scans = observeCatalogScans()
+    const directory = await mkdtemp(join(tmpdir(), "canvas-catalog-rollback-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await writeFile(join(directory, "Target.md"), "targetamber")
+    await writeFile(join(directory, "failed.canvas"), canvasWithTarget("Target"))
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNote(
+      { filePath: "Existing.md", rawContent: "existingquartz", fileStat: testStat(1000) },
+      logger,
+    )
+    saveCanvas(search, "Existing")
+    const failure = new Error("controlled late rebuild rollback")
+    const rebuildLogger = logger.child({ operation: "controlled-rebuild" })
+    vi.spyOn(rebuildLogger, "debug").mockImplementation((message) => {
+      if (message === "indexed file content") throw failure
+    })
+    vi.spyOn(rebuildLogger, "warn").mockImplementation(() => {
+      throw failure
+    })
+    await expect(search.rebuildFromVault({ vaultPath: directory }, rebuildLogger)).rejects.toThrow(
+      failure,
+    )
+    search.upsertNonMdFile("Target.canvas", 100)
+    scans.mockClear()
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    const recovered = await search.rebuildFromVault({ vaultPath: directory }, logger)
+    await recovered.embedding
+    saveCanvas(search, "Target")
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+})
+
 describe("canvas file content and links", () => {
+  it.each([{ fileToolsEnabled: true }, { fileToolsEnabled: false }])(
+    "resolves canvas links to existing notes and assets with file tools $fileToolsEnabled",
+    ({ fileToolsEnabled }) => {
+      const canvasIndex = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled })
+      for (const notePath of ["Notes/Plan.md", "Notes/Route.md", "deep/Plan.md"]) {
+        canvasIndex.upsertNote(
+          { filePath: notePath, rawContent: "targetamber", fileStat: testStat(1000) },
+          logger,
+        )
+      }
+      for (const assetPath of [
+        "photos/Sunset.png",
+        "photo.png.canvas",
+        "a/photo.png",
+        "Route.canvas",
+        "assets/map.canvas",
+      ]) {
+        canvasIndex.upsertNonMdFile(assetPath, 42)
+      }
+      canvasIndex.upsertNonMdFile("Boards/source.canvas", 100)
+      const targets = [
+        "../Notes/Plan.md",
+        "Sunset.png",
+        "sunset.png",
+        "photo.png",
+        "Route",
+        "../assets/map.canvas",
+        "missing.png",
+      ]
+      const canvasContent = JSON.stringify({
+        nodes: targets.map((file, position) => ({
+          id: `file-${position}`,
+          type: "file",
+          x: 0,
+          y: position * 100,
+          width: 100,
+          height: 100,
+          file,
+        })),
+        edges: [],
+      })
+      canvasIndex.upsertFileContent(
+        {
+          filePath: "Boards/source.canvas",
+          rawContent: canvasContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+
+      expect(
+        canvasIndex
+          .getOutgoingLinks({ path: "Boards/source.canvas" }, logger)
+          .map((link) => ({ path: link.path, exists: link.exists })),
+      ).toEqual([
+        { path: "Notes/Plan.md", exists: true },
+        { path: "Notes/Route.md", exists: true },
+        { path: "a/photo.png", exists: true },
+        { path: "assets/map.canvas", exists: true },
+        { path: "missing.png", exists: false },
+        { path: "photos/Sunset.png", exists: true },
+      ])
+      expect(
+        canvasIndex.getBacklinks({ path: "Notes/Plan.md" }, logger).map((link) => link.path),
+      ).toEqual(["Boards/source.canvas"])
+      expect(
+        canvasIndex.getBacklinks({ path: "assets/map.canvas" }, logger).map((link) => link.path),
+      ).toEqual(["Boards/source.canvas"])
+      expect(canvasIndex.brokenLinkCount({}, logger)).toEqual({
+        count: 1,
+        excludedFolder: null,
+        excludedCount: 0,
+      })
+      canvasIndex.upsertNonMdFile("other/unchanged.txt", 12)
+      expect(canvasIndex.brokenLinkCount({}, logger)).toEqual({
+        count: 1,
+        excludedFolder: null,
+        excludedCount: 0,
+      })
+    },
+  )
+
   const CANVAS_WITH_FILE_NODES = JSON.stringify({
     nodes: [
       {
@@ -5565,6 +6962,419 @@ describe("canvas file content and links", () => {
 
 // ── File content vector embeddings ────────────────────────────
 
+describe("committed embedding source versions", () => {
+  it.each(["note", "file"] as const)(
+    "rejects a %s model result after source deletion",
+    async (sourceKind) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const model = Promise.withResolvers<Float32Array>()
+      fixture.embedder.embedText.mockImplementationOnce(() => model.promise)
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {})
+      onTestFinished(() => debugSpy.mockRestore())
+      const sourceVersion = fixture.upsert("Old oldquartz")
+      const job = fixture.embed("Old oldquartz", sourceVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+
+      fixture.remove()
+      expect(fixture.inspect.prepare(`SELECT path FROM ${fixture.sourceTable}`).all()).toEqual([])
+      model.resolve(new Float32Array(384).fill(0.1))
+      await job
+
+      expect(fixture.chunks()).toEqual([])
+      expect(fixture.vectorCount()).toBe(0)
+      expect(debugSpy).toHaveBeenCalledWith("skipped obsolete embedding", { path: fixture.path })
+    },
+  )
+
+  it.each(["note", "file"] as const)(
+    "keeps a recreated %s free of stale chunks while its replacement model is held",
+    async (sourceKind) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const oldModel = Promise.withResolvers<Float32Array>()
+      const replacementModel = Promise.withResolvers<Float32Array>()
+      fixture.embedder.embedText.mockImplementationOnce(() => oldModel.promise)
+      fixture.embedder.embedText.mockImplementationOnce(() => replacementModel.promise)
+      const originalContent =
+        sourceKind === "note" ? "---\ntitle: Old\n---\nOld oldquartz" : "Old oldquartz"
+      const replacementContent =
+        sourceKind === "note" ? "---\ntitle: New\n---\nNew newcobalt" : "New newcobalt"
+      const replacementTitle = sourceKind === "note" ? "New" : "reuse"
+      const originalVersion = fixture.upsert(originalContent)
+      const oldJob = fixture.embed(originalContent, originalVersion)
+      fixture.remove()
+      const replacementVersion = fixture.upsert(replacementContent)
+      const replacementJob = fixture.embed(replacementContent, replacementVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+
+      oldModel.resolve(new Float32Array(384).fill(0.1))
+      await oldJob
+      expect(
+        fixture.inspect.prepare(`SELECT title, content FROM ${fixture.sourceTable}`).all(),
+      ).toEqual([{ title: replacementTitle, content: "New newcobalt" }])
+      expect(fixture.chunks()).toEqual([])
+      expect(fixture.vectorCount()).toBe(0)
+
+      replacementModel.resolve(new Float32Array(384).fill(0.1))
+      await replacementJob
+      expect(fixture.chunks()).toEqual([
+        { chunk_index: 0, chunk_text: `${replacementTitle}\n\nNew newcobalt` },
+      ])
+      expect(fixture.vectorCount()).toBe(1)
+      const { results } = await fixture.searchIndex.hybridSearch(
+        { query: "unmatchedsemanticquery" },
+        logger,
+      )
+      expect(
+        results.map((result) => ({
+          path: result.path,
+          title: result.title,
+          snippet: result.snippet,
+        })),
+      ).toEqual([
+        {
+          path: fixture.path,
+          title: replacementTitle,
+          snippet: `${replacementTitle} New newcobalt`,
+        },
+      ])
+    },
+  )
+
+  it.each(["note", "file"] as const)(
+    "does not let a stale short %s job prune a newer long source's tail",
+    async (sourceKind) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const staleModel = Promise.withResolvers<Float32Array>()
+      const shortVersion = fixture.upsert("Short obsolete body.")
+      fixture.embedder.embedText.mockImplementationOnce(() => staleModel.promise)
+      const staleJob = fixture.embed("Short obsolete body.", shortVersion)
+      const longContent = Array.from({ length: 8 }, (_, paragraphIndex) => {
+        return `## Section ${String(paragraphIndex)}\n\n${"Current content about cobalt systems. ".repeat(25)}`
+      }).join("\n\n")
+      const currentVersion = fixture.upsert(longContent)
+      await fixture.embed(longContent, currentVersion)
+      const currentChunks = fixture.chunks()
+      expect(currentChunks.length).toBeGreaterThan(1)
+      expect(fixture.vectorCount()).toBe(currentChunks.length)
+
+      staleModel.resolve(new Float32Array(384).fill(0.1))
+      await staleJob
+      expect(fixture.chunks()).toEqual(currentChunks)
+      expect(fixture.vectorCount()).toBe(currentChunks.length)
+    },
+  )
+
+  it.each(["note", "file"] as const)(
+    "preserves a %s source version when its upsert transaction fails",
+    async (sourceKind) => {
+      const sqlFragment =
+        sourceKind === "note" ? "INSERT INTO tasks" : "INSERT INTO file_content_fts"
+      const poison = installStatementPoison(sqlFragment)
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const originalContent = "Original committed content."
+      const sourceVersion = fixture.upsert(originalContent)
+      poison.arm()
+      expect(() => fixture.upsert("Replacement body.\n\n- [ ] trigger task")).toThrow(
+        poison.message,
+      )
+      poison.disarm()
+
+      await fixture.embed(originalContent, sourceVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.chunks()).toEqual([
+        { chunk_index: 0, chunk_text: "reuse\n\nOriginal committed content." },
+      ])
+      expect(fixture.inspect.prepare(`SELECT content FROM ${fixture.sourceTable}`).all()).toEqual([
+        { content: originalContent },
+      ])
+    },
+  )
+
+  it.each(["note", "file"] as const)(
+    "preserves a %s source version when its removal transaction fails",
+    async (sourceKind) => {
+      const sqlFragment =
+        sourceKind === "note" ? "DELETE FROM tasks" : "DELETE FROM file_content WHERE"
+      const poison = installStatementPoison(sqlFragment)
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const content = "Original retained source."
+      const sourceVersion = fixture.upsert(content)
+      poison.arm()
+      expect(fixture.remove).toThrow(poison.message)
+      poison.disarm()
+
+      await fixture.embed(content, sourceVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.chunks()).toEqual([
+        { chunk_index: 0, chunk_text: "reuse\n\nOriginal retained source." },
+      ])
+      expect(fixture.inspect.prepare(`SELECT content FROM ${fixture.sourceTable}`).all()).toEqual([
+        { content },
+      ])
+    },
+  )
+
+  it("preserves the committed note version when replacement frontmatter cannot parse", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const content = "Original retained source."
+    const sourceVersion = fixture.upsert(content)
+    expect(() => fixture.upsert("---\ntitle: [unclosed\n---\nReplacement.")).toThrow(
+      "Flow sequence in block collection must be sufficiently indented and end with a ]",
+    )
+
+    await fixture.embed(content, sourceVersion)
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(fixture.chunks()).toEqual([
+      { chunk_index: 0, chunk_text: "reuse\n\nOriginal retained source." },
+    ])
+    expect(fixture.inspect.prepare("SELECT content FROM notes").all()).toEqual([{ content }])
+  })
+
+  it("skips deleted and same-mtime superseded rebuild snapshots before later model work", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+    const vaultPath = join(fixture.dir, "vault")
+    await mkdir(vaultPath)
+    await writeFile(join(vaultPath, "a.md"), "Old blocking snapshot.")
+    await writeFile(join(vaultPath, "b.md"), "Old queued snapshot.")
+    await writeFile(join(vaultPath, "queued.txt"), "Old file snapshot.")
+    const model = Promise.withResolvers<Float32Array>()
+    fixture.embedder.embedText.mockImplementationOnce(() => model.promise)
+    const { embedding } = await fixture.searchIndex.rebuildFromVault({ vaultPath }, logger)
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    const secondMtime = fixture.inspect
+      .prepare<[], { mtime: number }>("SELECT mtime FROM notes WHERE path = 'b.md'")
+      .get()?.mtime
+    const fileMtime = fixture.inspect
+      .prepare<[], { mtime: number }>("SELECT mtime FROM file_content WHERE path = 'queued.txt'")
+      .get()?.mtime
+
+    if (secondMtime === undefined || fileMtime === undefined)
+      throw new Error("rebuild sources missing")
+    fixture.searchIndex.removeNote("a.md")
+    const noteVersion = fixture.searchIndex.upsertNote(
+      { filePath: "b.md", rawContent: "New current note.", fileStat: testStat(secondMtime) },
+      logger,
+    )
+    const fileVersion = fixture.searchIndex.upsertFileContent(
+      { filePath: "queued.txt", rawContent: "New current file.", fileStat: testStat(fileMtime) },
+      logger,
+    )
+    await fixture.searchIndex.embedNote(
+      { notePath: "b.md", rawContent: "New current note.", sourceVersion: noteVersion },
+      logger,
+    )
+    await fixture.searchIndex.embedFileContent(
+      { filePath: "queued.txt", sourceVersion: fileVersion },
+      logger,
+    )
+    model.resolve(new Float32Array(384).fill(0.1))
+    await embedding
+
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(3)
+    expect(
+      fixture.inspect
+        .prepare("SELECT note_path, chunk_text FROM note_chunks ORDER BY note_path")
+        .all(),
+    ).toEqual([{ note_path: "b.md", chunk_text: "b\n\nNew current note." }])
+    expect(
+      fixture.inspect.prepare("SELECT file_path, chunk_text FROM file_content_chunks").all(),
+    ).toEqual([{ file_path: "queued.txt", chunk_text: "queued\n\nNew current file." }])
+    expect(fixture.vectorCount()).toBe(1)
+    expect(infoSpy).toHaveBeenCalledWith("embedding pass complete", { notes: 2, chunksEmbedded: 0 })
+    expect(infoSpy).toHaveBeenCalledWith("file content embedding pass complete", {
+      files: 1,
+      fileChunksEmbedded: 0,
+    })
+  })
+
+  it("rejects an outer rebuild rollback after a nested upsert without launching models and recovers", async () => {
+    const poison = installStatementPoison("DELETE FROM memory_entries WHERE file = ?")
+    const dir = await mkdtemp(join(tmpdir(), "embedding-rebuild-rollback-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const vaultPath = join(dir, "vault")
+    await mkdir(vaultPath)
+    await writeFile(join(vaultPath, "new.md"), "New successfully parsed source.")
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+      embedBatch: vi.fn().mockResolvedValue([]),
+    }
+    const index = createSearchIndex(join(dir, "index.db"), embedder, undefined, {
+      memoryDir: "About Me",
+    })
+    index.upsertNote(
+      {
+        filePath: "About Me/Old.md",
+        rawContent: "## Practices\n\n- **2026-07-01**: Old memory entry.",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const inspect = new Database(join(dir, "index.db"), { readonly: true })
+    sqliteVec.load(inspect)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {})
+    onTestFinished(() => debugSpy.mockRestore())
+    poison.arm()
+
+    await expect(index.rebuildFromVault({ vaultPath }, logger)).rejects.toThrow(poison.message)
+    expect(debugSpy).toHaveBeenCalledWith("indexed note", {
+      path: "new.md",
+      bytes: 31,
+      tasksIndexed: 0,
+    })
+    expect(inspect.prepare("SELECT path FROM notes").all()).toEqual([])
+    expect(inspect.prepare("SELECT entry_text FROM memory_entries").all()).toEqual([
+      { entry_text: "- **2026-07-01**: Old memory entry." },
+    ])
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    poison.disarm()
+    const recovered = await index.rebuildFromVault({ vaultPath }, logger)
+    await recovered.embedding
+    expect(recovered.count).toBe(1)
+    expect(embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(inspect.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
+      { note_path: "new.md", chunk_text: "new\n\nNew successfully parsed source." },
+    ])
+    expect(inspect.prepare("SELECT entry_text FROM memory_entries").all()).toEqual([])
+  })
+
+  it("removes only parentless vectors on startup and restores nearest-neighbor capacity idempotently", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "embedding-orphan-sweep-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const vaultPath = join(dir, "vault")
+    await mkdir(join(vaultPath, "About Me"), { recursive: true })
+    await writeFile(join(vaultPath, "note.md"), "Current note body.")
+    await writeFile(join(vaultPath, "guide.txt"), "Current file body.")
+    await writeFile(
+      join(vaultPath, "About Me/Practices.md"),
+      "## Practices\n\n- **2026-07-01**: Keep current entries.",
+    )
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) =>
+          Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1))),
+        ),
+    }
+    const dbPath = join(dir, "index.db")
+    const index = createSearchIndex(dbPath, embedder, undefined, {
+      fileToolsEnabled: true,
+      memoryDir: "About Me",
+    })
+    const initial = await index.rebuildFromVault({ vaultPath }, logger)
+    await initial.embedding
+    const inspect = new Database(dbPath)
+    sqliteVec.load(inspect)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const queryVector = new Float32Array(384)
+    queryVector[0] = 1
+    const queryBytes = Buffer.from(queryVector.buffer)
+    const stores = [
+      {
+        vectorTable: "note_vectors",
+        parentTable: "note_chunks",
+        vectorKey: "chunk_id",
+        expectedParents: 2,
+      },
+      {
+        vectorTable: "file_content_vectors",
+        parentTable: "file_content_chunks",
+        vectorKey: "chunk_id",
+        expectedParents: 1,
+      },
+      {
+        vectorTable: "memory_entry_vectors",
+        parentTable: "memory_entries",
+        vectorKey: "entry_id",
+        expectedParents: 1,
+      },
+    ]
+    const retainedStores = stores.map((store) => {
+      const parents = inspect.prepare(`SELECT * FROM ${store.parentTable} ORDER BY id`).all()
+      expect(parents).toHaveLength(store.expectedParents)
+      const vectors = inspect
+        .prepare(
+          `SELECT ${store.vectorKey}, hex(embedding) AS embedding FROM ${store.vectorTable} ORDER BY ${store.vectorKey}`,
+        )
+        .all()
+      const nearestParents = inspect.prepare<[Buffer, number], { id: number }>(
+        `SELECT parent.id FROM ${store.vectorTable} vector JOIN ${store.parentTable} parent ON parent.id = vector.${store.vectorKey}
+         WHERE vector.embedding MATCH ? AND vector.k = ? ORDER BY vector.distance, parent.id`,
+      )
+      const expectedHits = nearestParents.all(queryBytes, 2)
+      expect(expectedHits).toHaveLength(store.expectedParents)
+      const insertOrphan = inspect.prepare(
+        `INSERT INTO ${store.vectorTable} (${store.vectorKey}, embedding) VALUES (?, ?)`,
+      )
+      insertOrphan.run(10000n, queryBytes)
+      insertOrphan.run(10001n, queryBytes)
+      // Both nearest slots are occupied by vectors whose join has no parent.
+      expect(nearestParents.all(queryBytes, 2)).toEqual([])
+      return { ...store, parents, vectors, nearestParents, expectedHits }
+    })
+    embedder.embedText.mockClear()
+    embedder.embedBatch.mockClear()
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    const rebuilt = await index.rebuildFromVault({ vaultPath }, logger)
+    await rebuilt.embedding
+    for (const store of retainedStores) {
+      expect(inspect.prepare(`SELECT * FROM ${store.parentTable} ORDER BY id`).all()).toEqual(
+        store.parents,
+      )
+      expect(
+        inspect
+          .prepare(
+            `SELECT ${store.vectorKey}, hex(embedding) AS embedding FROM ${store.vectorTable} ORDER BY ${store.vectorKey}`,
+          )
+          .all(),
+      ).toEqual(store.vectors)
+      expect(store.nearestParents.all(queryBytes, 2)).toEqual(store.expectedHits)
+    }
+    expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
+      count: 2,
+      totalBytes: 71,
+      orphanNoteVectorsRemoved: 2,
+      orphanFileVectorsRemoved: 2,
+      orphanMemoryVectorsRemoved: 2,
+    })
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    infoSpy.mockClear()
+    const repeated = await index.rebuildFromVault({ vaultPath }, logger)
+    await repeated.embedding
+    expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
+      count: 2,
+      totalBytes: 71,
+      orphanNoteVectorsRemoved: 0,
+      orphanFileVectorsRemoved: 0,
+      orphanMemoryVectorsRemoved: 0,
+    })
+    for (const store of retainedStores) {
+      expect(
+        inspect
+          .prepare(
+            `SELECT ${store.vectorKey}, hex(embedding) AS embedding FROM ${store.vectorTable} ORDER BY ${store.vectorKey}`,
+          )
+          .all(),
+      ).toEqual(store.vectors)
+    }
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+  })
+})
+
 describe("file content vector embeddings", () => {
   const DIMENSIONS = 384
   const createMockEmbedder = () => ({
@@ -5584,7 +7394,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const sourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -5592,7 +7402,10 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
 
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
@@ -5604,7 +7417,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const sourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -5612,10 +7425,16 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
 
@@ -5626,7 +7445,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const originalSourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -5634,10 +7453,13 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: originalSourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
-      index.upsertFileContent(
+      const updatedSourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: "Completely different content about networking protocols.",
@@ -5645,19 +7467,20 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: updatedSourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
 
-    it("is a no-op when file is not in file_content table", async () => {
-      const mockEmbedder = createMockEmbedder()
-      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
-        fileToolsEnabled: true,
-      })
-
-      await index.embedFileContent({ filePath: "nonexistent.txt" }, logger)
-
-      expect(mockEmbedder.embedText).not.toHaveBeenCalled()
+    it("is a no-op when the captured file source was removed", async () => {
+      const fixture = await createEmbeddingRaceIndex("file")
+      const sourceVersion = fixture.upsert(TEXT_FILE_CONTENT)
+      fixture.remove()
+      expect(fixture.inspect.prepare("SELECT path FROM file_content").all()).toEqual([])
+      await fixture.embed(TEXT_FILE_CONTENT, sourceVersion)
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
     })
 
     it("is a no-op when no embedder is provided", async () => {
@@ -5666,7 +7489,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const sourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -5676,7 +7499,10 @@ describe("file content vector embeddings", () => {
       )
 
       await expect(
-        index.embedFileContent({ filePath: "docs/overview.txt" }, logger),
+        index.embedFileContent(
+          { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+          logger,
+        ),
       ).resolves.toBeUndefined()
     })
   })
@@ -5693,7 +7519,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const sourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -5701,7 +7527,10 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       const inspectDb = new Database(dbPath, { readonly: true })
@@ -5754,7 +7583,7 @@ describe("file content vector embeddings", () => {
       }).join("\n\n")
 
       index.upsertNonMdFile("docs/long.txt", 2000)
-      index.upsertFileContent(
+      const originalSourceVersion = index.upsertFileContent(
         {
           filePath: "docs/long.txt",
           rawContent: longContent,
@@ -5762,7 +7591,10 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: originalSourceVersion, filePath: "docs/long.txt" },
+        logger,
+      )
 
       // Verify multiple chunks were created via a read-only inspection connection
       const inspectDb = new Database(dbPath, { readonly: true })
@@ -5779,7 +7611,7 @@ describe("file content vector embeddings", () => {
       expect(chunkCountBefore.count).toBeGreaterThan(1)
 
       // Replace with short content — produces exactly 1 chunk
-      index.upsertFileContent(
+      const updatedSourceVersion = index.upsertFileContent(
         {
           filePath: "docs/long.txt",
           rawContent: "Short content.",
@@ -5787,7 +7619,10 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: updatedSourceVersion, filePath: "docs/long.txt" },
+        logger,
+      )
 
       const chunkCountAfter = countRow(
         inspectDb
@@ -5931,7 +7766,7 @@ describe("TOC source-path forwarding at the embed call sites", () => {
     )
     const doneContent = Array.from({ length: 300 }, (_, wordIndex) => `done${wordIndex}`).join(" ")
     const noteContent = `## Active\n${activeContent}\n\n## Done\n${doneContent}`
-    forwardingIndex.upsertNote(
+    const originalSourceVersion = forwardingIndex.upsertNote(
       {
         filePath: "Folder Alpha/Sub/TASKS.md",
         rawContent: noteContent,
@@ -5940,7 +7775,11 @@ describe("TOC source-path forwarding at the embed call sites", () => {
       logger,
     )
     await forwardingIndex.embedNote(
-      { notePath: "Folder Alpha/Sub/TASKS.md", rawContent: noteContent },
+      {
+        sourceVersion: originalSourceVersion,
+        notePath: "Folder Alpha/Sub/TASKS.md",
+        rawContent: noteContent,
+      },
       logger,
     )
 
@@ -5952,7 +7791,7 @@ describe("TOC source-path forwarding at the embed call sites", () => {
       " ",
     )
     forwardingIndex.upsertNonMdFile("Folder Alpha/data.csv", 100)
-    forwardingIndex.upsertFileContent(
+    const updatedSourceVersion = forwardingIndex.upsertFileContent(
       {
         filePath: "Folder Alpha/data.csv",
         rawContent: `## Metrics\n${metricsContent}\n\n## Notes\n${notesContent}`,
@@ -5960,7 +7799,10 @@ describe("TOC source-path forwarding at the embed call sites", () => {
       },
       logger,
     )
-    await forwardingIndex.embedFileContent({ filePath: "Folder Alpha/data.csv" }, logger)
+    await forwardingIndex.embedFileContent(
+      { sourceVersion: updatedSourceVersion, filePath: "Folder Alpha/data.csv" },
+      logger,
+    )
 
     const inspect = new Database(dbPath, { readonly: true })
     onTestFinished(() => {

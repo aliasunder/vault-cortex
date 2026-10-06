@@ -7,6 +7,7 @@ import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull, statOrNull } from "../../utils/fs.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
+import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
@@ -346,6 +347,9 @@ const listSectionHeadings = (sections: readonly ParsedSection[]): string => {
 export const createMemoryStore = (options: { memoryDir: string }) => {
   const { memoryDir } = options
 
+  /** Large memory folders must not exhaust file handles by reading every file at once. */
+  const memoryReadConcurrency = 16
+
   /** True for the .md entries the memory layer serves — excludes dot-prefixed
    *  (hidden) filenames so a pre-existing hidden file on disk never leaks
    *  through the no-file read or the list surfaces, mirroring the write-side
@@ -646,10 +650,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       tags: ["memory", toKebabCase(params.fileName)],
       created: DateTime.now().toISO(),
     }
-    // A programmatically-created file has an unknown purpose, so seed only the
-    // generic convention + a Contains placeholder for the caller to fill in
-    // (the full scope callout — Does NOT contain / Section structure — is
-    // authored per-file in MEMORY_TEMPLATES for the known seed files).
+    // New file names have no known scope, so seed a placeholder for the caller.
+    // Known bootstrap files use the scopes in MEMORY_TEMPLATE_SPECS.
     const body = [
       "",
       `# ${params.fileName}`,
@@ -677,12 +679,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<string> => {
     if (!params.file) {
       const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
-      const contents = await Promise.all(
-        mdFiles.map(async (filename) => {
+      const contents = await mapWithConcurrency({
+        items: mdFiles,
+        concurrency: memoryReadConcurrency,
+        mapper: async (filename) => {
           const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
           return parseNote(raw).content.trim()
-        }),
-      )
+        },
+      })
       logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
       return contents.join("\n\n---\n\n")
     }
@@ -949,8 +953,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<MemoryFileOutline[]> => {
     const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
-    const outlines = await Promise.all(
-      mdFiles.map(async (filename) => {
+    const outlines = await mapWithConcurrency({
+      items: mdFiles,
+      concurrency: memoryReadConcurrency,
+      mapper: async (filename) => {
         const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
         const parsed = parseNote(raw)
         const name = basename(filename, ".md")
@@ -978,8 +984,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           leading_callout: leadingCallout,
           headings,
         }
-      }),
-    )
+      },
+    })
 
     logger.info("listed memory files", { count: outlines.length })
     return outlines

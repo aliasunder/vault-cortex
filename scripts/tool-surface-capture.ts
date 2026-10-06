@@ -27,9 +27,11 @@ type SurfaceAxis = {
   label: string
 }
 
-/** Boolean config axes that change the registered tool surface or its rendered
- *  text. The snapshot combos are the cross-product of this array — a new
- *  gating axis in config.ts must be added here, or its states go unpinned. */
+/** Boolean config axes that change which tools are registered or the text of
+ *  several tools. The snapshot combos are the cross-product of this array — a
+ *  new gating axis in config.ts must be added here, or its states go unpinned.
+ *  A setting that changes one tool's text gets a single combo in
+ *  SURFACE_COMBOS instead. */
 const SURFACE_AXES: readonly SurfaceAxis[] = [
   { envVar: "READONLY_MODE", flippedValue: "true", label: "readonly" },
   { envVar: "MEMORY_ENABLED", flippedValue: "false", label: "memory-off" },
@@ -71,14 +73,19 @@ const comboFromFlippedAxes = (flippedAxes: readonly SurfaceAxis[]): SurfaceCombo
   }
 }
 
-/** The 16 axis combos plus one DISABLED_TOOLS representative:
- *  - vault_patch_note is cross-referenced from other tools' descriptions, so
- *    its combo verifies those references disappear when the tool is disabled.
+/** The 16 axis combos plus two single-setting representatives:
  *  - Conjunction combos pin rendered states that exist only in multi-flip
- *    configs (several description clauses drop together). */
+ *    configs (several description clauses drop together).
+ *  - disabled-tools: vault_patch_note is cross-referenced from other tools'
+ *    descriptions, so its combo verifies those references disappear when the
+ *    tool is disabled.
+ *  - obsidian-sync: OBSIDIAN_SYNC changes only vault_delete_note's Errors
+ *    list, so one combo pins it; crossing it with the axes would double the
+ *    baseline without adding a rendered state. */
 export const SURFACE_COMBOS: readonly SurfaceCombo[] = [
   ...axisSubsets.map(comboFromFlippedAxes),
   { name: "disabled-tools", env: { DISABLED_TOOLS: "vault_patch_note" } },
+  { name: "obsidian-sync", env: { OBSIDIAN_SYNC: "true" } },
 ]
 
 const noop = (): void => {}
@@ -192,11 +199,11 @@ export const measureToolListChars = (tools: readonly Tool[]): number => {
  *  - embedding-off renders the search tools' keyword-only text, which default
  *    never shows.
  *
- *  Every other combo drops tools or cross-references from one of these two, so
- *  its total is smaller than a checked total. Its average per tool can still
- *  exceed that cap's `CHARS_PER_TOOL_ALLOWANCE` (memory-off drops five small
- *  tools), so the allowance bounds the two checked lists, not every combo's
- *  average. */
+ *  Every other combo drops tools, cross-references, or Errors entries from one
+ *  of these two, so its total is smaller than a checked total. Its average per
+ *  tool can still exceed that cap's `CHARS_PER_TOOL_ALLOWANCE` (memory-off
+ *  drops five small tools), so the allowance bounds the two checked lists, not
+ *  every combo's average. */
 export const SIZE_CAPPED_COMBO_NAMES = ["default", "embedding-off"] as const
 
 /** Byte-exact committed form: pre-serialized so vitest writes the file

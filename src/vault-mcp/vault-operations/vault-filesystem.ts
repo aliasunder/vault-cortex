@@ -473,7 +473,7 @@ const updateProperties = async (
 type DeleteNoteResult = {
   /** Number of now-empty parent folders removed. Always 0 unless
    *  pruneEmptyFolders was set. */
-  prunedEmptyFolders: number
+  prunedFolderCount: number
   /** Vault-relative path in `.trash/` when the note was moved to trash.
    *  Undefined when permanently deleted. */
   trashLocation?: string
@@ -574,9 +574,8 @@ const moveNoteToTrash = async (
       // existing row for it belongs to an earlier, separately-removed
       // occupant. Recording replaces that row; a move that does not record
       // must clear it, or the next sweep would read the stale row and unlink
-      // this fresh file. Both writes are fail-open: the move already
-      // happened, so a failure can't be "aborted" — throwing here would hand
-      // the moved note to the cleanup path above.
+      // this fresh file. Both writes are fail-open: the note has already moved,
+      // so a bookkeeping failure is logged rather than reported as a failed move.
       const tryClearStaleTrashEntry = (): void => {
         if (!params.clearStaleTrashEntry) return
         try {
@@ -701,21 +700,21 @@ const deleteNote = async (
       throw new Error(`cannot ${action} "${path}"`, { cause: error })
     }
 
-    const prunedEmptyFolders = params.pruneEmptyFolders
+    const prunedFolderCount = params.pruneEmptyFolders
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
       : 0
 
-    // trash_option is the only record of whether a trashed note is swept
+    // trashOption is the only record of whether a trashed note is swept
     // later ("system") or kept forever ("local") — the result text and the
     // tool_result log say "trashed" for both.
     logger.info("deleted note", {
       path,
-      trash_option: params.trashOption,
-      ...(trashLocation ? { trash_location: trashLocation } : {}),
-      pruned_empty_folders: prunedEmptyFolders,
+      trashOption: params.trashOption,
+      ...(trashLocation ? { trashLocation } : {}),
+      prunedFolderCount,
     })
     return {
-      prunedEmptyFolders,
+      prunedFolderCount,
       ...(trashLocation ? { trashLocation } : {}),
     }
   })

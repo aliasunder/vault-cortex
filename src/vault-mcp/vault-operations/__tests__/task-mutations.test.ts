@@ -4,7 +4,10 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
 import { taskMutations } from "../task-mutations.js"
-import { resetTaskFormatConfigCache } from "../task-format-config.js"
+import {
+  DEFAULT_STATUS_REGISTRY,
+  type StatusClassification,
+} from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -35,6 +38,22 @@ const today = (): string => {
   if (date === null) throw new Error("failed to get today's date")
   return date
 }
+
+// Registries passed as `statusRegistry`, the way the tool layer passes the
+// index's boot-time map. A write never takes its registry from the plugin
+// file, so a test that needs a custom status supplies the map directly.
+
+/** The defaults plus a NON_TASK "Forwarded" checkbox. */
+const NON_TASK_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
+  ...DEFAULT_STATUS_REGISTRY,
+  [">", "non_task"],
+])
+
+/** The defaults plus a DONE-typed "Deployed" checkbox. */
+const DEPLOYED_DONE_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
+  ...DEFAULT_STATUS_REGISTRY,
+  ["D", "done"],
+])
 
 // ── Fixtures ────────────────────────────────────────────────────
 
@@ -177,7 +196,13 @@ describe("task-mutations", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       const result = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          status: "done",
+        },
         logger,
       )
 
@@ -198,7 +223,13 @@ describe("task-mutations", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       const result = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", line: 5, status: "in_progress" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          status: "in_progress",
+        },
         logger,
       )
 
@@ -219,7 +250,13 @@ describe("task-mutations", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       const result = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", line: 7, status: "todo" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 7,
+          status: "todo",
+        },
         logger,
       )
 
@@ -240,7 +277,13 @@ describe("task-mutations", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       const result = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", line: 5, status: "cancelled" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          status: "cancelled",
+        },
         logger,
       )
 
@@ -262,6 +305,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -288,7 +332,13 @@ describe("task-mutations", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       const result = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", line: 6, status: "in_progress" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 6,
+          status: "in_progress",
+        },
         logger,
       )
 
@@ -315,6 +365,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "no-pri",
@@ -342,6 +393,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "has-pri",
@@ -369,6 +421,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "has-pri",
@@ -396,6 +449,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "plain-task",
@@ -427,6 +481,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "planned-task",
@@ -460,6 +515,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "walk",
@@ -487,6 +543,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "parent",
@@ -516,6 +573,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "task-a",
@@ -544,6 +602,7 @@ describe("task-mutations", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "active-task",
@@ -586,6 +645,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "move-me",
@@ -619,6 +679,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "planned-task",
@@ -649,6 +710,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -681,6 +743,7 @@ title: Tasks
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "missing.md",
             line: 1,
@@ -698,6 +761,7 @@ title: Tasks
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md/child.md",
             line: 1,
@@ -715,6 +779,7 @@ title: Tasks
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "nonexistent",
@@ -731,7 +796,13 @@ title: Tasks
 
       await expect(
         taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", line: 1, status: "done" },
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            line: 1,
+            status: "done",
+          },
           logger,
         ),
       ).rejects.toThrow("no task at line 1")
@@ -742,8 +813,15 @@ title: Tasks
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskMutations.updateTask({ vaultPath: vault, path: "tasks.md", line: 5 }, logger),
-      ).rejects.toThrow("at least one mutation")
+        taskMutations.updateTask(
+          { statusRegistry: DEFAULT_STATUS_REGISTRY, vaultPath: vault, path: "tasks.md", line: 5 },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error(
+          "at least one mutation (status, priority, recurrence, onCompletion, heading, position, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+        ),
+      )
     })
 
     it("throws when target heading not found", async () => {
@@ -753,6 +831,7 @@ title: Tasks
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "active-task",
@@ -770,6 +849,7 @@ title: Tasks
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "task-a",
@@ -777,7 +857,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("multiple done lanes detected")
+      ).rejects.toThrow(new Error("multiple done lanes detected"))
     })
 
     it("both identifiers provided is rejected", async () => {
@@ -787,6 +867,7 @@ title: Tasks
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             line: 5,
@@ -795,7 +876,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("blockId and line are mutually exclusive")
+      ).rejects.toThrow(new Error("blockId and line are mutually exclusive"))
     })
 
     it("no identifier provided is rejected", async () => {
@@ -803,8 +884,16 @@ title: Tasks
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskMutations.updateTask({ vaultPath: vault, path: "tasks.md", status: "done" }, logger),
-      ).rejects.toThrow("exactly one of blockId or line is required")
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            status: "done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error("exactly one of blockId or line is required"))
     })
 
     it("throws when no done lane exists for auto-completion", async () => {
@@ -814,6 +903,7 @@ title: Tasks
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "task-a",
@@ -821,7 +911,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("no done lane detected")
+      ).rejects.toThrow(new Error("no done lane detected"))
     })
   })
 
@@ -835,6 +925,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "active-task",
@@ -854,6 +945,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           line: 5,
@@ -885,6 +977,7 @@ title: Tasks
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: ".trash/tasks.md",
             line: 5,
@@ -906,6 +999,7 @@ title: Tasks
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "New task",
@@ -934,6 +1028,7 @@ title: Tasks
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "notes.md",
           description: "Appended",
@@ -958,6 +1053,7 @@ title: Tasks
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           description: "Board task",
@@ -1010,6 +1106,7 @@ kanban-plugin: board
 
       await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Dated task",
@@ -1034,6 +1131,7 @@ kanban-plugin: board
 
       await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Child task",
@@ -1055,6 +1153,7 @@ kanban-plugin: board
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Multi-stage task",
@@ -1089,6 +1188,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Duplicate",
@@ -1106,6 +1206,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Bad id",
@@ -1123,6 +1224,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "No heading",
@@ -1130,7 +1232,9 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("heading required for Kanban boards")
+      ).rejects.toThrow(
+        new Error("heading required for Kanban boards (note has kanban-plugin frontmatter)"),
+      )
     })
 
     it("errors on invalid date", async () => {
@@ -1140,6 +1244,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Bad date",
@@ -1158,6 +1263,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Orphan",
@@ -1175,6 +1281,7 @@ kanban-plugin: board
 
       await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Line child",
@@ -1197,6 +1304,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Blocked task",
@@ -1219,6 +1327,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Keyed task",
@@ -1241,6 +1350,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Two locators",
@@ -1250,7 +1360,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("parentBlockId and parentLine are mutually exclusive")
+      ).rejects.toThrow(new Error("parentBlockId and parentLine are mutually exclusive"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1262,6 +1372,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Conflicting",
@@ -1271,7 +1382,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("parent and heading are mutually exclusive")
+      ).rejects.toThrow(new Error("parent and heading are mutually exclusive"))
     })
 
     it("errors when parent line number and heading are both provided", async () => {
@@ -1281,6 +1392,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Conflicting",
@@ -1290,7 +1402,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("parent and heading are mutually exclusive")
+      ).rejects.toThrow(new Error("parent and heading are mutually exclusive"))
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(KANBAN_BOARD)
     })
@@ -1302,6 +1414,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Ship",
@@ -1310,7 +1423,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("subtasks cannot contain an empty item")
+      ).rejects.toThrow(new Error("subtasks cannot contain an empty item"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1322,6 +1435,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Line one\nLine two",
@@ -1329,7 +1443,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("description must be a single line")
+      ).rejects.toThrow(new Error("description must be a single line"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1341,6 +1455,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Ship",
@@ -1349,7 +1464,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("subtasks items must be a single line")
+      ).rejects.toThrow(new Error("subtasks items must be a single line"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1361,6 +1476,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "No deps",
@@ -1369,7 +1485,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("dependsOn cannot be empty")
+      ).rejects.toThrow(new Error("dependsOn cannot be empty"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1381,6 +1497,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Bad line parent",
@@ -1399,6 +1516,7 @@ kanban-plugin: board
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "   ",
@@ -1406,7 +1524,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("description is empty")
+      ).rejects.toThrow(new Error("description is empty"))
     })
 
     it("skips past **Complete** marker when inserting under a heading", async () => {
@@ -1415,6 +1533,7 @@ kanban-plugin: board
 
       await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           description: "Archived card",
@@ -1444,6 +1563,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -1471,6 +1591,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -1499,6 +1620,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "my-task",
@@ -1528,6 +1650,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "my-task",
@@ -1557,6 +1680,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "my-task",
@@ -1586,6 +1710,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "my-task",
@@ -1617,6 +1742,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "my-task",
@@ -1648,6 +1774,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "my-task",
@@ -1679,6 +1806,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "my-task",
@@ -1706,6 +1834,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -1734,6 +1863,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -1770,6 +1900,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "fix-bug",
@@ -1798,6 +1929,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "walk-dog",
@@ -1822,6 +1954,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "parent",
@@ -1856,6 +1989,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -1884,6 +2018,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           line: 5,
@@ -1911,6 +2046,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -1935,6 +2071,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "walk-dog",
@@ -1942,7 +2079,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("dependsOn cannot be empty (use null to clear)")
+      ).rejects.toThrow(new Error("dependsOn cannot be empty (use null to clear)"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1958,6 +2095,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "other",
@@ -1976,6 +2114,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -2004,6 +2143,7 @@ kanban-plugin: board
       // Create a sub-task first so we have one to complete
       await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           description: "Sub-stage",
@@ -2015,6 +2155,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "sub-stage",
@@ -2038,6 +2179,7 @@ kanban-plugin: board
 
       await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           description: "Sub for heading test",
@@ -2050,6 +2192,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "sub-heading-test",
@@ -2057,7 +2200,11 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("cannot move a sub-task to a heading")
+      ).rejects.toThrow(
+        new Error(
+          "cannot move a sub-task to a heading — the parent's heading determines placement",
+        ),
+      )
     })
 
     it("errors on invalid date in update", async () => {
@@ -2067,6 +2214,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "walk-dog",
@@ -2084,6 +2232,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "walk-dog",
@@ -2091,7 +2240,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("description cannot be empty")
+      ).rejects.toThrow(new Error("description cannot be empty"))
     })
 
     it("errors on a whitespace-only add_subtasks item", async () => {
@@ -2101,6 +2250,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "walk-dog",
@@ -2108,7 +2258,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("addSubtasks cannot contain an empty item")
+      ).rejects.toThrow(new Error("addSubtasks cannot contain an empty item"))
     })
 
     it("errors when the new description contains a line break", async () => {
@@ -2118,6 +2268,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "walk-dog",
@@ -2125,7 +2276,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("description must be a single line")
+      ).rejects.toThrow(new Error("description must be a single line"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -2137,6 +2288,7 @@ kanban-plugin: board
       await expect(
         taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             blockId: "walk-dog",
@@ -2144,7 +2296,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("addSubtasks items must be a single line")
+      ).rejects.toThrow(new Error("addSubtasks items must be a single line"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -2155,6 +2307,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "agenda.md",
           blockId: "call-dentist",
@@ -2181,6 +2334,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "quoted-parent",
@@ -2210,6 +2364,7 @@ kanban-plugin: board
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           blockId: "quoted-parent",
@@ -2249,6 +2404,7 @@ kanban-plugin: board
 
         const result = await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             description: "Third",
@@ -2272,6 +2428,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             description: "Prepended",
@@ -2294,6 +2451,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "New card",
@@ -2353,6 +2511,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Appended card",
@@ -2402,6 +2561,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Prepended card",
@@ -2449,6 +2609,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Top card",
@@ -2483,6 +2644,7 @@ kanban-plugin: board
 
         const result = await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Child task",
@@ -2506,6 +2668,7 @@ kanban-plugin: board
 
         const result = await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "End task",
@@ -2529,6 +2692,7 @@ kanban-plugin: board
 
         const result = await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "First card",
@@ -2552,6 +2716,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "New done task",
@@ -2599,6 +2764,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "New card",
@@ -2635,6 +2801,7 @@ kanban-plugin: board
 
         const result = await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Inserted",
@@ -2659,6 +2826,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             description: "Clamped",
@@ -2682,6 +2850,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Solo",
@@ -2705,6 +2874,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Between",
@@ -2728,6 +2898,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             description: "After prose",
@@ -2750,6 +2921,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             description: "Appended",
@@ -2775,6 +2947,7 @@ kanban-plugin: board
 
         await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "planned-task",
@@ -2816,6 +2989,7 @@ kanban-plugin: board
 
         await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "planned-task",
@@ -2858,6 +3032,7 @@ kanban-plugin: board
 
         await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "active-task",
@@ -2902,6 +3077,7 @@ kanban-plugin: board
 
         const result = await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "alpha",
@@ -2925,6 +3101,7 @@ kanban-plugin: board
         const contentBefore = await readTestNote(vault, "board.md")
         const result = await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "alpha",
@@ -2945,6 +3122,7 @@ kanban-plugin: board
 
         const result = await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "alpha",
@@ -2968,6 +3146,7 @@ kanban-plugin: board
 
         const result = await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "bravo",
@@ -2990,6 +3169,7 @@ kanban-plugin: board
 
         const result = await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "bravo",
@@ -3013,6 +3193,7 @@ kanban-plugin: board
         await expect(
           taskMutations.updateTask(
             {
+              statusRegistry: DEFAULT_STATUS_REGISTRY,
               vaultPath: vault,
               path: "notes.md",
               blockId: "child",
@@ -3021,7 +3202,7 @@ kanban-plugin: board
             logger,
           ),
         ).rejects.toThrow(
-          "cannot reposition a sub-task — the parent's position determines placement",
+          new Error("cannot reposition a sub-task — the parent's position determines placement"),
         )
       })
 
@@ -3032,6 +3213,7 @@ kanban-plugin: board
 
         const result = await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "alpha",
@@ -3048,28 +3230,7 @@ kanban-plugin: board
       })
 
       it("same-lane reorder skips NON_TASK checkboxes in position count", async () => {
-        resetTaskFormatConfigCache()
-        onTestFinished(resetTaskFormatConfigCache)
-
         const vault = await createVault()
-        const pluginDir = join(vault, ".obsidian", "plugins", "obsidian-tasks-plugin")
-        await mkdir(pluginDir, { recursive: true })
-        await writeFile(
-          join(pluginDir, "data.json"),
-          JSON.stringify({
-            statusSettings: {
-              coreStatuses: [
-                { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
-                { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
-              ],
-              customStatuses: [
-                { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
-              ],
-            },
-          }),
-          "utf8",
-        )
-
         const board = [
           "---",
           "title: Board",
@@ -3090,6 +3251,7 @@ kanban-plugin: board
 
         const result = await taskMutations.updateTask(
           {
+            statusRegistry: NON_TASK_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "charlie",
@@ -3128,6 +3290,7 @@ kanban-plugin: board
         await expect(
           taskMutations.updateTask(
             {
+              statusRegistry: DEFAULT_STATUS_REGISTRY,
               vaultPath: vault,
               path: "notes.md",
               blockId: "alpha",
@@ -3136,7 +3299,7 @@ kanban-plugin: board
             logger,
           ),
         ).rejects.toThrow(
-          "cannot reorder a task that sits above the first heading — pass a heading",
+          new Error("cannot reorder a task that sits above the first heading — pass a heading"),
         )
       })
 
@@ -3148,6 +3311,7 @@ kanban-plugin: board
         await expect(
           taskMutations.updateTask(
             {
+              statusRegistry: DEFAULT_STATUS_REGISTRY,
               vaultPath: vault,
               path: "notes.md",
               blockId: "alpha",
@@ -3168,6 +3332,7 @@ kanban-plugin: board
         await expect(
           taskMutations.updateTask(
             {
+              statusRegistry: DEFAULT_STATUS_REGISTRY,
               vaultPath: vault,
               path: "notes.md",
               blockId: "alpha",
@@ -3188,6 +3353,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             description: "Charlie",
@@ -3212,6 +3378,7 @@ kanban-plugin: board
         await expect(
           taskMutations.createTask(
             {
+              statusRegistry: DEFAULT_STATUS_REGISTRY,
               vaultPath: vault,
               path: "notes.md",
               description: "Charlie",
@@ -3233,6 +3400,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             description: "Charlie",
@@ -3256,6 +3424,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             description: "Charlie",
@@ -3279,6 +3448,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Archived item",
@@ -3316,6 +3486,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Inserted",
@@ -3348,28 +3519,7 @@ kanban-plugin: board
       })
 
       it("integer position skips NON_TASK checkboxes", async () => {
-        resetTaskFormatConfigCache()
-        onTestFinished(resetTaskFormatConfigCache)
-
         const vault = await createVault()
-        const pluginDir = join(vault, ".obsidian", "plugins", "obsidian-tasks-plugin")
-        await mkdir(pluginDir, { recursive: true })
-        await writeFile(
-          join(pluginDir, "data.json"),
-          JSON.stringify({
-            statusSettings: {
-              coreStatuses: [
-                { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
-                { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
-              ],
-              customStatuses: [
-                { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
-              ],
-            },
-          }),
-          "utf8",
-        )
-
         const note = [
           "---",
           "title: Board",
@@ -3388,6 +3538,7 @@ kanban-plugin: board
 
         await taskMutations.createTask(
           {
+            statusRegistry: NON_TASK_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             description: "Inserted",
@@ -3425,6 +3576,7 @@ kanban-plugin: board
 
         const result = await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "notes.md",
             blockId: "water",
@@ -3455,6 +3607,7 @@ kanban-plugin: board
 
         await taskMutations.updateTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
             blockId: "active-task",
@@ -3496,15 +3649,13 @@ kanban-plugin: board
 
 // ── Recurring-task completion ───────────────────────────────────
 
-/** Writes the Tasks plugin's data.json and clears the process-wide config
- *  cache so this vault's settings are actually read; the cache is cleared
- *  again at test end so later tests see defaults. */
+/** Writes the Tasks plugin's data.json, which every task write reads for the
+ *  format and date toggles. Its status settings never reach a write — the
+ *  registry is a call param. */
 const writeTasksPluginConfig = async (
   vaultPath: string,
   config: Record<string, unknown>,
 ): Promise<void> => {
-  resetTaskFormatConfigCache()
-  onTestFinished(resetTaskFormatConfigCache)
   const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
   await mkdir(pluginDir, { recursive: true })
   await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
@@ -3524,6 +3675,7 @@ describe("recurring-task completion", () => {
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "water-plants",
@@ -3562,6 +3714,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "water-plants",
@@ -3595,6 +3748,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "water-plants",
@@ -3621,6 +3775,7 @@ title: Tasks
 
     await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "sync-task",
@@ -3646,6 +3801,7 @@ title: Tasks
 
     await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "dup-task",
@@ -3667,6 +3823,7 @@ title: Tasks
 
     await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "water-plants",
@@ -3693,7 +3850,13 @@ title: Tasks
     // Two trailing spaces once hid the block link — and with it every
     // metadata field — from the parser; the spawn depends on the fix.
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", blockId: "habit", status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "habit",
+        status: "done",
+      },
       logger,
     )
 
@@ -3714,6 +3877,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "report",
@@ -3744,6 +3908,7 @@ title: Tasks
 
     await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "stretch",
@@ -3760,18 +3925,8 @@ title: Tasks
 
   it("does not spawn when the task's custom checkbox char is DONE-typed in the status registry", async () => {
     const vault = await createVault()
-    await writeTasksPluginConfig(vault, {
-      statusSettings: {
-        customStatuses: [
-          {
-            symbol: "D",
-            name: "Deployed",
-            nextStatusSymbol: " ",
-            type: "DONE",
-          },
-        ],
-      },
-    })
+    // The plugin file has no "D" typing; the supplied registry decides.
+    await writeTasksPluginConfig(vault, {})
     await writeTestNote(
       vault,
       "tasks.md",
@@ -3779,7 +3934,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", blockId: "deploy", status: "done" },
+      {
+        statusRegistry: DEPLOYED_DONE_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "deploy",
+        status: "done",
+      },
       logger,
     )
 
@@ -3801,7 +3962,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", blockId: "odd", status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "odd",
+        status: "done",
+      },
       logger,
     )
 
@@ -3817,7 +3984,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "board.md", blockId: "weekly", status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "weekly",
+        status: "done",
+      },
       logger,
     )
 
@@ -3840,7 +4013,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "board.md", blockId: "weekly", status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "weekly",
+        status: "done",
+      },
       logger,
     )
 
@@ -3863,6 +4042,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "water-plants",
@@ -3893,7 +4073,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "board.md", blockId: "weekly", status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "weekly",
+        status: "done",
+      },
       logger,
     )
 
@@ -3915,6 +4101,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "board.md",
         blockId: "deploy",
@@ -3947,7 +4134,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "board.md", blockId: "weekly", status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "weekly",
+        status: "done",
+      },
       logger,
     )
 
@@ -3973,6 +4166,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "board.md",
         blockId: "weekly",
@@ -4001,7 +4195,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", line: 6, status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 6,
+        status: "done",
+      },
       logger,
     )
 
@@ -4021,13 +4221,25 @@ title: Tasks
     )
 
     await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 5,
+        status: "done",
+      },
       logger,
     )
     // The spawn now occupies line 5, so a blind retry completes the NEW
     // occurrence — the documented non-idempotence of line addressing.
     await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 5,
+        status: "done",
+      },
       logger,
     )
 
@@ -4046,7 +4258,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", line: 6, status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        line: 6,
+        status: "done",
+      },
       logger,
     )
 
@@ -4066,7 +4284,13 @@ title: Tasks
     )
 
     const result = await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", blockId: "fuzzy", status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "fuzzy",
+        status: "done",
+      },
       logger,
     )
 
@@ -4090,6 +4314,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "fuzzy",
@@ -4117,6 +4342,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "one-shot",
@@ -4141,6 +4367,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "done-habit",
@@ -4160,6 +4387,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "water-plants",
@@ -4186,7 +4414,13 @@ title: Tasks
     )
 
     await taskMutations.updateTask(
-      { vaultPath: vault, path: "tasks.md", blockId: "dv", status: "done" },
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "dv",
+        status: "done",
+      },
       logger,
     )
 
@@ -4209,6 +4443,7 @@ title: Tasks
     // rewrite the typed prose — the description lands byte-intact.
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "prose",
@@ -4235,6 +4470,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "chore",
@@ -4257,6 +4493,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "water-plants",
@@ -4279,6 +4516,7 @@ title: Tasks
     await expect(
       taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "water-plants",
@@ -4297,6 +4535,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "water-plants",
@@ -4325,6 +4564,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "chore",
@@ -4351,6 +4591,7 @@ title: Tasks
 
     const result = await taskMutations.createTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         description: "Weekly chore",
@@ -4382,6 +4623,7 @@ title: Tasks
 
     const result = await taskMutations.createTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         description: "Auto-clean task",
@@ -4422,6 +4664,7 @@ title: Tasks
     await expect(
       taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Bad rule",
@@ -4447,6 +4690,7 @@ title: Tasks
 
     const result = await taskMutations.updateTask(
       {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
         vaultPath: vault,
         path: "tasks.md",
         blockId: "odd-dates",
@@ -4471,6 +4715,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "check 🔁 every week with the team",
@@ -4502,6 +4747,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Plain task with no signifiers",
@@ -4525,6 +4771,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "check [repeat:: every week]",
@@ -4546,6 +4793,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "🔁 every day",
@@ -4570,6 +4818,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Water plants",
@@ -4592,6 +4841,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Ship the feature",
@@ -4618,6 +4868,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "my-task",
@@ -4651,6 +4902,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "t1",
@@ -4680,6 +4932,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "t2",
@@ -4709,6 +4962,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "water",
@@ -4740,6 +4994,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "t1",
@@ -4764,6 +5019,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "deploy",
@@ -4793,6 +5049,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "t1",
@@ -4819,7 +5076,13 @@ describe("round-trip advisories", () => {
       )
 
       await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", blockId: "fin", status: "done" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "fin",
+          status: "done",
+        },
         logger,
       )
       const contentAfterFirstStamp = await readTestNote(vault, "tasks.md")
@@ -4828,7 +5091,13 @@ describe("round-trip advisories", () => {
       )
 
       const secondResult = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", blockId: "fin", status: "done" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "fin",
+          status: "done",
+        },
         logger,
       )
       const contentAfterSecondStamp = await readTestNote(vault, "tasks.md")
@@ -4852,6 +5121,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "x",
@@ -4877,6 +5147,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "x",
@@ -4905,6 +5176,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "x",
@@ -4932,6 +5204,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "x",
@@ -4955,6 +5228,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "t",
@@ -4986,6 +5260,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "t",
@@ -5015,6 +5290,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "water",
@@ -5040,6 +5316,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "water",
@@ -5059,6 +5336,7 @@ describe("round-trip advisories", () => {
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
@@ -5091,6 +5369,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "plain-task",
@@ -5125,6 +5404,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "has-delete",
@@ -5159,6 +5439,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "has-delete",
@@ -5193,6 +5474,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "plain-task",
@@ -5232,6 +5514,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "has-delete",
@@ -5267,6 +5550,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "has-delete",
@@ -5344,6 +5628,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "delete-task",
@@ -5385,6 +5670,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "keep-explicit",
@@ -5426,6 +5712,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "no-field",
@@ -5467,6 +5754,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "delete-task",
@@ -5508,6 +5796,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "already-done",
@@ -5552,6 +5841,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "parent-delete",
@@ -5587,6 +5877,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "sub-delete",
@@ -5623,6 +5914,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "delete-task",
@@ -5674,6 +5966,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "one-child",
@@ -5718,6 +6011,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "water",
@@ -5774,6 +6068,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "review",
@@ -5829,6 +6124,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "water",
@@ -5886,6 +6182,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "review",
@@ -5929,18 +6226,8 @@ title: Tasks
 
     it("does not delete when the task's custom checkbox char is DONE-typed in the status registry", async () => {
       const vault = await createVault()
-      await writeTasksPluginConfig(vault, {
-        statusSettings: {
-          customStatuses: [
-            {
-              symbol: "D",
-              name: "Deployed",
-              nextStatusSymbol: " ",
-              type: "DONE",
-            },
-          ],
-        },
-      })
+      // The plugin file has no "D" typing; the supplied registry decides.
+      await writeTasksPluginConfig(vault, {})
       await writeTestNote(
         vault,
         "tasks.md",
@@ -5957,6 +6244,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEPLOYED_DONE_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "deploy-cleanup",
@@ -5998,6 +6286,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "fuzzy",
@@ -6027,32 +6316,8 @@ title: Tasks
   })
 
   describe("NON_TASK guard", () => {
-    const writePluginConfig = async (
-      vaultPath: string,
-      config: Record<string, unknown>,
-    ): Promise<void> => {
-      const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
-      await mkdir(pluginDir, { recursive: true })
-      await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
-    }
-
-    const NON_TASK_CONFIG = {
-      statusSettings: {
-        coreStatuses: [
-          { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
-          { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
-        ],
-        customStatuses: [
-          { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
-        ],
-      },
-    }
-
     it("updateTask rejects a NON_TASK checkbox by block_id", async () => {
-      resetTaskFormatConfigCache()
-      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
-      await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
         vault,
         "tasks.md",
@@ -6061,17 +6326,20 @@ title: Tasks
 
       await expect(
         taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", blockId: "fwd", heading: "Done" },
+          {
+            statusRegistry: NON_TASK_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "fwd",
+            heading: "Done",
+          },
           logger,
         ),
       ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
     })
 
     it("updateTask rejects a NON_TASK checkbox by line number", async () => {
-      resetTaskFormatConfigCache()
-      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
-      await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
         vault,
         "tasks.md",
@@ -6080,17 +6348,20 @@ title: Tasks
 
       await expect(
         taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+          {
+            statusRegistry: NON_TASK_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            line: 5,
+            status: "done",
+          },
           logger,
         ),
       ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
     })
 
     it("createTask rejects a NON_TASK parent by block_id", async () => {
-      resetTaskFormatConfigCache()
-      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
-      await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
         vault,
         "tasks.md",
@@ -6100,6 +6371,7 @@ title: Tasks
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: NON_TASK_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Sub-task",
@@ -6112,10 +6384,7 @@ title: Tasks
     })
 
     it("createTask rejects a NON_TASK parent by line number", async () => {
-      resetTaskFormatConfigCache()
-      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
-      await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
         vault,
         "tasks.md",
@@ -6125,6 +6394,7 @@ title: Tasks
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: NON_TASK_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Sub-task",
@@ -6137,10 +6407,7 @@ title: Tasks
     })
 
     it("allows updating a normal task when NON_TASK statuses exist", async () => {
-      resetTaskFormatConfigCache()
-      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
-      await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
         vault,
         "tasks.md",
@@ -6148,7 +6415,13 @@ title: Tasks
       )
 
       const result = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", blockId: "normal", status: "done" },
+        {
+          statusRegistry: NON_TASK_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "normal",
+          status: "done",
+        },
         logger,
       )
 
@@ -6167,10 +6440,7 @@ title: Tasks
     })
 
     it("appendSubtasks excludes NON_TASK children from the count", async () => {
-      resetTaskFormatConfigCache()
-      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
-      await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
         vault,
         "tasks.md",
@@ -6179,6 +6449,7 @@ title: Tasks
 
       const result = await taskMutations.updateTask(
         {
+          statusRegistry: NON_TASK_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           blockId: "card",
@@ -6197,29 +6468,14 @@ title: Tasks
   })
 
   describe("charForStatus throw at mutation boundary", () => {
-    const writePluginConfig = async (
-      vaultPath: string,
-      config: Record<string, unknown>,
-    ): Promise<void> => {
-      const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
-      await mkdir(pluginDir, { recursive: true })
-      await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
-    }
+    /** The defaults with "-" retyped as a plain TODO, so no char is cancelled. */
+    const PENDING_DASH_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
+      ...DEFAULT_STATUS_REGISTRY,
+      ["-", "todo"],
+    ])
 
     it("updateTask rejects status change when the fallback char is retyped", async () => {
-      resetTaskFormatConfigCache()
-      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
-      await writePluginConfig(vault, {
-        statusSettings: {
-          coreStatuses: [
-            { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
-            { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
-            { symbol: "-", name: "Pending", nextStatusSymbol: " ", type: "TODO" },
-          ],
-          customStatuses: [],
-        },
-      })
       await writeTestNote(
         vault,
         "tasks.md",
@@ -6228,11 +6484,90 @@ title: Tasks
 
       await expect(
         taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", blockId: "task", status: "cancelled" },
+          {
+            statusRegistry: PENDING_DASH_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "task",
+            status: "cancelled",
+          },
           logger,
         ),
       ).rejects.toThrow(
         'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+      )
+    })
+  })
+
+  describe("supplied registry over the plugin file's", () => {
+    const PENDING_DASH_PLUGIN_CONFIG = {
+      statusSettings: {
+        coreStatuses: [
+          { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+          { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+          { symbol: "-", name: "Pending", nextStatusSymbol: " ", type: "TODO" },
+        ],
+        customStatuses: [
+          { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+        ],
+      },
+    }
+
+    it("updateTask writes the cancelled char the supplied registry has, though the file retypes it", async () => {
+      const vault = await createVault()
+      await writeTasksPluginConfig(vault, PENDING_DASH_PLUGIN_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^task\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "task",
+          status: "cancelled",
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["status: todo → cancelled"])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [-] Task ➕ 2026-07-01 ❌ ${today()} ^task\n`,
+      )
+    })
+
+    it("createTask counts a checkbox the file types NON_TASK as a card when the supplied registry does not", async () => {
+      const vault = await createVault()
+      await writeTasksPluginConfig(vault, PENDING_DASH_PLUGIN_CONFIG)
+      await writeTestNote(
+        vault,
+        "board.md",
+        `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n- [>] Forwarded ref\n- [ ] Card B ^card-b\n`,
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          description: "Inserted",
+          blockId: "inserted",
+          heading: "Active",
+          position: 2,
+        },
+        logger,
+      )
+
+      // Position 2 lands above the [>] line, which the supplied registry
+      // reads as an ordinary todo card.
+      expect(result.line).toBe(9)
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n- [ ] Inserted ➕ ${today()} ^inserted\n- [>] Forwarded ref\n- [ ] Card B ^card-b\n`,
       )
     })
   })
@@ -6248,7 +6583,13 @@ title: Tasks
 
       await expect(
         taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", blockId: "example", status: "done" },
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "example",
+            status: "done",
+          },
           logger,
         ),
       ).rejects.toThrow('blockId "example" is inside a fenced code block or comment in "tasks.md"')
@@ -6265,6 +6606,7 @@ title: Tasks
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Child",
@@ -6287,7 +6629,13 @@ title: Tasks
       )
 
       const result = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", blockId: "real", status: "done" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "real",
+          status: "done",
+        },
         logger,
       )
 
@@ -6304,7 +6652,13 @@ title: Tasks
       )
 
       const result = await taskMutations.updateTask(
-        { vaultPath: vault, path: "tasks.md", blockId: "shared-id", status: "done" },
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "shared-id",
+          status: "done",
+        },
         logger,
       )
 
@@ -6322,6 +6676,7 @@ title: Tasks
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "Child task",
@@ -6344,6 +6699,7 @@ title: Tasks
 
       const result = await taskMutations.createTask(
         {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "tasks.md",
           description: "New task",
@@ -6366,7 +6722,13 @@ title: Tasks
 
       await expect(
         taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", line: 6, status: "done" },
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            line: 6,
+            status: "done",
+          },
           logger,
         ),
       ).rejects.toThrow("line 6 is inside a fenced code block or comment")
@@ -6383,6 +6745,7 @@ title: Tasks
       await expect(
         taskMutations.createTask(
           {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "tasks.md",
             description: "Child",

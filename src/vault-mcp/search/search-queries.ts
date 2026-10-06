@@ -191,12 +191,14 @@ export const fullTextSearch = (
     queryParams.push(params.filters.type)
   }
 
-  // The key is matched as data through json_each, never spliced into a JSON
-  // path; the Property queries section header below states why. A list
-  // property matches when any element equals the value; a scalar property
-  // must equal it. The comparison is type-exact (the string "4" never
-  // matches the number 4), unlike searchByProperty, which takes only
-  // strings and compares as text.
+  /**
+   * - Matching keys through json_each preserves literal dots and brackets.
+   * - A list matches any equal member; a scalar must equal the value.
+   * - Text "4" never matches number 4 here; searchByProperty also matches
+   *   complete finite numeric input strings to numbers.
+   * - Numeric JSON values compare as REAL to retain stored JavaScript precision;
+   *   other JSON types keep their original value for exact text and checkbox matching.
+   */
   if (params.filters?.properties) {
     for (const [key, value] of Object.entries(params.filters.properties)) {
       conditions.push(`EXISTS (
@@ -204,8 +206,14 @@ export const fullTextSearch = (
         WHERE property.key = ?
           AND (
             (property.type = 'array'
-             AND EXISTS (SELECT 1 FROM json_each(property.value) WHERE value = ?))
-            OR (property.type != 'array' AND property.value = ?)
+             AND EXISTS (
+               SELECT 1 FROM json_each(property.value) element
+               WHERE CASE WHEN element.type IN ('integer', 'real')
+                          THEN CAST(element.value AS REAL) ELSE element.value END = ?
+             ))
+            OR (property.type != 'array'
+                AND CASE WHEN property.type IN ('integer', 'real')
+                         THEN CAST(property.value AS REAL) ELSE property.value END = ?)
           )
       )`)
       // better-sqlite3 cannot bind a JS boolean, and SQLite's JSON functions
@@ -306,6 +314,8 @@ export const fullTextSearch = (
       >(sql)
       .all(...queryParams)
 
+    /** The result contract caps scores at four significant digits; SQL ranks
+     * at full precision, so returned scores can tie without reordering hits. */
     const results: SearchResult[] = rows.map((row) =>
       noteRowToSearchResult({
         row,
@@ -658,8 +668,12 @@ export const memoryRecall = async (
   const distancesByKey = new Map(vectorRows.map((row) => [memoryEntryFusionKey(row), row.distance]))
   const ftsKeys = new Set(ftsRows.map((row) => memoryEntryFusionKey(row)))
 
-  // Lexical hits always pass; only the lowest-fused vector-only candidates
-  // fall off once the rerank window cap is reached.
+  /**
+   * - Lexical hits consume rerank slots because their scores select the final
+   *   limit-capped entries, even though they bypass relevance rejection.
+   * - Once the window fills, omit only lower-fused vector-only candidates;
+   *   dropping lexical hits would lose matches on distinctive names.
+   */
   const candidates: MemoryRecallCandidate[] = []
   for (const { identifier: entryKey, score } of fusedScores) {
     const row = rowsByKey.get(entryKey)
@@ -799,6 +813,9 @@ export const searchByFolder = (
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   const escapedFolder = escapeLikeWildcards(stripTrailingSlashes(params.folder))
+
+  /** LIKE's % crosses slashes, so nonrecursive browsing must exclude a second
+   * slash after the folder prefix to keep subfolder notes out. */
   const condition = recursive
     ? "path LIKE ? || '/%' ESCAPE '\\'"
     : "path LIKE ? || '/%' ESCAPE '\\' AND path NOT LIKE ? || '/%/%' ESCAPE '\\'"
@@ -1165,14 +1182,14 @@ export const recentNotes = (
 // json_each exposes key, value and type columns per property; property.type
 // is the JSON type ("array", "text", "integer", ...), not a notes column.
 
-/** Occurrence counts of every value under one property key, most common
- *  first, without a LIMIT so each caller appends its own. json_array() wraps
- *  scalars so the inner json_each works uniformly for both scalar ("active")
- *  and array (["a","b"]) property values. The folder condition is passed in
- *  because it is qualified as n.path: the json_each tables in the FROM clause
- *  expose a path column of their own. */
-const propertyValueCountsSql = (folderCondition: string): string => `
-    SELECT element.value, COUNT(*) as count
+/**
+ * - Scalar wrapping lets json_each count scalars and list members uniformly.
+ * - Grouping displayed text before LIMIT combines numeric and text occurrences.
+ * - Folder filters use n.path because the JSON tables also expose path.
+ */
+const propertyValueCountsSql = (folderCondition: string): string => {
+  return `
+    SELECT property_value_text(element.value) AS value, COUNT(*) as count
     FROM notes n, json_each(n.properties) property, json_each(
       CASE property.type
         WHEN 'array' THEN property.value
@@ -1184,9 +1201,10 @@ const propertyValueCountsSql = (folderCondition: string): string => `
     -- typeof filters on SQL storage class: excludes nulls (typeof 'null');
     -- nested objects/arrays pass through as typeof 'text'
     AND typeof(element.value) IN ('text', 'integer', 'real')
-    GROUP BY element.value
-    ORDER BY count DESC, element.value
+    GROUP BY property_value_text(element.value)
+    ORDER BY count DESC, property_value_text(element.value)
 `
+}
 
 /** Returns all frontmatter property keys with note counts and top 3 sample
  *  values. Sample ranking counts value occurrences: a value listed twice in
@@ -1228,7 +1246,7 @@ export const listPropertyKeys = (
     return {
       key: keyRow.key,
       count: keyRow.count,
-      sample_values: sampleRows.map((sampleRow) => String(sampleRow.value)),
+      sample_values: sampleRows.map((sampleRow) => sampleRow.value),
     }
   })
 
@@ -1261,10 +1279,10 @@ export const listPropertyValues = (
   if (escapedFolder) sqlParams.folder = escapedFolder
 
   const rows = context.db
-    .prepare<Record<string, unknown>, { value: string | number; count: number }>(sql)
+    .prepare<Record<string, unknown>, { value: string; count: number }>(sql)
     .all(sqlParams)
   const results = rows.map((row) => ({
-    value: String(row.value),
+    value: row.value,
     count: row.count,
   }))
   logger.info("listed property values", {
@@ -1274,7 +1292,21 @@ export const listPropertyValues = (
   return results
 }
 
-/** Finds notes where a frontmatter property matches a value (exact match). */
+const parseFinitePropertyNumber = (value: string): number | null => {
+  /** A whole YAML 1.2 core int or float: optional sign, digits with an optional fraction and exponent, or 0x hex / 0o octal.
+   * https://yaml.org/spec/1.2.2/#1032-tag-resolution */
+  const propertyNumberLiteral =
+    /^(?:[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?|0x[0-9a-fA-F]+|0o[0-7]+)$/
+
+  if (!propertyNumberLiteral.test(value)) return null
+
+  const numericValue = Number(value)
+
+  return Number.isFinite(numericValue) ? numericValue : null
+}
+
+/** Finds notes where a frontmatter property matches a value: text exactly,
+ * and a value written as a YAML core number also matches stored numbers equal to it. */
 export const searchByProperty = (
   context: SearchQueryContext,
   params: {
@@ -1290,13 +1322,16 @@ export const searchByProperty = (
     ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
   const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
+  const numericValue = parseFinitePropertyNumber(params.value)
 
-  // EXISTS (not a FROM join) suffices because only a yes/no match per note
-  // is needed, not value counts. Two branches inside handle different
-  // property shapes:
-  // - Array properties (tags: ["a","b"]): check if @value is IN the array
-  // - Scalar properties (status: "active"): check direct equality
-  // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
+  /**
+   * - EXISTS keeps each matching note singular even when list values repeat.
+   * - Exact text comparison preserves strings and serialized JSON values.
+   * - Checkboxes have JSON types true/false and values 1/0; only the text arm
+   *   matches them, so "1.0" cannot match a checked checkbox.
+   * - Guarded REAL comparison uses the same binary64 values as JavaScript;
+   *   JSON's decimal spelling can otherwise become a different SQLite int64.
+   */
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes n
@@ -1306,12 +1341,16 @@ export const searchByProperty = (
         AND (
           (property.type = 'array'
            AND EXISTS (
-             SELECT 1 FROM json_each(property.value)
-             WHERE CAST(value AS TEXT) = @value
+             SELECT 1 FROM json_each(property.value) element
+             WHERE CAST(element.value AS TEXT) = @value
+               OR (element.type IN ('integer', 'real')
+                   AND CAST(element.value AS REAL) = @numericValue)
            ))
           OR
           (property.type != 'array'
-           AND CAST(property.value AS TEXT) = @value)
+           AND (CAST(property.value AS TEXT) = @value
+                OR (property.type IN ('integer', 'real')
+                    AND CAST(property.value AS REAL) = @numericValue)))
         )
     )
     ${folderCondition}
@@ -1322,6 +1361,7 @@ export const searchByProperty = (
   const sqlParams: Record<string, unknown> = {
     key: params.key,
     value: params.value,
+    numericValue,
     limit,
   }
 
@@ -1418,7 +1458,9 @@ export const getOutgoingLinks = (
       }
     >(sql)
     .all(params.path)
-  const dailyNotesFolderPrefix = params.dailyNotesFolder ? `${params.dailyNotesFolder}/` : null
+  const dailyNotesFolderPrefix = params.dailyNotesFolder
+    ? `${stripTrailingSlashes(params.dailyNotesFolder)}/`
+    : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
@@ -1466,7 +1508,25 @@ export const findOrphans = (
     LIMIT ?
   `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...escapedExcludeFolders, limit)
+  const rows = (() => {
+    try {
+      return context.db.prepare<unknown[], NoteRow>(sql).all(...escapedExcludeFolders, limit)
+    } catch (error) {
+      const isExclusionCapacityError =
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "SQLITE_ERROR" &&
+        error.message.startsWith("Expression tree is too large (maximum depth ")
+
+      if (!isExclusionCapacityError) throw error
+
+      logger.warn("orphan exclusion query capacity exceeded", {
+        excludedFolderCount: excludeFolders.length,
+        error: describeError(error),
+      })
+      throw new Error("too many excluded folders", { cause: error })
+    }
+  })()
   const results = rows.map(rowToMetadata)
   logger.info("find orphans", { count: results.length })
   return results
@@ -1510,7 +1570,7 @@ export const brokenLinkCount = (
     return { count, excludedFolder: null, excludedCount: 0 }
   }
 
-  const excludedFolderPrefix = `${excludedFolder}/`
+  const excludedFolderPrefix = `${stripTrailingSlashes(excludedFolder)}/`
   const brokenTargets = context.db
     .prepare<unknown[], { target: string }>(
       `SELECT DISTINCT target

@@ -138,16 +138,18 @@ const startServer = async (): Promise<void> => {
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
   const reranker =
     config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
-  const taskFormatConfig = await readTaskFormatConfig(vaultPath)
+  // The status registry is captured at boot so listings and writes classify
+  // with one map; format and date toggles are read live per task write.
+  const { statusRegistry } = await readTaskFormatConfig(vaultPath, logger)
   const search = createSearchIndex(searchDbPath, embedder, reranker, {
     memoryDir: config.memoryEnabled ? config.memoryDir : undefined,
     fileToolsEnabled: config.fileToolsEnabled,
-    statusRegistry: taskFormatConfig.statusRegistry,
+    statusRegistry,
   })
+  await bootstrapMemoryIfEnabled(config, vaultPath)
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
 
-  await bootstrapMemoryIfEnabled(config, vaultPath)
   await startFileWatcher(vaultPath, search, {
     usePolling: config.windowsBindMount,
   })

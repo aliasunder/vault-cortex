@@ -40,7 +40,7 @@ const parseVaultFolderList = (raw: string): string[] =>
 
 /** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
  *  Structural checks only — structurally unsafe results (traversal,
- *  separators, empty) are rejected. Warns when the format contains
+ *  leading/trailing slashes, empty) are rejected. Warns when the format contains
  *  unsupported tokens. Returns the raw moment string unchanged. */
 const validateDailyNotesFormat = (momentFormat: string): string => {
   const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(momentToLuxonFormat(momentFormat))
@@ -122,7 +122,8 @@ export type VaultConfig = Readonly<{
   /** PROTECTED_PATHS as the user set it; null when unset, in which case the
    *  protected set (memory dir + daily notes folder) is resolved per call. */
   protectedPathsOverride: readonly string[] | null
-  orphanExcludeFolders: readonly string[]
+  /** Null uses per-call defaults; an empty list excludes no folders. */
+  orphanExcludeFoldersOverride: readonly string[] | null
   serviceDocumentationUrl: string
   /** When true, the embedding pipeline is active — notes are chunked, embedded
    *  via a local ONNX model (bge-small-en-v1.5), and stored in sqlite-vec for
@@ -184,15 +185,10 @@ export const loadConfig = (env: Record<string, string | undefined> = process.env
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
   const protectedPathsOverride = protectedPathsRaw ? parseVaultFolderList(protectedPathsRaw) : null
 
-  // The orphan default tracks the env-configured daily notes folder only
-  // (the vault's daily-notes.json can't cascade here — config load is
-  // synchronous env parsing; the file is read lazily at call time).
-  const dailyNotesFolderOrDefault = dailyNotesFolder ?? "Daily Notes"
-
   const orphanExcludeFoldersRaw = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
-  const orphanExcludeFolders = orphanExcludeFoldersRaw
+  const orphanExcludeFoldersOverride = orphanExcludeFoldersRaw
     ? parseVaultFolderList(orphanExcludeFoldersRaw)
-    : [dailyNotesFolderOrDefault, "Templates", memoryDir]
+    : null
 
   const serviceDocumentationUrl = env.SERVICE_DOCUMENTATION_URL?.trim()
     ? z.string().url().parse(env.SERVICE_DOCUMENTATION_URL.trim())
@@ -299,7 +295,7 @@ export const loadConfig = (env: Record<string, string | undefined> = process.env
     dailyNotesFolder,
     dailyNotesFormat,
     protectedPathsOverride,
-    orphanExcludeFolders,
+    orphanExcludeFoldersOverride,
     serviceDocumentationUrl,
     embeddingEnabled,
     rerankMode,

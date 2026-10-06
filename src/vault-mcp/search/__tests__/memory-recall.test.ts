@@ -82,11 +82,11 @@ const createRecallIndex = async (options?: {
   const files = options?.files ?? DEFAULT_FILES
   for (const [fileName, content] of Object.entries(files)) {
     const filePath = `About Me/${fileName}.md`
-    index.upsertNote(
+    const sourceVersion = index.upsertNote(
       { filePath, rawContent: content, fileStat: { mtimeMs: 1000, size: 100 } },
       logger,
     )
-    await index.embedNote({ notePath: filePath, rawContent: content }, logger)
+    await index.embedNote({ sourceVersion, notePath: filePath, rawContent: content }, logger)
   }
   return index
 }
@@ -265,6 +265,22 @@ describe("memoryRecall", () => {
     expect(entries.map((entry) => [entry.file, entry.date])).toEqual([["Routines", "2026-07-10"]])
   })
 
+  it("applies the file filter before limit", async () => {
+    const index = await createRecallIndex({
+      reranker: createTopicMockReranker(),
+    })
+    // The Routines walk entry is the least relevant match vault-wide (logit
+    // -1 against the Opinions entries' 6), so a limit applied before the file
+    // filter would keep an Opinions entry and then filter it out.
+    const { entries, total, truncated } = await index.memoryRecall(
+      { query: "pacing recovery", file: "Routines", limit: 1 },
+      logger,
+    )
+    expect(entries.map((entry) => [entry.file, entry.date])).toEqual([["Routines", "2026-07-10"]])
+    expect(total).toBe(1)
+    expect(truncated).toBe(false)
+  })
+
   it("returns an empty result rather than an error when nothing matches", async () => {
     const index = await createRecallIndex({
       reranker: createTopicMockReranker(),
@@ -318,7 +334,7 @@ describe("memoryRecall", () => {
     // Seed both files so we have vector-only AND lexical entries
     for (const [fileName, content] of Object.entries(DEFAULT_FILES)) {
       const filePath = `About Me/${fileName}.md`
-      index.upsertNote(
+      const sourceVersion = index.upsertNote(
         {
           filePath,
           rawContent: content,
@@ -326,7 +342,7 @@ describe("memoryRecall", () => {
         },
         logger,
       )
-      await index.embedNote({ notePath: filePath, rawContent: content }, logger)
+      await index.embedNote({ sourceVersion, notePath: filePath, rawContent: content }, logger)
     }
 
     // Break the embedder for the recall query — memoryVectorSearch catches
@@ -481,7 +497,7 @@ describe("memoryRecall", () => {
     for (const [fileName, topicMarker] of seededFiles) {
       const filePath = `About Me/${fileName}.md`
       const content = `# ${fileName}\n\n## Working style (newest first)\n\n- **2026-07-02**: Pacing beats crunch on ${topicMarker}.\n`
-      index.upsertNote(
+      const sourceVersion = index.upsertNote(
         {
           filePath,
           rawContent: content,
@@ -489,7 +505,7 @@ describe("memoryRecall", () => {
         },
         logger,
       )
-      await index.embedNote({ notePath: filePath, rawContent: content }, logger)
+      await index.embedNote({ sourceVersion, notePath: filePath, rawContent: content }, logger)
     }
 
     const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
@@ -530,7 +546,7 @@ describe("memoryRecall", () => {
       (_, fillerIndex) => `- **2026-07-02**: Background logistics note ${String(fillerIndex)}.`,
     ).join("\n")
     const content = `# Ledger\n\n## Working style (newest first)\n\n${fillerEntries}\n- **2026-07-02**: Pacing beats crunch on alpha-topic.\n- **2026-07-02**: Pacing beats crunch on beta-topic.\n`
-    index.upsertNote(
+    const ledgerNoteSourceVersion = index.upsertNote(
       {
         filePath: "About Me/Ledger.md",
         rawContent: content,
@@ -538,7 +554,14 @@ describe("memoryRecall", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Ledger.md", rawContent: content }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: ledgerNoteSourceVersion,
+        notePath: "About Me/Ledger.md",
+        rawContent: content,
+      },
+      logger,
+    )
 
     const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
     expect(result.entries.map((entry) => entry.text)).toEqual([

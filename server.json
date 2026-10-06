@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "Vault Cortex",
   "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1",
-  "version": "0.54.6",
+  "version": "0.54.10",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",
@@ -13,7 +13,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aliasunder/vault-cortex:0.54.6",
+      "identifier": "ghcr.io/aliasunder/vault-cortex:0.54.10",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
@@ -164,7 +164,7 @@
         },
         {
           "name": "ORPHAN_EXCLUDE_FOLDERS",
-          "description": "Comma-separated vault folder names excluded from vault_find_orphans. Default: DAILY_NOTES_FOLDER (else \"Daily Notes\"), \"Templates\", MEMORY_DIR."
+          "description": "Comma-separated vault folder names excluded from vault_find_orphans. Default: the daily notes folder, \"Templates\", and MEMORY_DIR. DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is read per query (fallback \"Daily Notes\"). When set, replaces the defaults entirely. Set to a comma (,) to exclude nothing; an empty value uses the defaults."
         },
         {
           "name": "SERVICE_DOCUMENTATION_URL",

@@ -432,12 +432,16 @@ and unchanged notes are not re-embedded.
 
 ## Restart
 
-The container runs startup tasks on every boot: a catch-up sync runs before
-the server starts to bring the vault current, then the server rebuilds the
-search index, creates memory template files if the memory folder doesn't
-exist (skipped when `MEMORY_ENABLED=false` or `READONLY_MODE=true`), and
-starts the file watcher. Restarting the container re-runs this flow (useful
-when testing bootstrap behavior). The command is the same for every setup
+On every boot, a catch-up sync brings the vault current before the server
+starts. The server then runs these startup tasks:
+
+1. Create memory template files if the memory folder doesn't exist (skipped
+   when `MEMORY_ENABLED=false` or `READONLY_MODE=true`).
+2. Rebuild the search index, including any new memory template files.
+3. Start the file watcher.
+
+Restarting the container re-runs this flow (useful when testing bootstrap
+behavior). The command is the same for every setup
 method:
 
 ```bash

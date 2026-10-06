@@ -17,6 +17,7 @@ import {
   textResult,
   formatNoteLine,
   wrapWithDataMarkers,
+  exceedsCharCap,
   maxCharsArg,
 } from "./prompt-helpers.js"
 
@@ -168,25 +169,24 @@ export const registerDailyReviewPrompt = ({
           )
         }
 
-        const dailyNote = await getDailyNote(
+        // Resolved once so the note path and the link classification below
+        // see the same settings; passing both fields makes getDailyNote skip
+        // its own read of daily-notes.json.
+        const dailyNotesConfig = await readDailyNotesConfig(
           {
             vaultPath,
-            date: dateArg,
-            envSettings: {
-              folder: config.dailyNotesFolder,
-              format: config.dailyNotesFormat,
-            },
+            envSettings: { folder: config.dailyNotesFolder, format: config.dailyNotesFormat },
           },
+          reqLogger,
+        )
+        const dailyNote = await getDailyNote(
+          { vaultPath, date: dateArg, envSettings: dailyNotesConfig },
           reqLogger,
         )
         const modifiedOnDate = search.modifiedOnDate(
           { date: dateArg, limit: DAILY_RECENT_LIMIT },
           reqLogger,
         )
-        const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
-          folder: config.dailyNotesFolder,
-          format: config.dailyNotesFormat,
-        })
         const outgoingLinks = dailyNote.exists
           ? search.getOutgoingLinks(
               {
@@ -234,7 +234,7 @@ export const registerDailyReviewPrompt = ({
           : { total: 0, tasks: [] }
 
         const trimmedDaily = dailyNote.content?.trim() ?? ""
-        const truncated = maxChars !== undefined && trimmedDaily.length > maxChars
+        const truncated = exceedsCharCap(trimmedDaily, maxChars)
         const cappedDailyContent = wrapWithDataMarkers({
           content: trimmedDaily,
           markerAttributes: {

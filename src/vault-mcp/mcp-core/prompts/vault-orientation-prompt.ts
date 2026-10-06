@@ -2,6 +2,7 @@
 
 import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
+import { resolveEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../../utils/compare-utf8-bytes.js"
@@ -97,16 +98,18 @@ const formatMemoryOutline = (outlines: readonly MemoryFileOutline[]): string =>
   outlines.map(formatMemoryOutlineEntry).join("\n")
 
 /** Formats the broken-link count for the stats line, including excluded
- *  forward-refs when present. Returns "" when there are no broken links. */
+ *  forward-refs when present. Returns "" when both counts are zero. */
 const formatBrokenLinkSegment = (result: {
   count: number
   excludedFolder: string | null
   excludedCount: number
 }): string => {
   const { count, excludedFolder, excludedCount } = result
+  const excludedFolderLabel = `${excludedFolder}/`.replace(/\/+$/, "/")
+  const forwardReferenceLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
   const excludedNote =
     excludedCount > 0
-      ? `excludes ${excludedCount} forward-ref${excludedCount === 1 ? "" : "s"} in ${excludedFolder}/`
+      ? `excludes ${excludedCount} ${forwardReferenceLabel} in ${excludedFolderLabel}`
       : ""
 
   if (count === 0 && excludedNote.length === 0) return ""
@@ -161,19 +164,28 @@ export const registerVaultOrientationPrompt = ({
           config.memoryEnabled && memoryStore
             ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
             : []
+        const dailyNotesConfig = await readDailyNotesConfig(
+          {
+            vaultPath,
+            envSettings: { folder: config.dailyNotesFolder, format: config.dailyNotesFormat },
+          },
+          reqLogger,
+        )
         const orphanResults = search.findOrphans(
           {
-            excludeFolders: [...config.orphanExcludeFolders],
+            excludeFolders: [
+              ...resolveEffectiveOrphanExcludeFolders({
+                orphanExcludeFoldersOverride: config.orphanExcludeFoldersOverride,
+                memoryDir: config.memoryDir,
+                dailyNotesFolder: dailyNotesConfig.folder,
+              }),
+            ],
             limit: ORIENTATION_ORPHAN_LIMIT + 1,
           },
           reqLogger,
         )
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
-        const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
-          folder: config.dailyNotesFolder,
-          format: config.dailyNotesFormat,
-        })
         const brokenLinkResult = search.brokenLinkCount(
           { dailyNotesFolder: dailyNotesConfig.folder },
           reqLogger,
@@ -224,7 +236,7 @@ export const registerVaultOrientationPrompt = ({
                 `${orphanCountLabel} orphan notes (no incoming links):`,
                 ...orphans.map(formatNoteLine),
               ].join("\n")
-            : "No orphans found — every note has at least one incoming link."
+            : "No orphans found after folder exclusions."
 
         const memorySectionContent =
           memoryFiles.length > 0

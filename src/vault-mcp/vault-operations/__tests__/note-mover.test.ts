@@ -831,7 +831,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Bar.md", "occupied\n")
 
     await expect(moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })).rejects.toThrow(
-      'destination exists: "Bar.md"',
+      new Error('destination exists: "Bar.md"'),
     )
     // The existing destination is left untouched.
     expect(await readNote("Bar.md")).toBe("occupied\n")
@@ -841,7 +841,7 @@ describe("moveNote — guards", () => {
   it("throws when the source note does not exist", async () => {
     const { moveNote } = setupVault()
     await expect(moveNote({ oldPath: "Missing.md", newPath: "Bar.md" })).rejects.toThrow(
-      'note not found: "Missing.md"',
+      new Error('note not found: "Missing.md"'),
     )
   })
 
@@ -850,7 +850,7 @@ describe("moveNote — guards", () => {
     await writeFixture("About Me/Me.md", "memory\n")
 
     await expect(moveNote({ oldPath: "About Me/Me.md", newPath: "Bar.md" })).rejects.toThrow(
-      'cannot move protected path "About Me/Me.md"',
+      new Error('cannot move protected path "About Me/Me.md"'),
     )
     expect(await noteExists("About Me/Me.md")).toBe(true)
   })
@@ -860,7 +860,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote({ oldPath: "Foo.md", newPath: "About Me/Foo.md" })).rejects.toThrow(
-      'cannot move into protected path "About Me/Foo.md"',
+      new Error('cannot move into protected path "About Me/Foo.md"'),
     )
     expect(await noteExists("Foo.md")).toBe(true)
   })
@@ -872,7 +872,7 @@ describe("moveNote — guards", () => {
     // Normalizes to "Daily Notes/Foo.md", which must not slip past the guard.
     await expect(
       moveNote({ oldPath: "Foo.md", newPath: "Inbox/../Daily Notes/Foo.md" }),
-    ).rejects.toThrow('cannot move into protected path "Daily Notes/Foo.md"')
+    ).rejects.toThrow(new Error('cannot move into protected path "Daily Notes/Foo.md"'))
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("Daily Notes/Foo.md")).toBe(false)
   })
@@ -885,7 +885,9 @@ describe("moveNote — guards", () => {
 
     await expect(
       moveNote({ oldPath: `${vault}/About Me/Me.md`, newPath: "Bar.md" }),
-    ).rejects.toThrow(`absolute path blocked: "${vault}/About Me/Me.md" must be vault-relative`)
+    ).rejects.toThrow(
+      new Error(`absolute path blocked: "${vault}/About Me/Me.md" must be vault-relative`),
+    )
     expect(await noteExists("About Me/Me.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
   })
@@ -896,7 +898,9 @@ describe("moveNote — guards", () => {
 
     await expect(
       moveNote({ oldPath: "Foo.md", newPath: `${vault}/About Me/Foo.md` }),
-    ).rejects.toThrow(`absolute path blocked: "${vault}/About Me/Foo.md" must be vault-relative`)
+    ).rejects.toThrow(
+      new Error(`absolute path blocked: "${vault}/About Me/Foo.md" must be vault-relative`),
+    )
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("About Me/Foo.md")).toBe(false)
   })
@@ -910,7 +914,7 @@ describe("moveNote — guards", () => {
         oldPath: join("..", basename(vault), "About Me/Me.md"),
         newPath: "Bar.md",
       }),
-    ).rejects.toThrow('cannot move protected path "About Me/Me.md"')
+    ).rejects.toThrow(new Error('cannot move protected path "About Me/Me.md"'))
     expect(await noteExists("About Me/Me.md")).toBe(true)
   })
 
@@ -922,7 +926,7 @@ describe("moveNote — guards", () => {
     await writeFixture("About Me/Me.md", "memory\n")
 
     await expect(moveNote({ oldPath: "about me/Me.md", newPath: "Bar.md" })).rejects.toThrow(
-      'cannot move protected path "about me/Me.md"',
+      new Error('cannot move protected path "about me/Me.md"'),
     )
     expect(await noteExists("About Me/Me.md")).toBe(true)
   })
@@ -932,7 +936,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote({ oldPath: "Foo.md", newPath: "Foo.md" })).rejects.toThrow(
-      "source and destination are the same path",
+      new Error("source and destination are the same path"),
     )
   })
 
@@ -941,7 +945,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote({ oldPath: "Inbox/../Foo.md", newPath: "Foo.md" })).rejects.toThrow(
-      "source and destination are the same path",
+      new Error("source and destination are the same path"),
     )
     expect(await readNote("Foo.md")).toBe("content\n")
   })
@@ -982,13 +986,13 @@ describe("moveNote — guards", () => {
 
     await expect(
       moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
-    ).rejects.toThrow('note not found: "projects/todo.md"')
+    ).rejects.toThrow(new Error('note not found: "projects/todo.md"'))
     expect(await noteExists("Projects/todo.md")).toBe(true)
   })
 
-  it("reconciles a case-aliased old path to the index's spelling on any host", async () => {
+  it("reconciles a case-aliased old path to the filesystem listing's spelling on any host", async () => {
     // The stat probe is redirected to the real spelling for the aliased path,
-    // so the index-reconciliation branch runs on every host — CI's
+    // so the listing-reconciliation branch runs on every host — CI's
     // case-sensitive filesystem would otherwise never execute it. The
     // platform-gated pair above covers the real-filesystem behavior.
     const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
@@ -1023,7 +1027,7 @@ describe("moveNote — guards", () => {
 
   it("does not substitute a case-variant sibling that is a different file", async () => {
     // Simulates a case-sensitive vault holding two case-distinct files where
-    // the requested one is not yet indexed — the stat probe reports a real
+    // the requested one is absent from the supplied path list — the stat probe reports a real
     // but different inode for the input, and its existence check stays false.
     // The reconciliation must decline, because matching by folded name alone
     // would move and unlink the sibling, the wrong user-visible note.
@@ -1050,7 +1054,7 @@ describe("moveNote — guards", () => {
 
     await expect(
       moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
-    ).rejects.toThrow('note not found: "projects/todo.md"')
+    ).rejects.toThrow(new Error('note not found: "projects/todo.md"'))
     expect(await readNote("Projects/todo.md")).toBe("sibling content\n")
     expect(await noteExists("Archive/done.md")).toBe(false)
   })
@@ -1129,7 +1133,7 @@ describe("moveNote — guards", () => {
     onTestFinished(() => vi.mocked(rename).mockRestore())
 
     await expect(moveNote({ oldPath: "Foo.md", newPath: "foo.md" })).rejects.toThrow(
-      'move aborted: could not rename to "foo.md". Nothing was written.',
+      new Error('move aborted: could not rename to "foo.md". Nothing was written.'),
     )
     expect(await readNote("Foo.md")).toBe("content\n")
   })
@@ -1152,7 +1156,9 @@ describe("moveNote — guards", () => {
     onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
 
     await expect(moveNote({ oldPath: "Foo.md", newPath: "foo.md" })).rejects.toThrow(
-      'move incomplete: renamed to "foo.md" but its own links still use the old casing. Edit the note to update them.',
+      new Error(
+        'move incomplete: renamed to "foo.md" but its own links still use the old casing. Edit the note to update them.',
+      ),
     )
     // The rename itself went through — the note lives at the new spelling
     // with its original content.
@@ -1184,9 +1190,11 @@ describe("moveNote — guards", () => {
         backlinkSources: ["Hub.md"],
       }),
     ).rejects.toThrow(
-      'move incomplete: failed updating "Hub.md" (0/1 sources written). ' +
-        'The note was already renamed to "foo.md"; update the remaining ' +
-        "links directly.",
+      new Error(
+        'move incomplete: failed updating "Hub.md" (0/1 sources written). ' +
+          'The note was already renamed to "foo.md"; update the remaining ' +
+          "links directly.",
+      ),
     )
     expect(await readNote("foo.md")).toBe("content\n")
     expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
@@ -1211,8 +1219,10 @@ describe("moveNote — guards", () => {
     await expect(
       moveNote({ oldPath: "Foo.md", newPath: "Bar.md", backlinkSources: ["Hub.md"] }),
     ).rejects.toThrow(
-      'move incomplete: failed updating "Hub.md" (0/1 sources written). ' +
-        'Original not deleted — delete "Bar.md", then re-run to finish.',
+      new Error(
+        'move incomplete: failed updating "Hub.md" (0/1 sources written). ' +
+          'Original not deleted — delete "Bar.md", then re-run to finish.',
+      ),
     )
     // Both copies exist, which is why a plain re-run would fail on the destination.
     expect(await readNote("Foo.md")).toBe("content\n")
@@ -1224,7 +1234,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote({ oldPath: "Foo.md", newPath: "Bar.txt" })).rejects.toThrow(
-      'path must end in ".md" (received "Bar.txt")',
+      new Error('path must end in ".md" (received "Bar.txt")'),
     )
   })
 
@@ -1233,7 +1243,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote({ oldPath: "Foo.md", newPath: "../escape.md" })).rejects.toThrow(
-      "path traversal blocked",
+      new Error('path traversal blocked: "../escape.md" escapes vault root'),
     )
   })
 })
@@ -1254,7 +1264,7 @@ describe("moveNote — failure safety", () => {
         backlinkSources: ["Hub.md", "Ghost.md"],
       }),
     ).rejects.toThrow(
-      'move aborted: could not read backlink source "Ghost.md". Nothing was written.',
+      new Error('move aborted: could not read backlink source "Ghost.md". Nothing was written.'),
     )
 
     expect(await noteExists("Foo.md")).toBe(true)
@@ -1277,7 +1287,9 @@ describe("moveNote — failure safety", () => {
         backlinkSources: ["Hub.md", "../escape.md"],
       }),
     ).rejects.toThrow(
-      'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
+      new Error(
+        'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
+      ),
     )
 
     expect(await noteExists("Foo.md")).toBe(true)
@@ -1296,7 +1308,9 @@ describe("moveNote — failure safety", () => {
         backlinkSources: ["../escape.md"],
       }),
     ).rejects.toThrow(
-      'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
+      new Error(
+        'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
+      ),
     )
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
@@ -1321,7 +1335,7 @@ describe("moveNote — failure safety", () => {
         backlinkSources: ["Hub.md", "Ghost.md"],
       }),
     ).rejects.toThrow(
-      'move aborted: could not read backlink source "Ghost.md". Nothing was written.',
+      new Error('move aborted: could not read backlink source "Ghost.md". Nothing was written.'),
     )
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
@@ -1348,10 +1362,10 @@ describe("moveNote — failure safety", () => {
     expect(vi.mocked(logger.info)).toHaveBeenCalledWith("note move complete", {
       from: "Foo.md",
       to: "Bar.md",
-      links_updated: 1,
-      sources_updated: 1,
-      sources_failed: 0,
-      pruned_empty_folders: 0,
+      linksUpdated: 1,
+      sourcesUpdated: 1,
+      sourcesFailed: 0,
+      prunedFolderCount: 0,
     })
   })
 })
@@ -1497,7 +1511,7 @@ describe("moveNote — Windows mode (rename-based exclusive write)", () => {
         newPath: "Bar.md",
         windowsBindMount: true,
       }),
-    ).rejects.toThrow('destination exists: "Bar.md"')
+    ).rejects.toThrow(new Error('destination exists: "Bar.md"'))
     // Both notes are untouched — the failed move wrote nothing.
     expect(await readNote("Bar.md")).toBe("occupied\n")
     expect(await readNote("Foo.md")).toBe("content\n")
@@ -1572,7 +1586,7 @@ describe("moveNote — concurrent write locking", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("concurrent write in progress")
+    ).rejects.toThrow(new Error("concurrent write in progress"))
 
     // The move itself completes untouched by the rejected patch.
     const result = await movePromise
@@ -1596,7 +1610,7 @@ describe("moveNote — concurrent write locking", () => {
 
     await expect(
       vaultFs.writeNote({ vaultPath: vault, path: "Bar.md", body: "squatter" }, logger),
-    ).rejects.toThrow("concurrent write in progress")
+    ).rejects.toThrow(new Error("concurrent write in progress"))
 
     await movePromise
     expect(await readNote("Bar.md")).toBe("content\n")
@@ -1627,7 +1641,7 @@ describe("moveNote — concurrent write locking", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("concurrent write in progress")
+    ).rejects.toThrow(new Error("concurrent write in progress"))
 
     await movePromise
     expect(await noteExists("Bar.md")).toBe(true)
@@ -1655,7 +1669,7 @@ describe("moveNote — concurrent write locking", () => {
       allNotePaths,
     })
 
-    await expect(secondMove).rejects.toThrow("concurrent write in progress")
+    await expect(secondMove).rejects.toThrow(new Error("concurrent write in progress"))
 
     await firstMove
     expect(await noteExists("Bar.md")).toBe(true)
@@ -1681,7 +1695,7 @@ describe("moveNote — concurrent write locking", () => {
       backlinkSources: ["Hub.md"],
       allNotePaths,
     })
-    await expect(movePromise).rejects.toThrow("concurrent write in progress")
+    await expect(movePromise).rejects.toThrow(new Error("concurrent write in progress"))
 
     // Fail-fast means fail-clean — nothing was moved or rewritten.
     await holdHubLock
@@ -1747,7 +1761,7 @@ describe("moveNote — concurrent write locking", () => {
         newPath: "Bar.md",
         backlinkSources: ["Hub.md"],
       }),
-    ).rejects.toThrow('destination exists: "Bar.md"')
+    ).rejects.toThrow(new Error('destination exists: "Bar.md"'))
 
     // Every path the failed move locked (old path, destination, backlink
     // source) accepts writes again.
@@ -1837,7 +1851,7 @@ describe("moveNote — hidden paths", () => {
     // The note exists on disk so a removed guard would let the move succeed.
     await writeFixture(".trash/secret.md", "# Secret\n")
     await expect(moveNote({ oldPath: ".trash/secret.md", newPath: "Rescued.md" })).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
     )
   })
 
@@ -1846,7 +1860,9 @@ describe("moveNote — hidden paths", () => {
     await writeFixture("Visible.md", "# Visible\n")
     await expect(
       moveNote({ oldPath: "Visible.md", newPath: ".obsidian/hidden.md" }),
-    ).rejects.toThrow('hidden path blocked: ".obsidian/hidden.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".obsidian/hidden.md" targets a hidden file or folder'),
+    )
     expect(await noteExists("Visible.md")).toBe(true)
     expect(await readNote("Visible.md")).toBe("# Visible\n")
   })

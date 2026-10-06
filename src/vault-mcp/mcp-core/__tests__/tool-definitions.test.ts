@@ -4,14 +4,14 @@ import { mkdtemp, rm, writeFile, mkdir, readFile, utimes } from "node:fs/promise
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
-import type { z } from "zod"
+import { z } from "zod"
 import { computeEnabledToolNames, registerTools } from "../tool-definitions.js"
 import { TOOL_NAMES, TOOL_REGISTRY } from "../tool-registry.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createSearchIndex } from "../../search/search-index.js"
 import type { SearchIndex } from "../../search/search-index.js"
-import { logger } from "../../../logger.js"
+import { logger, type Logger } from "../../../logger.js"
 
 const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
 
@@ -70,6 +70,22 @@ beforeEach(() => {
   })
   calls = mockServer.registerTool.mock.calls as RegisterToolCall[]
 })
+
+/** The registerTool calls a server makes under the config this env produces. */
+const registerWithConfig = (
+  env: Record<string, string>,
+  context: { vaultPath?: string; search?: SearchIndex; logger?: Logger } = {},
+): RegisterToolCall[] => {
+  const server = { registerTool: vi.fn() }
+  registerTools({
+    server: server as unknown as McpServer,
+    vaultPath: context.vaultPath ?? "/test-vault",
+    search: context.search ?? ({} as SearchIndex),
+    logger: context.logger ?? logger,
+    config: loadConfig(env),
+  })
+  return server.registerTool.mock.calls as RegisterToolCall[]
+}
 
 const findCall = (name: string): RegisterToolCall | undefined => {
   return calls.find(([toolName]) => toolName === name)
@@ -188,16 +204,25 @@ describe("registerTools", () => {
     expect(config.description).toContain("vault_read_note")
   })
 
-  it("vault_patch_note description includes cross-section move guidance", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
-    expect(config.description).toContain("Cross-section move")
-  })
-
-  it("vault_read_note description documents the outline response", () => {
+  it("vault_read_note documents the outline response on the outline parameter", () => {
     // The only guard against this drifting from the actual response shape.
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
-    expect(config.description).toContain(
-      "Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }",
+    expect(config.inputSchema?.outline?.description).toBe(
+      "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+    )
+  })
+
+  it("vault_patch_note's example edits a note that is not a task board", () => {
+    // Task boards belong to vault_create_task and vault_update_task, so an
+    // example that appends a card would steer agents to the wrong tool.
+    const example = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "Example: vault_patch_note",
+      endMarker: "\n\nWhen to use:",
+    })
+    expect(example).toBe(
+      'Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })',
     )
   })
 
@@ -428,18 +453,7 @@ describe("annotations", () => {
 
 describe("config interpolation in descriptions", () => {
   const CUSTOM_MEMORY_DIR = "Profile"
-  const customConfig = loadConfig({ MEMORY_DIR: CUSTOM_MEMORY_DIR })
-  const customCalls = (() => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: customConfig,
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
-  })()
+  const customCalls = registerWithConfig({ MEMORY_DIR: CUSTOM_MEMORY_DIR })
 
   /** Like requireCall, but over the custom-config registration — throws
    *  instead of returning undefined so call sites need no non-null assertion. */
@@ -484,10 +498,13 @@ describe("config interpolation in descriptions", () => {
     expect(config.description).toContain("use vault_delete_memory for memory entries")
   })
 
-  it("vault_find_orphans description references configured exclusion folders", () => {
+  it("vault_find_orphans schema references configured exclusion folders", () => {
     const [, config] = requireCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)
-    expect(config.description).toContain(CUSTOM_MEMORY_DIR)
-    expect(config.description).not.toContain("About Me")
+    const exclusionDescription = config.inputSchema?.exclude_folders?.description
+
+    expect(exclusionDescription).toBe(
+      'Folder paths to exclude (e.g. Projects; default: daily notes folder, Templates, "Profile")',
+    )
   })
 })
 
@@ -783,6 +800,26 @@ describe("optional selector params reject an empty string", () => {
   })
 })
 
+describe("optional filter lists reject an empty array", () => {
+  // - A "match any of these" list (the four below) selects nothing when empty,
+  //   so an empty one is a caller mistake. Without min(1) the call succeeds
+  //   and the empty or unfiltered result reads as a real answer.
+  // - A "require all of these" list (vault_search's tags and related) stays
+  //   valid when empty, because requiring no tags is no constraint.
+  it.each([
+    { tool: TOOL_NAMES.VAULT_LIST_FILES, field: "extensions", validValue: [".png"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "priority", validValue: ["high"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "status", validValue: ["todo"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "heading", validValue: ["Active"] },
+  ])("$tool $field rejects [] and accepts a list or no value", ({ tool, field, validValue }) => {
+    const [, config] = requireCall(tool)
+    const fieldSchema = config.inputSchema?.[field]
+    expect(fieldSchema?.safeParse([]).success).toBe(false)
+    expect(fieldSchema?.safeParse(validValue).success).toBe(true)
+    expect(fieldSchema?.safeParse(undefined).success).toBe(true)
+  })
+})
+
 describe("vault_update_memory handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
@@ -991,19 +1028,6 @@ describe("vault_read_note outline mode", () => {
 })
 
 describe("vault_search description reflects EMBEDDING_ENABLED", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
-    })
-    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
-    return registeredCalls
-  }
-
   const findSearchDescription = (registeredCalls: RegisterToolCall[]): string => {
     const searchCall = registeredCalls.find(([name]) => name === TOOL_NAMES.VAULT_SEARCH)
 
@@ -1034,19 +1058,48 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
   })
 })
 
-describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
+describe("vault_delete_note Errors list reflects OBSIDIAN_SYNC", () => {
+  /** Each Errors entry up to its first em dash, in listed order. */
+  const deleteNoteErrorLeads = (env: Record<string, string>): string[] => {
+    const errorsSection = extractDescriptionSection({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+      startMarker: "Errors:",
+      endMarker: "\n\nReturns:",
     })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    const [, ...errorEntries] = errorsSection.split("\n")
+    return errorEntries.map((entry) => entry.slice(0, entry.indexOf(" — ")))
   }
 
+  it("lists the trash-move and trash-setting errors when the server does not sync", () => {
+    expect(deleteNoteErrorLeads({})).toEqual([
+      '- "cannot delete protected path"',
+      '- "path must end in …"',
+      '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked"',
+      '- "concurrent write in progress"',
+      '- "note not found: …"',
+      '- "cannot move to trash …',
+      '- any other "cannot move to trash …"',
+      '- any other "cannot delete …"',
+      '- "cannot read trash config from .obsidian/app.json"',
+      '- "cannot read daily notes config from .obsidian/daily-notes.json"',
+    ])
+  })
+
+  it("leaves the trash-move and trash-setting errors out under OBSIDIAN_SYNC=true", () => {
+    expect(deleteNoteErrorLeads({ OBSIDIAN_SYNC: "true" })).toEqual([
+      '- "cannot delete protected path"',
+      '- "path must end in …"',
+      '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked"',
+      '- "concurrent write in progress"',
+      '- "note not found: …"',
+      '- any other "cannot delete …"',
+      '- "cannot read daily notes config from .obsidian/daily-notes.json"',
+    ])
+  })
+})
+
+describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
   const findRecallDescription = (registeredCalls: RegisterToolCall[]): string => {
     const recallCall = registeredCalls.find(([name]) => name === TOOL_NAMES.VAULT_MEMORY_RECALL)
 
@@ -1086,15 +1139,7 @@ describe("MEMORY_ENABLED=false", () => {
   const NON_MEMORY_TOOL_COUNT = ALL_TOOL_NAMES.length - MEMORY_TOOLS.length
 
   const registerWithDisabledMemory = (): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ MEMORY_ENABLED: "false" }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ MEMORY_ENABLED: "false" })
   }
 
   it("does not register memory tools", () => {
@@ -1133,15 +1178,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   const EXPECTED_NON_FILE_TOOLS = ALL_TOOL_NAMES.filter((toolName) => !FILE_TOOL_SET.has(toolName))
 
   const registerWithDisabledFileTools = (): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ FILE_TOOLS_ENABLED: "false" }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ FILE_TOOLS_ENABLED: "false" })
   }
 
   it("does not register file tools", () => {
@@ -1176,15 +1213,7 @@ describe("READONLY_MODE=true", () => {
   )
 
   const registerReadOnly = (extraEnv: Record<string, string> = {}): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ READONLY_MODE: "true", ...extraEnv }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ READONLY_MODE: "true", ...extraEnv })
   }
 
   it("does not register mutating tools", () => {
@@ -1386,6 +1415,243 @@ describe("vault_search handler", () => {
     if (!unlimitedText) throw new Error("expected text content from unlimited vault_search")
     const unlimitedPayload = JSON.parse(unlimitedText) as { total: number }
     expect(unlimitedPayload.total).toBe(3)
+  })
+})
+
+describe("vault_find_orphans live folder defaults", () => {
+  const setupOrphans = async (
+    options: {
+      settings?: string
+      env?: Record<string, string>
+      paths?: readonly string[]
+    } = {},
+  ) => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "orphan-handler-"))
+    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+    await mkdir(join(vaultPath, ".obsidian"))
+    const settingsPath = join(vaultPath, ".obsidian/daily-notes.json")
+
+    if (options.settings !== undefined) await writeFile(settingsPath, options.settings)
+
+    const search = createSearchIndex(":memory:")
+    const paths = options.paths ?? [
+      "Journal/daily.md",
+      "Journal/nested/daily.md",
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+      "Archive/note.md",
+    ]
+    paths.forEach((filePath, index) => {
+      search.upsertNote(
+        { filePath, rawContent: "# Note\n", fileStat: { mtimeMs: 10000 - index, size: 7 } },
+        logger,
+      )
+    })
+    const requestLogger: Logger = { ...logger, warn: vi.fn(), child: () => requestLogger }
+    const registeredCalls = registerWithConfig(options.env ?? {}, {
+      vaultPath,
+      search,
+      logger: requestLogger,
+    })
+    const orphanCall = registeredCalls.find(([name]) => name === TOOL_NAMES.VAULT_FIND_ORPHANS)
+
+    if (!orphanCall) throw new Error("vault_find_orphans not registered")
+
+    const queryPaths = async (args: { exclude_folders?: string[]; limit?: number } = {}) => {
+      const result = z
+        .object({
+          content: z.array(z.object({ text: z.string() })),
+          isError: z.boolean().optional(),
+        })
+        .parse(await orphanCall[2](args, { requestId: "orphan-request" }))
+      expect(result.isError).toBeUndefined()
+      return z
+        .array(z.object({ path: z.string() }))
+        .parse(JSON.parse(requireTextContent(result)))
+        .map((note) => note.path)
+    }
+    return { settingsPath, queryPaths, requestLogger, toolConfig: orphanCall[1] }
+  }
+
+  it("excludes a file-only daily folder and descendants but keeps sibling decoys", async () => {
+    const { queryPaths } = await setupOrphans({ settings: '{"folder":"Journal"}' })
+    expect(await queryPaths()).toEqual([
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Archive/note.md",
+    ])
+  })
+
+  it("excludes daily notes before a limit of one", async () => {
+    const { queryPaths } = await setupOrphans({ settings: '{"folder":"Journal"}' })
+    expect(await queryPaths({ limit: 1 })).toEqual(["JournalOld/note.md"])
+  })
+
+  it("uses the env daily folder over the file folder without reading malformed settings", async () => {
+    const { queryPaths, requestLogger } = await setupOrphans({
+      settings: "broken",
+      env: { DAILY_NOTES_FOLDER: "Journal" },
+    })
+    expect(await queryPaths()).toEqual([
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Archive/note.md",
+    ])
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it("replaces all defaults with the explicit environment list", async () => {
+    const { queryPaths, requestLogger } = await setupOrphans({
+      settings: "broken",
+      env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" },
+    })
+    expect(await queryPaths()).toEqual([
+      "Journal/daily.md",
+      "Journal/nested/daily.md",
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+    ])
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it("lets a request list replace the environment list", async () => {
+    const { queryPaths } = await setupOrphans({ env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" } })
+    expect(await queryPaths({ exclude_folders: ["Journal"] })).toEqual([
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+      "Archive/note.md",
+    ])
+  })
+
+  it.each([
+    { label: "without an environment override", env: {} },
+    { label: "over an environment override", env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" } },
+  ])(
+    "returns every folder for request [] $label and bypasses malformed settings",
+    async ({ env }) => {
+      const { queryPaths, requestLogger } = await setupOrphans({
+        settings: "broken",
+        env,
+      })
+      expect(await queryPaths({ exclude_folders: [] })).toEqual([
+        "Journal/daily.md",
+        "Journal/nested/daily.md",
+        "JournalOld/note.md",
+        "ordinary.md",
+        "Daily Notes/daily.md",
+        "Templates/template.md",
+        "About Me/memory.md",
+        "Archive/note.md",
+      ])
+      expect(requestLogger.warn).not.toHaveBeenCalled()
+    },
+  )
+
+  it("uses a comma-only environment list as no exclusions", async () => {
+    const { queryPaths, requestLogger } = await setupOrphans({
+      settings: "broken",
+      env: { ORPHAN_EXCLUDE_FOLDERS: ", ," },
+    })
+    expect(await queryPaths()).toEqual([
+      "Journal/daily.md",
+      "Journal/nested/daily.md",
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "About Me/memory.md",
+      "Archive/note.md",
+    ])
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+  })
+
+  it("excludes a custom memory directory even when memory is disabled", async () => {
+    const { queryPaths } = await setupOrphans({
+      env: { MEMORY_DIR: "Profile", MEMORY_ENABLED: "false" },
+      paths: ["Profile/memory.md", "Profile/sub/memory.md", "About Me/note.md", "ordinary.md"],
+    })
+    expect(await queryPaths()).toEqual(["About Me/note.md", "ordinary.md"])
+  })
+
+  it("applies file folder changes without registering the handler again", async () => {
+    const { queryPaths, settingsPath } = await setupOrphans({
+      settings: '{"folder":"Journal"}',
+      paths: ["Journal/daily.md", "Planner/Daily/daily.md", "ordinary.md"],
+    })
+    expect(await queryPaths()).toEqual(["Planner/Daily/daily.md", "ordinary.md"])
+    await writeFile(settingsPath, '{"folder":"Planner/Daily"}')
+    expect(await queryPaths()).toEqual(["Journal/daily.md", "ordinary.md"])
+  })
+
+  it("follows valid, malformed, and repaired settings in the same process", async () => {
+    const { queryPaths, settingsPath, requestLogger } = await setupOrphans({
+      settings: '{"folder":"Journal"}',
+      paths: ["Journal/daily.md", "Daily Notes/daily.md", "Planner/Daily/daily.md", "ordinary.md"],
+    })
+    expect(await queryPaths()).toEqual([
+      "Daily Notes/daily.md",
+      "Planner/Daily/daily.md",
+      "ordinary.md",
+    ])
+    await writeFile(settingsPath, "broken")
+    expect(await queryPaths()).toEqual([
+      "Journal/daily.md",
+      "Planner/Daily/daily.md",
+      "ordinary.md",
+    ])
+    expect(requestLogger.warn).toHaveBeenCalledTimes(1)
+    expect(requestLogger.warn).toHaveBeenCalledWith(
+      "cannot read daily notes config, using defaults",
+      { error: expect.any(String) },
+    )
+    await writeFile(settingsPath, '{"folder":"Planner/Daily"}')
+    expect(await queryPaths()).toEqual(["Journal/daily.md", "Daily Notes/daily.md", "ordinary.md"])
+  })
+
+  it("uses settings that arrive after handler registration", async () => {
+    const { queryPaths, settingsPath } = await setupOrphans({
+      paths: ["Journal/daily.md", "Daily Notes/daily.md", "ordinary.md"],
+    })
+    expect(await queryPaths()).toEqual(["Journal/daily.md", "ordinary.md"])
+    await writeFile(settingsPath, '{"folder":"Journal"}')
+    expect(await queryPaths()).toEqual(["Daily Notes/daily.md", "ordinary.md"])
+  })
+
+  it("describes live sources and states the exclusion default in the schema", async () => {
+    const { toolConfig } = await setupOrphans({ settings: '{"folder":"Journal"}' })
+    expect(toolConfig.description).toContain(
+      'The daily notes folder is resolved on each call (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes")',
+    )
+    expect(toolConfig.description).not.toContain("Journal")
+    expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
+      'Folder paths to exclude (e.g. Projects; default: daily notes folder, Templates, "About Me")',
+    )
+  })
+
+  it("describes an explicit environment list instead of implicit default sources", async () => {
+    const { toolConfig } = await setupOrphans({
+      env: { ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch" },
+    })
+    const defaultsLine = toolConfig.description
+      ?.split("\n")
+      .find((line) => line.startsWith("- With exclude_folders"))
+    expect(defaultsLine).toBe(
+      "- With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override is used.",
+    )
+    expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
+      'Folder paths to exclude (e.g. Projects; default: ["Archive","Scratch"])',
+    )
   })
 })
 
@@ -1763,6 +2029,15 @@ describe("file tool handlers", () => {
     })
   })
 
+  it("returns the source of a canvas that is not valid JSON when raw is true", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "Broken.canvas"), "{ not json", "utf8")
+    const result = await readAsset({ path: "Broken.canvas", raw: true })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "{ not json" }],
+    })
+  })
+
   it("rejects raw for an image", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     const png = await sharp({
@@ -1926,6 +2201,22 @@ describe("file tool handlers", () => {
     })
   })
 
+  it("lists a file without an extension under the (none) marker", async () => {
+    const { vault, listAssets } = await setupAssetHarness()
+    await writeFile(join(vault, "license"), "12345", "utf8")
+    await writeFile(join(vault, "photo.png"), "12", "utf8")
+    const result = await listAssets({})
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      files: [
+        { path: "license", extension: "(none)", bytes: 5 },
+        { path: "photo.png", extension: ".png", bytes: 2 },
+      ],
+      extension_counts: { "(none)": 1, ".png": 1 },
+      total: 2,
+      truncated: false,
+    })
+  })
+
   it.each(["PNG", ".PNG"])(
     "filters by extension case-insensitively for %s",
     async (extensionSpelling) => {
@@ -1958,18 +2249,6 @@ describe("file tool handlers", () => {
 })
 
 describe("DISABLED_TOOLS", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
-  }
-
   it("hides exactly the named tools and keeps every other tool", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_write_note,vault_find_orphans",
@@ -2033,6 +2312,43 @@ describe("DISABLED_TOOLS", () => {
       ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
     )
     expect(enabledReadNoteCall?.[1].description).toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
+  })
+
+  it("vault_read_note's board guidance names vault_list_tasks only while that tool is served", () => {
+    const readNoteRoutingLine = (disabledTools: string): string => {
+      return extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_READ_NOTE,
+        startMarker: "Prefer vault_search",
+        endMarker: "\n\nSection boundaries:",
+      })
+    }
+    const ROUTING_LINE_START = "Prefer vault_search when you don't know the path."
+    const ROUTING_LINE_END =
+      " Prefer vault_get_memory for About Me/ files (returns content without properties). To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links."
+
+    expect(readNoteRoutingLine("")).toBe(
+      `${ROUTING_LINE_START} For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's verbatim Markdown.${ROUTING_LINE_END}`,
+    )
+    expect(readNoteRoutingLine("vault_list_tasks")).toBe(`${ROUTING_LINE_START}${ROUTING_LINE_END}`)
+  })
+
+  it("vault_list_tasks' lane guidance names vault_read_note only while that tool is served", () => {
+    const listTasksRoutingLines = (disabledTools: string): string => {
+      return extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_LIST_TASKS,
+        startMarker: "in one call instead of per-board reads.",
+        endMarker: "\n\nBehavior:",
+      })
+    }
+    const TRIAGE_LINE_END = "in one call instead of per-board reads.\n"
+    const SEARCH_ROUTING = "Prefer vault_search for full-text queries over note content."
+
+    expect(listTasksRoutingLines("")).toBe(
+      `${TRIAGE_LINE_END}Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write. ${SEARCH_ROUTING}`,
+    )
+    expect(listTasksRoutingLines("vault_read_note")).toBe(`${TRIAGE_LINE_END}${SEARCH_ROUTING}`)
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
@@ -2131,7 +2447,7 @@ describe("DISABLED_TOOLS", () => {
   const PROPERTY_VALUES_CHECKBOX_LINE =
     '- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.'
   const PROPERTY_VALUES_SEARCH_LINE =
-    '- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.'
+    '- vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
   const PROPERTY_VALUES_NULL_LINE = "- null values are skipped."
 
   it.each([
@@ -2157,6 +2473,337 @@ describe("DISABLED_TOOLS", () => {
       endMarker: "\n\nErrors:",
     })
     expect(behaviorTail).toBe(expectedLines.join("\n"))
+  })
+
+  it.each([
+    {
+      label: "names vault_replace_span while it is served",
+      disabledTools: "",
+      expectedAdvice: "use vault_replace_span (one atomic step)",
+    },
+    {
+      label: "falls back to delete then vault_patch_note when vault_replace_span is disabled",
+      disabledTools: "vault_replace_span",
+      expectedAdvice: "delete it here, then vault_patch_note to add the new content",
+    },
+    {
+      label: "says only to delete here when vault_replace_span and vault_patch_note are disabled",
+      disabledTools: "vault_replace_span,vault_patch_note",
+      expectedAdvice: "delete it here",
+    },
+  ])("vault_delete_span's replace advice $label", ({ disabledTools, expectedAdvice }) => {
+    const replaceAdvice = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: "To replace a block,",
+      endMarker: "\n\nParameters:",
+    })
+    expect(replaceAdvice).toBe(`To replace a block, ${expectedAdvice}.`)
+  })
+
+  it.each([
+    {
+      label: "names vault_replace_in_note while it is served",
+      disabledTools: "",
+      expectedLine:
+        "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). To replace a block, use vault_replace_span (one atomic step).",
+    },
+    {
+      label: "drops the vault_replace_in_note sentence when that tool is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedLine: "To replace a block, use vault_replace_span (one atomic step).",
+    },
+  ])("vault_delete_span's routing line $label", ({ disabledTools, expectedLine }) => {
+    const routingLine = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: "the last line for end_anchor.\n",
+      endMarker: "\n\nParameters:",
+    })
+    expect(routingLine).toBe(`the last line for end_anchor.\n${expectedLine}`)
+  })
+
+  it("vault_replace_in_note drops the vault_delete_span advice when that tool is disabled", () => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_delete_span" }),
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(
+      [
+        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.',
+        'To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span. To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
+      ].join("\n"),
+    )
+  })
+
+  it.each([
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      startMarker: '- "text not found"',
+      endMarker: '\n- "absolute path',
+      expectedEntry:
+        '- "text not found" — old_text does not appear in the note body; check old_text\'s letter case, spacing, and line breaks',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      startMarker: '- "start anchor not found"',
+      endMarker: '\n- "ambiguous',
+      expectedEntry:
+        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); check the fragment\'s letter case and spacing',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      startMarker: '- "start anchor not found"',
+      endMarker: '\n- "ambiguous',
+      expectedEntry:
+        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); check the fragment\'s letter case and spacing',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      startMarker: '- "anchor not found"',
+      endMarker: '\n- "ambiguous',
+      expectedEntry:
+        '- "anchor not found" — fragment not on any line; check the fragment\'s letter case and spacing',
+    },
+  ])(
+    "$toolName's not-found entry keeps a remedy without vault_read_note",
+    ({ toolName, startMarker, endMarker, expectedEntry }) => {
+      const notFoundEntry = extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_read_note" }),
+        toolName,
+        startMarker,
+        endMarker,
+      })
+      expect(notFoundEntry).toBe(expectedEntry)
+    },
+  )
+
+  it.each([
+    {
+      label: "offers vault_replace_in_note while it is served",
+      disabledTools: "",
+      expectedEntry:
+        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or use vault_replace_in_note to target by text content when headings share the same level',
+    },
+    {
+      label: "offers only heading_level when vault_replace_in_note is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedEntry:
+        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate',
+    },
+  ])("vault_patch_note's ambiguous-heading entry $label", ({ disabledTools, expectedEntry }) => {
+    const ambiguousHeadingEntry = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: '- "ambiguous heading"',
+      endMarker: '\n- "operation',
+    })
+    expect(ambiguousHeadingEntry).toBe(expectedEntry)
+  })
+
+  const PATCH_NOTE_WHEN_TO_USE =
+    "When to use: Modifying part of an existing note without overwriting the entire body."
+  const PATCH_NOTE_WRITE_NOTE_SENTENCE =
+    "Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true)."
+  const PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE =
+    "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location."
+  const PATCH_NOTE_CREATE_TASK_SENTENCE = "Prefer vault_create_task for adding a task."
+  const PATCH_NOTE_UPDATE_TASK_SENTENCE =
+    "Prefer vault_update_task for completing or moving a task in one write."
+
+  it.each([
+    {
+      label: "names all four tools while they are served",
+      disabledTools: "",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_replace_in_note sentence when that tool is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_write_note sentence when that tool is disabled",
+      disabledTools: "vault_write_note",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_create_task sentence when that tool is disabled",
+      disabledTools: "vault_create_task",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_update_task sentence when that tool is disabled",
+      disabledTools: "vault_update_task",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "leaves only the when-to-use line when all four tools are disabled",
+      disabledTools: "vault_write_note,vault_replace_in_note,vault_create_task,vault_update_task",
+      expectedSection: PATCH_NOTE_WHEN_TO_USE,
+    },
+  ])("vault_patch_note's when-to-use $label", ({ disabledTools, expectedSection }) => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nOperations:",
+    })
+    expect(whenToUse).toBe(expectedSection)
+  })
+
+  it.each([
+    {
+      label: "names both property editors while they are served",
+      disabledTools: "",
+      expectedLine:
+        "Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
+    },
+    {
+      label: "names only vault_write_note when vault_update_properties is disabled",
+      disabledTools: "vault_update_properties",
+      expectedLine:
+        "Operates on the body only — properties must be edited via vault_write_note's properties parameter.",
+    },
+    {
+      label: "names only vault_update_properties when vault_write_note is disabled",
+      disabledTools: "vault_write_note",
+      expectedLine:
+        "Operates on the body only — properties must be edited via vault_update_properties.",
+    },
+    {
+      label: "drops the clause when both property editors are disabled",
+      disabledTools: "vault_update_properties,vault_write_note",
+      expectedLine: "Operates on the body only.",
+    },
+  ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
+    const bodyOnlyLine = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      startMarker: "Operates on the body only",
+      endMarker: "\n\nExample:",
+    })
+    expect(bodyOnlyLine).toBe(expectedLine)
+  })
+
+  it.each([
+    {
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      expectedEntry: '- "note not found" — path does not exist; check its spelling and letter case',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      expectedEntry: '- "note not found" — path does not exist; check its spelling and letter case',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      expectedEntry: '- "note not found" — check the path\'s spelling and letter case',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      expectedEntry: '- "note not found" — check the path\'s spelling and letter case',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      expectedEntry: '- "note not found" — check the path\'s spelling and letter case',
+    },
+  ])(
+    "$toolName's note-not-found entry keeps a remedy without vault_list_notes",
+    ({ toolName, expectedEntry }) => {
+      const noteNotFoundEntry = extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_list_notes" }),
+        toolName,
+        startMarker: '- "note not found"',
+        endMarker: '\n- "path must end in',
+      })
+      expect(noteNotFoundEntry).toBe(expectedEntry)
+    },
+  )
+
+  const PATCH_NOTE_SECTION_BOUNDARIES =
+    'Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted'
+  const EMPTY_HEADING_EDIT_ADVICE = " — edit their content via vault_replace_in_note instead"
+  const LEADING_CALLOUT_EDIT =
+    "Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it)."
+
+  it.each([
+    {
+      label: "names both tools while both are served",
+      disabledTools: "",
+      expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}${EMPTY_HEADING_EDIT_ADVICE}.\n\n${LEADING_CALLOUT_EDIT}`,
+    },
+    {
+      label:
+        "drops the empty-heading advice and the callout edit when vault_replace_in_note is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}.`,
+    },
+    {
+      label: "drops only the callout edit when vault_read_note is disabled",
+      disabledTools: "vault_read_note",
+      expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}${EMPTY_HEADING_EDIT_ADVICE}.`,
+    },
+  ])("vault_patch_note's section-boundary text $label", ({ disabledTools, expectedSection }) => {
+    const sectionBoundariesText = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "Section boundaries:",
+      endMarker: "\n\nErrors:",
+    })
+    expect(sectionBoundariesText).toBe(expectedSection)
+  })
+
+  const REPLACE_SPAN_WHEN_TO_USE =
+    "When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor."
+  const INSERT_AT_ANCHOR_WHEN_TO_USE =
+    "When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line."
+
+  it.each([
+    {
+      label:
+        "vault_replace_span starts its alternatives line at vault_delete_span when vault_replace_in_note is disabled",
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      disabledTools: "vault_replace_in_note",
+      expectedWhenToUse: `${REPLACE_SPAN_WHEN_TO_USE}\nPrefer vault_delete_span when removing without replacement.`,
+    },
+    {
+      label: "vault_replace_span drops its alternatives line when both tools it names are disabled",
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      disabledTools: "vault_replace_in_note,vault_delete_span",
+      expectedWhenToUse: REPLACE_SPAN_WHEN_TO_USE,
+    },
+    {
+      label:
+        "vault_insert_at_anchor starts its alternatives line at vault_replace_span when vault_patch_note is disabled",
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      disabledTools: "vault_patch_note",
+      expectedWhenToUse: `${INSERT_AT_ANCHOR_WHEN_TO_USE}\nPrefer vault_replace_span when replacing a block rather than inserting next to it.`,
+    },
+    {
+      label:
+        "vault_insert_at_anchor drops its alternatives line when both tools it names are disabled",
+      toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      disabledTools: "vault_patch_note,vault_replace_span",
+      expectedWhenToUse: INSERT_AT_ANCHOR_WHEN_TO_USE,
+    },
+    {
+      label:
+        "vault_replace_in_note drops its alternatives line when all three tools it names are disabled",
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      disabledTools: "vault_delete_span,vault_replace_span,vault_patch_note",
+      expectedWhenToUse:
+        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.',
+    },
+  ])("$label", ({ toolName, disabledTools, expectedWhenToUse }) => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(expectedWhenToUse)
   })
 })
 

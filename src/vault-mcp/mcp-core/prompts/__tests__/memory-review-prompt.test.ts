@@ -281,6 +281,25 @@ describe("memory-review logging", () => {
     expect(result?.data.truncated).toBe(false)
   })
 
+  it("does not flag truncation when emoji memory fits max_chars in characters", async () => {
+    const logs: LogCall[] = []
+    const { vault, calls } = await setupVault({ logger: recordingLogger(logs) })
+    // 327 characters, but 627 UTF-16 units: under the cap only when counted
+    // the way the cut counts them.
+    const emojiEntry = `- **2026-06-24**: ${"🎉".repeat(300)}`
+    await writeFile(
+      join(vault, "About Me", "Principles.md"),
+      `---\ntitle: Principles\n---\n\n## Notes\n${emojiEntry}\n`,
+      "utf8",
+    )
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    const text = textOf(await handler({ file: "Principles", max_chars: "400" }, fakeExtra))
+    const result = logs.find((call) => call.message === "prompt_result")
+    expect(text).toContain(`## Notes\n${emojiEntry}\n</vault-content>`)
+    expect(result?.data.truncated).toBe(false)
+  })
+
   it("warns (not errors) when given an unknown file", async () => {
     const logs: LogCall[] = []
     const { calls } = await setupVault({ logger: recordingLogger(logs) })

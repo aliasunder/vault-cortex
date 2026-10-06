@@ -117,7 +117,9 @@ graph TB
 
 **Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks (notes + file content) + sqlite-vec KNN ranks (notes + file content) → RRF fusion → cross-encoder reranking → response.
 
-**Invariant — vault is source of truth:** The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. The sqlite-vec embeddings are equally derived — they persist across rebuilds as an optimization but can always be regenerated from the vault.
+**Invariant — vault is source of truth:** Vault files are canonical. MCP content edits must write to those files, never directly to the index. The watcher and startup rebuild derive the SQLite search index from the files.
+
+Embeddings persist across rebuilds to reuse unchanged content and can be regenerated from the vault.
 
 ## MCP Tools
 
@@ -167,13 +169,21 @@ The edit tools differ in how they locate the lines they change — by heading, b
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
-`vault_delete_note` refuses paths under protected folders as a server-side guardrail. The default protected set is the memory dir plus the daily notes folder, read at operation time from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`). `PROTECTED_PATHS` overrides the default entirely. Use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+`vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+
+`vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
+
+- **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes
+- **Unreadable `daily-notes.json`:** a file that exists but cannot be read or parsed refuses the delete or move, because the folder to protect is unknown; setting `DAILY_NOTES_FOLDER` skips the file
+- **Override:** `PROTECTED_PATHS` replaces the default set entirely, and `daily-notes.json` is not read
+
+To remove a single entry from a memory file, use `vault_delete_memory`.
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
 - **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it
-- **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into `PROTECTED_PATHS`
+- **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
 
@@ -209,7 +219,14 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 **Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
 
-**Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`). Only a successful config-file read is cached — a missing or malformed file is re-read on the next call, so a config file that arrives after boot is picked up without a restart. `task-format-config.ts` uses the same cache rule.
+- **Listing values:** `vault_list_property_values`, and the `sample_values` in `vault_list_property_keys`, count each value by the text the tool returns. The number `1` and the text `"1"` both return `"1"`, so they share one count; the text `"1.0"` keeps its own. Counting happens before `limit` and sample selection apply, and each item of a list property counts on its own.
+- **Matching a value:** `vault_search_by_property` matches text exactly. A value written as a whole, finite number in [YAML 1.2 core schema](https://yaml.org/spec/1.2.2/#1032-tag-resolution) form (`4`, `-0.5`, `1e3`, `0x1F`, `0o17`) also matches stored numbers equal to it as [JavaScript numbers](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number#number_encoding). So `"04"` matches the number `4` and the text `"04"`, but not the text `"4"`. Checkbox values match only `"1"` and `"0"`.
+
+**Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`).
+
+- **Read on every call:** a folder or format change in Obsidian applies to the next call, and a config file that arrives after boot needs no restart
+- **Missing file:** takes the fallbacks
+- **Unparseable file:** takes the fallbacks and logs a `warn`
 
 ### Memory
 
@@ -273,7 +290,10 @@ Link queries use a `links` table populated during indexing:
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness.
-- **Orphans:** `vault_find_orphans` excludes folders listed in `ORPHAN_EXCLUDE_FOLDERS` (default: the daily notes folder — `DAILY_NOTES_FOLDER` or `Daily Notes` — plus `Templates` and the memory dir).
+- **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (`DAILY_NOTES_FOLDER` → `.obsidian/daily-notes.json` → `Daily Notes`), `Templates`, and the memory dir.
+  - `ORPHAN_EXCLUDE_FOLDERS` replaces that list; a tool call's `exclude_folders` replaces it for that call.
+  - An unreadable or malformed config logs a warning and uses `Daily Notes`; a missing file uses that fallback without a warning.
+  - An empty Obsidian folder setting uses the `Daily Notes` fallback. A whitespace-only folder adds no daily-folder exclusion. Neither excludes the whole vault, so root-level daily notes remain eligible.
 
 ### Files
 
@@ -352,6 +372,8 @@ Four design choices shape the query surface:
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
 - **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder (rejected when the task sits above the first heading or the lane's heading name is duplicated). A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
+
+`vault_create_task` and `vault_update_task` read the Tasks plugin's format and date toggles on every write, so a change in Obsidian applies to the next write. The plugin's status registry is read once at boot, so `vault_list_tasks` and the two write tools always agree on which checkboxes are tasks; a status-type change needs a restart.
 
 ## MCP Prompts
 
@@ -448,15 +470,23 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
 3. **Pass 3 (background)** — embed notes, then file content. Search works with FTS-only until vectors are ready
 
+**Startup cleanup:** before resetting the source tables, the rebuild removes vectors whose parent chunk or memory-entry row is missing and retains vectors with surviving parents.
+
 Vector tables persist across restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared). Pass 3 cleans up vectors for deleted notes and files, then embeds only new or modified chunks via content-hash gating.
 
 **Incremental updates:** the file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
+
+**Embedding freshness:**
+
+- Each successful source upsert returns a unique `sourceVersion`. Queued watcher jobs and background rebuild snapshots retain that version, so deletion or replacement invalidates earlier work even when content or modification time repeats.
+- Note, file-content and memory-entry writers check the captured version before model work and after each model await. Obsolete jobs skip derived writes, note/file tail pruning and later memory batches.
+- The watcher assigns an event token before reading each file and checks it before indexing. Unlink or a newer event invalidates earlier reads; embedding stays serialized per path to limit model concurrency.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
 
 - **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
 - **Chunk prefixes:** every fragment starts with the note title; aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path (capped at the remaining token budget — leading ancestors are dropped when deep nesting with long names would floor the body budget, keeping the deepest segments; the Section line is suppressed entirely when the title and metadata exhaust the budget), while preamble fragments, a singleton wrapper's aggregate, and the TOC chunk keep the bare title. A heading whose slice is empty emits no section chunk — its name still rides the TOC chunk, and descendant chunks' Section lines carry it when it has children. A top-level heading with children but no body of its own still emits its aggregate (the slice spans the subtree)
-- **Table-of-contents chunk:** each split note with named headings emits one short chunk (folder segments + title on one line, then heading names in document order, truncated at the chunk budget). Generic intent-phrased queries are structurally won by short chunks under the embedding model, so every split note gets one deliberately short chunk, made unique by its folder path
+- **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
 
 Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
@@ -867,10 +897,11 @@ graph LR
    `/home/obsidian/.config` (persists across restarts for incremental sync —
    critical for embedding ingestion).
 3. **`svc-vault-mcp`** — MCP server. Drops to the same `obsidian` user, so
-   both processes read/write the shared `/vault` volume. On startup: builds
-   the FTS5 search index, bootstraps memory templates if the memory folder
+   both processes read/write the shared `/vault` volume. On startup: bootstraps
+   memory templates if the memory folder
    doesn't exist, `MEMORY_ENABLED` is not `false`, and the server is not in
-   `READONLY_MODE`, then starts the file watcher.
+   `READONLY_MODE`, builds the FTS5 search index including those templates,
+   then starts the file watcher.
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after the full init chain has finished and the sync
@@ -1083,7 +1114,7 @@ The runtime image (`Dockerfile`) minimizes the attack surface:
 | Debian security fixes          | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                                                                                 |
 | Log rotation (Compose)         | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                                                                            |
 | Explicit proxy trust (Express) | `trust proxy` = `TRUST_PROXY_HOPS` (default 0 — direct exposure); the `Forwarded` header is honored only under a non-zero `TRUST_FORWARDED_HOPS` — injected forwarding headers can't spoof the client IP (OAuth rate-limit bucket key, request logs) |
-| `Object.freeze` on config      | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                                                                                       |
+| `Object.freeze` on config      | Prevents accidental mutation of the loaded `VaultConfig` — defense against programming errors                                                                                                                                                        |
 
 ### Durability
 
@@ -1205,8 +1236,9 @@ Docker hardening, and durability seatbelts above.
   like `../../outside` cannot escape the memory directory — and leading
   dots, which would create hidden files (memory paths are built via
   `join`, bypassing `resolveSafePath`'s hidden-path guard).
-- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus
-  `DAILY_NOTES_FOLDER`, falling back to `Daily Notes`) blocks deleting
+- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus the
+  daily notes folder, from `DAILY_NOTES_FOLDER`, then
+  `.obsidian/daily-notes.json`, then `Daily Notes`) blocks deleting
   notes in, moving notes out of, and moving notes into configured
   folders. The check (`isProtectedPath()`, shared by delete and move)
   runs on the canonical vault-relative path with a case-folded

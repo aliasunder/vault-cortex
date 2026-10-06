@@ -237,7 +237,7 @@ describe("atomicWriteFileExclusive", () => {
           { filePath: target, content: "body\n", hardLinksSupported: false },
           logger,
         ),
-      ).rejects.toThrow("EIO: injected swap failure")
+      ).rejects.toThrow(new Error("EIO: injected swap failure"))
 
       expect(warnSpy).toHaveBeenCalledTimes(1)
       expect(warnSpy).toHaveBeenCalledWith("failed to remove reservation placeholder", {
@@ -881,7 +881,7 @@ describe("deleteNote", () => {
 
       expect(await folderExists("Folder")).toBe(true)
       expect(await folderExists("Folder/only.md")).toBe(false)
-      expect(pruned.prunedEmptyFolders).toBe(0)
+      expect(pruned.prunedFolderCount).toBe(0)
     })
 
     it("removes the now-empty parent folder when prune is enabled", async () => {
@@ -891,7 +891,7 @@ describe("deleteNote", () => {
       const pruned = await deleteWithPrune("Folder/only.md")
 
       expect(await folderExists("Folder")).toBe(false)
-      expect(pruned.prunedEmptyFolders).toBe(1)
+      expect(pruned.prunedFolderCount).toBe(1)
     })
 
     it("walks up removing multiple empty parents when prune is enabled", async () => {
@@ -903,7 +903,7 @@ describe("deleteNote", () => {
       expect(await folderExists("A/B/C")).toBe(false)
       expect(await folderExists("A/B")).toBe(false)
       expect(await folderExists("A")).toBe(false)
-      expect(pruned.prunedEmptyFolders).toBe(3)
+      expect(pruned.prunedFolderCount).toBe(3)
     })
 
     it("stops at the first non-empty parent", async () => {
@@ -916,7 +916,7 @@ describe("deleteNote", () => {
       expect(await folderExists("A/B")).toBe(false)
       expect(await folderExists("A")).toBe(true)
       expect(await folderExists("A/keep.md")).toBe(true)
-      expect(pruned.prunedEmptyFolders).toBe(1)
+      expect(pruned.prunedFolderCount).toBe(1)
     })
 
     it("never removes the vault root", async () => {
@@ -926,7 +926,7 @@ describe("deleteNote", () => {
 
       expect(await folderExists("root-note.md")).toBe(false)
       expect(await folderExists("")).toBe(true)
-      expect(pruned.prunedEmptyFolders).toBe(0)
+      expect(pruned.prunedFolderCount).toBe(0)
     })
 
     it("leaves a folder that still contains a hidden file", async () => {
@@ -941,7 +941,7 @@ describe("deleteNote", () => {
       expect(await folderExists("Folder/note.md")).toBe(false)
       expect(await folderExists("Folder")).toBe(true)
       expect(await folderExists("Folder/.DS_Store")).toBe(true)
-      expect(pruned.prunedEmptyFolders).toBe(0)
+      expect(pruned.prunedFolderCount).toBe(0)
     })
 
     it("logs a warning and returns 0 without throwing when a folder cannot be removed", async () => {
@@ -1264,8 +1264,10 @@ describe("deleteNote — trash behavior", () => {
       logger,
     )
 
-    expect(result.trashLocation).toBe(".trash/Empty/Sub/leaf.md")
-    expect(result.prunedEmptyFolders).toBe(2)
+    expect(result).toEqual({
+      trashLocation: ".trash/Empty/Sub/leaf.md",
+      prunedFolderCount: 2,
+    })
     await expect(stat(join(vault, "Empty"))).rejects.toThrow(/ENOENT/)
   })
 
@@ -1636,7 +1638,7 @@ describe("deleteNote — trash behavior", () => {
     })
   })
 
-  it('the "deleted note" log includes trash_option so an operator can distinguish swept from kept', async () => {
+  it('the "deleted note" log includes trashOption so an operator can distinguish swept from kept', async () => {
     await writeFile(join(vault, "log-field.md"), "content", "utf8")
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
     onTestFinished(() => infoSpy.mockRestore())
@@ -1654,9 +1656,9 @@ describe("deleteNote — trash behavior", () => {
 
     expect(infoSpy).toHaveBeenCalledWith("deleted note", {
       path: "log-field.md",
-      trash_option: "local",
-      trash_location: ".trash/log-field.md",
-      pruned_empty_folders: 0,
+      trashOption: "local",
+      trashLocation: ".trash/log-field.md",
+      prunedFolderCount: 0,
     })
   })
 })
@@ -2548,7 +2550,7 @@ describe("readNoteSection", () => {
   it("throws heading cannot be empty for an empty heading", async () => {
     await expect(
       readNoteSection({ vaultPath: vault, path: "board.md", heading: "" }, logger),
-    ).rejects.toThrow("heading cannot be empty")
+    ).rejects.toThrow(new Error("heading cannot be empty"))
   })
 })
 

@@ -16,6 +16,7 @@ import {
   type PromptRegistrationContext,
   textResult,
   wrapWithDataMarkers,
+  exceedsCharCap,
   maxCharsArg,
 } from "./prompt-helpers.js"
 
@@ -149,7 +150,7 @@ export const registerMemoryReviewPrompt = ({
 
         const memory = await memoryStore.getMemory({ vaultPath, file: args.file }, reqLogger)
         const trimmedMemory = memory.trim()
-        const truncated = maxChars !== undefined && trimmedMemory.length > maxChars
+        const truncated = exceedsCharCap(trimmedMemory, maxChars)
         const scope = args.file
           ? `the ${config.memoryDir}/${args.file} memory file`
           : `the ${config.memoryDir}/ memory layer`

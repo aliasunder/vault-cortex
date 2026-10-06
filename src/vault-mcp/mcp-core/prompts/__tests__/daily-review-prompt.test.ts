@@ -4,10 +4,13 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
 import { registerPrompts } from "../../prompt-definitions.js"
+import { readDailyNotesConfig } from "../../../vault-operations/daily-notes.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   type RegisterPromptCall,
   fakeExtra,
+  recordingLogger,
+  type LogCall,
   JUNE_16_MIDDAY_MS,
   setupVault,
   setupDailyReviewVault,
@@ -21,6 +24,9 @@ import {
   logger,
 } from "./prompt-test-harness.js"
 
+// Real implementation, wrapped so a test can count the reads of daily-notes.json.
+vi.mock("../../../vault-operations/daily-notes.js", { spy: true })
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -28,6 +34,31 @@ afterEach(() => {
 // ── daily-review handler ─────────────────────────────────────────
 
 describe("daily-review handler", () => {
+  it("reads the daily-notes settings once per run, for the note path and the link flags alike", async () => {
+    const { vault, calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      dailyContent: "# 2026-06-16\n\n[[Daily Notes/2026-06-17]]\n",
+    })
+    vi.mocked(readDailyNotesConfig).mockClear()
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    // A second read would answer the link classification from a settings
+    // version the note path never saw. The handler builds its request
+    // logger per call, so only the params are pinned.
+    expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledWith(
+      { vaultPath: vault, envSettings: { folder: undefined, format: undefined } },
+      expect.anything(),
+    )
+    expect(text).toContain('source="Daily Notes/2026-06-16.md"')
+    // The link into the resolved folder is a forward reference, not a broken
+    // link, so no broken-link summary follows the listing.
+    expect(text).toContain("- Daily Notes/2026-06-17 (**broken** — target does not exist)")
+    expect(text).not.toContain("broken link —")
+  })
+
   // Exact assembled output (note + recent notes) is asserted in "full prompt
   // output"; the cases below cover the missing-note and default-date branches.
   it("offers to create a missing note and shows date-specific activity", async () => {
@@ -76,6 +107,22 @@ describe("daily-review handler", () => {
     expect(text).toContain("truncated at 30 characters")
     expect(text).toContain("vault_get_daily_note")
     expect(text).not.toContain("runs well past the cap")
+  })
+
+  it("embeds and logs as untruncated a daily note whose emoji fit max_chars in characters", async () => {
+    const logs: LogCall[] = []
+    const { vault, calls } = await setupVault({ logger: recordingLogger(logs) })
+    // 314 characters, but 614 UTF-16 units: under the cap only when counted
+    // the way the cut counts them.
+    const dailyBody = `# 2026-06-16\n\n${"🎉".repeat(300)}`
+    await mkdir(join(vault, "Daily Notes"), { recursive: true })
+    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), `${dailyBody}\n`, "utf8")
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({ date: "2026-06-16", max_chars: "400" }, fakeExtra))
+    const result = logs.find((call) => call.message === "prompt_result")
+    expect(text).toContain(`date="2026-06-16">\n${dailyBody}\n</vault-content>`)
+    expect(result?.data.truncated).toBe(false)
   })
 
   it("daily-review data markers survive truncation", async () => {
