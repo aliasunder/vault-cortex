@@ -114,6 +114,35 @@
 
 
 
+
+## [0.54.10] — 2026-10-06
+
+### Bug Fixes
+
+- **search:** Discard obsolete embedding work and sweep orphan vectors (#644)
+- **deps:** Bump proxy-addr to 2.0.8 (#647)
+- **patcher:** Collapse only the blank-line gap an edit leaves (#640)
+- **search:** Follow daily-note settings in orphan defaults (#642)
+- **search:** Combine property values and match numeric forms (#637)
+
+### Refactoring
+
+- Clarify delete result and trash log names (#645)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.9
+
+### Maintenance
+
+- **deps-dev:** Bump source-map-js from 1.2.1 to 1.2.2 (#648)
+
+### Other Changes
+
+- **deps:** Override katex to 0.18.2 and smol-toml to 1.9.0 (#649)
+- Assert exact parameterized move errors (#646)
+- Assert exact fixed error messages (#639)
+
 ## [0.54.9] — 2026-10-05
 
 ### Bug Fixes
