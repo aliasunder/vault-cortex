@@ -523,6 +523,78 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     expect(errorSpy).toHaveBeenCalledTimes(1)
   })
 
+  it.each([{ event: "add" }, { event: "change" }] as const)(
+    "contains a non-markdown read failure during $event and recovers",
+    async ({ event }) => {
+      const { testVault, search, database, fire } = await createControlledWatcher()
+      const filePath = join(testVault, "content.txt")
+      await writeFile(filePath, "currentopal")
+      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+        if (requestedPath === filePath) throw new Error("controlled content read failure")
+        return actualFs.readFile(requestedPath, options)
+      })
+      const contentSpy = vi.spyOn(search, "upsertFileContent")
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => {
+        readSpy.mockRestore()
+        warnSpy.mockRestore()
+      })
+
+      await expect(fire(event, "content.txt")).resolves.toBeUndefined()
+      expect(readSpy).toHaveBeenCalledWith(filePath, "utf8")
+      expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content indexing failed", {
+        path: "content.txt",
+        error: "[Error]: controlled content read failure",
+      })
+      expect(contentSpy).not.toHaveBeenCalled()
+      expect(database.prepare("SELECT path, bytes FROM non_md_files").all()).toEqual([
+        { path: "content.txt", bytes: Buffer.byteLength("currentopal") },
+      ])
+      expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([])
+      readSpy.mockRestore()
+      await fire(event, "content.txt")
+      expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+        { path: "content.txt", content: "currentopal" },
+      ])
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each([{ event: "add" }, { event: "change" }] as const)(
+    "contains a PDF extraction failure during $event and recovers",
+    async ({ event }) => {
+      const { testVault, search, database, fire } = await createControlledWatcher()
+      await writeFile(join(testVault, "doc.pdf"), "controlled PDF bytes")
+      const extractSpy = vi
+        .mocked(extractPdfText)
+        .mockRejectedValueOnce(new Error("controlled PDF extraction failure"))
+        .mockResolvedValueOnce({ text: "recoveredopal", totalPages: 1 })
+      const contentSpy = vi.spyOn(search, "upsertFileContent")
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => {
+        extractSpy.mockRestore()
+        warnSpy.mockRestore()
+      })
+
+      await expect(fire(event, "doc.pdf")).resolves.toBeUndefined()
+      expect(extractSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content indexing failed", {
+        path: "doc.pdf",
+        error: "[Error]: controlled PDF extraction failure",
+      })
+      expect(contentSpy).not.toHaveBeenCalled()
+      expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([{ path: "doc.pdf" }])
+      expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([])
+      await fire(event, "doc.pdf")
+      expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+        { path: "doc.pdf", content: "recoveredopal" },
+      ])
+      expect(extractSpy).toHaveBeenCalledTimes(2)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it("contains a file content removal failure during unlink and allows a later unlink", async () => {
     const { testVault, search, database, fire } = await createControlledWatcher()
     const filePath = join(testVault, "content.txt")

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, symlink } from "node:fs/promises"
+import { mkdtemp, rm, writeFile, mkdir, symlink, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import Database from "better-sqlite3"
@@ -10,6 +10,12 @@ import { createSearchIndex, INDEXABLE_TEXT_EXTENSIONS } from "../search-index.js
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
+import { statOrNull } from "../../../utils/fs.js"
+import { extractPdfText } from "../../obsidian-markdown/pdf.js"
+
+vi.mock("node:fs/promises", { spy: true })
+vi.mock("../../../utils/fs.js", { spy: true })
+vi.mock("../../obsidian-markdown/pdf.js", { spy: true })
 
 const realSqliteVec = await vi.importActual<typeof sqliteVec>("sqlite-vec")
 
@@ -3256,6 +3262,141 @@ describe("markdown path requirement", () => {
   })
 })
 
+describe("rebuildFromVault filesystem failures", () => {
+  const createRebuildVault = async () => {
+    const vaultPath = await mkdtemp(join(tmpdir(), "rebuild-error-"))
+    onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    await writeFile(join(vaultPath, "healthy.md"), "healthyamber")
+    return { vaultPath, search }
+  }
+
+  it.each(["EACCES", "EIO"])("skips a non-markdown %s stat failure and recovers", async (code) => {
+    const { vaultPath, search } = await createRebuildVault()
+    const filePath = join(vaultPath, "image.png")
+    await writeFile(filePath, "image data")
+    const actualFs =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const statSpy = vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      if (requestedPath === filePath)
+        throw Object.assign(new Error("controlled stat failure"), { code })
+      return actualFs.statOrNull(requestedPath)
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      statSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+    await rebuilt.embedding
+
+    expect(rebuilt.count).toBe(1)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unstattable file during rebuild", {
+      path: "image.png",
+      error: "[Error]: controlled stat failure",
+    })
+    expect(
+      search.fullTextSearch({ query: "healthyamber" }, logger).map((entry) => entry.path),
+    ).toEqual(["healthy.md"])
+    search.upsertNote(
+      { filePath: "source.md", rawContent: "![[image.png]]", fileStat: testStat(1000) },
+      logger,
+    )
+    expect(
+      search
+        .getOutgoingLinks({ path: "source.md" }, logger)
+        .map((link) => ({ path: link.path, exists: link.exists })),
+    ).toEqual([{ path: "image.png", exists: false }])
+    statSpy.mockRestore()
+    const recovered = await search.rebuildFromVault({ vaultPath }, logger)
+    await recovered.embedding
+    search.upsertNote(
+      { filePath: "source.md", rawContent: "![[image.png]]", fileStat: testStat(1000) },
+      logger,
+    )
+    expect(
+      search
+        .getOutgoingLinks({ path: "source.md" }, logger)
+        .map((link) => ({ path: link.path, exists: link.exists })),
+    ).toEqual([{ path: "image.png", exists: true }])
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    { fileName: "broken.md", sourceKind: "note" },
+    { fileName: "broken.canvas", sourceKind: "canvas file" },
+    { fileName: "broken.txt", sourceKind: "text file" },
+    { fileName: "broken.pdf", sourceKind: "PDF" },
+  ])(
+    "warns and skips an unreadable $sourceKind while indexing healthy files",
+    async ({ fileName, sourceKind }) => {
+      const { vaultPath, search } = await createRebuildVault()
+      const filePath = join(vaultPath, fileName)
+      await writeFile(filePath, "brokenquartz")
+      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+        if (requestedPath === filePath) throw new Error("controlled read failure")
+        return actualFs.readFile(requestedPath, options)
+      })
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => {
+        readSpy.mockRestore()
+        warnSpy.mockRestore()
+      })
+      const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+      await rebuilt.embedding
+
+      expect(rebuilt.count).toBe(1)
+      expect(readSpy).toHaveBeenCalledWith(filePath, ...(fileName.endsWith(".pdf") ? [] : ["utf8"]))
+      expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+        `skipped unreadable ${sourceKind} during rebuild`,
+        { path: fileName, error: "[Error]: controlled read failure" },
+      )
+      expect(
+        (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
+          (entry) => entry.path,
+        ),
+      ).toEqual(["healthy.md"])
+      expect((await search.hybridSearch({ query: "brokenquartz" }, logger)).results).toEqual([])
+    },
+  )
+
+  it("contains a rebuild PDF extraction failure and indexes its next valid extraction", async () => {
+    const { vaultPath, search } = await createRebuildVault()
+    await writeFile(join(vaultPath, "broken.pdf"), "controlled bytes")
+    const extractSpy = vi
+      .mocked(extractPdfText)
+      .mockRejectedValueOnce(new Error("controlled PDF failure"))
+      .mockResolvedValueOnce({ text: "recoveredopal", totalPages: 1 })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      extractSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+    await rebuilt.embedding
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable PDF during rebuild", {
+      path: "broken.pdf",
+      error: "[Error]: controlled PDF failure",
+    })
+    expect(
+      (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.md"])
+    expect((await search.hybridSearch({ query: "recoveredopal" }, logger)).results).toEqual([])
+    const recovered = await search.rebuildFromVault({ vaultPath }, logger)
+    await recovered.embedding
+    expect(
+      (await search.hybridSearch({ query: "recoveredopal" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["broken.pdf"])
+    expect(extractSpy).toHaveBeenCalledTimes(2)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("rebuildFromVault", () => {
   let vaultDir: string
 
@@ -5889,6 +6030,88 @@ describe("INDEXABLE_TEXT_EXTENSIONS", () => {
 // ── Canvas file content + link graph ──────────────────────────
 
 describe("canvas file content and links", () => {
+  it.each([{ fileToolsEnabled: true }, { fileToolsEnabled: false }])(
+    "resolves canvas links to existing notes and assets with file tools $fileToolsEnabled",
+    ({ fileToolsEnabled }) => {
+      const canvasIndex = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled })
+      for (const notePath of ["Notes/Plan.md", "Notes/Route.md", "deep/Plan.md"]) {
+        canvasIndex.upsertNote(
+          { filePath: notePath, rawContent: "targetamber", fileStat: testStat(1000) },
+          logger,
+        )
+      }
+      for (const assetPath of [
+        "photos/Sunset.png",
+        "photo.png.canvas",
+        "a/photo.png",
+        "Route.canvas",
+        "assets/map.canvas",
+      ]) {
+        canvasIndex.upsertNonMdFile(assetPath, 42)
+      }
+      canvasIndex.upsertNonMdFile("Boards/source.canvas", 100)
+      const targets = [
+        "../Notes/Plan.md",
+        "Sunset.png",
+        "sunset.png",
+        "photo.png",
+        "Route",
+        "../assets/map.canvas",
+        "missing.png",
+      ]
+      const canvasContent = JSON.stringify({
+        nodes: targets.map((file, position) => ({
+          id: `file-${position}`,
+          type: "file",
+          x: 0,
+          y: position * 100,
+          width: 100,
+          height: 100,
+          file,
+        })),
+        edges: [],
+      })
+      canvasIndex.upsertFileContent(
+        {
+          filePath: "Boards/source.canvas",
+          rawContent: canvasContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+
+      expect(
+        canvasIndex
+          .getOutgoingLinks({ path: "Boards/source.canvas" }, logger)
+          .map((link) => ({ path: link.path, exists: link.exists })),
+      ).toEqual([
+        { path: "Notes/Plan.md", exists: true },
+        { path: "Notes/Route.md", exists: true },
+        { path: "a/photo.png", exists: true },
+        { path: "assets/map.canvas", exists: true },
+        { path: "missing.png", exists: false },
+        { path: "photos/Sunset.png", exists: true },
+      ])
+      expect(
+        canvasIndex.getBacklinks({ path: "Notes/Plan.md" }, logger).map((link) => link.path),
+      ).toEqual(["Boards/source.canvas"])
+      expect(
+        canvasIndex.getBacklinks({ path: "assets/map.canvas" }, logger).map((link) => link.path),
+      ).toEqual(["Boards/source.canvas"])
+      expect(canvasIndex.brokenLinkCount({}, logger)).toEqual({
+        count: 1,
+        excludedFolder: null,
+        excludedCount: 0,
+      })
+      canvasIndex.upsertNonMdFile("other/unchanged.txt", 12)
+      expect(canvasIndex.brokenLinkCount({}, logger)).toEqual({
+        count: 1,
+        excludedFolder: null,
+        excludedCount: 0,
+      })
+    },
+  )
+
   const CANVAS_WITH_FILE_NODES = JSON.stringify({
     nodes: [
       {

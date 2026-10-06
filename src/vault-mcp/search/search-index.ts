@@ -1258,8 +1258,18 @@ export const createSearchIndex = (
       // Link extraction — canvas only, unconditional (graph integrity)
       if (isCanvas) {
         deleteLinksStmt.run(params.filePath)
-        for (const linkTarget of canvasLinks) {
-          insertLinkStmt.run(params.filePath, linkTarget)
+        const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
+        for (const rawTarget of canvasLinks) {
+          const resolvedNotePath = links.resolve({
+            target: rawTarget,
+            allPaths: notePaths,
+            sourcePath: params.filePath,
+          })
+          const resolvedTarget =
+            resolvedNotePath ??
+            resolveNonMarkdownFile({ target: rawTarget, sourcePath: params.filePath }) ??
+            rawTarget
+          insertLinkStmt.run(params.filePath, resolvedTarget)
         }
       }
     })()
@@ -2090,11 +2100,21 @@ export const createSearchIndex = (
     // Stat non-md files before the write transaction (fs stays out of it).
     // A file vanishing between listing and stat (sync race) is dropped here
     // and re-indexed by its own watcher event.
-    const readFileSize = async (file: RebuildFilePaths) => {
-      const fileStat = await statOrNull(file.absolutePath)
+    const readFileSize = async (
+      file: RebuildFilePaths,
+    ): Promise<{ relativePath: string; bytes: number } | null> => {
+      try {
+        const fileStat = await statOrNull(file.absolutePath)
 
-      if (!fileStat) return null
-      return { relativePath: file.relativePath, bytes: fileStat.size }
+        if (!fileStat) return null
+        return { relativePath: file.relativePath, bytes: fileStat.size }
+      } catch (error) {
+        logger.warn("skipped unstattable file during rebuild", {
+          path: file.relativePath,
+          error: describeError(error),
+        })
+        return null
+      }
     }
     /** Bound filesystem work so a large vault cannot open every file at once. */
     const REBUILD_IO_CONCURRENCY = 16
