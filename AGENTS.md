@@ -75,7 +75,7 @@ src/
   auth.ts, jwt.ts # Shared auth utilities; minimal HS256 JWT used by the Lambda and Express
   utils/ # Generic helpers with no domain logic (admission rules under Module layering)
   functions/authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
-  __tests__/integration/ # SDK Client over real HTTP: test-harness.ts, happy paths, error contracts, OAuth flows, fixtures/vault/
+  __tests__/integration/ # SDK Client over real HTTP: test-harness.ts, fixtures/vault/, happy paths, error contracts, OAuth flows
   __tests__/docker/ # Remote image boot tests (npm run test:remote-boot): docker-harness.ts, with `ob` stubbed by fixtures/ob
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
