@@ -11,12 +11,15 @@ import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import { withExclusiveFileLock, withFileLock } from "../../utils/file-write-lock.js"
 import { links } from "../obsidian-markdown/links.js"
 import {
+  OverwriteBlockedError,
   parseNote,
   parseNoteForRewrite,
   replacePropertiesBlock,
   stringifyNote,
   mergeFrontmatter,
+  UnsupportedPropertiesBlockError,
 } from "../obsidian-markdown/frontmatter.js"
+import type { ParsedNote } from "../obsidian-markdown/frontmatter.js"
 import {
   parseHeadings,
   findHeading,
@@ -254,6 +257,17 @@ export const atomicWriteFileExclusive = async (
   }
 }
 
+/** Parses a note an overwrite will merge into. A refused properties block
+ *  becomes an OverwriteBlockedError, whose repair skips putting prose back. */
+const parseNoteForOverwrite = (existing: string): ParsedNote => {
+  try {
+    return parseNoteForRewrite(existing)
+  } catch (error) {
+    if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
+    throw new OverwriteBlockedError({ message: error.message, kind: error.kind, cause: error })
+  }
+}
+
 /** Combines body + frontmatter into a note string. Merges with existing frontmatter if file already exists; keys set to null are removed. */
 const serializeNote = (
   existing: string | null,
@@ -264,7 +278,7 @@ const serializeNote = (
   // the caller set to null rather than writing them as empty properties
   if (!existing) return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}))
 
-  const parsed = parseNoteForRewrite(existing)
+  const parsed = parseNoteForOverwrite(existing)
   const mergedData = frontmatter ? mergeFrontmatter(parsed.data, frontmatter) : parsed.data
   return stringifyNote(body, mergedData)
 }

@@ -622,6 +622,9 @@ const UNCLOSED_BLOCK_MESSAGE =
 const CARRY_TEXT_REPAIR_STEPS =
   "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties; 4. add the copied text back to the body with vault_patch_note, without the --- lines."
 
+const OVERWRITE_REPAIR_STEPS =
+  "To overwrite it, read the note in full with vault_read_note, call vault_update_properties with replace: true and the properties to keep ({} for none), then run this write again."
+
 const OPENING_BLOCK_STEP =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
 
@@ -802,7 +805,7 @@ describe("unreadable properties blocks", () => {
 
     expect(result.isError).toBe(true)
     expect(textContent(result)).toBe(
-      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${OVERWRITE_REPAIR_STEPS}`,
     )
     expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
   })
@@ -873,6 +876,94 @@ describe("unreadable properties blocks", () => {
     expect(result.isError).toBe(true)
     expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
     expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  // A list block reads fine, but a rewrite would lose it
+  const LIST_BLOCK_NOTE = "---\n- alpha\n- beta\n---\n## Section\nBody line\n- [ ] Task ^task-one\n"
+  const LIST_BLOCK_ERROR = `[Error]: properties block holds a list, not key-value pairs, so rewriting the note would delete it. ${CARRY_TEXT_REPAIR_STEPS}`
+
+  it.each([
+    {
+      name: "vault_patch_note",
+      args: { operation: "append", heading: "Section", content: "More text\n" },
+    },
+    { name: "vault_replace_span", args: { start_anchor: "Body line", content: "Edited line" } },
+    { name: "vault_delete_span", args: { start_anchor: "Body line" } },
+    {
+      name: "vault_insert_at_anchor",
+      args: { anchor: "Body line", position: "after", content: "Inserted line" },
+    },
+    { name: "vault_update_task", args: { block_id: "task-one", status: "done" } },
+    { name: "vault_create_task", args: { description: "New task", block_id: "task-two" } },
+  ])("$name refuses a note whose list block a rewrite would lose", async ({ name, args }) => {
+    const fullPath = await plantNote("List Block Edit.md", LIST_BLOCK_NOTE)
+
+    const result = await callTool({ client, name, args: { path: "List Block Edit.md", ...args } })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(LIST_BLOCK_ERROR)
+    expect(await readFile(fullPath, "utf8")).toBe(LIST_BLOCK_NOTE)
+  })
+
+  it("refuses a vault_read_note properties_only read of invalid YAML with the repair steps", async () => {
+    await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Broken Properties.md", properties_only: true },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+    )
+  })
+
+  it("aborts a vault_move_note of a note whose block is not valid YAML, writing nothing", async () => {
+    const fullPath = await plantNote("Broken Move.md", UNCLOSED_BLOCK_NOTE)
+    const destinationPath = join(serverVaultPath, "Moved Broken.md")
+    onTestFinished(() => rm(destinationPath, { force: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Broken Move.md", new_path: "Moved Broken.md" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: move aborted: could not read "Broken Move.md": ${UNCLOSED_BLOCK_MESSAGE}. Nothing was written. ${CARRY_TEXT_REPAIR_STEPS}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
+    await expect(readFile(destinationPath, "utf8")).rejects.toThrow("ENOENT")
+  })
+
+  it.each([
+    { name: "vault_get_memory", args: { file: "Broken Memory" } },
+    {
+      name: "vault_update_memory",
+      args: { file: "Broken Memory", section: "Notes (newest first)", entry: "new entry" },
+    },
+    {
+      name: "vault_delete_memory",
+      args: {
+        file: "Broken Memory",
+        section: "Notes (newest first)",
+        date: "2026-05-05",
+        entry: "kept entry",
+      },
+    },
+  ])("$name names a broken memory file and gives the repair steps", async ({ name, args }) => {
+    const fullPath = await plantNote("About Me/Broken Memory.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({ client, name, args })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: memory file "About Me/Broken Memory.md": ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
   })
 })
 

@@ -30,6 +30,7 @@ import {
   resolveSafePath,
 } from "../vault-filesystem.js"
 import {
+  OverwriteBlockedError,
   parseNote,
   parseNoteForRewrite,
   UnkeepableOpeningBlockError,
@@ -2287,6 +2288,8 @@ describe("writes refuse a properties block a rewrite would lose", () => {
         ),
       )
 
+      // The overwrite subclass is what gives the client overwrite-specific repair steps
+      expect(refusal).toBeInstanceOf(OverwriteBlockedError)
       expect(describeRefusal(refusal)).toEqual(expectedRefusal)
       expect(await readFile(join(vault, "kept.md"), "utf8")).toBe(content)
     },
@@ -2305,6 +2308,7 @@ describe("writes refuse a properties block a rewrite would lose", () => {
         ),
       )
 
+      expect(refusal).toBeInstanceOf(OverwriteBlockedError)
       expect(describeRefusal(refusal)).toEqual(expectedRefusal)
       expect(await readFile(join(vault, "kept.md"), "utf8")).toBe(content)
     },

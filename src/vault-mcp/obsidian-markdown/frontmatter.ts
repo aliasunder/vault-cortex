@@ -26,6 +26,13 @@ export class UnsupportedPropertiesBlockError extends Error {
 }
 
 /**
+ * An overwrite refused because the note's existing properties block cannot
+ * be read or kept. The overwrite replaces the body anyway, so its repair is
+ * a block replace and a second try, not carrying prose back into the body.
+ */
+export class OverwriteBlockedError extends UnsupportedPropertiesBlockError {}
+
+/**
  * A write whose result would open with `---` lines the server cannot read
  * or keep as a properties block. Separate from UnsupportedPropertiesBlockError
  * because no block in the vault is broken: the write would turn body lines

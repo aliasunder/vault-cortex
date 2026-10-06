@@ -12,6 +12,7 @@ import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { describeError } from "../../../utils/describe-error.js"
 import {
+  OverwriteBlockedError,
   UnkeepableOpeningBlockError,
   UnsupportedPropertiesBlockError,
 } from "../../obsidian-markdown/frontmatter.js"
@@ -158,6 +159,22 @@ const describePropertiesBlockRepair = (params: {
   }
 }
 
+/** The tools an overwrite's repair names: a raw read to see the broken
+ *  block, and a whole-block replace before the overwrite runs again. */
+const OVERWRITE_REPAIR_TOOLS = [
+  "vault_read_note",
+  "vault_update_properties",
+] as const satisfies readonly ToolName[]
+
+/** How to finish an overwrite refused for the note's existing block. The
+ *  overwrite replaces the body, so no prose needs carrying over. */
+const describeOverwriteRepair = (isToolEnabled: (name: ToolName) => boolean): string => {
+  const repairToolsServed = OVERWRITE_REPAIR_TOOLS.every(isToolEnabled)
+
+  if (!repairToolsServed) return "Fix the properties block in Obsidian."
+  return "To overwrite it, read the note in full with vault_read_note, call vault_update_properties with replace: true and the properties to keep ({} for none), then run this write again."
+}
+
 /** A property makes the server's own block come first, and text above the
  *  `---` lines or their removal stops the note opening with them. The
  *  sentence names no tool, so it needs no gating. */
@@ -191,6 +208,10 @@ export const createToolErrorHandlers = (
 
     if (error instanceof UnkeepableOpeningBlockError) {
       return `${message}${separator}${OPENING_BLOCK_REMEDY}`
+    }
+    // Checked before its parent class, whose repair steps carry prose over
+    if (error instanceof OverwriteBlockedError) {
+      return `${message}${separator}${describeOverwriteRepair(isToolEnabled)}`
     }
     if (!(error instanceof UnsupportedPropertiesBlockError)) return message
 

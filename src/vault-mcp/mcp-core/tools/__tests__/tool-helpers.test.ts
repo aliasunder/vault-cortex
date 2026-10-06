@@ -1,6 +1,7 @@
 import { describe, it, expect, onTestFinished, vi } from "vitest"
 import { logger } from "../../../../logger.js"
 import {
+  OverwriteBlockedError,
   UnkeepableOpeningBlockError,
   UnsupportedPropertiesBlockError,
 } from "../../../obsidian-markdown/frontmatter.js"
@@ -23,6 +24,9 @@ const TAG_REPAIR_STEPS =
   "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties. The tag cannot be kept; write the value without it."
 
 const OBSIDIAN_ONLY_STEP = "Fix the properties block in Obsidian."
+
+const OVERWRITE_REPAIR_STEPS =
+  "To overwrite it, read the note in full with vault_read_note, call vault_update_properties with replace: true and the properties to keep ({} for none), then run this write again."
 
 const OPENING_BLOCK_STEP =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
@@ -242,6 +246,42 @@ describe("safeHandler", () => {
     const result = await runFailingCall({
       isToolEnabled: (name) => name !== disabledTool,
       fail: failWithUnreadableBlock("invalid-yaml", INVALID_YAML_MESSAGE),
+    })
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[Error]: ${INVALID_YAML_MESSAGE}. ${OBSIDIAN_ONLY_STEP}` }],
+      isError: true,
+    })
+  })
+
+  it.each([
+    { label: "invalid YAML", kind: "invalid-yaml" as const },
+    { label: "an explicit tag", kind: "explicit-tag" as const },
+  ])(
+    "gives a refused overwrite ($label) the replace-then-rerun steps, not the prose steps",
+    async ({ kind }) => {
+      const result = await runFailingCall({
+        isToolEnabled: (name) => name !== "vault_patch_note",
+        fail: async () => {
+          throw new OverwriteBlockedError({ kind, message: INVALID_YAML_MESSAGE })
+        },
+      })
+
+      expect(result).toEqual({
+        content: [
+          { type: "text", text: `[Error]: ${INVALID_YAML_MESSAGE}. ${OVERWRITE_REPAIR_STEPS}` },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  it("points a refused overwrite at Obsidian when vault_update_properties is not served", async () => {
+    const result = await runFailingCall({
+      isToolEnabled: (name) => name !== "vault_update_properties",
+      fail: async () => {
+        throw new OverwriteBlockedError({ kind: "invalid-yaml", message: INVALID_YAML_MESSAGE })
+      },
     })
 
     expect(result).toEqual({

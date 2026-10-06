@@ -178,6 +178,7 @@ Every tool handles a note's properties block by the same rules, so a write never
 - **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit that removes the text above such lines, or a call that removes every property.
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
   - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
+  - For a `vault_write_note` overwrite of such a note, which replaces the body anyway, the steps skip the prose: replace the block, then run the overwrite again.
   - For a write that would open the note with such a block, the ways around it: give the note a property, put text above the `---` lines, or remove them.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
@@ -1278,10 +1279,10 @@ Docker hardening, and durability seatbelts above.
 
 #### Error boundary + info-leak prevention
 
-- **`safeHandler()`** (`tool-helpers.ts`): wraps every MCP tool handler
-  with try/catch. Errors return a structured `isError` response with the
-  message only — no stack traces, no absolute paths. A buggy tool never
-  crashes the server.
+- **`safeHandler()`** (built per server by `createToolErrorHandlers` in
+  `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
+  return a structured `isError` response with the message only — no stack
+  traces, no absolute paths. A buggy tool never crashes the server.
 - **In-lock existence checks**: `deleteNote` and `moveNote` check file
   existence inside the lock, returning a vault-relative "not found"
   instead of ENOENT (whose message leaks the absolute container path).
