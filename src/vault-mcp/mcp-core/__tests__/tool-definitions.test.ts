@@ -1637,9 +1637,9 @@ describe("vault_find_orphans live folder defaults", () => {
     const { toolConfig } = await setupOrphans({ settings: '{"folder":"Journal"}' })
     const defaultsLine = toolConfig.description
       ?.split("\n")
-      .find((line) => line.startsWith("- The daily notes folder"))
+      .find((line) => line.startsWith("- With exclude_folders"))
     expect(defaultsLine).toBe(
-      '- The daily notes folder is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). ORPHAN_EXCLUDE_FOLDERS replaces the defaults.',
+      '- With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). ORPHAN_EXCLUDE_FOLDERS replaces these defaults.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
@@ -2357,6 +2357,53 @@ describe("DISABLED_TOOLS", () => {
       `${TRIAGE_LINE_END}Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write. ${SEARCH_ROUTING}`,
     )
     expect(listTasksRoutingLines("vault_read_note")).toBe(`${TRIAGE_LINE_END}${SEARCH_ROUTING}`)
+  })
+
+  const findDescriptionLine = ({
+    disabledTools,
+    toolName,
+    linePrefix,
+  }: {
+    disabledTools: string
+    toolName: string
+    linePrefix: string
+  }): string | undefined => {
+    const toolCall = registerWithConfig({ DISABLED_TOOLS: disabledTools }).find(
+      ([registeredName]) => registeredName === toolName,
+    )
+    return toolCall?.[1].description?.split("\n").find((line) => line.startsWith(linePrefix))
+  }
+
+  it("vault_delete_note's not-found entry keeps a remedy when vault_list_notes is disabled", () => {
+    const notFoundEntry = (disabledTools: string): string | undefined => {
+      return findDescriptionLine({
+        disabledTools,
+        toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+        linePrefix: '- "note not found',
+      })
+    }
+
+    expect(notFoundEntry("")).toBe('- "note not found: …" — verify path with vault_list_notes')
+    expect(notFoundEntry("vault_list_notes")).toBe(
+      `- "note not found: …" — check the path's spelling and letter case`,
+    )
+  })
+
+  it("vault_search_by_tag names vault_search_by_property past the cap only while that tool is served", () => {
+    const pastCapLine = (disabledTools: string): string | undefined => {
+      return findDescriptionLine({
+        disabledTools,
+        toolName: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+        linePrefix: "Past the 20-result cap",
+      })
+    }
+    const CHILD_TAG_ROUTE =
+      "Past the 20-result cap, query each child tag separately and the parent tag with exact=true"
+
+    expect(pastCapLine("")).toBe(
+      `${CHILD_TAG_ROUTE}, or list every note carrying one exact tag with vault_search_by_property({ key: "tags", value: "<tag>", limit: 200 }).`,
+    )
+    expect(pastCapLine("vault_search_by_property")).toBe(`${CHILD_TAG_ROUTE}.`)
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {

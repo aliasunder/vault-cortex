@@ -158,14 +158,15 @@ Example: vault_search_by_tag({ tag: "project" })
 
 When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
+Past the 20-result cap, query each child tag separately and the parent tag with exact=true${whenToolEnabledText("vault_search_by_property", ', or list every note carrying one exact tag with vault_search_by_property({ key: "tags", value: "<tag>", limit: 200 })')}.
 
 Parameters:
-- tag + exact interact: the prefix match follows the "/" separator, so "project" matches itself and its children but does NOT match "my-project" or "projects".
+- Prefix mode follows the "/" separator: "project" matches itself and its children but does NOT match "my-project" or "projects".
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. There is no offset: query each child tag separately${whenToolEnabledText("vault_search_by_property", ', or list every note with one exact tag via vault_search_by_property({ key: "tags", value: "<tag>", limit })')}. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. There is no offset. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z
           .string()
@@ -444,7 +445,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match).
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value.
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
@@ -463,22 +464,12 @@ Parameters:
 Errors:
 - An unknown key or unmatched value returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
 - leading_callout appears only when the note has a leading callout.
 - additional_properties appears only when frontmatter has keys outside title, tags, type, created, and related.`,
       inputSchema: {
-        key: z
-          .string()
-          .min(1)
-          .describe(
-            'Property key name (e.g. "status", "type", "tags"). Use vault_list_property_keys to discover valid keys.',
-          ),
-        value: z
-          .string()
-          .min(1)
-          .describe(
-            'Value to match (e.g. "active", "4", "1e-7"). Use vault_list_property_values to discover valid values for a key.',
-          ),
+        key: z.string().min(1).describe('Property key name (e.g. "status", "type", "tags").'),
+        value: z.string().min(1).describe('Value to match (e.g. "active", "4", "1e-7").'),
         folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
         limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
@@ -519,7 +510,7 @@ Returns: JSON with path (the queried note or canvas), backlinks (array of { path
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
-- A path not in the index returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.`,
+- A path not in the index returns an empty result (count 0), not an error — use vault_search or vault_list_notes (notes only) to discover valid paths.`,
       inputSchema: {
         path: z
           .string()
@@ -618,7 +609,7 @@ Errors:
     : `daily notes folder, Templates, ${JSON.stringify(config.memoryDir)}`
   const orphanDefaultDescription = config.orphanExcludeFoldersOverride
     ? "With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override is used."
-    : 'The daily notes folder is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). ORPHAN_EXCLUDE_FOLDERS replaces the defaults.'
+    : 'With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). ORPHAN_EXCLUDE_FOLDERS replaces these defaults.'
 
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
