@@ -4,15 +4,17 @@ import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { OPENING_BLOCK_ERROR_ENTRY } from "./tool-helpers.js"
 
 /** Errors entries for a memory file whose properties block the server
  *  refuses. Reads refuse only YAML they cannot read; writes also refuse a
- *  block a rewrite would lose. The error carries the repair steps. */
+ *  block a rewrite would lose, or one that would leave the file opening with
+ *  `---` lines. The error names the file and says how to fix it. */
 const MEMORY_BLOCK_READ_ERROR_ENTRY =
   '- "memory file …: properties block is not valid YAML …" — the error names the file and says how to repair it'
 const MEMORY_BLOCK_WRITE_ERROR_ENTRY =
   "- \"memory file …: properties block …\" — the file's properties block can't be read, or a rewrite would lose it; the error says how to repair it"
+const MEMORY_OPENING_BLOCK_ERROR_ENTRY =
+  '- "memory file …: the note would open with a properties block …" — the write would leave --- lines at the top of a file with no properties, around text that can\'t be kept as properties; the error says how to avoid it'
 
 export const registerMemoryTools = ({
   registerTool,
@@ -316,7 +318,7 @@ Errors:
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — use a bare file name: no folder or slash, and no leading dot (that would create a hidden file, invisible in Obsidian and to every listing).
 - "section not created: … is nearly identical to existing section …" — near-duplicate guard; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section.
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
-${OPENING_BLOCK_ERROR_ENTRY}
+${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a note to fill in the placeholder scope callout when the file is new; an exact duplicate returns "Entry already exists in ${config.memoryDir}/<file>.md → ## <section> — nothing was written."`,
       inputSchema: {
@@ -417,7 +419,7 @@ Errors:
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section (e.g. from hand edits, sync conflicts, or entries predating duplicate protection; vault_update_memory refuses to write exact duplicates). Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
-${OPENING_BLOCK_ERROR_ENTRY}
+${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: "Deleted entry from ${config.memoryDir}/<file>.md → ## <section>".`,
       inputSchema: {

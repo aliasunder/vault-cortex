@@ -7,6 +7,7 @@ import {
   parseNote,
   parseNoteForRewrite,
   stringifyNote,
+  UnkeepableOpeningBlockError,
   UnsupportedPropertiesBlockError,
 } from "../obsidian-markdown/frontmatter.js"
 import type { ParsedNote } from "../obsidian-markdown/frontmatter.js"
@@ -437,6 +438,26 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         kind: error.kind,
         cause: error,
       })
+    }
+  }
+
+  /** Serializes a memory file with stringifyNote. Its refusal of a file that
+   *  would open with `---` lines is rethrown naming the file, for the same
+   *  reason parseMemoryFileContent names it. */
+  const stringifyMemoryFile = (params: {
+    body: string
+    data: object
+    filename: string
+  }): string => {
+    try {
+      return stringifyNote(params.body, params.data)
+    } catch (error) {
+      if (!(error instanceof UnkeepableOpeningBlockError)) throw error
+
+      throw new UnkeepableOpeningBlockError(
+        `memory file "${memoryDir}/${params.filename}": ${error.message}`,
+        { cause: error },
+      )
     }
   }
 
@@ -905,7 +926,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const newSection = headingWithNewestFirstSuffix(params.section)
         const appendedLines = [...contentLines, `## ${newSection}`, bullet]
         const newContent = appendedLines.join("\n")
-        const serialized = stringifyNote(newContent, parsed.data)
+        const serialized = stringifyMemoryFile({
+          body: newContent,
+          data: parsed.data,
+          filename: `${params.file}.md`,
+        })
         const beforeBytes = Buffer.byteLength(existingContent, "utf8")
         const afterBytes = Buffer.byteLength(serialized, "utf8")
         guardAgainstShrink(beforeBytes, afterBytes, "creating memory section")
@@ -967,7 +992,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       ]
 
       const newContent = updatedLines.join("\n")
-      const serialized = stringifyNote(newContent, parsed.data)
+      const serialized = stringifyMemoryFile({
+        body: newContent,
+        data: parsed.data,
+        filename: `${params.file}.md`,
+      })
       const beforeBytes = Buffer.byteLength(existingContent, "utf8")
       const afterBytes = Buffer.byteLength(serialized, "utf8")
       guardAgainstShrink(beforeBytes, afterBytes, "updating memory entry")
@@ -1122,7 +1151,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(trimmedSpanEnd)]
 
       const newContent = updatedLines.join("\n")
-      const serialized = stringifyNote(newContent, parsed.data)
+      const serialized = stringifyMemoryFile({
+        body: newContent,
+        data: parsed.data,
+        filename: `${params.file}.md`,
+      })
       const beforeBytes = Buffer.byteLength(raw, "utf8")
       const afterBytes = Buffer.byteLength(serialized, "utf8")
       guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")

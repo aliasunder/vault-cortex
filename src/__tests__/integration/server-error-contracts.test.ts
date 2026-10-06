@@ -822,7 +822,9 @@ describe("unreadable properties blocks", () => {
   })
 
   /** The refusal of a write that would leave a single-value block at the top of a note. */
-  const SINGLE_VALUE_OPENING_BLOCK_ERROR = `[Error]: the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it. ${OPENING_BLOCK_STEP}`
+  const SINGLE_VALUE_OPENING_BLOCK_MESSAGE =
+    "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it"
+  const SINGLE_VALUE_OPENING_BLOCK_ERROR = `[Error]: ${SINGLE_VALUE_OPENING_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`
 
   it("refuses removing every property with replace: true when the body opens with --- lines", async () => {
     const original = "---\nold: 1\n---\n---\nJust a paragraph.\n---\nBody line\n"
@@ -859,7 +861,9 @@ describe("unreadable properties blocks", () => {
     })
 
     expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(textContent(result)).toBe(
+      `[Error]: memory file "About Me/Stacked Memory.md": ${SINGLE_VALUE_OPENING_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 

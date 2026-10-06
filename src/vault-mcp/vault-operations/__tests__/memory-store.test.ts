@@ -3299,21 +3299,29 @@ describe("memory file with a properties block the server cannot read or keep", (
    *  body's own --- lines would become the file's first block. */
   const STACKED_BLOCK_MD = buildMemoryFile("---\n---\n---\nJust a paragraph.\n---\n")
 
-  /** The parts of a write's output refusal, an UnkeepableOpeningBlockError whose cause is the block refusal. */
+  /** The parts of a write's output refusal: an UnkeepableOpeningBlockError
+   *  naming the file, caused by the unnamed refusal, whose own cause is the
+   *  block refusal. */
   const describeOutputRefusal = (
     thrown: unknown,
-  ): { message: string; causeIsBlockRefusal: boolean } | null => {
+  ): { message: string; causeMessage: string | null; rootIsBlockRefusal: boolean } | null => {
     if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
+
+    const unnamedRefusal = thrown.cause instanceof UnkeepableOpeningBlockError ? thrown.cause : null
     return {
       message: thrown.message,
-      causeIsBlockRefusal: thrown.cause instanceof UnsupportedPropertiesBlockError,
+      causeMessage: unnamedRefusal?.message ?? null,
+      rootIsBlockRefusal: unnamedRefusal?.cause instanceof UnsupportedPropertiesBlockError,
     }
   }
 
+  const UNNAMED_OPENING_BLOCK_MESSAGE =
+    "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it"
+
   const OPENING_BLOCK_REFUSAL = {
-    message:
-      "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it",
-    causeIsBlockRefusal: true,
+    message: `memory file "About Me/Broken.md": ${UNNAMED_OPENING_BLOCK_MESSAGE}`,
+    causeMessage: UNNAMED_OPENING_BLOCK_MESSAGE,
+    rootIsBlockRefusal: true,
   }
 
   it("updateMemory refuses a write that would open the file with --- lines it cannot keep", async () => {
@@ -3325,6 +3333,26 @@ describe("memory file with a properties block the server cannot read or keep", (
           vaultPath: vault,
           file: "Broken",
           section: "Notes (newest first)",
+          entry: "new entry",
+          date: "2026-05-06",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(STACKED_BLOCK_MD)
+  })
+
+  it("updateMemory refuses a new section that would open the file with --- lines it cannot keep", async () => {
+    await plantBrokenFile(STACKED_BLOCK_MD)
+
+    const refusal = await captureRejection(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Broken",
+          section: "Brand new section",
           entry: "new entry",
           date: "2026-05-06",
         },
