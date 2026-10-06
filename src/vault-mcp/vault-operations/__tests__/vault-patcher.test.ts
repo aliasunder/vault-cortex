@@ -669,7 +669,7 @@ Sub-level content.
         },
         logger,
       ),
-    ).rejects.toThrow("heading cannot be empty")
+    ).rejects.toThrow(new Error("heading cannot be empty"))
   })
 })
 
@@ -2353,7 +2353,7 @@ apple and apple and apple.
         },
         logger,
       ),
-    ).rejects.toThrow("oldText cannot be empty")
+    ).rejects.toThrow(new Error("oldText cannot be empty"))
   })
 
   it("rejects new_text containing a control character", async () => {
@@ -3074,7 +3074,7 @@ title: WholeBody
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "" }, logger),
-    ).rejects.toThrow("startAnchor cannot be empty")
+    ).rejects.toThrow(new Error("startAnchor cannot be empty"))
   })
 
   it("errors on empty end_anchor", async () => {
@@ -3089,7 +3089,7 @@ title: WholeBody
         },
         logger,
       ),
-    ).rejects.toThrow("endAnchor cannot be empty")
+    ).rejects.toThrow(new Error("endAnchor cannot be empty"))
   })
 
   it("errors when the start anchor is not found, leaving the file unchanged", async () => {
@@ -3782,7 +3782,7 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow("content cannot be empty")
+    ).rejects.toThrow(new Error("content cannot be empty"))
   })
 
   it("throws when startAnchor is empty", async () => {
@@ -3797,7 +3797,7 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow("startAnchor cannot be empty")
+    ).rejects.toThrow(new Error("startAnchor cannot be empty"))
   })
 
   it("throws when endAnchor is empty string", async () => {
@@ -3813,7 +3813,7 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow("endAnchor cannot be empty")
+    ).rejects.toThrow(new Error("endAnchor cannot be empty"))
   })
 
   it("throws on path without .md extension", async () => {
@@ -4292,7 +4292,7 @@ duplicate beta
         },
         logger,
       ),
-    ).rejects.toThrow("content cannot be empty")
+    ).rejects.toThrow(new Error("content cannot be empty"))
   })
 
   it("throws when anchor is empty", async () => {
@@ -4308,7 +4308,7 @@ duplicate beta
         },
         logger,
       ),
-    ).rejects.toThrow("anchor cannot be empty")
+    ).rejects.toThrow(new Error("anchor cannot be empty"))
   })
 
   it("throws on path without .md extension", async () => {
