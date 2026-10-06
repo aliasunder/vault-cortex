@@ -420,7 +420,7 @@ When the file isn't available — or if you use the Periodic Notes plugin, whose
 
 You can set one or both — a set value always wins over the config file. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
 
-- Changes in Obsidian apply on the next call once `.obsidian/daily-notes.json` reaches the server. Apply environment changes with the CLI's `restart` command, recreate the Compose container, or redeploy on your hosting platform.
+- Changes in Obsidian apply on the next call when `.obsidian/daily-notes.json` is available in the server's vault. Apply environment changes with the CLI's `restart` command, recreate the Compose container, or redeploy on your hosting platform.
 - An empty Obsidian folder setting uses the server's `Daily Notes` fallback. Daily notes stored at the vault root remain eligible for orphan results; the server never excludes the whole vault automatically.
 
 > **Note:** A few date format tokens are unsupported — ordinals (`Do`, `Mo`, `DDDo`, `wo`), `dd` (2-letter weekday), `d` (weekday number), `e`, `k`/`kk`, `w` (week number), `Q` (quarter), `Z`/`ZZ` (UTC offset), and the localized formats (`L`–`LLLL`, `LT`, `LTS`). The server can't reproduce the filenames Obsidian creates with these tokens, so it could never find the notes. If your format uses any of them, `vault_get_daily_note` returns a clear error — change the format in Obsidian or set `DAILY_NOTES_FORMAT` to a supported alternative.

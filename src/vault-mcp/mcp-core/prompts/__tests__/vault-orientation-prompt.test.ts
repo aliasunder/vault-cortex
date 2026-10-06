@@ -93,6 +93,21 @@ describe("vault-orientation live orphan folders", () => {
     )
   })
 
+  it.each(["Journal/", "Journal///"])(
+    "renders one trailing separator for the excluded daily folder %s",
+    async (dailyNotesFolder) => {
+      const { readSurveySections } = await setupOrphanPrompt({
+        settings: JSON.stringify({ folder: dailyNotesFolder }),
+        paths: ["source.md", "other.md"],
+        noteContents: { "source.md": dailyForwardReferences },
+      })
+
+      expect((await readSurveySections()).stats).toBe(
+        "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+      )
+    },
+  )
+
   it("keeps ordinary orphans visible behind more than five newer excluded daily candidates", async () => {
     const dailyPaths = Array.from({ length: 7 }, (_, index) => `Journal/nested/day-${index}.md`)
     const { orphanSection } = await setupOrphanPrompt({

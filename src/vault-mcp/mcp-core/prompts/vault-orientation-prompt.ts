@@ -105,9 +105,11 @@ const formatBrokenLinkSegment = (result: {
   excludedCount: number
 }): string => {
   const { count, excludedFolder, excludedCount } = result
+  const excludedFolderLabel = `${excludedFolder}/`.replace(/\/+$/, "/")
+  const forwardRefLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
   const excludedNote =
     excludedCount > 0
-      ? `excludes ${excludedCount} forward-ref${excludedCount === 1 ? "" : "s"} in ${excludedFolder}/`
+      ? `excludes ${excludedCount} ${forwardRefLabel} in ${excludedFolderLabel}`
       : ""
 
   if (count === 0 && excludedNote.length === 0) return ""
