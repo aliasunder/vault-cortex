@@ -276,16 +276,44 @@ describe("safeHandler", () => {
     },
   )
 
-  it("points a refused overwrite at Obsidian when vault_update_properties is not served", async () => {
+  it.each<{ label: string; disabledTool: ToolName }>([
+    { label: "vault_read_note", disabledTool: "vault_read_note" },
+    { label: "vault_update_properties", disabledTool: "vault_update_properties" },
+  ])(
+    "points a refused overwrite at Obsidian when $label is not served",
+    async ({ disabledTool }) => {
+      const result = await runFailingCall({
+        isToolEnabled: (name) => name !== disabledTool,
+        fail: async () => {
+          throw new OverwriteBlockedError({ kind: "invalid-yaml", message: INVALID_YAML_MESSAGE })
+        },
+      })
+
+      expect(result).toEqual({
+        content: [
+          { type: "text", text: `[Error]: ${INVALID_YAML_MESSAGE}. ${OBSIDIAN_ONLY_STEP}` },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  it("points a list block at Obsidian when vault_patch_note is not served", async () => {
     const result = await runFailingCall({
-      isToolEnabled: (name) => name !== "vault_update_properties",
-      fail: async () => {
-        throw new OverwriteBlockedError({ kind: "invalid-yaml", message: INVALID_YAML_MESSAGE })
-      },
+      isToolEnabled: (name) => name !== "vault_patch_note",
+      fail: failWithUnreadableBlock(
+        "not-key-value",
+        "properties block holds a list, not key-value pairs",
+      ),
     })
 
     expect(result).toEqual({
-      content: [{ type: "text", text: `[Error]: ${INVALID_YAML_MESSAGE}. ${OBSIDIAN_ONLY_STEP}` }],
+      content: [
+        {
+          type: "text",
+          text: `[Error]: properties block holds a list, not key-value pairs. ${OBSIDIAN_ONLY_STEP}`,
+        },
+      ],
       isError: true,
     })
   })
