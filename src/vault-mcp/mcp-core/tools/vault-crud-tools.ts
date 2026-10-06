@@ -450,8 +450,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     ),
   ])
 
-  // The "note not found" entries of the edit tools keep a remedy when
-  // vault_list_notes is disabled; the two wordings match each entry's own.
+  // The edit tools' Errors entries keep a remedy when the tool they point to is disabled.
   const listNotesEnabled = isToolEnabled("vault_list_notes")
   const noteNotFoundCheckRemedy = listNotesEnabled
     ? "check vault_list_notes for valid paths"
@@ -459,6 +458,13 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
   const noteNotFoundVerifyRemedy = listNotesEnabled
     ? "verify path with vault_list_notes"
     : "check the path's spelling and letter case"
+  const readNoteEnabled = isToolEnabled("vault_read_note")
+  const textNotFoundRemedy = readNoteEnabled
+    ? "verify exact text with vault_read_note"
+    : "check old_text's letter case, spacing, and line breaks"
+  const anchorNotFoundRemedy = readNoteEnabled
+    ? "verify with vault_read_note"
+    : "check the fragment's letter case and spacing"
 
   registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
@@ -486,7 +492,7 @@ Errors:
 - "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
 - "path must end in …" — add the .md extension
 - "heading not found" — no heading matches the text; error lists available headings
-- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or${whenToolEnabledText("vault_replace_in_note", " use vault_replace_in_note to")} target by text content when headings share the same level
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate${whenToolEnabledText("vault_replace_in_note", ", or use vault_replace_in_note to target by text content when headings share the same level")}
 - "operation … requires a heading target" — replace and insert_before need a heading
 - "heading cannot be empty" — heading is whitespace only; pass the heading's text
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
@@ -621,7 +627,7 @@ Parameters:
 Errors:
 - "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
 - "path must end in …" — add the .md extension
-- "text not found" — old_text does not appear in the note body${whenToolEnabledText("vault_read_note", "; verify exact text with vault_read_note")}
+- "text not found" — old_text does not appear in the note body; ${textNotFoundRemedy}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
@@ -710,7 +716,7 @@ Parameters:
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
+- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); ${anchorNotFoundRemedy}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -806,7 +812,7 @@ Parameters:
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
+- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); ${anchorNotFoundRemedy}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -911,7 +917,7 @@ Parameters:
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "anchor not found" — fragment not on any line${whenToolEnabledText("vault_read_note", "; verify with vault_read_note")}
+- "anchor not found" — fragment not on any line; ${anchorNotFoundRemedy}
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry

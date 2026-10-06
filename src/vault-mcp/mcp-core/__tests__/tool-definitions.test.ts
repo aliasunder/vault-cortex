@@ -2579,30 +2579,32 @@ describe("DISABLED_TOOLS", () => {
       toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
       startMarker: '- "text not found"',
       endMarker: '\n- "absolute path',
-      expectedEntry: '- "text not found" — old_text does not appear in the note body',
+      expectedEntry:
+        '- "text not found" — old_text does not appear in the note body; check old_text\'s letter case, spacing, and line breaks',
     },
     {
       toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
       startMarker: '- "start anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)',
+        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); check the fragment\'s letter case and spacing',
     },
     {
       toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
       startMarker: '- "start anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line)',
+        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); check the fragment\'s letter case and spacing',
     },
     {
       toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
       startMarker: '- "anchor not found"',
       endMarker: '\n- "ambiguous',
-      expectedEntry: '- "anchor not found" — fragment not on any line',
+      expectedEntry:
+        '- "anchor not found" — fragment not on any line; check the fragment\'s letter case and spacing',
     },
   ])(
-    "$toolName's not-found entry drops the vault_read_note pointer when that tool is disabled",
+    "$toolName's not-found entry keeps a remedy without vault_read_note",
     ({ toolName, startMarker, endMarker, expectedEntry }) => {
       const notFoundEntry = extractDescriptionSection({
         registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_read_note" }),
@@ -2613,6 +2615,29 @@ describe("DISABLED_TOOLS", () => {
       expect(notFoundEntry).toBe(expectedEntry)
     },
   )
+
+  it.each([
+    {
+      label: "offers vault_replace_in_note while it is served",
+      disabledTools: "",
+      expectedEntry:
+        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or use vault_replace_in_note to target by text content when headings share the same level',
+    },
+    {
+      label: "offers only heading_level when vault_replace_in_note is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedEntry:
+        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate',
+    },
+  ])("vault_patch_note's ambiguous-heading entry $label", ({ disabledTools, expectedEntry }) => {
+    const ambiguousHeadingEntry = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: '- "ambiguous heading"',
+      endMarker: '\n- "operation',
+    })
+    expect(ambiguousHeadingEntry).toBe(expectedEntry)
+  })
 
   const PATCH_NOTE_WHEN_TO_USE =
     "When to use: Modifying part of an existing note without overwriting the entire body."
