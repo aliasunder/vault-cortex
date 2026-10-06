@@ -27,6 +27,8 @@ const resolvePath = (repoRelative: string): string => fileURLToPath(new URL(repo
 const WIDTH = 1280
 const HEIGHT = 640
 
+/** Relies on `which`. Native Windows shells don't have it, so on Windows every
+ *  command reads as missing and optimizePng saves the PNG unoptimized. */
 const commandAvailable = (command: string): boolean => {
   try {
     execFileSync("which", [command], { stdio: "pipe" })
