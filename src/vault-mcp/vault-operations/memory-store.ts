@@ -7,6 +7,7 @@ import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull, statOrNull } from "../../utils/fs.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
+import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
@@ -677,12 +678,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<string> => {
     if (!params.file) {
       const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
-      const contents = await Promise.all(
-        mdFiles.map(async (filename) => {
+      const contents = await mapWithConcurrency({
+        items: mdFiles,
+        concurrency: 16,
+        mapper: async (filename) => {
           const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
           return parseNote(raw).content.trim()
-        }),
-      )
+        },
+      })
       logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
       return contents.join("\n\n---\n\n")
     }
@@ -949,8 +952,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<MemoryFileOutline[]> => {
     const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
-    const outlines = await Promise.all(
-      mdFiles.map(async (filename) => {
+    const outlines = await mapWithConcurrency({
+      items: mdFiles,
+      concurrency: 16,
+      mapper: async (filename) => {
         const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
         const parsed = parseNote(raw)
         const name = basename(filename, ".md")
@@ -978,8 +983,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           leading_callout: leadingCallout,
           headings,
         }
-      }),
-    )
+      },
+    })
 
     logger.info("listed memory files", { count: outlines.length })
     return outlines
