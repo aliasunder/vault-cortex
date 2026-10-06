@@ -226,6 +226,7 @@ describe("registerTools", () => {
         'Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })',
         'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })',
         'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "insert_before", heading: "Phase 2", content: "## Phase 1\\nDone.\\n" })',
+        'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content: "> [!info] Draft\\n> Not reviewed yet.\\n" })',
       ].join("\n"),
     )
   })
@@ -2613,39 +2614,84 @@ describe("DISABLED_TOOLS", () => {
     "Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true)."
   const PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE =
     "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location."
+  const PATCH_NOTE_INSERT_AT_ANCHOR_SENTENCE =
+    "Prefer vault_insert_at_anchor for inserting next to a specific line inside a section."
+  const PATCH_NOTE_REPLACE_SPAN_SENTENCE =
+    "Prefer vault_replace_span for replacing a run of lines inside a section."
+  const PATCH_NOTE_DELETE_SPAN_SENTENCE = "Prefer vault_delete_span for removing lines."
+  const PATCH_NOTE_UPDATE_PROPERTIES_SENTENCE =
+    "Prefer vault_update_properties for changing frontmatter properties."
   const PATCH_NOTE_CREATE_TASK_SENTENCE = "Prefer vault_create_task for adding a task."
   const PATCH_NOTE_UPDATE_TASK_SENTENCE =
     "Prefer vault_update_task for completing or moving a task in one write."
+  const ALL_PATCH_NOTE_ALTERNATIVES = [
+    PATCH_NOTE_WRITE_NOTE_SENTENCE,
+    PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE,
+    PATCH_NOTE_INSERT_AT_ANCHOR_SENTENCE,
+    PATCH_NOTE_REPLACE_SPAN_SENTENCE,
+    PATCH_NOTE_DELETE_SPAN_SENTENCE,
+    PATCH_NOTE_UPDATE_PROPERTIES_SENTENCE,
+    PATCH_NOTE_CREATE_TASK_SENTENCE,
+    PATCH_NOTE_UPDATE_TASK_SENTENCE,
+  ]
+
+  const patchNoteWhenToUseWithout = (droppedSentence: string): string => {
+    const servedSentences = ALL_PATCH_NOTE_ALTERNATIVES.filter(
+      (sentence) => sentence !== droppedSentence,
+    )
+    return `${PATCH_NOTE_WHEN_TO_USE}\n${servedSentences.join(" ")}`
+  }
 
   it.each([
     {
-      label: "names all four tools while they are served",
+      label: "names all eight tools while they are served",
       disabledTools: "",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
-    },
-    {
-      label: "drops only the vault_replace_in_note sentence when that tool is disabled",
-      disabledTools: "vault_replace_in_note",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${ALL_PATCH_NOTE_ALTERNATIVES.join(" ")}`,
     },
     {
       label: "drops only the vault_write_note sentence when that tool is disabled",
       disabledTools: "vault_write_note",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_WRITE_NOTE_SENTENCE),
+    },
+    {
+      label: "drops only the vault_replace_in_note sentence when that tool is disabled",
+      disabledTools: "vault_replace_in_note",
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE),
+    },
+    {
+      label: "drops only the vault_insert_at_anchor sentence when that tool is disabled",
+      disabledTools: "vault_insert_at_anchor",
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_INSERT_AT_ANCHOR_SENTENCE),
+    },
+    {
+      label: "drops only the vault_replace_span sentence when that tool is disabled",
+      disabledTools: "vault_replace_span",
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_REPLACE_SPAN_SENTENCE),
+    },
+    {
+      label: "drops only the vault_delete_span sentence when that tool is disabled",
+      disabledTools: "vault_delete_span",
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_DELETE_SPAN_SENTENCE),
+    },
+    {
+      label: "drops only the vault_update_properties sentence when that tool is disabled",
+      disabledTools: "vault_update_properties",
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_UPDATE_PROPERTIES_SENTENCE),
     },
     {
       label: "drops only the vault_create_task sentence when that tool is disabled",
       disabledTools: "vault_create_task",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_CREATE_TASK_SENTENCE),
     },
     {
       label: "drops only the vault_update_task sentence when that tool is disabled",
       disabledTools: "vault_update_task",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE}`,
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_UPDATE_TASK_SENTENCE),
     },
     {
-      label: "leaves only the when-to-use line when all four tools are disabled",
-      disabledTools: "vault_write_note,vault_replace_in_note,vault_create_task,vault_update_task",
+      label: "leaves only the when-to-use line when all eight tools are disabled",
+      disabledTools:
+        "vault_write_note,vault_replace_in_note,vault_insert_at_anchor,vault_replace_span,vault_delete_span,vault_update_properties,vault_create_task,vault_update_task",
       expectedSection: PATCH_NOTE_WHEN_TO_USE,
     },
   ])("vault_patch_note's when-to-use $label", ({ disabledTools, expectedSection }) => {

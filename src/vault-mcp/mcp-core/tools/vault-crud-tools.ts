@@ -448,6 +448,19 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
       "vault_replace_in_note",
       "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.",
     ),
+    whenToolEnabledText(
+      "vault_insert_at_anchor",
+      "Prefer vault_insert_at_anchor for inserting next to a specific line inside a section.",
+    ),
+    whenToolEnabledText(
+      "vault_replace_span",
+      "Prefer vault_replace_span for replacing a run of lines inside a section.",
+    ),
+    whenToolEnabledText("vault_delete_span", "Prefer vault_delete_span for removing lines."),
+    whenToolEnabledText(
+      "vault_update_properties",
+      "Prefer vault_update_properties for changing frontmatter properties.",
+    ),
     whenToolEnabledText("vault_create_task", "Prefer vault_create_task for adding a task."),
     whenToolEnabledText(
       "vault_update_task",
@@ -480,18 +493,19 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
 Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "insert_before", heading: "Phase 2", content: "## Phase 1\\nDone.\\n" })
+Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content: "> [!info] Draft\\n> Not reviewed yet.\\n" })
 
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
 - append: add content at end of section (or end of file if no heading)
 - prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.
-- replace: replace section body (heading preserved; requires heading; errors if the target has child headings unless include_children is set)
+- replace: replace section body (requires heading)
 - insert_before: insert content above the heading line (requires heading)
 
 Heading-targeted ops keep the matched heading and write content verbatim. No separator is added around the content — end it with a newline to leave a blank line after the inserted block.
 
-Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, the pre-existing content becomes the new section's body. The write still succeeds and the confirmation says so — use insert_before on the first heading to place a section above it instead.
+Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, the pre-existing content becomes the new section's body. The write still succeeds.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
@@ -500,9 +514,9 @@ Errors:
 - "path must end in …" — add the .md extension
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate${whenToolEnabledText("vault_replace_in_note", ", or use vault_replace_in_note to target by text content when headings share the same level")}
-- "operation … requires a heading target" — replace and insert_before need a heading
+- "operation … requires a heading target" — pass heading, or use append or prepend to edit the file body
 - "heading cannot be empty" — heading is whitespace only; pass the heading's text
-- "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
+- "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it
 - "section … has N child headings …" — the target section contains child headings that replace would destroy; pass include_children: true to confirm, or target the child heading directly
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -524,12 +538,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
           .describe("append | prepend | replace | insert_before."),
-        content: z
-          .string()
-          .min(1)
-          .describe(
-            "Markdown content to insert. Must not begin with the target heading text (it would duplicate the heading, which is kept automatically).",
-          ),
+        content: z.string().min(1).describe("Markdown content to insert."),
         heading: z
           .string()
           .min(1)
@@ -550,8 +559,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           .boolean()
           .optional()
           .describe(
-            "When true, allows replace to overwrite a section that contains child headings. " +
-              "Without this, replace errors if children exist — preventing silent data loss.",
+            "When true, allows replace to overwrite a section that contains child headings.",
           ),
       },
     },
