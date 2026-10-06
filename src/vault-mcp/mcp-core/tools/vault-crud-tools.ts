@@ -421,19 +421,10 @@ Returns: Confirmation message.`,
     },
   )
 
-  // The move steps and the leading-callout edit each call vault_read_note, then
-  // vault_replace_in_note, so both are left out when either tool is disabled.
+  // The leading-callout edit calls vault_read_note, then vault_replace_in_note,
+  // so it is left out when either tool is disabled.
   const readAndReplaceInNoteEnabled =
     isToolEnabled("vault_read_note") && isToolEnabled("vault_replace_in_note")
-  const crossSectionMoveText = readAndReplaceInNoteEnabled
-    ? `
-
-Cross-section move (e.g. completing a task on a board):
-1. vault_read_note to get current content and verify exact text
-2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target
-3. vault_replace_in_note({ path, old_text: "- [ ] Task text\\n", new_text: "" }) to remove from source${whenToolEnabledText("vault_delete_span", " (for a large multi-line block, prefer vault_delete_span)")}; on error, re-read and retry until the source copy is gone
-Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.`
-    : ""
   const leadingCalloutEditText = readAndReplaceInNoteEnabled
     ? `
 
@@ -447,6 +438,11 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     whenToolEnabledText(
       "vault_replace_in_note",
       "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.",
+    ),
+    whenToolEnabledText("vault_create_task", "Prefer vault_create_task for adding a task."),
+    whenToolEnabledText(
+      "vault_update_task",
+      "Prefer vault_update_task for completing or moving a task in one write.",
     ),
   ])
 
@@ -472,7 +468,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
       title: "Patch Note",
       description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit.
 
-Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })${crossSectionMoveText}
+Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 

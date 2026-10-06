@@ -204,16 +204,25 @@ describe("registerTools", () => {
     expect(config.description).toContain("vault_read_note")
   })
 
-  it("vault_patch_note description includes cross-section move guidance", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
-    expect(config.description).toContain("Cross-section move")
-  })
-
   it("vault_read_note documents the outline response on the outline parameter", () => {
     // The only guard against this drifting from the actual response shape.
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     expect(config.inputSchema?.outline?.description).toBe(
       "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+    )
+  })
+
+  it("vault_patch_note's example edits a note that is not a task board", () => {
+    // Task boards belong to vault_create_task and vault_update_task, so an
+    // example that appends a card would steer agents to the wrong tool.
+    const example = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "Example: vault_patch_note",
+      endMarker: "\n\nWhen to use:",
+    })
+    expect(example).toBe(
+      'Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })',
     )
   })
 
@@ -2514,51 +2523,6 @@ describe("DISABLED_TOOLS", () => {
     expect(routingLine).toBe(`the last line for end_anchor.\n${expectedLine}`)
   })
 
-  const PATCH_NOTE_EXAMPLE =
-    'Example: vault_patch_note({ path: "TASKS.md", operation: "append", heading: "Active", content: "- [ ] New task" })'
-  const MOVE_REMOVAL_STEP =
-    '3. vault_replace_in_note({ path, old_text: "- [ ] Task text\\n", new_text: "" }) to remove from source'
-  const moveStepsWithRemoval = (removalStep: string): string => {
-    return [
-      "Cross-section move (e.g. completing a task on a board):",
-      "1. vault_read_note to get current content and verify exact text",
-      '2. vault_patch_note({ path, operation: "append", heading: "Done", content: "- [x] Task text" }) to add at target',
-      `${removalStep}; on error, re-read and retry until the source copy is gone`,
-      "Add at the target before deleting from the source — the two writes are not atomic, so this order can briefly duplicate the moved block on a failure but never lose it.",
-    ].join("\n")
-  }
-
-  it.each([
-    {
-      label: "lists the move steps while every tool they name is served",
-      disabledTools: "",
-      expectedSection: `${PATCH_NOTE_EXAMPLE}\n\n${moveStepsWithRemoval(`${MOVE_REMOVAL_STEP} (for a large multi-line block, prefer vault_delete_span)`)}`,
-    },
-    {
-      label: "drops only the vault_delete_span aside when that tool is disabled",
-      disabledTools: "vault_delete_span",
-      expectedSection: `${PATCH_NOTE_EXAMPLE}\n\n${moveStepsWithRemoval(MOVE_REMOVAL_STEP)}`,
-    },
-    {
-      label: "drops the move steps when vault_replace_in_note is disabled",
-      disabledTools: "vault_replace_in_note",
-      expectedSection: PATCH_NOTE_EXAMPLE,
-    },
-    {
-      label: "drops the move steps when vault_read_note is disabled",
-      disabledTools: "vault_read_note",
-      expectedSection: PATCH_NOTE_EXAMPLE,
-    },
-  ])("vault_patch_note's cross-section move $label", ({ disabledTools, expectedSection }) => {
-    const exampleAndMoveSteps = extractDescriptionSection({
-      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
-      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
-      startMarker: "Example: vault_patch_note",
-      endMarker: "\n\nWhen to use:",
-    })
-    expect(exampleAndMoveSteps).toBe(expectedSection)
-  })
-
   it("vault_replace_in_note drops the vault_delete_span advice when that tool is disabled", () => {
     const whenToUse = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_delete_span" }),
@@ -2645,26 +2609,39 @@ describe("DISABLED_TOOLS", () => {
     "Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true)."
   const PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE =
     "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location."
+  const PATCH_NOTE_CREATE_TASK_SENTENCE = "Prefer vault_create_task for adding a task."
+  const PATCH_NOTE_UPDATE_TASK_SENTENCE =
+    "Prefer vault_update_task for completing or moving a task in one write."
 
   it.each([
     {
-      label: "names both tools while they are served",
+      label: "names all four tools while they are served",
       disabledTools: "",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE}`,
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
     },
     {
       label: "drops only the vault_replace_in_note sentence when that tool is disabled",
       disabledTools: "vault_replace_in_note",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE}`,
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
     },
     {
       label: "drops only the vault_write_note sentence when that tool is disabled",
       disabledTools: "vault_write_note",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE}`,
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
     },
     {
-      label: "leaves only the when-to-use line when both tools are disabled",
-      disabledTools: "vault_write_note,vault_replace_in_note",
+      label: "drops only the vault_create_task sentence when that tool is disabled",
+      disabledTools: "vault_create_task",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_UPDATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "drops only the vault_update_task sentence when that tool is disabled",
+      disabledTools: "vault_update_task",
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${PATCH_NOTE_WRITE_NOTE_SENTENCE} ${PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE} ${PATCH_NOTE_CREATE_TASK_SENTENCE}`,
+    },
+    {
+      label: "leaves only the when-to-use line when all four tools are disabled",
+      disabledTools: "vault_write_note,vault_replace_in_note,vault_create_task,vault_update_task",
       expectedSection: PATCH_NOTE_WHEN_TO_USE,
     },
   ])("vault_patch_note's when-to-use $label", ({ disabledTools, expectedSection }) => {
