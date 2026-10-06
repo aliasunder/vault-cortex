@@ -63,14 +63,14 @@ render.yaml # Render Blueprint; stays at the repo root, the only place Render re
 Dockerfile # Two-target build: local (default) + remote
 .claude/ # Committed Claude Code hooks only: settings.json registers hooks/install-deps.sh (nvm, npm ci, sst install) for session start and worktree entry; the rest is gitignored
 obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
-rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian Sync
+rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian that prints the Sync token for .env
 templates/memory/ # About Me/ memory file templates for new vaults
 deploy/ # End-user quickstarts (no clone needed): local/ and remote/ (guide, compose file, .env.example), render/ and railway/ (one-click guides; the Railway template definition lives in CONTRIBUTING.md)
 assets/ # Static assets (not shipped in Docker)
 scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open with a header comment saying what they do
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
-  tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; a setting that gates tools goes in its SURFACE_AXES
+  tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
 src/
@@ -1307,10 +1307,10 @@ notes list it (other accepted flags are in `CONTRIBUTING.md`).
 
 **No hardcoded tool or prompt counts in user-facing surfaces.** Never
 write a specific number of tools or prompts in README, server.json,
-the social preview, the Docker Hub short description in
-`dockerhub-description.yml`, `.devin/wiki.json`, or any other surface an
-end user or registry sees. Use category names or capability descriptions
-instead. Counts go stale on every tool addition and the drift compounds
+the social preview, `.devin/wiki.json`, the image descriptions (in the
+`Dockerfile`, `deploy.yml`, and `dockerhub-description.yml`), or any other
+surface an end user or registry sees. Use category names or capability
+descriptions instead. Counts go stale on every tool addition and the drift compounds
 across surfaces. The README's Tools and Prompts tables are the source of
 truth; a reader counts from those. Internal docs (AGENTS.md, code
 comments) may include counts where they help agents gauge
