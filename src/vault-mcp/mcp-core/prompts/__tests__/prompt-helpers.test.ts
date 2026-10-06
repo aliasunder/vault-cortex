@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   formatNoteLine,
   capContent,
+  exceedsCharCap,
   escapeVaultContentClosingTag,
   wrapWithDataMarkers,
 } from "../prompt-helpers.js"
@@ -48,6 +49,34 @@ describe("capContent", () => {
   it("returns emoji text in full when its characters fit the cap", () => {
     // 5 characters, but 10 UTF-16 units.
     expect(capContent("🎉".repeat(5), 5, undefined)).toBe("🎉".repeat(5))
+  })
+})
+
+describe("exceedsCharCap", () => {
+  it.each([
+    { label: "no cap is set", text: "hello", maxChars: undefined, expected: false },
+    { label: "the text is exactly at the cap", text: "aaaaa", maxChars: 5, expected: false },
+    {
+      label: "the text is one character over the cap",
+      text: "aaaaaa",
+      maxChars: 5,
+      expected: true,
+    },
+    // 5 characters, but 10 UTF-16 units.
+    {
+      label: "emoji fit the cap in characters",
+      text: "🎉".repeat(5),
+      maxChars: 5,
+      expected: false,
+    },
+    {
+      label: "emoji run one character over the cap",
+      text: "🎉".repeat(6),
+      maxChars: 5,
+      expected: true,
+    },
+  ])("returns $expected when $label", ({ text, maxChars, expected }) => {
+    expect(exceedsCharCap(text, maxChars)).toBe(expected)
   })
 })
 

@@ -171,8 +171,8 @@ const writePatchedNote = async (
 /** Truncates anchor/preview text to 80 characters to keep error messages and
  *  confirmations short. */
 const truncateForMessage = (text: string): string => {
-  // Taking code points rather than UTF-16 units keeps an emoji whole; a cut
-  // through its surrogate pair would show as a replacement character.
+  // Taking code points rather than UTF-16 units never cuts through a surrogate
+  // pair, which would show as a replacement character.
   const preview = text[Symbol.iterator]().take(80).toArray().join("")
 
   return preview.length < text.length ? preview + "…" : text

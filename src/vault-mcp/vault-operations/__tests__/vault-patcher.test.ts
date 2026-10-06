@@ -4320,15 +4320,23 @@ def second():
       expect(await readGapNote()).toBe(PROPERTIES + "\n\n\nB\n")
     })
 
-    it("closes the gap around a removed match that carries a line break on each side", async () => {
-      await writeGapNote("\nA\n\nX\n\nB\n")
-      await replaceInNote(
-        { vaultPath: vault, path: "gaps.md", oldText: "\nX\n", newText: "" },
-        logger,
-      )
+    // Each side has two or more blank lines: with only one on either side,
+    // removing the match already leaves the wider gap, and the test could not fail.
+    it.each([
+      { label: "above", body: "\nA\n\n\n\nX\n\n\nB\n", expectedBody: "\nA\n\n\n\nB\n" },
+      { label: "below", body: "\nA\n\n\nX\n\n\n\nB\n", expectedBody: "\nA\n\n\n\nB\n" },
+    ])(
+      "keeps the wider gap $label a removed match that carries a line break on each side",
+      async ({ body, expectedBody }) => {
+        await writeGapNote(body)
+        await replaceInNote(
+          { vaultPath: vault, path: "gaps.md", oldText: "\nX\n", newText: "" },
+          logger,
+        )
 
-      expect(await readGapNote()).toBe(PROPERTIES + "\nA\n\nB\n")
-    })
+        expect(await readGapNote()).toBe(PROPERTIES + expectedBody)
+      },
+    )
   })
 })
 

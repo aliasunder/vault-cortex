@@ -43,6 +43,16 @@ export const textResult = (text: string): GetPromptResult => ({
   messages: [{ role: "user", content: { type: "text", text } }],
 })
 
+/** Whether capContent would cut `text`: more than `maxChars` characters,
+ *  counted in code points. Always false without a cap. */
+export const exceedsCharCap = (text: string, maxChars: number | undefined): boolean => {
+  // A string never holds more code points than UTF-16 units, so a length
+  // within the cap settles it without walking the text.
+  if (!maxChars || text.length <= maxChars) return false
+
+  return !text[Symbol.iterator]().drop(maxChars).next().done
+}
+
 /** Opt-in safety cap for live content embedded in a prompt. When the caller
  *  passes a max (the max_chars argument) and the content exceeds it, truncate
  *  and append a marker pointing at the tool for the full content. When omitted
@@ -52,13 +62,12 @@ export const capContent = (
   maxChars: number | undefined,
   toolName: string | undefined,
 ): string => {
-  if (!maxChars) return text
+  if (!maxChars || !exceedsCharCap(text, maxChars)) return text
 
-  // Taking code points rather than UTF-16 units keeps an emoji whole; a cut
-  // through its surrogate pair would show as a replacement character.
+  // Taking code points rather than UTF-16 units never cuts through a surrogate
+  // pair, which would show as a replacement character.
   const keptText = text[Symbol.iterator]().take(maxChars).toArray().join("")
 
-  if (keptText.length === text.length) return text
   return `${keptText}\n\n…(truncated at ${maxChars} characters${toolName ? ` — use ${toolName} for the full content` : ""})`
 }
 

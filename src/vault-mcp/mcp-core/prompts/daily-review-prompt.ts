@@ -17,6 +17,7 @@ import {
   textResult,
   formatNoteLine,
   wrapWithDataMarkers,
+  exceedsCharCap,
   maxCharsArg,
 } from "./prompt-helpers.js"
 
@@ -233,7 +234,7 @@ export const registerDailyReviewPrompt = ({
           : { total: 0, tasks: [] }
 
         const trimmedDaily = dailyNote.content?.trim() ?? ""
-        const truncated = maxChars !== undefined && trimmedDaily.length > maxChars
+        const truncated = exceedsCharCap(trimmedDaily, maxChars)
         const cappedDailyContent = wrapWithDataMarkers({
           content: trimmedDaily,
           markerAttributes: {
