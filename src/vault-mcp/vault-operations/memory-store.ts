@@ -650,10 +650,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       tags: ["memory", toKebabCase(params.fileName)],
       created: DateTime.now().toISO(),
     }
-    // A programmatically-created file has an unknown purpose, so seed only the
-    // generic convention + a Contains placeholder for the caller to fill in
-    // (the full scope callout — Does NOT contain / Section structure — is
-    // authored per-file in MEMORY_TEMPLATES for the known seed files).
+    // New file names have no known scope, so seed a placeholder for the caller.
+    // Known bootstrap files use the scopes in MEMORY_TEMPLATE_SPECS.
     const body = [
       "",
       `# ${params.fileName}`,

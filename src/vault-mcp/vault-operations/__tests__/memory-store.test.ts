@@ -191,9 +191,8 @@ describe("getMemory", () => {
 
   it("returns files in alphabetical order", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
-    const opinionsIdx = result.indexOf("# Opinions")
-    const principlesIdx = result.indexOf("# Principles")
-    expect(opinionsIdx).toBeLessThan(principlesIdx)
+    const memoryTitles = result.split("\n").filter((line) => line.startsWith("# "))
+    expect(memoryTitles).toEqual(["# Opinions", "# Principles"])
   })
 
   it("returns a single file without frontmatter", async () => {
