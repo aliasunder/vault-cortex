@@ -2481,6 +2481,28 @@ describe("DISABLED_TOOLS", () => {
     )
   })
 
+  it("vault_get_backlinks' empty-result remedy names only served path-finding tools", () => {
+    const emptyResultEntry = (disabledTools: string): string | undefined => {
+      return findDescriptionLine({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_GET_BACKLINKS,
+        linePrefix: "- A path nothing links to",
+      })
+    }
+    const ENTRY_START =
+      "- A path nothing links to returns an empty result (count 0), not an error — if you expected links,"
+
+    expect(emptyResultEntry("")).toBe(
+      `${ENTRY_START} find valid paths with vault_search, vault_list_notes, or vault_list_files.`,
+    )
+    expect(emptyResultEntry("vault_search,vault_list_files")).toBe(
+      `${ENTRY_START} find valid paths with vault_list_notes.`,
+    )
+    expect(emptyResultEntry("vault_search,vault_list_notes,vault_list_files")).toBe(
+      `${ENTRY_START} check the path's spelling and letter case.`,
+    )
+  })
+
   it("vault_delete_note's broken-links entry names vault_get_backlinks only while that tool is served", () => {
     const linksEntry = (disabledTools: string): string | undefined => {
       return findDescriptionLine({

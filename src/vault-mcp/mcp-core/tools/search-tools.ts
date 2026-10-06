@@ -10,6 +10,7 @@ import { formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
 export const registerSearchTools = ({
   registerTool,
   safeHandler,
+  formatEnabledToolList,
   whenToolEnabledText,
   search,
   vaultPath,
@@ -496,6 +497,18 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
+  // Every path-finding tool can be dropped via DISABLED_TOOLS, so the remedy
+  // falls back to checking the path itself when none is served.
+  const backlinksPathFinders = formatEnabledToolList([
+    TOOL_NAMES.VAULT_SEARCH,
+    TOOL_NAMES.VAULT_LIST_NOTES,
+    TOOL_NAMES.VAULT_LIST_FILES,
+  ])
+  const backlinksEmptyResultRemedy =
+    backlinksPathFinders.length > 0
+      ? `find valid paths with ${backlinksPathFinders}`
+      : "check the path's spelling and letter case"
+
   registerTool(
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
@@ -515,7 +528,7 @@ Returns: JSON with path (the queried note or canvas), backlinks (array of { path
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
-- A path nothing links to returns an empty result (count 0), not an error — if you expected links, find valid paths with vault_search, or with vault_list_notes for notes${whenToolEnabledText("vault_list_files", " and vault_list_files for canvases")}.`,
+- A path nothing links to returns an empty result (count 0), not an error — if you expected links, ${backlinksEmptyResultRemedy}.`,
       inputSchema: {
         path: z
           .string()
