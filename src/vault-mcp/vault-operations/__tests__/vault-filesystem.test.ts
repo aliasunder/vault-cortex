@@ -2330,6 +2330,30 @@ describe("writes refuse a properties block a rewrite would lose", () => {
     },
   )
 
+  it("writeNote overwrite refuses a body that would open the note with --- lines it cannot keep", async () => {
+    const original = "body\n"
+    await writeFile(join(vault, "plain.md"), original, "utf8")
+    expect(await readFile(join(vault, "plain.md"), "utf8")).toBe(original)
+
+    const refusal = await captureRejection(
+      writeNote(
+        {
+          vaultPath: vault,
+          path: "plain.md",
+          body: "---\nJust a paragraph.\n---\n",
+          overwrite: true,
+        },
+        logger,
+      ),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${SINGLE_VALUE_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+    expect(await readFile(join(vault, "plain.md"), "utf8")).toBe(original)
+  })
+
   it("writeNote without overwrite still refuses an existing broken note as existing", async () => {
     const content = "---\ntitle: [unclosed\n---\nbody\n"
     await writeFile(join(vault, "broken.md"), content, "utf8")
