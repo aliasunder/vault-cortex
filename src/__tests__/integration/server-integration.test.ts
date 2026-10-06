@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
-import { readFile, stat, writeFile } from "node:fs/promises"
+import { readFile, readdir, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { fileExists } from "../../utils/fs.js"
@@ -31,6 +31,51 @@ import {
 import type { ToolResult } from "./test-harness.js"
 
 vi.setConfig({ testTimeout: 15_000 })
+
+it("indexes newly bootstrapped memory templates before accepting requests", async () => {
+  const server = await startServer(await freePort(), { MEMORY_DIR: "Fresh Memory" })
+  onTestFinished(server.cleanup)
+  const client = await createTestClient(server.port)
+  onTestFinished(() => client.close())
+  const database = new Database(join(server.dataDir, "search.db"), { readonly: true })
+  onTestFinished(() => {
+    database.close()
+  })
+
+  expect((await readdir(join(server.vaultPath, "Fresh Memory"))).toSorted()).toEqual([
+    "Agents.md",
+    "Me.md",
+    "Opinions.md",
+    "Principles.md",
+    "Routines.md",
+  ])
+  const result = await callTool({
+    client,
+    name: "vault_search",
+    args: { query: '"subject of every entry"', filters: { folder: "Fresh Memory" } },
+  })
+  const parsedResult = JSON.parse(textContent(result))
+
+  expect(parsedResult.results.map((entry: { path: string }) => entry.path)).toEqual([
+    "Fresh Memory/Agents.md",
+  ])
+  expect(
+    database.prepare("SELECT path FROM notes WHERE path LIKE 'Fresh Memory/%' ORDER BY path").all(),
+  ).toEqual([
+    { path: "Fresh Memory/Agents.md" },
+    { path: "Fresh Memory/Me.md" },
+    { path: "Fresh Memory/Opinions.md" },
+    { path: "Fresh Memory/Principles.md" },
+    { path: "Fresh Memory/Routines.md" },
+  ])
+  const expectedPreferences = await readFile(
+    join(import.meta.dirname, "fixtures/vault/About Me/Preferences.md"),
+    "utf8",
+  )
+  expect(await readFile(join(server.vaultPath, "About Me/Preferences.md"), "utf8")).toBe(
+    expectedPreferences,
+  )
+})
 
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string => {

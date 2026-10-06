@@ -146,10 +146,10 @@ const startServer = async (): Promise<void> => {
     fileToolsEnabled: config.fileToolsEnabled,
     statusRegistry,
   })
+  await bootstrapMemoryIfEnabled(config, vaultPath)
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
 
-  await bootstrapMemoryIfEnabled(config, vaultPath)
   await startFileWatcher(vaultPath, search, {
     usePolling: config.windowsBindMount,
   })

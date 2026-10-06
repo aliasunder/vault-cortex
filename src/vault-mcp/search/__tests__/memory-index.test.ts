@@ -21,11 +21,9 @@ const DIMENSIONS = 384
 /** Creates a mock embedder that returns deterministic embeddings. */
 const createMockEmbedder = () => ({
   embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
-  embedBatch: vi
-    .fn()
-    .mockImplementation((texts: string[]) =>
-      Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
-    ),
+  embedBatch: vi.fn(async (texts: readonly string[]): Promise<Float32Array[]> => {
+    return texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))
+  }),
 })
 
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
@@ -37,10 +35,7 @@ const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number 
 /** Total entry texts sent to the embedder across all embedBatch calls —
  *  the observable that proves how many entries were actually (re-)embedded. */
 const totalTextsEmbedded = (embedder: ReturnType<typeof createMockEmbedder>): number =>
-  embedder.embedBatch.mock.calls.reduce(
-    (sum: number, call: unknown[]) => sum + (call[0] as string[]).length,
-    0,
-  )
+  embedder.embedBatch.mock.calls.reduce((sum, [texts]) => sum + texts.length, 0)
 
 /** File-backed index plus a second read-only connection for asserting raw
  *  table state — :memory: databases can't be inspected from outside the
@@ -171,7 +166,7 @@ describe("memory entry indexing", () => {
     const { index, embedder } = await createInspectableMemoryIndex()
 
     if (embedder === undefined) throw new Error("embedder required")
-    index.upsertNote(
+    const sourceVersion = index.upsertNote(
       {
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
@@ -179,11 +174,11 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
-    const embeddedEntryTexts = embedder.embedBatch.mock.calls.flatMap(
-      (call: unknown[]) => call[0] as string[],
+    await index.embedNote(
+      { sourceVersion: sourceVersion, notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 },
+      logger,
     )
-    expect(embeddedEntryTexts).toEqual([
+    expect(embedder.embedBatch).toHaveBeenCalledExactlyOnceWith([
       "Opinions > Code patterns (newest first)\n- **2026-07-02**: Wrap function bodies in braces.",
       "Opinions > Code patterns (newest first)\n- **2026-05-07**: Immutable over mutable.",
       "Opinions > Process (newest first)\n- **2026-06-25**: Sequential over parallel review.",
@@ -194,7 +189,7 @@ describe("memory entry indexing", () => {
     const { index, embedder, inspect } = await createInspectableMemoryIndex()
 
     if (embedder === undefined) throw new Error("embedder required")
-    index.upsertNote(
+    const originalSourceVersion = index.upsertNote(
       {
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
@@ -202,7 +197,14 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: originalSourceVersion,
+        notePath: "About Me/Opinions.md",
+        rawContent: OPINIONS_V1,
+      },
+      logger,
+    )
     embedder.embedBatch.mockClear()
 
     // Top-insert (the memory append default) shifts every later entry's
@@ -211,7 +213,7 @@ describe("memory entry indexing", () => {
       "- **2026-07-02**: Wrap function bodies in braces.",
       "- **2026-07-11**: Newest opinion lands on top.\n- **2026-07-02**: Wrap function bodies in braces.",
     )
-    index.upsertNote(
+    const updatedSourceVersion = index.upsertNote(
       {
         filePath: "About Me/Opinions.md",
         rawContent: withTopAppend,
@@ -219,12 +221,16 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: withTopAppend }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: updatedSourceVersion,
+        notePath: "About Me/Opinions.md",
+        rawContent: withTopAppend,
+      },
+      logger,
+    )
 
-    expect(totalTextsEmbedded(embedder)).toBe(1)
-    expect(
-      embedder.embedBatch.mock.calls.flatMap((call: unknown[]) => call[0] as string[]),
-    ).toEqual([
+    expect(embedder.embedBatch).toHaveBeenCalledExactlyOnceWith([
       "Opinions > Code patterns (newest first)\n- **2026-07-11**: Newest opinion lands on top.",
     ])
     // The shifted entries kept their rows; indices were refreshed in place.
@@ -236,7 +242,7 @@ describe("memory entry indexing", () => {
     const { index, embedder, inspect } = await createInspectableMemoryIndex()
 
     if (embedder === undefined) throw new Error("embedder required")
-    index.upsertNote(
+    const originalSourceVersion = index.upsertNote(
       {
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
@@ -244,14 +250,21 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: originalSourceVersion,
+        notePath: "About Me/Opinions.md",
+        rawContent: OPINIONS_V1,
+      },
+      logger,
+    )
     embedder.embedBatch.mockClear()
 
     const withEdit = OPINIONS_V1.replace(
       "- **2026-05-07**: Immutable over mutable.",
       "- **2026-05-07**: Immutable over mutable, always.",
     )
-    index.upsertNote(
+    const updatedSourceVersion = index.upsertNote(
       {
         filePath: "About Me/Opinions.md",
         rawContent: withEdit,
@@ -259,9 +272,18 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: withEdit }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: updatedSourceVersion,
+        notePath: "About Me/Opinions.md",
+        rawContent: withEdit,
+      },
+      logger,
+    )
 
-    expect(totalTextsEmbedded(embedder)).toBe(1)
+    expect(embedder.embedBatch).toHaveBeenCalledExactlyOnceWith([
+      "Opinions > Code patterns (newest first)\n- **2026-05-07**: Immutable over mutable, always.",
+    ])
     // Still 3 rows and 3 vectors — the old row and its vector are gone, not
     // orphaned beside the new ones.
     expect(selectEntryRows(inspect)).toHaveLength(3)
@@ -276,7 +298,7 @@ describe("memory entry indexing", () => {
     const { index, embedder, inspect } = await createInspectableMemoryIndex()
 
     if (embedder === undefined) throw new Error("embedder required")
-    index.upsertNote(
+    const sourceVersion = index.upsertNote(
       {
         filePath: "About Me/Routines.md",
         rawContent: OPINIONS_V1,
@@ -284,7 +306,10 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Routines.md", rawContent: OPINIONS_V1 }, logger)
+    await index.embedNote(
+      { sourceVersion: sourceVersion, notePath: "About Me/Routines.md", rawContent: OPINIONS_V1 },
+      logger,
+    )
     // The prune target was present before (the trigger state is real).
     expect(selectEntryRows(inspect).some((row) => row.entry_date === "2026-05-07")).toBe(true)
     expect(countVectors(inspect)).toBe(3)
@@ -306,7 +331,7 @@ describe("memory entry indexing", () => {
 
   it("removeNote clears the file's entry rows, FTS rows, and vectors", async () => {
     const { index, inspect } = await createInspectableMemoryIndex()
-    index.upsertNote(
+    const sourceVersion = index.upsertNote(
       {
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
@@ -314,7 +339,10 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
+    await index.embedNote(
+      { sourceVersion: sourceVersion, notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 },
+      logger,
+    )
     expect(selectEntryRows(inspect)).toHaveLength(3)
 
     index.removeNote("About Me/Opinions.md")
@@ -330,7 +358,7 @@ describe("memory entry indexing", () => {
     const { index, embedder, inspect } = await createInspectableMemoryIndex()
 
     if (embedder === undefined) throw new Error("embedder required")
-    index.upsertNote(
+    const originalSourceVersion = index.upsertNote(
       {
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
@@ -338,12 +366,19 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: originalSourceVersion,
+        notePath: "About Me/Opinions.md",
+        rawContent: OPINIONS_V1,
+      },
+      logger,
+    )
     embedder.embedBatch.mockClear()
 
     // The watcher delivers a rename as unlink + add.
     index.removeNote("About Me/Opinions.md")
-    index.upsertNote(
+    const updatedSourceVersion = index.upsertNote(
       {
         filePath: "About Me/Beliefs.md",
         rawContent: OPINIONS_V1,
@@ -351,11 +386,17 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "About Me/Beliefs.md", rawContent: OPINIONS_V1 }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: updatedSourceVersion,
+        notePath: "About Me/Beliefs.md",
+        rawContent: OPINIONS_V1,
+      },
+      logger,
+    )
 
     const rows = selectEntryRows(inspect)
-    expect(rows).toHaveLength(3)
-    expect(rows.every((row) => row.file === "Beliefs")).toBe(true)
+    expect(rows.map((row) => row.file)).toEqual(["Beliefs", "Beliefs", "Beliefs"])
     // One-time full re-embed under the new name — the documented rename cost.
     expect(totalTextsEmbedded(embedder)).toBe(3)
   })
@@ -405,6 +446,179 @@ describe("memory entry indexing", () => {
       .all()
     expect(memoryTables).toEqual([])
   })
+})
+
+describe("memory embedding source versions", () => {
+  it("keeps a committed first batch while rejecting a superseded second batch and recovers", async () => {
+    const { index, embedder, inspect } = await createInspectableMemoryIndex()
+
+    if (!embedder) throw new Error("embedder required")
+    const entryTexts = Array.from({ length: 17 }, (_, entryIndex) => {
+      return `- **2026-07-01**: Practice ${String(entryIndex)} improves reliability.`
+    })
+    const content = `## Practices\n\n${entryTexts.join("\n")}`
+    const secondBatchStarted = Promise.withResolvers<undefined>()
+    const secondBatchModel = Promise.withResolvers<Float32Array[]>()
+    embedder.embedBatch.mockImplementationOnce(async (texts) => {
+      return texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))
+    })
+    embedder.embedBatch.mockImplementationOnce(() => {
+      secondBatchStarted.resolve(undefined)
+      return secondBatchModel.promise
+    })
+    const originalVersion = index.upsertNote(
+      { filePath: "About Me/Opinions.md", rawContent: content, fileStat: testStat(1000) },
+      logger,
+    )
+    const staleJob = index.embedNote(
+      { notePath: "About Me/Opinions.md", rawContent: content, sourceVersion: originalVersion },
+      logger,
+    )
+    await secondBatchStarted.promise
+    const firstBatchVectors = inspect
+      .prepare(
+        "SELECT entry_id, hex(embedding) AS embedding FROM memory_entry_vectors ORDER BY entry_id",
+      )
+      .all()
+    expect(firstBatchVectors).toHaveLength(16)
+    const replacementText = "- **2026-07-01**: Replacement practice improves recovery."
+    const replacementContent = `## Practices\n\n${[...entryTexts.slice(0, 16), replacementText].join("\n")}`
+    const replacementVersion = index.upsertNote(
+      {
+        filePath: "About Me/Opinions.md",
+        rawContent: replacementContent,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    secondBatchModel.resolve([new Float32Array(DIMENSIONS).fill(0.9)])
+    await staleJob
+
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(2)
+    expect(
+      inspect
+        .prepare(
+          "SELECT entry_id, hex(embedding) AS embedding FROM memory_entry_vectors ORDER BY entry_id",
+        )
+        .all(),
+    ).toEqual(firstBatchVectors)
+    expect(selectEntryRows(inspect).map((row) => row.entry_text)).toEqual([
+      ...entryTexts.slice(0, 16),
+      replacementText,
+    ])
+    embedder.embedBatch.mockClear()
+    await index.embedNote(
+      {
+        notePath: "About Me/Opinions.md",
+        rawContent: replacementContent,
+        sourceVersion: replacementVersion,
+      },
+      logger,
+    )
+    expect(embedder.embedBatch).toHaveBeenCalledExactlyOnceWith([
+      `Opinions > Practices\n${replacementText}`,
+    ])
+    expect(countVectors(inspect)).toBe(17)
+    expect(
+      inspect
+        .prepare(
+          "SELECT entry_id, hex(embedding) AS embedding FROM memory_entry_vectors ORDER BY entry_id LIMIT 16",
+        )
+        .all(),
+    ).toEqual(firstBatchVectors)
+  })
+
+  it.each(["delete", "recreate", "prune"] as const)(
+    "stops an obsolete 17-entry batch after a source %s",
+    async (mutation) => {
+      const { index, embedder, inspect } = await createInspectableMemoryIndex()
+
+      if (!embedder) throw new Error("embedder required")
+      const content = `# Opinions\n\n## Practices\n\n${Array.from(
+        { length: 17 },
+        (_, entryIndex) => {
+          return `- **2026-07-01**: Practice ${String(entryIndex)} improves reliability.`
+        },
+      ).join("\n")}`
+      const firstBatchStarted = Promise.withResolvers<undefined>()
+      const batchModel = Promise.withResolvers<Float32Array[]>()
+      embedder.embedBatch.mockImplementationOnce(() => {
+        firstBatchStarted.resolve(undefined)
+        return batchModel.promise
+      })
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {})
+      onTestFinished(() => debugSpy.mockRestore())
+      const originalVersion = index.upsertNote(
+        { filePath: "About Me/Opinions.md", rawContent: content, fileStat: testStat(1000) },
+        logger,
+      )
+      const originalIds = inspect
+        .prepare<[], { id: number }>("SELECT id FROM memory_entries ORDER BY id")
+        .all()
+        .map((row) => row.id)
+      expect(originalIds).toHaveLength(17)
+      const staleJob = index.embedNote(
+        { notePath: "About Me/Opinions.md", rawContent: content, sourceVersion: originalVersion },
+        logger,
+      )
+      await firstBatchStarted.promise
+
+      const replacementContent =
+        mutation === "prune"
+          ? "# Opinions\n\n## Practices\n\n- **2026-07-01**: Current replacement practice."
+          : content
+
+      if (mutation !== "prune") index.removeNote("About Me/Opinions.md")
+      const replacementVersion =
+        mutation === "delete"
+          ? null
+          : index.upsertNote(
+              {
+                filePath: "About Me/Opinions.md",
+                rawContent: replacementContent,
+                fileStat: testStat(1000),
+              },
+              logger,
+            )
+      batchModel.resolve(Array.from({ length: 16 }, () => new Float32Array(384).fill(0.1)))
+      await staleJob
+
+      // Check the stale batch before replacement work can repair its state.
+      expect(embedder.embedBatch).toHaveBeenCalledTimes(1)
+      expect(countVectors(inspect)).toBe(0)
+      const expectedEntryCounts = { delete: 0, prune: 1, recreate: 17 }
+      expect(selectEntryRows(inspect)).toHaveLength(expectedEntryCounts[mutation])
+      expect(debugSpy).toHaveBeenCalledWith("skipped obsolete embedding", {
+        path: "About Me/Opinions.md",
+      })
+      const replacementIds = inspect
+        .prepare<[], { id: number }>("SELECT id FROM memory_entries ORDER BY id")
+        .all()
+        .map((row) => row.id)
+      expect(replacementIds.filter((entryId) => originalIds.includes(entryId))).toEqual([])
+
+      if (replacementVersion === null) return
+      embedder.embedBatch.mockClear()
+      await index.embedNote(
+        {
+          notePath: "About Me/Opinions.md",
+          rawContent: replacementContent,
+          sourceVersion: replacementVersion,
+        },
+        logger,
+      )
+      expect(embedder.embedBatch).toHaveBeenCalledTimes(mutation === "prune" ? 1 : 2)
+      expect(countVectors(inspect)).toBe(replacementIds.length)
+      expect(
+        inspect
+          .prepare<[], { entry_id: number }>(
+            "SELECT entry_id FROM memory_entry_vectors ORDER BY entry_id",
+          )
+          .all()
+          .map((row) => row.entry_id),
+      ).toEqual(replacementIds)
+    },
+  )
 })
 
 describe("memory entry rebuild reconciliation", () => {
@@ -477,6 +691,10 @@ title: Agents
     await firstBuild.embedding
     const rowsAfterFirstBuild = selectEntryRows(inspect)
     expect(rowsAfterFirstBuild).toHaveLength(4)
+    const chunksAfterFirstBuild = inspect
+      .prepare("SELECT id, note_path, chunk_text, content_hash FROM note_chunks ORDER BY id")
+      .all()
+    expect(chunksAfterFirstBuild).toHaveLength(2)
 
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
@@ -493,6 +711,12 @@ title: Agents
     // A still-on-disk memory note must not be treated as deleted — its
     // entry rows survive until a rebuild parses it successfully again
     expect(selectEntryRows(inspect)).toEqual(rowsAfterFirstBuild)
+    expect(
+      inspect
+        .prepare("SELECT id, note_path, chunk_text, content_hash FROM note_chunks ORDER BY id")
+        .all(),
+    ).toEqual(chunksAfterFirstBuild)
+    expect(countVectors(inspect)).toBe(4)
   })
 
   it("embeds zero entries on a second rebuild with unchanged files", async () => {
