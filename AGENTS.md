@@ -47,46 +47,50 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
-The tree lists each folder with its main modules named inline. A file gets
-its own line only when its comment states a constraint the name does not
-show. Routine files (READMEs and other top-level docs, compose files, tool
-configs such as `package.json`, `tsconfig.json`, and `eslint.config.ts`, and
-the `.github/`, `.devin/`, and `.husky/` folders) are left out; run `ls` on a
-folder for the full list.
+The tree lists the main folders, a few root files, the loose files in `src/`
+and `src/vault-mcp/`, and single-file folders. Where the names help, a
+folder's comment names its main modules, without the `.ts` extension. Inside
+a folder, a file gets its own line only when its comment states a constraint
+the name does not show. Test folders appear only when their harness needs
+explaining. Routine files (READMEs and other top-level docs, compose files,
+tool configs such as `package.json`, `tsconfig.json`, and `eslint.config.ts`,
+and the `.github/`, `.devin/`, and `.husky/` folders) are left out; run `ls`
+on a folder for the full list.
 
 ```text
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed session hooks only: settings.json runs hooks/install-deps.sh (nvm, npm ci, sst install) on session start and worktree entry; the rest is gitignored
-obsidian-headless/ # Lockfile-pinned obsidian-headless for the remote target
-rootfs/ # Container filesystem overlay (remote target): s6 init chain and services in etc/s6-overlay/, the get-sync-token helper in usr/local/bin/
+.claude/ # Committed Claude Code hooks only: settings.json runs hooks/install-deps.sh (nvm, npm ci, sst install) on session start and worktree entry; the rest is gitignored
+obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
+rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian Sync
 templates/memory/ # About Me/ memory file templates for new vaults
 deploy/ # End-user quickstarts (no clone needed): local/ and remote/ (guide, compose file, .env.example), render/ and railway/ (one-click guides; the Railway template definition lives in CONTRIBUTING.md)
 assets/ # Static assets (not shipped in Docker)
 scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open with a header comment saying what they do
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
-  instance-env.ts # PUBLIC_URL for lightsail:up; must resolve like sst.config.ts and deploy.yml, or the authorizer rejects tokens
-  tool-surface-capture.ts # Boots a server per config combo; feeds the snapshot test, the size report, and the LobeHub manifest
-cli/src/ # npx vault-cortex CLI: bin.ts (entry) → main.ts (wiring) → program.ts (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
-  __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness.ts, cli-pty.test.ts, a fake docker binary in fixtures/
+  instance-env.ts # Derives PUBLIC_URL for laptop deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
+  tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; a setting that gates tools goes in its SURFACE_AXES
+cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
+  __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
 src/
   logger.ts # Root logger (structured JSON, source location)
-  auth.ts, jwt.ts # Shared auth utilities; minimal HS256 JWT used by the Lambda and Express
+  auth.ts # Auth helpers shared by the Lambda authorizer and vault-mcp/
+  jwt.ts # Minimal HS256 JWT sign and verify for the Lambda authorizer and the OAuth server
   utils/ # Generic helpers with no domain logic (admission rules under Module layering)
   functions/authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
-  __tests__/integration/ # SDK Client over real HTTP: test-harness.ts, fixtures/vault/, happy paths, error contracts, OAuth flows
-  __tests__/docker/ # Remote image boot tests (npm run test:remote-boot): docker-harness.ts, with `ob` stubbed by fixtures/ob
+  __tests__/integration/ # Server tests over real HTTP through the SDK Client; files listed under "Integration tests — when to add"
+  __tests__/docker/ # :remote image boot tests (npm run test:remote-boot): docker-harness, and fixtures/ob, a stub of the obsidian-headless CLI
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
-    obsidian-markdown/ # Pure parsers and transforms, no I/O: lines, frontmatter, callouts, headings, links, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
+    obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
     vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions
-      tools/ # One module per data-layer domain (vault-crud, search, task, memory, daily-note, asset) plus tool-helpers.ts
-      prompts/ # One module per prompt (vault-orientation, memory-review, daily-review) plus prompt-helpers.ts
+      tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
+      prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
     search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, chunker, file-watcher
     oauth/ # OAuth 2.1: oauth-provider, oauth-routes, consent-page
-    setup/ # Setup mode for the :remote image: setup-server (entry), setup-routes, setup-page, obsidian-api, vault-key, sync-token-store
+    setup/ # Setup mode (browser sign-in to Obsidian Sync while the :remote image has no working token): setup-server (entry), setup-routes, setup-page, obsidian-api, vault-key, sync-token-store
 ```
 
 ### Module layering
@@ -107,8 +111,9 @@ A module's folder is decided by **what it depends on**, not just its topic:
   pure leaf layer — Obsidian format parsers belong here regardless of whether
   the format is markdown, JSON, or YAML. `lines.ts` is the single home of the
   [CommonMark §4.5](https://spec.commonmark.org/0.31.2/#fenced-code-blocks)
-  fence state machine (`advanceFence`) — every fence-aware walk
-  threads it, so they can't disagree about where a fence opens.
+  fence state machine (`advanceFence`) — every function that walks lines
+  and tracks code fences calls it, so they can't disagree about where a
+  fence opens.
   **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
   that performs side effects — it resolves `pdfjs-dist` package paths from disk
   via `createRequire` and mutates `globalThis` (canvas polyfill injection). It
@@ -183,9 +188,10 @@ A module's folder is decided by **what it depends on**, not just its topic:
   `oauth/`, not a layer below it: builds on `config.ts`, `src/auth.ts`,
   and `utils/`; nothing lower imports it (lint-enforced: each lower layer's
   `no-restricted-imports` bans `setup/` and `oauth/`).
-  `svc-vault-mcp/run` starts `setup-server.ts` instead of `server.ts`
-  when the init chain sets `SETUP_MODE`: `init-check-auth` when no token
-  exists, `init-obsidian-login` when the saved token's login is rejected.
+  `rootfs/etc/s6-overlay/s6-rc.d/svc-vault-mcp/run` starts `setup-server.ts`
+  instead of `server.ts` when the init chain sets `SETUP_MODE`:
+  `init-check-auth` when no token exists, `init-obsidian-login` when the
+  saved token's login is rejected.
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Three rules keep this honest:
@@ -228,8 +234,10 @@ and gating is derived once rather than re-decided per call site:
   sibling surfaces, not a layer stack; a helper both need is either generic
   enough for `utils/` or belongs in that group's own helpers module.
 
-Before editing these rules, read the comments in `eslint.config.ts`, and
-validate any new rule with a planted violation.
+Before editing these lint rules, read the comments in `eslint.config.ts`:
+a narrower config block's rule options replace the wider block's instead of
+merging, and import patterns match the specifier as written. Confirm any new
+rule fires on a deliberately added violation.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
@@ -365,21 +373,25 @@ log would produce N lines during a vault rebuild (one per note), it's
 
 - Never log PII, credentials, tokens, or secrets — not in messages,
   not in structured fields, not in tests (fake fixtures only). Log
-  identifiers (`sessionId`), never identity payloads.
-- Redact via destructuring: `const { password, token, ...safe } = payload`
-  — no `any`, no `delete` on copies.
+  identifiers (`sessionId`), never identity payloads such as an account
+  email or name.
+- Redact by destructuring the sensitive keys out:
+  `const { password, token, ...safe } = payload`. Keep the payload typed
+  (no `any`), and never `delete` keys from a copy.
 - If a child-process command contains sensitive values, catch a failure
-  at the call site and log a sanitized description. The original error
-  message and a rethrow with `{ cause }` can expose the full command.
+  at the call site, log a sanitized description, and rethrow only a new
+  error built from it, without `{ cause }`. The original error message and
+  any cause chain carrying it expose the full command.
 - Layer-appropriate messages: internal/data-layer functions describe
   what went wrong in their own domain and never name API surfaces
   (tool names, routes) or prescribe caller-level remediation.
 - Log full detail internally, return generic messages externally —
   error responses to clients never include paths, stack traces, or
   implementation state.
-- Normal `/healthz` returns `{ ok: true }`, and setup mode adds
-  `mode: "setup"` for completion polling. Do not add deployment
-  settings or host details to either response.
+- `/healthz` needs no sign-in, so never add deployment settings or host
+  details to its response. The full server returns `{ ok: true }`, and
+  setup mode adds `mode: "setup"` so the setup page can tell when the full
+  server is back.
 
 ## Platform
 
@@ -413,7 +425,7 @@ while writing, not after. `eslint.config.ts` enforces this subset:
   `TOOL_NAMES`).
 
 The rest are the author's responsibility at write time. The list below
-covers both kinds, with reasons:
+covers the enforced rules and the rest, with reasons:
 
 - Functional over OOP. Arrow functions over `function` declarations.
 - Factory/closure pattern for stateful modules (see search-index.ts).
@@ -1102,7 +1114,7 @@ it runs the resource graph. The file is committed but auto-generated
 — on a fresh clone it may be stale, and `npm run build` can fail with
 `Property 'McpAuthToken' does not exist on type 'Resource'` until
 you've run `npm run deploy` once for your stage.
-These commands require `~/.config/vault-cortex/.env`; create it from
+`npm run deploy` requires `~/.config/vault-cortex/.env`; create it from
 `.env.example` as shown in `DEPLOY.md` one-time setup step 2.
 
 If you add or rename a secret in `sst.config.ts`, re-run `npm run deploy`
@@ -1129,12 +1141,13 @@ release — re-check each of these against the plugin source before merging:
   `parseText` try/null handling.
 - Reference-date priority (due → scheduled → start; flipped to due →
   start → scheduled under `removeScheduledDateOnRecurrence`).
-- The month/year overflow walk-back: dtstart moves with each step, and a
-  rule whose text contains `" on "` (an explicit day, "every month on the
-  31st") skips the walk-back — month rules only.
-- The spawn's field handling in `createNextOccurrence`: block link, 🆔,
-  and ⛔ cleared; created date replaced per `setCreatedDate`, never
-  carried forward.
+- The month/year overflow walk-back: the rule's start date (rrule's
+  `dtstart`) moves with each step, and a rule whose text contains `" on "`
+  (an explicit day, "every month on the 31st") skips the walk-back — month
+  rules only.
+- The fields `createNextOccurrence` sets on the next occurrence: block
+  link, 🆔, and ⛔ cleared; created date replaced per `setCreatedDate`,
+  never carried forward.
 - The `recurrence.test.ts` vectors lifted from the plugin's own
   `Recurrence.test.ts` — refresh them from the new release's tests.
 
@@ -1175,8 +1188,9 @@ re-verify each contract against the new source before merging:
 - Files delivered by `sync --continuous` are recorded in that same
   table as they arrive, and a file deleted locally has its row removed at
   once. The stub's `sync-record` and `sync-forget` verbs mirror the two.
-- The never-downloaded queue in `init-first-sync` (its header explains
-  why) relies on five engine behaviours. The remote-boot oracle
+- `init-first-sync` queues every file the engine knows about but this
+  device has no local record of (its header explains why). That step
+  relies on five engine behaviours. The remote-boot oracle
   (`fixtures/sync-engine-oracle.ts`) runs the image's own engine on the
   first; re-check the other four by hand in the new `cli.js`:
   1. The deletion scan pushes a deletion for a `server_files` row with no
@@ -1190,7 +1204,7 @@ re-verify each contract against the new source before merging:
   4. Skipping a superseded queued entry deletes every queued row for that
      path (`DELETE FROM pending_files WHERE path = ?`).
   5. The oracle's minified names are unchanged: the closing `x.parse();`
-     call and the engine class `is`.
+     call, and `is` as the engine class's name.
 
 - The setup page's pre-flight (`src/vault-mcp/setup/`) mirrors two calls
   `ob sync-setup` makes on the next boot: `/vault/list` (an
@@ -1293,10 +1307,11 @@ notes list it (other accepted flags are in `CONTRIBUTING.md`).
 
 **No hardcoded tool or prompt counts in user-facing surfaces.** Never
 write a specific number of tools or prompts in README, server.json,
-social preview, CI configs, wiki.json, or any other surface an end
-user or registry sees. Use category names or capability descriptions
+the social preview, the Docker Hub short description in
+`dockerhub-description.yml`, `.devin/wiki.json`, or any other surface an
+end user or registry sees. Use category names or capability descriptions
 instead. Counts go stale on every tool addition and the drift compounds
-across surfaces. The tools table and prompt table are the source of
+across surfaces. The README's Tools and Prompts tables are the source of
 truth; a reader counts from those. Internal docs (AGENTS.md, code
 comments) may include counts where they help agents gauge
 module size — these are agent-facing and not propagated externally.

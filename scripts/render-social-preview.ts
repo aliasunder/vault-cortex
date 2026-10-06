@@ -1,13 +1,15 @@
 // Renders assets/social-preview.svg to assets/social-preview.png.
 //
-// - Browser: Puppeteer's pinned Chrome for Testing build. `npm ci` skips its
-//   download (the `puppeteer.skipDownload` key in package.json) so installs work
-//   where no zip archiver exists, such as registry build images. The npm script
-//   installs it on demand, so the first render downloads about 350MB.
-// - Font: DejaVu Sans is embedded via @font-face, so text renders the same
-//   whatever fonts the host has.
-//
-// Usage: npm run render:social-preview
+// - Run it with `npm run render:social-preview`, which first runs
+//   `puppeteer browsers install chrome`. Running this file directly fails
+//   until that install has cached the browser.
+// - The browser is Puppeteer's pinned Chrome for Testing build, about 350MB on
+//   the first install. `npm ci` skips that download (the
+//   `puppeteer.skipDownload` key in package.json) because Puppeteer's install
+//   step unpacks a zip archive, which fails where no zip archiver exists, such
+//   as slim Docker images and MCP registries that build from source.
+// - DejaVu Sans is embedded via @font-face, so text renders the same whatever
+//   fonts the host has.
 
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
@@ -19,6 +21,9 @@ const repoRoot = new URL("..", import.meta.url)
 
 const resolvePath = (repoRelative: string): string => fileURLToPath(new URL(repoRelative, repoRoot))
 
+// GitHub's recommended social preview size is 1280×640, and
+// assets/social-preview.svg declares the same width and height. An SVG of any
+// other size would be cropped or leave blank space.
 const WIDTH = 1280
 const HEIGHT = 640
 
@@ -27,35 +32,35 @@ const commandAvailable = (command: string): boolean => {
     execFileSync("which", [command], { stdio: "pipe" })
     return true
   } catch {
+    // `which` exits non-zero when the command is not on PATH; the caller warns.
     return false
   }
 }
 
 const optimizePng = (pngPath: string): void => {
-  if (commandAvailable("optipng")) {
-    console.log("optimizing with optipng...")
-    try {
-      execFileSync("optipng", ["-o7", "-strip", "all", pngPath], {
-        stdio: "inherit",
-      })
-      return
-    } catch {
-      console.warn("⚠  optipng failed — PNG saved without optimization")
-      return
-    }
+  if (!commandAvailable("optipng")) {
+    console.warn(
+      "⚠  optipng not found — PNG saved without optimization\n" +
+        "   install via: brew bundle (macOS, reads the repo's Brewfile) or apt-get install optipng (Linux)",
+    )
+    return
   }
 
-  console.warn(
-    "⚠  optipng not found — PNG saved without optimization\n" +
-      "   install via: brew bundle (macOS) or apt-get install optipng (Linux)",
-  )
+  console.log("optimizing with optipng...")
+
+  try {
+    // -o7 is optipng's most thorough lossless level; -strip all drops metadata chunks.
+    execFileSync("optipng", ["-o7", "-strip", "all", pngPath], {
+      stdio: "inherit",
+    })
+  } catch {
+    console.warn("⚠  optipng failed — PNG saved without optimization")
+  }
 }
 
 const renderSocialPreview = async (): Promise<void> => {
-  // Clear env vars that override Puppeteer's cached-browser resolution
-  // (some systems set PUPPETEER_EXECUTABLE_PATH or PUPPETEER_SKIP_DOWNLOAD globally)
-  delete process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
-  delete process.env.PUPPETEER_SKIP_DOWNLOAD
+  // A globally set PUPPETEER_EXECUTABLE_PATH would launch that browser instead
+  // of the pinned build, so the render could differ from machine to machine.
   delete process.env.PUPPETEER_EXECUTABLE_PATH
 
   const svgPath = resolvePath("assets/social-preview.svg")
@@ -63,24 +68,22 @@ const renderSocialPreview = async (): Promise<void> => {
   const outputPath = resolvePath("assets/social-preview.png")
 
   if (!existsSync(svgPath)) {
-    console.error("✕  assets/social-preview.svg not found")
-    process.exit(1)
+    throw new Error(`${svgPath} not found`)
   }
 
   if (!existsSync(fontPath)) {
-    console.error(
-      "✕  assets/fonts/DejaVuSans.ttf not found\n" +
-        "   download from https://dejavu-fonts.github.io and place in assets/fonts/",
+    throw new Error(
+      `${fontPath} not found\n` +
+        "   download it from https://dejavu-fonts.github.io and save it at that path",
     )
-    process.exit(1)
   }
 
   const svgContent = readFileSync(svgPath, "utf-8")
   const fontBase64 = readFileSync(fontPath).toString("base64")
 
-  // HTML with embedded @font-face ensures DejaVu Sans is available regardless
-  // of host system fonts. The SVG is inlined directly (no blob URL) to avoid
-  // Chrome's canvas UTF-8 encoding bug with non-ASCII characters like · (U+00B7).
+  // The SVG markup is inlined into the page, because Chrome garbles non-ASCII
+  // text (· renders as Â·) when the SVG is loaded as an image from a blob URL
+  // and drawn onto a canvas.
   const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
@@ -102,7 +105,7 @@ const renderSocialPreview = async (): Promise<void> => {
 <body>${svgContent}</body>
 </html>`
 
-  console.log("launching Chromium...")
+  console.log("launching Chrome for Testing...")
   const browser = await puppeteer.launch({ headless: true })
 
   try {
