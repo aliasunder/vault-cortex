@@ -6,8 +6,8 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 
 /** Errors entries for a memory file whose properties block the server
- *  refuses. Reads refuse only YAML they cannot read; writes also refuse a
- *  block a rewrite would lose, or one that would leave the file opening with
+ *  refuses. Reads refuse only YAML they cannot read. Writes also refuse a
+ *  block a rewrite would lose, and a result that would open the file with
  *  `---` lines. The error names the file and says how to fix it. */
 const MEMORY_BLOCK_READ_ERROR_ENTRY =
   '- "memory file …: properties block is not valid YAML …" — the error names the file and says how to repair it'
