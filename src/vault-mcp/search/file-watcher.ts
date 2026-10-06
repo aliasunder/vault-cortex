@@ -5,6 +5,7 @@
 import { watch } from "chokidar"
 import { DateTime } from "luxon"
 import { readFile, stat } from "node:fs/promises"
+import type { Stats } from "node:fs"
 import { extname, join, relative, resolve as resolvePath } from "node:path"
 import { INDEXABLE_TEXT_EXTENSIONS } from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
@@ -69,13 +70,32 @@ export const startFileWatcher = (
 
     try {
       if (!filePath.endsWith(".md")) {
-        const fileStat = await statOrNull(filePath)
+        const readNonMdFileStat = async (): Promise<Stats | null> => {
+          try {
+            return await statOrNull(filePath)
+          } catch (error) {
+            logger.error("failed to stat non-md file", {
+              path: relativePath,
+              error: describeError(error),
+            })
+            return null
+          }
+        }
+        const fileStat = await readNonMdFileStat()
 
         if (currentEvents.get(relativePath) !== eventToken) return
         // Vanished between the watcher event and the stat — the unlink event
         // that follows will remove any existing row.
         if (!fileStat) return
-        search.upsertNonMdFile(relativePath, fileStat.size)
+        try {
+          search.upsertNonMdFile(relativePath, fileStat.size)
+        } catch (error) {
+          logger.error("failed to index non-md file metadata", {
+            path: relativePath,
+            error: describeError(error),
+          })
+          return
+        }
 
         // Canvas files are always read — link extraction is unconditional.
         // PDF and text files are only read when file content FTS is enabled.
@@ -209,20 +229,44 @@ export const startFileWatcher = (
     currentEvents.delete(relativePath)
 
     if (!filePath.endsWith(".md")) {
-      search.removeNonMdFile(relativePath)
+      try {
+        search.removeNonMdFile(relativePath)
+      } catch (error) {
+        logger.error("failed to remove non-md file metadata", {
+          path: relativePath,
+          error: describeError(error),
+        })
+        return
+      }
       const deletedExtension = extname(filePath)
       const isDeletedCanvas = deletedExtension === ".canvas"
       const isDeletedIndexable =
         search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
 
       if (isDeletedCanvas || isDeletedIndexable) {
-        search.removeFileContent({ filePath: relativePath }, logger)
+        try {
+          search.removeFileContent({ filePath: relativePath }, logger)
+        } catch (error) {
+          logger.error("failed to remove file content", {
+            path: relativePath,
+            error: describeError(error),
+          })
+          return
+        }
       }
       logger.debug("removed non-md file from index", { path: relativePath })
       return
     }
 
-    search.removeNote(relativePath)
+    try {
+      search.removeNote(relativePath)
+    } catch (error) {
+      logger.error("failed to remove note from index", {
+        path: relativePath,
+        error: describeError(error),
+      })
+      return
+    }
     logger.debug("removed from index", { path: relativePath })
   }
 

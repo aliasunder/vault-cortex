@@ -394,7 +394,7 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     watcher.emit("ready")
     await starting
 
-    const fire = async (event: "change" | "unlink", fileName: string): Promise<void> => {
+    const fire = async (event: "add" | "change" | "unlink", fileName: string): Promise<void> => {
       const handler = watcher.listeners(event)[0]
 
       if (!handler) throw new Error(`${event} handler was not registered`)
@@ -404,6 +404,181 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     }
     return { testVault, search, database, fire }
   }
+
+  it.each([{ event: "add" }, { event: "change" }] as const)(
+    "contains a non-markdown stat failure during $event and recovers",
+    async ({ event }) => {
+      const { testVault, database, fire } = await createControlledWatcher()
+      const filePath = join(testVault, "image.png")
+      await writeFile(filePath, "image data")
+      const actualFs =
+        await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+      const failedPaths = new Set([filePath])
+      const statSpy = vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+        if (failedPaths.has(requestedPath)) throw new Error("controlled stat failure")
+        return actualFs.statOrNull(requestedPath)
+      })
+      const errorSpy = vi.spyOn(logger, "error")
+      onTestFinished(() => {
+        statSpy.mockRestore()
+        errorSpy.mockRestore()
+      })
+
+      await expect(fire(event, "image.png")).resolves.toBeUndefined()
+      expect(statSpy).toHaveBeenCalledWith(filePath)
+      expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to stat non-md file", {
+        path: "image.png",
+        error: "[Error]: controlled stat failure",
+      })
+      expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+      failedPaths.delete(filePath)
+      await fire(event, "image.png")
+      expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
+        { path: "image.png" },
+      ])
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each([{ event: "add" }, { event: "change" }] as const)(
+    "contains an asset metadata upsert failure during $event and recovers",
+    async ({ event }) => {
+      const { testVault, search, database, fire } = await createControlledWatcher()
+      const filePath = join(testVault, "content.txt")
+      await writeFile(filePath, "currentopal")
+      const realUpsert = search.upsertNonMdFile
+      const failedPaths = new Set(["content.txt"])
+      const upsertSpy = vi
+        .spyOn(search, "upsertNonMdFile")
+        .mockImplementation((requestedPath, bytes) => {
+          if (failedPaths.has(requestedPath)) throw new Error("controlled asset upsert failure")
+          realUpsert(requestedPath, bytes)
+        })
+      const contentUpsertSpy = vi.spyOn(search, "upsertFileContent")
+      const errorSpy = vi.spyOn(logger, "error")
+      onTestFinished(() => errorSpy.mockRestore())
+
+      await expect(fire(event, "content.txt")).resolves.toBeUndefined()
+      expect(upsertSpy).toHaveBeenCalledExactlyOnceWith(
+        "content.txt",
+        Buffer.byteLength("currentopal"),
+      )
+      expect(contentUpsertSpy).not.toHaveBeenCalled()
+      expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to index non-md file metadata", {
+        path: "content.txt",
+        error: "[Error]: controlled asset upsert failure",
+      })
+      expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+      failedPaths.delete("content.txt")
+      await fire(event, "content.txt")
+      expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
+        { path: "content.txt" },
+      ])
+      expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+        { path: "content.txt", content: "currentopal" },
+      ])
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it("contains an asset metadata removal failure during unlink and allows a later unlink", async () => {
+    const { testVault, search, database, fire } = await createControlledWatcher()
+    const filePath = join(testVault, "content.txt")
+    await writeFile(filePath, "currentopal")
+    await fire("add", "content.txt")
+    await unlink(filePath)
+    const realRemove = search.removeNonMdFile
+    const removeSpy = vi.spyOn(search, "removeNonMdFile").mockImplementation((requestedPath) => {
+      if (requestedPath === "content.txt") throw new Error("controlled asset removal failure")
+      realRemove(requestedPath)
+    })
+    const contentRemoveSpy = vi.spyOn(search, "removeFileContent")
+    const errorSpy = vi.spyOn(logger, "error")
+    onTestFinished(() => errorSpy.mockRestore())
+
+    await expect(fire("unlink", "content.txt")).resolves.toBeUndefined()
+    expect(removeSpy).toHaveBeenCalledExactlyOnceWith("content.txt")
+    expect(contentRemoveSpy).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to remove non-md file metadata", {
+      path: "content.txt",
+      error: "[Error]: controlled asset removal failure",
+    })
+    expect(await statOrNull(filePath)).toBeNull()
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
+      { path: "content.txt" },
+    ])
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "content.txt", content: "currentopal" },
+    ])
+    removeSpy.mockRestore()
+    await fire("unlink", "content.txt")
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("contains a file content removal failure during unlink and allows a later unlink", async () => {
+    const { testVault, search, database, fire } = await createControlledWatcher()
+    const filePath = join(testVault, "content.txt")
+    await writeFile(filePath, "currentopal")
+    await fire("add", "content.txt")
+    await unlink(filePath)
+    const realRemove = search.removeFileContent
+    const removeSpy = vi
+      .spyOn(search, "removeFileContent")
+      .mockImplementation((params, requestLogger) => {
+        if (params.filePath === "content.txt") throw new Error("controlled content removal failure")
+        realRemove(params, requestLogger)
+      })
+    const errorSpy = vi.spyOn(logger, "error")
+    onTestFinished(() => errorSpy.mockRestore())
+
+    await expect(fire("unlink", "content.txt")).resolves.toBeUndefined()
+    expect(removeSpy).toHaveBeenCalledExactlyOnceWith({ filePath: "content.txt" }, logger)
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to remove file content", {
+      path: "content.txt",
+      error: "[Error]: controlled content removal failure",
+    })
+    expect(await statOrNull(filePath)).toBeNull()
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "content.txt", content: "currentopal" },
+    ])
+    removeSpy.mockRestore()
+    await fire("unlink", "content.txt")
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("contains a note removal failure during unlink and allows a later unlink", async () => {
+    const { testVault, search, database, fire } = await createControlledWatcher()
+    const filePath = join(testVault, "note.md")
+    await writeFile(filePath, "currentopal")
+    await fire("add", "note.md")
+    await unlink(filePath)
+    const realRemove = search.removeNote
+    const removeSpy = vi.spyOn(search, "removeNote").mockImplementation((requestedPath) => {
+      if (requestedPath === "note.md") throw new Error("controlled note removal failure")
+      realRemove(requestedPath)
+    })
+    const errorSpy = vi.spyOn(logger, "error")
+    onTestFinished(() => errorSpy.mockRestore())
+
+    await expect(fire("unlink", "note.md")).resolves.toBeUndefined()
+    expect(removeSpy).toHaveBeenCalledExactlyOnceWith("note.md")
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to remove note from index", {
+      path: "note.md",
+      error: "[Error]: controlled note removal failure",
+    })
+    expect(await statOrNull(filePath)).toBeNull()
+    expect(database.prepare("SELECT path, content FROM notes").all()).toEqual([
+      { path: "note.md", content: "currentopal" },
+    ])
+    removeSpy.mockRestore()
+    await fire("unlink", "note.md")
+    expect(database.prepare("SELECT path FROM notes").all()).toEqual([])
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+  })
 
   const delayFirstRead = async (filePath: string) => {
     const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
