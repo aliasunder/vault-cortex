@@ -254,7 +254,6 @@ export const startFileWatcher = (
           path: relativePath,
           error: describeError(error),
         })
-        return
       }
       const deletedExtension = extname(filePath)
       const isDeletedCanvas = deletedExtension === ".canvas"
@@ -272,7 +271,7 @@ export const startFileWatcher = (
           return
         }
       }
-      logger.debug("removed non-md file from index", { path: relativePath })
+      logger.debug("processed non-md file removal", { path: relativePath })
       return
     }
 

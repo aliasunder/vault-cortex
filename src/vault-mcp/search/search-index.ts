@@ -653,6 +653,16 @@ export const createSearchIndex = (
   )
   const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(`SELECT path FROM notes`)
 
+  /** Canvas saves share this catalog until a committed note write or rebuild changes it. */
+  let cachedCanvasNotePaths: readonly string[] | undefined
+  const getCanvasNotePaths = (): readonly string[] => {
+    if (cachedCanvasNotePaths) return cachedCanvasNotePaths
+
+    const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
+    cachedCanvasNotePaths = notePaths
+    return notePaths
+  }
+
   // ── Non-markdown file awareness ────────────────────────────────
   //
   // Obsidian resolves extensionless wikilinks (e.g. [[Trip Route]]) against
@@ -1258,7 +1268,7 @@ export const createSearchIndex = (
       // Link extraction — canvas only, unconditional (graph integrity)
       if (isCanvas) {
         deleteLinksStmt.run(params.filePath)
-        const notePaths = selectAllNotePathsStmt.all().map((note) => note.path)
+        const notePaths = canvasLinks.length > 0 ? getCanvasNotePaths() : []
         for (const rawTarget of canvasLinks) {
           const resolvedNotePath = links.resolve({
             target: rawTarget,
@@ -1605,6 +1615,7 @@ export const createSearchIndex = (
       }
     })()
 
+    cachedCanvasNotePaths = undefined
     const sourceVersion = Symbol()
     sourceVersions.set(filePath, sourceVersion)
 
@@ -2014,6 +2025,7 @@ export const createSearchIndex = (
         removeMemoryEntriesForFile(memoryFile)
       }
     })()
+    cachedCanvasNotePaths = undefined
     sourceVersions.delete(filePath)
   }
 
@@ -2028,6 +2040,7 @@ export const createSearchIndex = (
     const orphanFileVectorsRemoved = deleteOrphanFileVectorsStmt?.run().changes ?? 0
     const orphanMemoryVectorsRemoved = deleteOrphanMemoryVectorsStmt?.run().changes ?? 0
     sourceVersions.clear()
+    cachedCanvasNotePaths = undefined
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
@@ -2305,6 +2318,7 @@ export const createSearchIndex = (
         // (e.g. Note A links to Note B, but Note B was indexed after Note A).
         const allPaths = selectAllNotePathsStmt.all()
         const pathList = allPaths.map((row) => row.path)
+        cachedCanvasNotePaths = pathList
 
         db.exec("DELETE FROM links")
         for (const note of noteContents) {
@@ -2366,6 +2380,7 @@ export const createSearchIndex = (
       })()
     } catch (error) {
       sourceVersions.clear()
+      cachedCanvasNotePaths = undefined
       throw error
     }
 

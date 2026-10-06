@@ -6222,6 +6222,177 @@ describe("INDEXABLE_TEXT_EXTENSIONS", () => {
 
 // ── Canvas file content + link graph ──────────────────────────
 
+describe("canvas note catalog reuse", () => {
+  const observeCatalogScans = () => {
+    const scans = vi.fn()
+    const realPrepare: (this: Database.Database, source: string) => Database.Statement =
+      Database.prototype.prepare
+    /** The native method needs its SQLite receiver; count executions rather than preparations. */
+    const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementation(function (
+      this: Database.Database,
+      source: string,
+    ) {
+      const statement = realPrepare.call(this, source)
+
+      if (source.trim() === "SELECT path FROM notes") {
+        const realAll = statement.all.bind(statement)
+        vi.spyOn(statement, "all").mockImplementation((...allParams: unknown[]) => {
+          scans()
+          return realAll(...allParams)
+        })
+      }
+      return statement
+    })
+    onTestFinished(() => prepareSpy.mockRestore())
+    return scans
+  }
+  const canvasWithTarget = (target?: string): string =>
+    JSON.stringify({
+      nodes: target
+        ? [{ id: "file", type: "file", x: 0, y: 0, width: 100, height: 100, file: target }]
+        : [],
+      edges: [],
+    })
+  const saveCanvas = (search: SearchIndex, target?: string): void => {
+    search.upsertFileContent(
+      { filePath: "board.canvas", rawContent: canvasWithTarget(target), fileStat: testStat(1000) },
+      logger,
+    )
+  }
+  const outgoingPaths = (search: SearchIndex): string[] =>
+    search.getOutgoingLinks({ path: "board.canvas" }, logger).map((link) => link.path)
+
+  it("avoids empty-canvas scans and shares one catalog across repeated linked saves", () => {
+    const scans = observeCatalogScans()
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNote(
+      { filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) },
+      logger,
+    )
+    search.upsertNote(
+      { filePath: "Decoy.md", rawContent: "decoyquartz", fileStat: testStat(1000) },
+      logger,
+    )
+    scans.mockClear()
+    saveCanvas(search)
+    expect(scans).not.toHaveBeenCalled()
+    expect(outgoingPaths(search)).toEqual([])
+    for (const _unused of Array.from({ length: 12 })) saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+    saveCanvas(search)
+    expect(outgoingPaths(search)).toEqual([])
+    expect(scans).toHaveBeenCalledTimes(1)
+  })
+
+  it("refreshes the catalog after note additions, deletions and recreation with asset fallback", () => {
+    const scans = observeCatalogScans()
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNonMdFile("Target.canvas", 100)
+    saveCanvas(search, "Target")
+    expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    search.upsertNote(
+      { filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) },
+      logger,
+    )
+    scans.mockClear()
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+    search.removeNote("Target.md")
+    scans.mockClear()
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    search.upsertNote(
+      { filePath: "Target.md", rawContent: "recreatedopal", fileStat: testStat(2000) },
+      logger,
+    )
+    scans.mockClear()
+    saveCanvas(search, "Target")
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+
+  it("keeps committed membership after a failed note upsert rolls back", () => {
+    const poison = installStatementPoison("INSERT INTO tasks")
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNonMdFile("Target.canvas", 100)
+    saveCanvas(search, "Target")
+    poison.arm()
+    expect(() =>
+      search.upsertNote(
+        {
+          filePath: "Target.md",
+          rawContent: "- [ ] task that triggers poison",
+          fileStat: testStat(1000),
+        },
+        logger,
+      ),
+    ).toThrow(poison.message)
+    poison.disarm()
+    saveCanvas(search, "Target")
+    expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+  })
+
+  it("uses the rebuild catalog for a canvas corpus and later saves", async () => {
+    const scans = observeCatalogScans()
+    const directory = await mkdtemp(join(tmpdir(), "canvas-catalog-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await writeFile(join(directory, "Target.md"), "targetamber")
+    await writeFile(join(directory, "Decoy.md"), "decoyquartz")
+    const canvasNames = Array.from({ length: 9 }, (_unused, position) => `board-${position}.canvas`)
+    for (const canvasName of canvasNames)
+      await writeFile(join(directory, canvasName), canvasWithTarget("Target"))
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    const rebuilt = await search.rebuildFromVault({ vaultPath: directory }, logger)
+    await rebuilt.embedding
+    expect(rebuilt.count).toBe(2)
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(search.getBacklinks({ path: "Target.md" }, logger).map((link) => link.path)).toEqual(
+      canvasNames,
+    )
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+
+  it("drops an uncommitted rebuild catalog on a late outer rollback", async () => {
+    const scans = observeCatalogScans()
+    const directory = await mkdtemp(join(tmpdir(), "canvas-catalog-rollback-"))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    await writeFile(join(directory, "Target.md"), "targetamber")
+    await writeFile(join(directory, "failed.canvas"), canvasWithTarget("Target"))
+    const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
+    search.upsertNote(
+      { filePath: "Existing.md", rawContent: "existingquartz", fileStat: testStat(1000) },
+      logger,
+    )
+    saveCanvas(search, "Existing")
+    const failure = new Error("controlled late rebuild rollback")
+    const rebuildLogger = logger.child({ operation: "controlled-rebuild" })
+    vi.spyOn(rebuildLogger, "debug").mockImplementation((message) => {
+      if (message === "indexed file content") throw failure
+    })
+    vi.spyOn(rebuildLogger, "warn").mockImplementation(() => {
+      throw failure
+    })
+    await expect(search.rebuildFromVault({ vaultPath: directory }, rebuildLogger)).rejects.toThrow(
+      failure.message,
+    )
+    search.upsertNonMdFile("Target.canvas", 100)
+    scans.mockClear()
+    saveCanvas(search, "Target")
+    expect(scans).toHaveBeenCalledTimes(1)
+    expect(outgoingPaths(search)).toEqual(["Target.canvas"])
+    const recovered = await search.rebuildFromVault({ vaultPath: directory }, logger)
+    await recovered.embedding
+    saveCanvas(search, "Target")
+    expect(outgoingPaths(search)).toEqual(["Target.md"])
+  })
+})
+
 describe("canvas file content and links", () => {
   it.each([{ fileToolsEnabled: true }, { fileToolsEnabled: false }])(
     "resolves canvas links to existing notes and assets with file tools $fileToolsEnabled",

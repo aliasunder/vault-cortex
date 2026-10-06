@@ -488,7 +488,7 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     },
   )
 
-  it("contains an asset metadata removal failure during unlink and allows a later unlink", async () => {
+  it("removes independent file content after a metadata removal failure and retries metadata later", async () => {
     const { testVault, search, database, fire } = await createControlledWatcher()
     const filePath = join(testVault, "content.txt")
     await writeFile(filePath, "currentopal")
@@ -505,7 +505,7 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
 
     await expect(fire("unlink", "content.txt")).resolves.toBeUndefined()
     expect(removeSpy).toHaveBeenCalledExactlyOnceWith("content.txt")
-    expect(contentRemoveSpy).not.toHaveBeenCalled()
+    expect(contentRemoveSpy).toHaveBeenCalledExactlyOnceWith({ filePath: "content.txt" }, logger)
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to remove non-md file metadata", {
       path: "content.txt",
       error: "[Error]: controlled asset removal failure",
@@ -514,14 +514,148 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
       { path: "content.txt" },
     ])
-    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
-      { path: "content.txt", content: "currentopal" },
-    ])
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([])
     removeSpy.mockRestore()
     await fire("unlink", "content.txt")
     expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
     expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
     expect(errorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports both independent unlink failures and recovers on a later event", async () => {
+    const { testVault, search, database, fire } = await createControlledWatcher()
+    await writeFile(join(testVault, "content.txt"), "currentopal")
+    await fire("add", "content.txt")
+    await unlink(join(testVault, "content.txt"))
+    const metadataSpy = vi.spyOn(search, "removeNonMdFile").mockImplementationOnce(() => {
+      throw new Error("metadata removal failed")
+    })
+    const contentSpy = vi.spyOn(search, "removeFileContent").mockImplementationOnce(() => {
+      throw new Error("content removal failed")
+    })
+    const errorSpy = vi.spyOn(logger, "error")
+    onTestFinished(() => errorSpy.mockRestore())
+
+    await fire("unlink", "content.txt")
+
+    expect(metadataSpy).toHaveBeenCalledExactlyOnceWith("content.txt")
+    expect(contentSpy).toHaveBeenCalledExactlyOnceWith({ filePath: "content.txt" }, logger)
+    expect(errorSpy).toHaveBeenCalledTimes(2)
+    expect(errorSpy).toHaveBeenCalledWith("failed to remove non-md file metadata", {
+      path: "content.txt",
+      error: "[Error]: metadata removal failed",
+    })
+    expect(errorSpy).toHaveBeenCalledWith("failed to remove file content", {
+      path: "content.txt",
+      error: "[Error]: content removal failed",
+    })
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
+      { path: "content.txt" },
+    ])
+    expect(database.prepare("SELECT path, content FROM file_content").all()).toEqual([
+      { path: "content.txt", content: "currentopal" },
+    ])
+    await fire("unlink", "content.txt")
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+    expect(errorSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it("cleans canvas links and vectors and rejects its held model after metadata removal fails", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const modelEntered = Promise.withResolvers<undefined>()
+    const releaseModel = Promise.withResolvers<Float32Array>()
+    const modelFinished = Promise.withResolvers<undefined>()
+    const embedder = {
+      embedText: vi
+        .fn()
+        .mockResolvedValueOnce(vector)
+        .mockImplementationOnce(() => {
+          modelEntered.resolve(undefined)
+          return releaseModel.promise
+        }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, search, database, fire } = await createControlledWatcher(embedder)
+    const canvasContent = (text: string): string =>
+      JSON.stringify({
+        nodes: [
+          { id: "text", type: "text", x: 0, y: 0, width: 100, height: 100, text },
+          { id: "file", type: "file", x: 0, y: 200, width: 100, height: 100, file: "target.md" },
+        ],
+        edges: [],
+      })
+    search.upsertNote(
+      { filePath: "target.md", rawContent: "targetamber", fileStat: { mtimeMs: 1000, size: 11 } },
+      logger,
+    )
+    search.upsertNonMdFile("board.canvas", 100)
+    const initialVersion = search.upsertFileContent(
+      {
+        filePath: "board.canvas",
+        rawContent: canvasContent("oldquartz"),
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
+    await search.embedFileContent(
+      { filePath: "board.canvas", sourceVersion: initialVersion },
+      logger,
+    )
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 1,
+    })
+    expect(search.getBacklinks({ path: "target.md" }, logger).map((link) => link.path)).toEqual([
+      "board.canvas",
+    ])
+    const realEmbed = search.embedFileContent
+    const pendingJobs: Promise<void>[] = []
+    vi.spyOn(search, "embedFileContent").mockImplementation((params, requestLogger) => {
+      const modelJob = realEmbed(params, requestLogger)
+      pendingJobs.push(modelJob)
+      // The detached job must settle before the fixture is removed.
+      return modelJob.finally(() => modelFinished.resolve(undefined))
+    })
+    onTestFinished(async () => {
+      releaseModel.resolve(vector)
+      await Promise.allSettled(pendingJobs)
+    })
+    await writeFile(join(testVault, "board.canvas"), canvasContent("newopal"))
+    await fire("change", "board.canvas")
+    await modelEntered.promise
+    await unlink(join(testVault, "board.canvas"))
+    const metadataSpy = vi.spyOn(search, "removeNonMdFile").mockImplementationOnce(() => {
+      throw new Error("metadata removal failed")
+    })
+    const errorSpy = vi.spyOn(logger, "error")
+    onTestFinished(() => errorSpy.mockRestore())
+
+    await fire("unlink", "board.canvas")
+
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to remove non-md file metadata", {
+      path: "board.canvas",
+      error: "[Error]: metadata removal failed",
+    })
+    expect(
+      database.prepare("SELECT path FROM non_md_files WHERE path = 'board.canvas'").all(),
+    ).toEqual([{ path: "board.canvas" }])
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+    expect(database.prepare("SELECT file_path FROM file_content_chunks").all()).toEqual([])
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 0,
+    })
+    expect(search.getBacklinks({ path: "target.md" }, logger)).toEqual([])
+    releaseModel.resolve(vector)
+    await modelFinished.promise
+    expect(database.prepare("SELECT file_path FROM file_content_chunks").all()).toEqual([])
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 0,
+    })
+    await fire("unlink", "board.canvas")
+    expect(
+      database.prepare("SELECT path FROM non_md_files WHERE path = 'board.canvas'").all(),
+    ).toEqual([])
+    expect(metadataSpy).toHaveBeenCalledTimes(2)
   })
 
   it.each([{ event: "add" }, { event: "change" }] as const)(
