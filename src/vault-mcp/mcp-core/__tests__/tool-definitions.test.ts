@@ -489,10 +489,13 @@ describe("config interpolation in descriptions", () => {
     expect(config.description).toContain("use vault_delete_memory for memory entries")
   })
 
-  it("vault_find_orphans description references configured exclusion folders", () => {
+  it("vault_find_orphans schema references configured exclusion folders", () => {
     const [, config] = requireCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)
-    expect(config.description).toContain(CUSTOM_MEMORY_DIR)
-    expect(config.description).not.toContain("About Me")
+    const exclusionDescription = config.inputSchema?.exclude_folders?.description
+
+    expect(exclusionDescription).toBe(
+      'Folder paths to exclude (e.g. Projects; default: daily notes folder, Templates, "Profile")',
+    )
   })
 })
 
@@ -1616,14 +1619,14 @@ describe("vault_find_orphans live folder defaults", () => {
     expect(await queryPaths()).toEqual(["Daily Notes/daily.md", "ordinary.md"])
   })
 
-  it("describes live default sources and keeps the schema to parameter meaning", async () => {
+  it("describes live sources and states the exclusion default in the schema", async () => {
     const { toolConfig } = await setupOrphans({ settings: '{"folder":"Journal"}' })
     expect(toolConfig.description).toContain(
-      'the daily notes folder (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"), "Templates", and "About Me"',
+      'The daily notes folder is resolved on each call (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes")',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
-      "Folder paths to exclude (e.g. Projects)",
+      'Folder paths to exclude (e.g. Projects; default: daily notes folder, Templates, "About Me")',
     )
   })
 
@@ -1635,7 +1638,10 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- With exclude_folders"))
     expect(defaultsLine).toBe(
-      '- With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override excludes ["Archive","Scratch"].',
+      "- With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override is used.",
+    )
+    expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
+      'Folder paths to exclude (e.g. Projects; default: ["Archive","Scratch"])',
     )
   })
 })

@@ -1,9 +1,10 @@
 import { describe, expect, it, onTestFinished, vi } from "vitest"
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { loadConfig } from "../../config.js"
 import { logger } from "../../../logger.js"
+import { vaultFs } from "../vault-filesystem.js"
 import {
   readEffectiveOrphanExcludeFolders,
   resolveEffectiveOrphanExcludeFolders,
@@ -62,6 +63,30 @@ describe("resolveEffectiveProtectedPaths", () => {
     expect(
       await resolveEffectiveProtectedPaths({ config: loadConfig({}), vaultPath }, logger),
     ).toEqual(["About Me", " Journal "])
+  })
+
+  it("refuses deletion under a file-configured folder with repeated trailing separators", async () => {
+    const vaultPath = await createVault('{"folder":" Journal ///"}')
+    await mkdir(join(vaultPath, " Journal "))
+    await writeFile(join(vaultPath, " Journal /daily.md"), "daily body\n")
+    const protectedPaths = await resolveEffectiveProtectedPaths(
+      { config: loadConfig({}), vaultPath },
+      logger,
+    )
+
+    await expect(
+      vaultFs.deleteNote(
+        {
+          vaultPath,
+          path: " Journal /daily.md",
+          protectedPaths,
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('cannot delete protected path " Journal /daily.md"'))
+    expect(await readFile(join(vaultPath, " Journal /daily.md"), "utf8")).toBe("daily body\n")
   })
 
   it("uses DAILY_NOTES_FOLDER without reading the file when the format is unset", async () => {

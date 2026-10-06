@@ -611,9 +611,12 @@ Errors:
     },
   )
 
+  const orphanDefaultFolders = config.orphanExcludeFoldersOverride
+    ? JSON.stringify(config.orphanExcludeFoldersOverride)
+    : `daily notes folder, Templates, ${JSON.stringify(config.memoryDir)}`
   const orphanDefaultDescription = config.orphanExcludeFoldersOverride
-    ? `With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override excludes ${JSON.stringify(config.orphanExcludeFoldersOverride)}.`
-    : `With exclude_folders omitted, defaults are the daily notes folder (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"), "Templates", and ${JSON.stringify(config.memoryDir)}, resolved on each call. ORPHAN_EXCLUDE_FOLDERS replaces that list. For unreadable daily settings, the server logs a warning and uses "Daily Notes".`
+    ? "With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override is used."
+    : 'The daily notes folder is resolved on each call (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"). ORPHAN_EXCLUDE_FOLDERS replaces the defaults. For unreadable daily settings, the server logs a warning and uses "Daily Notes".'
 
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
@@ -634,14 +637,14 @@ Parameters:
 
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
-- "Expression tree is too large" — the exclusion list exceeds the query's capacity; pass a shorter exclude_folders list, then retry.
+- "too many excluded folders" — pass a shorter exclude_folders list, then retry.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified. bytes is the on-disk file size.`,
       inputSchema: {
         exclude_folders: z
           .array(z.string().min(1))
           .optional()
-          .describe("Folder paths to exclude (e.g. Projects)"),
+          .describe(`Folder paths to exclude (e.g. Projects; default: ${orphanDefaultFolders})`),
         limit: z.number().int().min(1).optional().default(50).describe("Max results (default 50)"),
       },
     },
