@@ -249,22 +249,15 @@ export const dayToEpochMsRange = (date: string): { startMs: number; endMs: numbe
   }
 }
 
-/** Returns true when a note row satisfies every active search filter (folder
- *  prefix, all-of tags, type, all-of related links, property key/value pairs,
- *  created/modified date bounds). Mirrors fullTextSearch's SQL WHERE clause
- *  in TypeScript — used for vector-only results that bypassed the FTS query.
- *  Date filter values are pre-validated by fullTextSearch, which hybridSearch
- *  always runs before this mirror. */
-/** SQLite's JSON functions read true/false as the integers 1/0, so the SQL
- *  property filter treats a stored true and the number 1 as equal. The
- *  mirror compares the same way, or the two search legs would disagree. */
+/** SQLite JSON values expose booleans as 1/0 and objects or nested arrays as
+ * serialized JSON text; the vector filter must use the same representation. */
 const toSqlComparable = (value: unknown): unknown => {
+  if (value !== null && typeof value === "object") return JSON.stringify(value)
+
   return typeof value === "boolean" ? Number(value) : value
 }
 
-/** Mirrors the SQL property filter: a list property matches when any element
- *  equals the wanted value, a scalar property must equal it. Comparison is
- *  type-exact, so the string "4" never matches the number 4. */
+/** A list property matches when any member equals the wanted value. */
 const propertyValueMatches = (params: {
   stored: unknown
   wanted: string | number | boolean
@@ -277,6 +270,8 @@ const propertyValueMatches = (params: {
   return toSqlComparable(params.stored) === wanted
 }
 
+/** Mirrors fullTextSearch's SQL filters for vector-only results. Date filter
+ * values are pre-validated by fullTextSearch, which hybridSearch runs first. */
 export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters): boolean => {
   if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
 
@@ -297,6 +292,7 @@ export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters):
   if (filters.properties) {
     const noteProperties = parseRecord(note.properties)
     for (const [key, value] of Object.entries(filters.properties)) {
+      if (!Object.hasOwn(noteProperties, key)) return false
       if (!propertyValueMatches({ stored: noteProperties[key], wanted: value })) return false
     }
   }

@@ -360,6 +360,13 @@ export const createSearchIndex = (
   const fileToolsEnabled = options?.fileToolsEnabled ?? false
   const statusRegistry = options?.statusRegistry ?? DEFAULT_STATUS_REGISTRY
   const db = new Database(dbPath)
+
+  /** Group by JavaScript's client spelling: String(1e-7) is "1e-7",
+   * while SQLite's CAST to TEXT produces "1.0e-07". */
+  db.function("property_value_text", { deterministic: true }, (value: unknown): string => {
+    return String(value)
+  })
+
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
   // better-sqlite3 already defaults sqlite3_busy_timeout to 5000 ms at open;
@@ -763,6 +770,8 @@ export const createSearchIndex = (
   const deleteStaleChunksStmt = embedder
     ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ? AND chunk_index >= ?`)
     : null
+  /** All vec0 primary-key binds use BigInt to retain INTEGER type;
+   * better-sqlite3 binds numbers as REAL, which vec0 rejects on insert. */
   const insertVectorStmt = embedder
     ? db.prepare(`INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)`)
     : null
@@ -1669,6 +1678,7 @@ export const createSearchIndex = (
               `embedBatch returned ${String(embeddings.length)} vectors for ${String(batchRows.length)} entries`,
             )
           }
+
           insertMemoryVectorStmt.run(
             BigInt(row.id),
             Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
@@ -1828,9 +1838,12 @@ export const createSearchIndex = (
     })()
   }
 
-  /** Drops the entire index and re-indexes every .md file in the vault.
-   *  Returns the note count and a background embedding promise. The server
-   *  can start accepting requests immediately — embedding is progressive. */
+  /**
+   * - Rebuilds note, task, link and file-content indexes from visible vault files.
+   * - Retains vectors and memory entries to reuse unchanged embeddings.
+   * - Returns the note count and a background embedding promise so requests
+   *   can start before embedding finishes.
+   */
   const rebuildFromVault = async (
     params: { vaultPath: string },
     logger: Logger,
