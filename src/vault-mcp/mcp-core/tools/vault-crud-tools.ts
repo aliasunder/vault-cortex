@@ -381,7 +381,7 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
 ${describePropertiesBlockErrorEntry("with overwrite: true")}
-- "the note would open with a properties block the server cannot keep …" — when the note gets no properties (none passed, and none kept from an overwritten note), a body opening with --- lines becomes the properties block, and the text between them is invalid YAML, a list, a single value, or a YAML tag; pass properties, or start the body without --- lines
+- "the note would open with a properties block the server cannot keep …" — the note would get no properties (none passed or kept from an overwritten note, or every key set to null), and the body opens with --- lines around text that is invalid YAML, a list, a single value, or a YAML tag, which would become its properties block; pass at least one property, or start the body without --- lines
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
@@ -479,7 +479,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
 
 Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })
-Example: vault_patch_note({ path: "Notes/Plan.md", operation: "insert_before", heading: "Phase 2", content: "## Phase 1\\nDone.\\n\\n" })
+Example: vault_patch_note({ path: "Notes/Plan.md", operation: "insert_before", heading: "Phase 2", content: "## Phase 1\\nDone.\\n" })
 
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 

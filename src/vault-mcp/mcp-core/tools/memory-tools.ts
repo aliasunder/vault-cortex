@@ -303,7 +303,7 @@ When to use: Recording a new preference, principle, opinion, or fact about the u
 Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note). A new section name nearly identical to an existing heading (an HTML-entity slip, typo, or spacing variation) is rejected, so a mistyped name cannot silently fragment the file — names differing only in digits (e.g. "2025" vs "2026") are distinct.
 
 Parameters:
-- options.date only sets the bullet's date; placement follows options.position, so a backdated entry is not sorted among the existing ones.
+- options.date only sets the bullet's date; placement follows options.position, never the date.
 
 Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.
 

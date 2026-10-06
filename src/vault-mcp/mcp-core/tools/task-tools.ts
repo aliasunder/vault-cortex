@@ -243,17 +243,17 @@ Errors:
 - "heading required for Kanban boards" — kanban-plugin note without heading; pass heading with the target lane
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
 - "cannot place at position N under "X" — the heading appears N times" — integer position on a note with duplicate heading names; rename one section to make it unique
-- "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried), or the line is inside a fenced code block or %% %% comment
+- "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried), or the line is inside a fenced code block or %% %% comment; re-read the parent's block_id or line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}
 - "checkbox "[c]" is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
 - "no checkbox symbol for status ..." — the status registry has no symbol for the todo status and the built-in default is retyped; update the plugin's status registry to include a todo symbol, then restart the server
 - "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
 - "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
 - "blockId ... already exists in this note" — pick a block_id not yet used in the note
 - "blockId ... contains invalid characters" — block_id must match [a-zA-Z0-9-]+
-- "description is empty" / "subtasks cannot contain an empty item" — whitespace-only description or checklist item
-- "description must be a single line" / "subtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
+- "description is empty" / "subtasks cannot contain an empty item" — whitespace-only description or checklist item; pass visible text
+- "description must be a single line" / "subtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads; remove the line breaks
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
-- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
+- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur; use a rule such as "every week" or "every 2 weeks when done"
 - "invalid date" — a date param fails calendar validation; pass a real YYYY-MM-DD date
 - "concurrent write in progress" — another write to this note is in flight; retry
 ${describePropertiesBlockErrorEntry()}
@@ -483,16 +483,16 @@ Errors:
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
-- "blockId ... not found" — no task line in the note ends with ^block_id
+- "blockId ... not found" — no task line in the note ends with ^block_id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
 - "blockId ... is inside a fenced code block or comment" — the block_id matches a line inside a fenced code block or %% %% comment; target a line outside the fence
 - "no task at line N" — line doesn't contain a task checkbox; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by block_id
 - "line N is inside a fenced code block or comment" — the line is inside a fenced code block or %% %% comment; target a line outside the fence
 - "checkbox "[c]" is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
 - "no checkbox symbol for status ..." — the status registry has no symbol for the target status and the built-in default is retyped; update the plugin's status registry to include a symbol for this status, then restart the server
 - "at least one mutation" — no change params provided; pass at least one field to change
-- "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")})
-- "cannot reposition a sub-task" — explicit position on a sub-task (sub-tasks move with their parent)
-- "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading
+- "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); move its parent instead
+- "cannot reposition a sub-task" — explicit position on a sub-task (sub-tasks move with their parent); reposition the parent instead
+- "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading; pass heading to move it into a section
 - "cannot reorder within "X" — the heading appears N times" — same-lane reorder on a card whose heading name is duplicated in the note; rename one section to make it unique
 - "cannot place at position N under "X" — the heading appears N times" — cross-lane move with an integer position to a heading name that appears more than once; rename one section to make it unique
 - "heading "X" not found; available: ..." — target heading doesn't exist; the error lists the note's headings
@@ -500,10 +500,10 @@ Errors:
 - "no done lane detected" — status "done" on a Kanban board with no **Complete** marker and no "Done" heading; pass heading explicitly
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "invalid date" — a date param fails calendar validation; pass a real YYYY-MM-DD date
-- "description cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only description or checklist item
-- "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
+- "description cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only description or checklist item; pass visible text
+- "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads; remove the line breaks
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
-- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
+- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur; use a rule such as "every week" or "every 2 weeks when done"
 - "concurrent write in progress" — another write to this note is in flight; retry
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
