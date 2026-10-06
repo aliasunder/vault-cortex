@@ -258,6 +258,13 @@ describe("parseNote", () => {
   ])("reads $label as it always has", ({ note, data }) => {
     expect(parseNote(note)).toEqual({ data, content: "body\n" })
   })
+
+  it("reads a block holding only a !!binary value as no properties, not as its bytes", () => {
+    expect(parseNote("---\n!!binary aGVsbG8=\n---\nbody\n")).toEqual({
+      data: {},
+      content: "body\n",
+    })
+  })
 })
 
 // ── parseNoteForRewrite ──────────────────────────────────────────
@@ -346,6 +353,12 @@ describe("parseNoteForRewrite", () => {
     {
       label: "a tagged single value as a single value, not a tag",
       note: "---\n!!str hello\n---\nbody\n",
+      kind: "not-key-value",
+      message: SINGLE_VALUE_MESSAGE,
+    },
+    {
+      label: "a tagged single value the parser reads as a Date as a single value, not a tag",
+      note: "---\n!!timestamp 2024-01-01\n---\nbody\n",
       kind: "not-key-value",
       message: SINGLE_VALUE_MESSAGE,
     },

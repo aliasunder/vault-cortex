@@ -129,12 +129,19 @@ const findFirstExplicitTag = (document: Document): string | null => {
   return firstTag
 }
 
+/** True for the plain object toJS() builds from a YAML mapping. A tagged
+ *  single value can convert to another object (`!!timestamp` to a Date,
+ *  `!!binary` to bytes), and that object holds no properties. */
+const isYamlMappingValue = (value: unknown): value is object => {
+  return (
+    typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Object.prototype
+  )
+}
+
 /** A YAML mapping's top-level entries as properties. Any other value (a
  *  list, a single value, null) holds no properties, so it becomes `{}`. */
 const yamlValueToProperties = (value: unknown): Record<string, unknown> => {
-  const isPlainObject = typeof value === "object" && value !== null && !Array.isArray(value)
-
-  if (!isPlainObject) return {}
+  if (!isYamlMappingValue(value)) return {}
   // Rebuilding from entries types the mapping as Record<string, unknown> without a cast
   return Object.fromEntries(Object.entries(value))
 }
@@ -226,7 +233,7 @@ const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
   // A null value passes this check on purpose, because an empty block, or
   // one holding only `null` or `~`, has no properties: Obsidian reads it as
   // none, and a rewrite writes none
-  if (typeof value !== "object") {
+  if (value !== null && !isYamlMappingValue(value)) {
     return unkeepableReading({
       value,
       kind: "not-key-value",

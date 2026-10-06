@@ -134,8 +134,8 @@ const REPAIR_TOOL_NAMES = [
 ] as const satisfies readonly ToolName[]
 
 /** How an agent repairs a properties block the server refuses, by the kind
- *  of block. Without all three repair tools, the note can only be fixed in
- *  Obsidian. */
+ *  of block. A server missing any of the three repair tools points at
+ *  Obsidian instead, so the error never names a tool the client cannot call. */
 const describePropertiesBlockRepair = (params: {
   kind: UnsupportedPropertiesBlockError["kind"]
   repairToolsServed: boolean
