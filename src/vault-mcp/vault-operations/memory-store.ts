@@ -347,6 +347,9 @@ const listSectionHeadings = (sections: readonly ParsedSection[]): string => {
 export const createMemoryStore = (options: { memoryDir: string }) => {
   const { memoryDir } = options
 
+  /** Large memory folders must not exhaust file handles by reading every file at once. */
+  const memoryReadConcurrency = 16
+
   /** True for the .md entries the memory layer serves — excludes dot-prefixed
    *  (hidden) filenames so a pre-existing hidden file on disk never leaks
    *  through the no-file read or the list surfaces, mirroring the write-side
@@ -680,7 +683,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
       const contents = await mapWithConcurrency({
         items: mdFiles,
-        concurrency: 16,
+        concurrency: memoryReadConcurrency,
         mapper: async (filename) => {
           const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
           return parseNote(raw).content.trim()
@@ -954,7 +957,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
     const outlines = await mapWithConcurrency({
       items: mdFiles,
-      concurrency: 16,
+      concurrency: memoryReadConcurrency,
       mapper: async (filename) => {
         const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
         const parsed = parseNote(raw)
