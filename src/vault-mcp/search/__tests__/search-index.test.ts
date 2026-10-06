@@ -3688,28 +3688,42 @@ describe("getOutgoingLinks", () => {
     expect(broken?.bytes).toBeNull()
   })
 
-  it("flags daily note forward-refs when the folder is passed", () => {
-    index.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-24.md",
-        rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
+  it.each(["Daily Notes", "Daily Notes/", "Daily Notes///"])(
+    "flags daily note forward-refs with folder %s",
+    (dailyNotesFolder) => {
+      index.upsertNote(
+        {
+          filePath: "Daily Notes/2026-06-24.md",
+          rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
 
-    const links = index.getOutgoingLinks(
-      { path: "Daily Notes/2026-06-24.md", dailyNotesFolder: "Daily Notes" },
-      logger,
-    )
-    const forwardRef = links.find((link) => link.path === "Daily Notes/2026-06-25")
-    expect(forwardRef?.exists).toBe(false)
-    expect(forwardRef?.daily_note_forward_ref).toBe(true)
-
-    const genuinelyBroken = links.find((link) => link.path === "missing")
-    expect(genuinelyBroken?.exists).toBe(false)
-    expect(genuinelyBroken?.daily_note_forward_ref).toBe(false)
-  })
+      const links = index.getOutgoingLinks(
+        { path: "Daily Notes/2026-06-24.md", dailyNotesFolder },
+        logger,
+      )
+      expect(links).toEqual([
+        {
+          path: "Daily Notes/2026-06-25",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: true,
+        },
+        {
+          path: "missing",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: false,
+        },
+      ])
+    },
+  )
 
   it("returns empty for notes with no outgoing links", () => {
     index.upsertNote(
@@ -3766,6 +3780,61 @@ describe("findOrphans", () => {
     const orphans = index.findOrphans({}, logger)
     const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).toContain("Projects/orphan.md")
+  })
+
+  it("translates oversized exclusions while retaining and logging the SQLite diagnostic", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const excludeFolders = Array.from({ length: 1000 }, (_, folderIndex) => `Folder${folderIndex}`)
+    const queryError = (() => {
+      try {
+        queryIndex.findOrphans({ excludeFolders }, requestLogger)
+      } catch (error) {
+        return error
+      }
+      throw new Error("expected the orphan query to fail")
+    })()
+
+    if (!(queryError instanceof Error) || !(queryError.cause instanceof Database.SqliteError)) {
+      throw new Error("expected a domain error with the original SQLite cause")
+    }
+    expect({
+      message: queryError.message,
+      causeName: queryError.cause.name,
+      causeCode: queryError.cause.code,
+      causeMessage: queryError.cause.message,
+    }).toEqual({
+      message: "too many excluded folders",
+      causeName: "SqliteError",
+      causeCode: "SQLITE_ERROR",
+      causeMessage: "Expression tree is too large (maximum depth 1000)",
+    })
+    expect(requestLogger.warn).toHaveBeenCalledTimes(1)
+    expect(requestLogger.warn).toHaveBeenCalledWith("orphan exclusion query capacity exceeded", {
+      excludedFolderCount: 1000,
+      error: "[SqliteError]: Expression tree is too large (maximum depth 1000)",
+    })
+  })
+
+  it("propagates unrelated SQLite query failures unchanged", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const sqliteError = new Database.SqliteError("no such table: notes", "SQLITE_ERROR")
+    const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementationOnce(() => {
+      throw sqliteError
+    })
+    onTestFinished(() => prepareSpy.mockRestore())
+    const queryError = (() => {
+      try {
+        queryIndex.findOrphans({}, requestLogger)
+      } catch (error) {
+        return error
+      }
+      throw new Error("expected the orphan query to fail")
+    })()
+
+    expect(queryError).toBe(sqliteError)
+    expect(requestLogger.warn).not.toHaveBeenCalled()
   })
 
   it("excludes connected notes", () => {
@@ -4284,18 +4353,25 @@ describe("brokenLinkCount", () => {
     expect(outgoing[0]?.kind).toBe("note")
   })
 
-  it("excludes forward-reference links that are valid dates under the daily note folder", () => {
-    index.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-24.md",
-        rawContent:
-          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]].\n",
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
-    expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(1)
-  })
+  it.each(["Daily Notes", "Daily Notes/", "Daily Notes///"])(
+    "excludes daily forward references with folder %s and retains sibling-folder failures",
+    (dailyNotesFolder) => {
+      index.upsertNote(
+        {
+          filePath: "Daily Notes/2026-06-24.md",
+          rawContent:
+            "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]] and [[Daily Notes Extra/missing]].\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      expect(index.brokenLinkCount({ dailyNotesFolder }, logger)).toEqual({
+        count: 2,
+        excludedFolder: dailyNotesFolder,
+        excludedCount: 1,
+      })
+    },
+  )
 
   it("excludes .md-suffixed forward-reference targets", () => {
     index.upsertNote(

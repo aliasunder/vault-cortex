@@ -13,11 +13,8 @@ export type RemoteEnvAnswers = {
   vaultPassword?: string
 }
 
-// Optional env blocks are synced from deploy/<mode>/.env.example by
-// npm run sync:cli-env-blocks. Edit the deploy/ files, then re-run the script.
-// cli/src/templates.test.ts asserts the CLI optional block vars match the
-// deploy/ .env.example optional vars, so a new var breaks CI until both
-// surfaces carry it.
+// Run npm run sync:cli-env-blocks after editing deploy/<mode>/.env.example.
+// cli/src/__tests__/templates.test.ts checks that both surfaces list the same optional vars.
 
 // ┌─────────────────────────────────────────────────────────────────────────┐
 // │ GENERATED — do not edit between sync markers.                          │
@@ -78,7 +75,8 @@ EMBEDDING_ENABLED=true
 RERANK_MODE=blended
 
 # Enable or disable the memory layer (default: true).
-# Set to false to hide memory tools and skip About Me/ creation.
+# Set to false to hide memory tools and skip memory-folder creation.
+# MEMORY_DIR still supplies default protected folders and orphan exclusions when false.
 MEMORY_ENABLED=true
 # Enable or disable file tools — vault_read_file and vault_list_files (default: true).
 # Set to false when Obsidian Sync has attachment syncing disabled.
@@ -108,9 +106,16 @@ MEMORY_DIR=About Me
 # daily notes folder in your list if needed.
 # PROTECTED_PATHS=About Me,Daily Notes
 
-# Comma-separated folders excluded from orphan detection (default: the daily
-# notes folder — DAILY_NOTES_FOLDER when set, otherwise "Daily Notes" — plus
-# Templates and MEMORY_DIR).
+# Comma-separated folders excluded from orphan detection.
+# Default: the daily notes folder, Templates, and MEMORY_DIR.
+# DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is reread
+# on each query, falling back to "Daily Notes". Root-level daily notes remain eligible.
+# When set, replaces the whole default — include every folder to keep excluded.
+# Set ORPHAN_EXCLUDE_FOLDERS=, to exclude nothing; an empty value uses the defaults.
+# To apply environment changes, run the CLI's restart command
+# or recreate the Compose container.
+# Obsidian settings apply on the next query; daily-notes.json is read
+# directly from your bind-mounted vault.
 # ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
 
 # URL shown in OAuth discovery metadata
@@ -218,7 +223,8 @@ MAX_IMAGE_OUTPUT_BYTES=49152
 MAX_PDF_RENDER_PAGES=5
 
 # Enable or disable the memory layer (default: true).
-# Set to false to hide memory tools and skip About Me/ creation.
+# Set to false to hide memory tools and skip memory-folder creation.
+# MEMORY_DIR still supplies default protected folders and orphan exclusions when false.
 MEMORY_ENABLED=true
 # Enable or disable file tools — vault_read_file and vault_list_files (default: true).
 # Set to false when Obsidian Sync has attachment syncing disabled.
@@ -249,9 +255,15 @@ MEMORY_DIR=About Me
 # daily notes folder in your list if needed.
 # PROTECTED_PATHS=About Me,Daily Notes
 
-# Comma-separated folders excluded from orphan detection (default: the daily
-# notes folder — DAILY_NOTES_FOLDER when set, otherwise "Daily Notes" — plus
-# Templates and MEMORY_DIR).
+# Comma-separated folders excluded from orphan detection.
+# Default: the daily notes folder, Templates, and MEMORY_DIR.
+# DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is reread
+# on each query, falling back to "Daily Notes". Root-level daily notes remain eligible.
+# When set, replaces the whole default — include every folder to keep excluded.
+# Set ORPHAN_EXCLUDE_FOLDERS=, to exclude nothing; an empty value uses the defaults.
+# To apply environment changes, run the CLI's restart command
+# or recreate the Compose container.
+# Obsidian settings apply on the next query once daily-notes.json reaches the server.
 # ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
 
 # URL shown in OAuth discovery metadata

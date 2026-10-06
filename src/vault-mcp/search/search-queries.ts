@@ -1458,7 +1458,9 @@ export const getOutgoingLinks = (
       }
     >(sql)
     .all(params.path)
-  const dailyNotesFolderPrefix = params.dailyNotesFolder ? `${params.dailyNotesFolder}/` : null
+  const dailyNotesFolderPrefix = params.dailyNotesFolder
+    ? `${stripTrailingSlashes(params.dailyNotesFolder)}/`
+    : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
@@ -1506,7 +1508,25 @@ export const findOrphans = (
     LIMIT ?
   `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...escapedExcludeFolders, limit)
+  const rows = (() => {
+    try {
+      return context.db.prepare<unknown[], NoteRow>(sql).all(...escapedExcludeFolders, limit)
+    } catch (error) {
+      const isExclusionCapacityError =
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "SQLITE_ERROR" &&
+        error.message.startsWith("Expression tree is too large (maximum depth ")
+
+      if (!isExclusionCapacityError) throw error
+
+      logger.warn("orphan exclusion query capacity exceeded", {
+        excludedFolderCount: excludeFolders.length,
+        error: describeError(error),
+      })
+      throw new Error("too many excluded folders", { cause: error })
+    }
+  })()
   const results = rows.map(rowToMetadata)
   logger.info("find orphans", { count: results.length })
   return results
@@ -1550,7 +1570,7 @@ export const brokenLinkCount = (
     return { count, excludedFolder: null, excludedCount: 0 }
   }
 
-  const excludedFolderPrefix = `${excludedFolder}/`
+  const excludedFolderPrefix = `${stripTrailingSlashes(excludedFolder)}/`
   const brokenTargets = context.db
     .prepare<unknown[], { target: string }>(
       `SELECT DISTINCT target

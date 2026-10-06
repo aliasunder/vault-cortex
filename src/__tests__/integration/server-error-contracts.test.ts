@@ -46,6 +46,29 @@ afterAll(async () => {
   }
 })
 
+// ── Orphan exclusion query capacity ──────────────────────────
+
+describe("orphan exclusion query capacity", () => {
+  it("returns a structured tool error when the exclusion list exceeds query capacity", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_find_orphans",
+      args: {
+        exclude_folders: Array.from({ length: 1000 }, (_, index) => `Folder${index}`),
+      },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: too many excluded folders",
+        },
+      ],
+      isError: true,
+    })
+  })
+})
+
 // ── Protected paths ──────────────────────────────────────────
 
 describe("protected path refusals", () => {

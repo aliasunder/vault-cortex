@@ -164,7 +164,7 @@
         },
         {
           "name": "ORPHAN_EXCLUDE_FOLDERS",
-          "description": "Comma-separated vault folder names excluded from vault_find_orphans. Default: DAILY_NOTES_FOLDER (else \"Daily Notes\"), \"Templates\", MEMORY_DIR."
+          "description": "Comma-separated vault folder names excluded from vault_find_orphans. Default: the daily notes folder, \"Templates\", and MEMORY_DIR. DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is read per query (fallback \"Daily Notes\"). When set, replaces the defaults entirely. Set to a comma (,) to exclude nothing; an empty value uses the defaults."
         },
         {
           "name": "SERVICE_DOCUMENTATION_URL",

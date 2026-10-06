@@ -147,7 +147,7 @@ src/
     authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
     server.ts # Entry point — config, mount routes, listen
-    config.ts # Env-var loader + ServerConfig type (loadConfig)
+    config.ts # Env-var loader + VaultConfig type (loadConfig)
     obsidian-markdown/ # Pure Obsidian/Markdown parsers + transforms (no I/O)
       lines.ts # splitIntoLines (CRLF) + fence state machine + classifyLines + pageTextByLines (line paging)
       frontmatter.ts # gray-matter parse/stringify + frontmatter merge
@@ -167,6 +167,7 @@ src/
       note-mover.ts # Move/rename a note + rewrite every vault-wide link to it
       memory-store.ts # About Me/ heading-aware read/append/delete
       daily-notes.ts # Daily note config reader + path resolver (env settings > daily-notes.json)
+      vault-folder-config.ts # Protected folders + live orphan exclusion defaults
       task-mutations.ts # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts # Tasks-plugin format config reader (emoji vs Dataview) + status registry
       trash-config.ts # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)

@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { registerPrompts } from "../../prompt-definitions.js"
+import { readDailyNotesConfig } from "../../../vault-operations/daily-notes.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
   type RegisterPromptCall,
@@ -20,11 +21,243 @@ import {
   logger,
 } from "./prompt-test-harness.js"
 
+vi.mock("../../../vault-operations/daily-notes.js", { spy: true })
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
 // ── vault-orientation handler ────────────────────────────────────
+
+describe("vault-orientation live orphan folders", () => {
+  const dailyForwardReferences =
+    "[[Journal/2026-10-06]] [[Journal/2026-10-07]] [[Daily Notes/2026-10-06]] [[missing]]"
+
+  const setupOrphanPrompt = async (
+    options: {
+      settings?: string
+      env?: Record<string, string>
+      paths?: readonly string[]
+      noteContents?: Readonly<Record<string, string>>
+    } = {},
+  ) => {
+    const vault = await mkdtemp(join(tmpdir(), "orientation-orphans-"))
+    onTestFinished(() => rm(vault, { recursive: true, force: true }))
+    await mkdir(join(vault, ".obsidian"))
+    const settingsPath = join(vault, ".obsidian/daily-notes.json")
+
+    if (options.settings !== undefined) await writeFile(settingsPath, options.settings)
+
+    const search = createSearchIndex(":memory:")
+    const paths = options.paths ?? [
+      "Journal/daily.md",
+      "Journal/nested/daily.md",
+      "JournalOld/note.md",
+      "ordinary.md",
+      "Daily Notes/daily.md",
+      "Templates/template.md",
+      "Profile/memory.md",
+      "Archive/note.md",
+    ]
+    paths.forEach((filePath, index) => {
+      const rawContent = options.noteContents?.[filePath] ?? ""
+      search.upsertNote(
+        {
+          filePath,
+          rawContent,
+          fileStat: { mtimeMs: 10000 - index, size: Buffer.byteLength(rawContent) },
+        },
+        logger,
+      )
+    })
+    const logCalls: LogCall[] = []
+    const config = loadConfig({ MEMORY_ENABLED: "false", MEMORY_DIR: "Profile", ...options.env })
+    const calls = registerWithSearch(vault, search, recordingLogger(logCalls), config)
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const readSurveySections = async () => {
+      const text = textOf(await handler(fakeExtra))
+      const orphans = text.split("## Orphans\n")[1]?.split("\n\n---")[0]?.split("\n\n## ")[0]
+      const stats = text.split("## Vault stats\n")[1]?.split("\n\n## Folders")[0]
+
+      if (!orphans || !stats) throw new Error("prompt has no orphan or stats section")
+      return { orphans, stats }
+    }
+    const orphanSection = async () => (await readSurveySections()).orphans
+    return { vault, settingsPath, orphanSection, readSurveySections, logCalls, config }
+  }
+
+  it("excludes file-configured daily notes and descendants while retaining sibling folders", async () => {
+    const { orphanSection } = await setupOrphanPrompt({ settings: '{"folder":"Journal"}' })
+    expect(await orphanSection()).toBe(
+      "4 orphan notes (no incoming links):\n- JournalOld/note.md — note\n- ordinary.md — ordinary\n- Daily Notes/daily.md — daily\n- Archive/note.md — note",
+    )
+  })
+
+  it.each(["Journal/", "Journal///"])(
+    "renders one trailing separator for the excluded daily folder %s",
+    async (dailyNotesFolder) => {
+      const { readSurveySections } = await setupOrphanPrompt({
+        settings: JSON.stringify({ folder: dailyNotesFolder }),
+        paths: ["source.md", "other.md"],
+        noteContents: { "source.md": dailyForwardReferences },
+      })
+
+      expect((await readSurveySections()).stats).toBe(
+        "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+      )
+    },
+  )
+
+  it("keeps ordinary orphans visible behind more than five newer excluded daily candidates", async () => {
+    const dailyPaths = Array.from({ length: 7 }, (_, index) => `Journal/nested/day-${index}.md`)
+    const { orphanSection } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: [...dailyPaths, "ordinary.md", "JournalOld/note.md"],
+    })
+    expect(await orphanSection()).toBe(
+      "2 orphan notes (no incoming links):\n- ordinary.md — ordinary\n- JournalOld/note.md — note",
+    )
+  })
+
+  it("describes an empty filtered result without claiming excluded notes are linked", async () => {
+    const { orphanSection } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: ["Journal/daily.md"],
+    })
+    expect(await orphanSection()).toBe("No orphans found after folder exclusions.")
+  })
+
+  it("lets explicit environment folders replace all defaults", async () => {
+    const { orphanSection } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      env: { ORPHAN_EXCLUDE_FOLDERS: "Archive" },
+      paths: [
+        "Journal/daily.md",
+        "Daily Notes/daily.md",
+        "Templates/template.md",
+        "Profile/memory.md",
+        "Archive/note.md",
+      ],
+    })
+    expect(await orphanSection()).toBe(
+      "4 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- Daily Notes/daily.md — daily\n- Templates/template.md — template\n- Profile/memory.md — memory",
+    )
+  })
+
+  it("uses the environment daily folder over the file folder", async () => {
+    const { orphanSection } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      env: { DAILY_NOTES_FOLDER: "Env/Daily" },
+      paths: [
+        "Env/Daily/daily.md",
+        "Env/Daily/nested/daily.md",
+        "Journal/daily.md",
+        "ordinary.md",
+        "Templates/template.md",
+        "Profile/memory.md",
+      ],
+    })
+    expect(await orphanSection()).toBe(
+      "2 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- ordinary.md — ordinary",
+    )
+  })
+
+  it("honors an empty environment list and still reads daily settings once for broken links", async () => {
+    const { vault, readSurveySections, config } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      env: { ORPHAN_EXCLUDE_FOLDERS: ", ," },
+      noteContents: { "Journal/daily.md": dailyForwardReferences },
+      paths: [
+        "Journal/daily.md",
+        "Daily Notes/daily.md",
+        "Templates/template.md",
+        "Profile/memory.md",
+      ],
+    })
+    vi.mocked(readDailyNotesConfig).mockClear()
+    expect(await readSurveySections()).toEqual({
+      orphans:
+        "4 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- Daily Notes/daily.md — daily\n- Templates/template.md — template\n- Profile/memory.md — memory",
+      stats:
+        "4 notes across 0 folders, 0 tags, 0 property keys. 4 untagged. 4 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+    })
+    expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledWith(
+      {
+        vaultPath: vault,
+        envSettings: { folder: config.dailyNotesFolder, format: config.dailyNotesFormat },
+      },
+      expect.any(Object),
+    )
+  })
+
+  it("uses the same single daily settings read for default exclusions and broken links", async () => {
+    const { readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      noteContents: { "ordinary.md": dailyForwardReferences },
+    })
+    vi.mocked(readDailyNotesConfig).mockClear()
+    expect(await readSurveySections()).toEqual({
+      orphans:
+        "4 orphan notes (no incoming links):\n- JournalOld/note.md — note\n- ordinary.md — ordinary\n- Daily Notes/daily.md — daily\n- Archive/note.md — note",
+      stats:
+        "8 notes across 0 folders, 0 tags, 0 property keys. 8 untagged. 8 without properties. 2 broken links (excludes 2 forward-refs in Journal/).",
+    })
+    expect(vi.mocked(readDailyNotesConfig)).toHaveBeenCalledTimes(1)
+  })
+
+  it("changes folder exclusions on the next invocation without registering again", async () => {
+    const { orphanSection, settingsPath } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: ["Journal/daily.md", "Planner/Daily/daily.md", "ordinary.md"],
+    })
+    expect(await orphanSection()).toBe(
+      "2 orphan notes (no incoming links):\n- Planner/Daily/daily.md — daily\n- ordinary.md — ordinary",
+    )
+    await writeFile(settingsPath, '{"folder":"Planner/Daily"}')
+    expect(await orphanSection()).toBe(
+      "2 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- ordinary.md — ordinary",
+    )
+  })
+
+  it("falls back with a warning for malformed settings and uses a repaired file on the next call", async () => {
+    const { orphanSection, settingsPath, logCalls } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: ["Journal/daily.md", "Daily Notes/daily.md", "Planner/Daily/daily.md", "ordinary.md"],
+    })
+    expect(await orphanSection()).toBe(
+      "3 orphan notes (no incoming links):\n- Daily Notes/daily.md — daily\n- Planner/Daily/daily.md — daily\n- ordinary.md — ordinary",
+    )
+    await writeFile(settingsPath, "broken")
+    expect(await orphanSection()).toBe(
+      "3 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- Planner/Daily/daily.md — daily\n- ordinary.md — ordinary",
+    )
+    expect(logCalls.filter((entry) => entry.level === "warn")).toEqual([
+      {
+        level: "warn",
+        message: "cannot read daily notes config, using defaults",
+        data: { requestId: "1", prompt: "vault-orientation", error: expect.any(String) },
+      },
+    ])
+    await writeFile(settingsPath, '{"folder":"Planner/Daily"}')
+    expect(await orphanSection()).toBe(
+      "3 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- Daily Notes/daily.md — daily\n- ordinary.md — ordinary",
+    )
+  })
+
+  it("uses file settings that arrive after prompt registration", async () => {
+    const { orphanSection, settingsPath } = await setupOrphanPrompt({
+      paths: ["Journal/daily.md", "Daily Notes/daily.md", "ordinary.md"],
+    })
+    expect(await orphanSection()).toBe(
+      "2 orphan notes (no incoming links):\n- Journal/daily.md — daily\n- ordinary.md — ordinary",
+    )
+    await writeFile(settingsPath, '{"folder":"Journal"}')
+    expect(await orphanSection()).toBe(
+      "2 orphan notes (no incoming links):\n- Daily Notes/daily.md — daily\n- ordinary.md — ordinary",
+    )
+  })
+})
 
 describe("vault-orientation handler", () => {
   it("returns sentinels and never throws on an empty vault", async () => {
@@ -122,7 +355,8 @@ describe("vault-orientation handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
     const text = textOf(await handler(fakeExtra))
 
-    expect(text).toContain("No orphans found — every note has at least one incoming link.")
+    const orphanSection = text.split("## Orphans\n")[1]?.split("\n\n## Memory")[0]
+    expect(orphanSection).toBe("No orphans found after folder exclusions.")
   })
 
   it("shows property adoption rates with count/total format", async () => {
