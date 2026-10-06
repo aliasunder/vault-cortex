@@ -1458,7 +1458,9 @@ export const getOutgoingLinks = (
       }
     >(sql)
     .all(params.path)
-  const dailyNotesFolderPrefix = params.dailyNotesFolder ? `${params.dailyNotesFolder}/` : null
+  const dailyNotesFolderPrefix = params.dailyNotesFolder
+    ? `${stripTrailingSlashes(params.dailyNotesFolder)}/`
+    : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
@@ -1568,7 +1570,7 @@ export const brokenLinkCount = (
     return { count, excludedFolder: null, excludedCount: 0 }
   }
 
-  const excludedFolderPrefix = `${excludedFolder}/`
+  const excludedFolderPrefix = `${stripTrailingSlashes(excludedFolder)}/`
   const brokenTargets = context.db
     .prepare<unknown[], { target: string }>(
       `SELECT DISTINCT target

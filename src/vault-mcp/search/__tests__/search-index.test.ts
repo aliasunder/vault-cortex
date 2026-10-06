@@ -3688,28 +3688,42 @@ describe("getOutgoingLinks", () => {
     expect(broken?.bytes).toBeNull()
   })
 
-  it("flags daily note forward-refs when the folder is passed", () => {
-    index.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-24.md",
-        rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
+  it.each(["Daily Notes", "Daily Notes/", "Daily Notes///"])(
+    "flags daily note forward-refs with folder %s",
+    (dailyNotesFolder) => {
+      index.upsertNote(
+        {
+          filePath: "Daily Notes/2026-06-24.md",
+          rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
 
-    const links = index.getOutgoingLinks(
-      { path: "Daily Notes/2026-06-24.md", dailyNotesFolder: "Daily Notes" },
-      logger,
-    )
-    const forwardRef = links.find((link) => link.path === "Daily Notes/2026-06-25")
-    expect(forwardRef?.exists).toBe(false)
-    expect(forwardRef?.daily_note_forward_ref).toBe(true)
-
-    const genuinelyBroken = links.find((link) => link.path === "missing")
-    expect(genuinelyBroken?.exists).toBe(false)
-    expect(genuinelyBroken?.daily_note_forward_ref).toBe(false)
-  })
+      const links = index.getOutgoingLinks(
+        { path: "Daily Notes/2026-06-24.md", dailyNotesFolder },
+        logger,
+      )
+      expect(links).toEqual([
+        {
+          path: "Daily Notes/2026-06-25",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: true,
+        },
+        {
+          path: "missing",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: false,
+        },
+      ])
+    },
+  )
 
   it("returns empty for notes with no outgoing links", () => {
     index.upsertNote(
@@ -4339,18 +4353,25 @@ describe("brokenLinkCount", () => {
     expect(outgoing[0]?.kind).toBe("note")
   })
 
-  it("excludes forward-reference links that are valid dates under the daily note folder", () => {
-    index.upsertNote(
-      {
-        filePath: "Daily Notes/2026-06-24.md",
-        rawContent:
-          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]].\n",
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
-    expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(1)
-  })
+  it.each(["Daily Notes", "Daily Notes/", "Daily Notes///"])(
+    "excludes daily forward references with folder %s and retains sibling-folder failures",
+    (dailyNotesFolder) => {
+      index.upsertNote(
+        {
+          filePath: "Daily Notes/2026-06-24.md",
+          rawContent:
+            "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]] and [[Daily Notes Extra/missing]].\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      expect(index.brokenLinkCount({ dailyNotesFolder }, logger)).toEqual({
+        count: 2,
+        excludedFolder: dailyNotesFolder,
+        excludedCount: 1,
+      })
+    },
+  )
 
   it("excludes .md-suffixed forward-reference targets", () => {
     index.upsertNote(
