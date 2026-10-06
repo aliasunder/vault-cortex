@@ -79,8 +79,8 @@ const comboFromFlippedAxes = (flippedAxes: readonly SurfaceAxis[]): SurfaceCombo
  *  - disabled-tools: vault_patch_note is cross-referenced from other tools'
  *    descriptions, so its combo verifies those references disappear when the
  *    tool is disabled.
- *  - obsidian-sync: OBSIDIAN_SYNC changes only vault_delete_note's Errors
- *    list, so one combo pins it; crossing it with the axes would double the
+ *  - obsidian-sync: OBSIDIAN_SYNC changes only vault_delete_note's text,
+ *    so one combo pins it; crossing it with the axes would double the
  *    baseline without adding a rendered state. */
 export const SURFACE_COMBOS: readonly SurfaceCombo[] = [
   ...axisSubsets.map(comboFromFlippedAxes),

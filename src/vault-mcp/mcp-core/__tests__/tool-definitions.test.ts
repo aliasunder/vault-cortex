@@ -146,6 +146,19 @@ const extractDescriptionSection = (params: {
   return description.slice(sectionStart, sectionEnd)
 }
 
+/** The first line of a tool's description that starts with linePrefix, or
+ *  undefined when the tool is not registered or no line matches. */
+const findDescriptionLine = (params: {
+  registeredCalls: readonly RegisterToolCall[]
+  toolName: string
+  linePrefix: string
+}): string | undefined => {
+  const toolCall = params.registeredCalls.find(([toolName]) => toolName === params.toolName)
+  const descriptionLines = toolCall?.[1].description?.split("\n")
+
+  return descriptionLines?.find((line) => line.startsWith(params.linePrefix))
+}
+
 describe("registerTools", () => {
   it(`registers exactly ${ALL_TOOL_NAMES.length} tools`, () => {
     expect(mockServer.registerTool).toHaveBeenCalledTimes(ALL_TOOL_NAMES.length)
@@ -492,10 +505,26 @@ describe("config interpolation in descriptions", () => {
     },
   )
 
-  it("vault_delete_note description lists configured protected paths", () => {
-    const [, config] = requireCustomCall(TOOL_NAMES.VAULT_DELETE_NOTE)
-    expect(config.description).toContain("Profile/")
-    expect(config.description).not.toContain("About Me/")
+  it("vault_delete_note lists the configured memory dir among its protected paths", () => {
+    const linksEntry = findDescriptionLine({
+      registeredCalls: customCalls,
+      toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+      linePrefix: "- Links to the note",
+    })
+    expect(linksEntry).toBe(
+      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/).",
+    )
+  })
+
+  it("vault_delete_note lists PROTECTED_PATHS folders in place of the default protected paths", () => {
+    const linksEntry = findDescriptionLine({
+      registeredCalls: registerWithConfig({ PROTECTED_PATHS: "Private,Work/Clients" }),
+      toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+      linePrefix: "- Links to the note",
+    })
+    expect(linksEntry).toBe(
+      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Private/, Work/Clients/.",
+    )
   })
 
   it("vault_delete_note description includes memory hint when memory is enabled", () => {
@@ -1063,7 +1092,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
   })
 })
 
-describe("vault_delete_note Errors list reflects OBSIDIAN_SYNC", () => {
+describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
   /** Each Errors entry up to its first em dash, in listed order. */
   const deleteNoteErrorLeads = (env: Record<string, string>): string[] => {
     const errorsSection = extractDescriptionSection({
@@ -1143,6 +1172,24 @@ describe("vault_delete_note Errors list reflects OBSIDIAN_SYNC", () => {
     )
     expect(deleteNoteBehavior({ OBSIDIAN_SYNC: "true" })).toBe(
       `Behavior:\n${LINKS_AND_PROTECTED_PATHS_ENTRY}`,
+    )
+  })
+
+  it("names the trash outcome in Returns only when the server does not sync", () => {
+    const returnsLine = (env: Record<string, string>): string | undefined => {
+      return findDescriptionLine({
+        registeredCalls: registerWithConfig(env),
+        toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+        linePrefix: "Returns:",
+      })
+    }
+    const PRUNED_FOLDERS_SENTENCE = " Notes how many empty folders were pruned when any were."
+
+    expect(returnsLine({})).toBe(
+      `Returns: Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.${PRUNED_FOLDERS_SENTENCE}`,
+    )
+    expect(returnsLine({ OBSIDIAN_SYNC: "true" })).toBe(
+      `Returns: Confirmation message — "Deleted <path>".${PRUNED_FOLDERS_SENTENCE}`,
     )
   })
 })
@@ -1702,6 +1749,18 @@ describe("vault_find_orphans live folder defaults", () => {
     )
     expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
       'Folder paths to exclude (e.g. Projects; default: ["Archive","Scratch"])',
+    )
+  })
+
+  it("leaves the daily-note hint out under an environment list, though vault_get_daily_note is served", async () => {
+    const { toolConfig } = await setupOrphans({
+      env: { ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch" },
+    })
+    const excludeFoldersLine = toolConfig.description
+      ?.split("\n")
+      .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
+    expect(excludeFoldersLine).toBe(
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.',
     )
   })
 })
@@ -2402,25 +2461,10 @@ describe("DISABLED_TOOLS", () => {
     expect(listTasksRoutingLines("vault_read_note")).toBe(`${TRIAGE_LINE_END}${SEARCH_ROUTING}`)
   })
 
-  const findDescriptionLine = ({
-    disabledTools,
-    toolName,
-    linePrefix,
-  }: {
-    disabledTools: string
-    toolName: string
-    linePrefix: string
-  }): string | undefined => {
-    const toolCall = registerWithConfig({ DISABLED_TOOLS: disabledTools }).find(
-      ([registeredName]) => registeredName === toolName,
-    )
-    return toolCall?.[1].description?.split("\n").find((line) => line.startsWith(linePrefix))
-  }
-
   it("vault_delete_note's not-found entry keeps a remedy when vault_list_notes is disabled", () => {
     const notFoundEntry = (disabledTools: string): string | undefined => {
       return findDescriptionLine({
-        disabledTools,
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
         linePrefix: '- "note not found',
       })
@@ -2432,10 +2476,29 @@ describe("DISABLED_TOOLS", () => {
     )
   })
 
+  it("vault_delete_note's broken-links entry names vault_get_backlinks only while that tool is served", () => {
+    const linksEntry = (disabledTools: string): string | undefined => {
+      return findDescriptionLine({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+        linePrefix: "- Links to the note",
+      })
+    }
+    const PROTECTED_PATHS_SENTENCE =
+      " Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)."
+
+    expect(linksEntry("")).toBe(
+      `- Links to the note from other notes become broken; list them first with vault_get_backlinks.${PROTECTED_PATHS_SENTENCE}`,
+    )
+    expect(linksEntry("vault_get_backlinks")).toBe(
+      `- Links to the note from other notes become broken.${PROTECTED_PATHS_SENTENCE}`,
+    )
+  })
+
   it("vault_find_orphans points to vault_get_daily_note for the daily folder only while that tool is served", () => {
     const excludeFoldersEntry = (disabledTools: string): string | undefined => {
       return findDescriptionLine({
-        disabledTools,
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName: TOOL_NAMES.VAULT_FIND_ORPHANS,
         linePrefix: "- exclude_folders replaces the defaults",
       })
