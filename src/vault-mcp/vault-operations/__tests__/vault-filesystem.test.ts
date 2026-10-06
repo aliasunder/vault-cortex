@@ -1658,7 +1658,7 @@ describe("deleteNote — trash behavior", () => {
       path: "log-field.md",
       trashOption: "local",
       trashLocation: ".trash/log-field.md",
-      pruned_empty_folders: 0,
+      prunedFolderCount: 0,
     })
   })
 })

@@ -1351,7 +1351,7 @@ describe("moveNote — failure safety", () => {
       links_updated: 1,
       sources_updated: 1,
       sources_failed: 0,
-      pruned_empty_folders: 0,
+      prunedFolderCount: 0,
     })
   })
 })

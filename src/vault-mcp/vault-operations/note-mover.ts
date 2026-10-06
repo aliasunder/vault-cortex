@@ -963,7 +963,7 @@ const moveNote = async (
           links_updated: linksUpdated,
           sources_updated: plannedRewrites.length,
           sources_failed: 0,
-          pruned_empty_folders: prunedFolderCount,
+          prunedFolderCount,
         })
 
         return {

@@ -711,7 +711,7 @@ const deleteNote = async (
       path,
       trashOption: params.trashOption,
       ...(trashLocation ? { trashLocation } : {}),
-      pruned_empty_folders: prunedFolderCount,
+      prunedFolderCount,
     })
     return {
       prunedFolderCount,
