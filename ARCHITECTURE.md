@@ -177,7 +177,7 @@ Every tool handles a note's properties block by the same rules, so a write never
 - **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in each backlink source it plans to update, and a list, a single value or a tag only in a note where it must rewrite a link.
 - **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit that removes the text above such lines, or a call that removes every property.
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
-  - For a block already in the vault, repair steps when all three repair tools are served: `vault_read_note`, `vault_update_properties` with `replace: true`, and `vault_patch_note` to put back prose the block held. Otherwise it points at Obsidian.
+  - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
   - For a write that would open the note with such a block, the ways around it: give the note a property, put text above the `---` lines, or remove them.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:

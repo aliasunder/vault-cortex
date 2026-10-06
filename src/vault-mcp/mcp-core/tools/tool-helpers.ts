@@ -125,22 +125,26 @@ type ToolErrorHandlers = {
   ) => Promise<ToolHandlerResult>
 }
 
-/** The tools a properties-block repair walks through: a raw read, a
- *  whole-block replace, and a body edit to put prose back. */
-const REPAIR_TOOL_NAMES = [
-  "vault_read_note",
-  "vault_update_properties",
-  "vault_patch_note",
-] as const satisfies readonly ToolName[]
+/** The tools each kind's repair steps name: a raw read and a whole-block
+ *  replace, plus a body edit to put prose back for the kinds that often hold
+ *  it. Keep each list in step with the text describePropertiesBlockRepair
+ *  returns for that kind. */
+const REPAIR_TOOLS_BY_KIND = {
+  "explicit-tag": ["vault_read_note", "vault_update_properties"],
+  "invalid-yaml": ["vault_read_note", "vault_update_properties", "vault_patch_note"],
+  "not-key-value": ["vault_read_note", "vault_update_properties", "vault_patch_note"],
+} as const satisfies Record<UnsupportedPropertiesBlockError["kind"], readonly ToolName[]>
 
 /** How an agent repairs a properties block the server refuses, by the kind
- *  of block. A server missing any of the three repair tools points at
- *  Obsidian instead, so the error never names a tool the client cannot call. */
+ *  of block. A server missing any tool the steps name points at Obsidian
+ *  instead, so the error never names a tool the client cannot call. */
 const describePropertiesBlockRepair = (params: {
   kind: UnsupportedPropertiesBlockError["kind"]
-  repairToolsServed: boolean
+  isToolEnabled: (name: ToolName) => boolean
 }): string => {
-  if (!params.repairToolsServed) return "Fix the properties block in Obsidian."
+  const repairToolsServed = REPAIR_TOOLS_BY_KIND[params.kind].every(params.isToolEnabled)
+
+  if (!repairToolsServed) return "Fix the properties block in Obsidian."
 
   switch (params.kind) {
     case "explicit-tag":
@@ -177,8 +181,6 @@ export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): st
 export const createToolErrorHandlers = (
   isToolEnabled: (name: ToolName) => boolean,
 ): ToolErrorHandlers => {
-  const repairToolsServed = REPAIR_TOOL_NAMES.every(isToolEnabled)
-
   /** describeError's text, plus how to fix a properties-block failure:
    *  repair steps for a block already in the vault, or a way around `---`
    *  lines a write would leave at the top of the note. */
@@ -192,7 +194,7 @@ export const createToolErrorHandlers = (
     }
     if (!(error instanceof UnsupportedPropertiesBlockError)) return message
 
-    const repair = describePropertiesBlockRepair({ kind: error.kind, repairToolsServed })
+    const repair = describePropertiesBlockRepair({ kind: error.kind, isToolEnabled })
     return `${message}${separator}${repair}`
   }
 

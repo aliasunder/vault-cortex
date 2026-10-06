@@ -249,6 +249,43 @@ describe("safeHandler", () => {
       isError: true,
     })
   })
+
+  it("gives a tagged block its repair steps when only vault_patch_note is not served", async () => {
+    const result = await runFailingCall({
+      isToolEnabled: (name) => name !== "vault_patch_note",
+      fail: failWithUnreadableBlock("explicit-tag", "properties block uses the YAML tag !done"),
+    })
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: properties block uses the YAML tag !done. ${TAG_REPAIR_STEPS}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it.each<{ label: string; disabledTool: ToolName }>([
+    { label: "vault_read_note", disabledTool: "vault_read_note" },
+    { label: "vault_update_properties", disabledTool: "vault_update_properties" },
+  ])("points a tagged block at Obsidian when $label is not served", async ({ disabledTool }) => {
+    const result = await runFailingCall({
+      isToolEnabled: (name) => name !== disabledTool,
+      fail: failWithUnreadableBlock("explicit-tag", "properties block uses the YAML tag !done"),
+    })
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: properties block uses the YAML tag !done. ${OBSIDIAN_ONLY_STEP}`,
+        },
+      ],
+      isError: true,
+    })
+  })
 })
 
 describe("describeTextWindow", () => {
