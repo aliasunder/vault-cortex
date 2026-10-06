@@ -51,129 +51,148 @@ export const startFileWatcher = (
   search: SearchIndex,
   options?: FileWatcherOptions,
 ): Promise<void> => {
-  // Serializes embedding per note path so overlapping chokidar events for the
-  // same file can't interleave and overwrite vectors with stale content.
+  // Serializing per path limits model concurrency; source versions reject
+  // obsolete results independently of the order jobs finish.
   const pendingEmbeds = new Map<string, Promise<void>>()
+  const currentEvents = new Map<string, symbol>()
 
   /** Indexes an added or modified file: non-md files land in the asset table;
    *  notes are read from disk, upserted into the FTS index, and re-embedded
    *  (embeds serialized per path via pendingEmbeds). */
   const handleChange = async (filePath: string): Promise<void> => {
     const relativePath = relative(vaultPath, filePath)
-
-    if (!filePath.endsWith(".md")) {
-      const fileStat = await statOrNull(filePath)
-
-      // Vanished between the watcher event and the stat — the unlink event
-      // that follows will remove any existing row.
-      if (!fileStat) return
-      search.upsertNonMdFile(relativePath, fileStat.size)
-
-      // Canvas files are always read — link extraction is unconditional.
-      // PDF and text files are only read when file content FTS is enabled.
-      const extension = extname(filePath)
-      const isCanvas = extension === ".canvas"
-      const isIndexableNonCanvas =
-        search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
-
-      if (isCanvas || isIndexableNonCanvas) {
-        try {
-          let contentToIndex: string
-
-          if (extension === ".pdf") {
-            const buffer = await readFile(filePath)
-            const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-            const pdfResult = await extractPdfText(pdfData)
-            contentToIndex = pdfResult.text
-          } else {
-            contentToIndex = await readFile(filePath, "utf8")
-          }
-          search.upsertFileContent(
-            {
-              filePath: relativePath,
-              rawContent: contentToIndex,
-              fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
-            },
-            logger,
-          )
-
-          // Embed file content vectors — serialized per path via the same
-          // pendingEmbeds map (note paths end in .md, file paths don't).
-          // Reads the processed content from the file_content table.
-          const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
-          const currentEmbed = previousEmbed
-            .catch((previousError) => {
-              logger.debug("previous file embed failed, proceeding with current", {
-                path: relativePath,
-                error: describeError(previousError),
-              })
-            })
-            .then(() => search.embedFileContent({ filePath: relativePath }, logger))
-          pendingEmbeds.set(relativePath, currentEmbed)
-          currentEmbed
-            .catch((embedError) => {
-              logger.warn("file content embedding failed", {
-                path: relativePath,
-                error: describeError(embedError),
-              })
-            })
-            .finally(() => {
-              if (pendingEmbeds.get(relativePath) === currentEmbed) {
-                pendingEmbeds.delete(relativePath)
-              }
-            })
-        } catch (error) {
-          logger.warn("file content indexing failed", {
-            path: relativePath,
-            error: describeError(error),
-          })
-        }
-      }
-
-      logger.debug("indexed non-md file", { path: relativePath })
-      return
-    }
+    const eventToken = Symbol()
+    currentEvents.set(relativePath, eventToken)
 
     try {
-      const [content, fileStat] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)])
-      search.upsertNote(
-        {
-          filePath: relativePath,
-          rawContent: content,
-          fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
-        },
-        logger,
-      )
-      // Promise chain serializes embedding per path — if two events arrive for
-      // the same note, the second waits for the first to finish. .catch()
-      // swallows the previous rejection so a transient failure can't cascade
-      // and block subsequent embeds for this path. .finally() clears the map
-      // entry on success OR failure so a rejected promise can't permanently
-      // block that note from re-embedding.
-      const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
-      const currentEmbed = previousEmbed
-        .catch((previousError) => {
-          logger.debug("previous embed failed, proceeding with current", {
-            path: relativePath,
-            error: describeError(previousError),
-          })
-        })
-        .then(() => search.embedNote({ notePath: relativePath, rawContent: content }, logger))
-      pendingEmbeds.set(relativePath, currentEmbed)
-      // Await the .finally()-derived promise, not currentEmbed itself —
-      // .finally() returns a new promise that rejects with the same error,
-      // and awaiting it routes that rejection into the outer catch instead
-      // of leaving a second, unhandled rejection.
-      await currentEmbed.finally(() => {
-        if (pendingEmbeds.get(relativePath) === currentEmbed) {
-          pendingEmbeds.delete(relativePath)
+      if (!filePath.endsWith(".md")) {
+        const fileStat = await statOrNull(filePath)
+
+        if (currentEvents.get(relativePath) !== eventToken) return
+        // Vanished between the watcher event and the stat — the unlink event
+        // that follows will remove any existing row.
+        if (!fileStat) return
+        search.upsertNonMdFile(relativePath, fileStat.size)
+
+        // Canvas files are always read — link extraction is unconditional.
+        // PDF and text files are only read when file content FTS is enabled.
+        const extension = extname(filePath)
+        const isCanvas = extension === ".canvas"
+        const isIndexableNonCanvas =
+          search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+
+        if (isCanvas || isIndexableNonCanvas) {
+          try {
+            let contentToIndex: string
+
+            if (extension === ".pdf") {
+              const buffer = await readFile(filePath)
+              const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+              const pdfResult = await extractPdfText(pdfData)
+              contentToIndex = pdfResult.text
+            } else {
+              contentToIndex = await readFile(filePath, "utf8")
+            }
+
+            if (currentEvents.get(relativePath) !== eventToken) return
+
+            const sourceVersion = search.upsertFileContent(
+              {
+                filePath: relativePath,
+                rawContent: contentToIndex,
+                fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+              },
+              logger,
+            )
+
+            // Embed file content vectors — serialized per path via the same
+            // pendingEmbeds map (note paths end in .md, file paths don't).
+            // Reads the processed content from the file_content table.
+            const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
+            const currentEmbed = previousEmbed
+              .catch((previousError) => {
+                logger.debug("previous file embed failed, proceeding with current", {
+                  path: relativePath,
+                  error: describeError(previousError),
+                })
+              })
+              .then(() => {
+                return search.embedFileContent({ filePath: relativePath, sourceVersion }, logger)
+              })
+            pendingEmbeds.set(relativePath, currentEmbed)
+            currentEmbed
+              .catch((embedError) => {
+                logger.warn("file content embedding failed", {
+                  path: relativePath,
+                  error: describeError(embedError),
+                })
+              })
+              .finally(() => {
+                if (pendingEmbeds.get(relativePath) === currentEmbed) {
+                  pendingEmbeds.delete(relativePath)
+                }
+              })
+          } catch (error) {
+            logger.warn("file content indexing failed", {
+              path: relativePath,
+              error: describeError(error),
+            })
+          }
         }
-      })
-    } catch (err) {
-      logger.error("failed to process file change", {
-        path: relativePath,
-        error: describeError(err),
-      })
+
+        logger.debug("indexed non-md file", { path: relativePath })
+        return
+      }
+
+      try {
+        const [content, fileStat] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)])
+
+        if (currentEvents.get(relativePath) !== eventToken) return
+
+        const sourceVersion = search.upsertNote(
+          {
+            filePath: relativePath,
+            rawContent: content,
+            fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+          },
+          logger,
+        )
+        // Each path queues model work; recovering a rejected predecessor
+        // allows later jobs to run after a transient failure.
+        const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
+        const currentEmbed = previousEmbed
+          .catch((previousError) => {
+            logger.debug("previous embed failed, proceeding with current", {
+              path: relativePath,
+              error: describeError(previousError),
+            })
+          })
+          .then(() => {
+            return search.embedNote(
+              { notePath: relativePath, rawContent: content, sourceVersion },
+              logger,
+            )
+          })
+        pendingEmbeds.set(relativePath, currentEmbed)
+        // Awaiting the finally-derived promise routes its rejection to the
+        // catch; awaiting only currentEmbed would leave it unhandled.
+        await currentEmbed.finally(() => {
+          if (pendingEmbeds.get(relativePath) === currentEmbed) {
+            pendingEmbeds.delete(relativePath)
+          }
+        })
+      } catch (err) {
+        logger.error("failed to process file change", {
+          path: relativePath,
+          error: describeError(err),
+        })
+      }
+    } finally {
+      // A newer handler may already have finished and removed its entry.
+      // Only the current event owns cleanup; absence still invalidates old reads.
+      if (currentEvents.get(relativePath) === eventToken) {
+        currentEvents.delete(relativePath)
+      }
     }
   }
 
@@ -181,6 +200,7 @@ export const startFileWatcher = (
    *  files, the note tables (FTS, links, tasks, vectors) for notes. */
   const handleDelete = (filePath: string): void => {
     const relativePath = relative(vaultPath, filePath)
+    currentEvents.delete(relativePath)
 
     if (!filePath.endsWith(".md")) {
       search.removeNonMdFile(relativePath)

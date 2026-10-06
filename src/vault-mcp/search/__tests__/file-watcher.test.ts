@@ -1,9 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, rename, unlink, symlink, utimes } from "node:fs/promises"
+import {
+  mkdtemp,
+  rm,
+  writeFile,
+  mkdir,
+  rename,
+  unlink,
+  symlink,
+  utimes,
+  readFile,
+} from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
-import { watch } from "chokidar"
+import { watch, FSWatcher } from "chokidar"
+import Database from "better-sqlite3"
+import * as sqliteVec from "sqlite-vec"
 import { createSearchIndex } from "../search-index.js"
+import { extractPdfText } from "../../obsidian-markdown/pdf.js"
 import { readdirOrNull, statOrNull } from "../../../utils/fs.js"
 import type { SearchIndex } from "../search-index.js"
 import { startFileWatcher } from "../file-watcher.js"
@@ -18,6 +31,8 @@ vi.mock("chokidar", { spy: true })
 // rescan's synchronous first call, so the delay-default test can observe the
 // timer firing without waiting on real filesystem I/O.
 vi.mock("../../../utils/fs.js", { spy: true })
+vi.mock("node:fs/promises", { spy: true })
+vi.mock("../../obsidian-markdown/pdf.js", { spy: true })
 
 let vault: string
 let index: SearchIndex
@@ -190,6 +205,13 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 
   it("calls embedNote when indexing a .md file", { timeout: 15000 }, async () => {
     const embedNoteSpy = vi.spyOn(index, "embedNote")
+    const capturedVersion = Promise.withResolvers<symbol>()
+    const realUpsert = index.upsertNote
+    vi.spyOn(index, "upsertNote").mockImplementation((params, requestLogger) => {
+      const sourceVersion = realUpsert(params, requestLogger)
+      capturedVersion.resolve(sourceVersion)
+      return sourceVersion
+    })
     await startFileWatcher(vault, index, {
       stabilityThreshold: 200,
       pollInterval: 50,
@@ -202,10 +224,12 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     )
 
     await waitFor(() => embedNoteSpy.mock.calls.length > 0)
+    const sourceVersion = await capturedVersion.promise
     expect(embedNoteSpy).toHaveBeenCalledWith(
       {
         notePath: "embed-test.md",
         rawContent: "---\ntitle: Embed\n---\n\nEmbed this content\n",
+        sourceVersion,
       },
       expect.anything(), // logger — runtime child logger, not deterministic
     )
@@ -325,6 +349,13 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
       fileToolsEnabled: true,
     })
     const embedFileSpy = vi.spyOn(fileIndex, "embedFileContent")
+    const capturedVersion = Promise.withResolvers<symbol>()
+    const realUpsert = fileIndex.upsertFileContent
+    vi.spyOn(fileIndex, "upsertFileContent").mockImplementation((params, requestLogger) => {
+      const sourceVersion = realUpsert(params, requestLogger)
+      capturedVersion.resolve(sourceVersion)
+      return sourceVersion
+    })
 
     await startFileWatcher(vault, fileIndex, {
       stabilityThreshold: 200,
@@ -334,10 +365,429 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     await writeFile(join(vault, "data.csv"), "id,name,value\n1,deploy,active\n", "utf8")
 
     await waitFor(() => embedFileSpy.mock.calls.length > 0)
+    const sourceVersion = await capturedVersion.promise
     expect(embedFileSpy).toHaveBeenCalledWith(
-      { filePath: "data.csv" },
+      { filePath: "data.csv", sourceVersion },
       expect.anything(), // logger — runtime child logger
     )
+  })
+})
+
+describe("startFileWatcher — obsolete events and embedding queues", () => {
+  const createControlledWatcher = async (embedder?: Parameters<typeof createSearchIndex>[1]) => {
+    const testVault = await mkdtemp(join(tmpdir(), "watcher-events-"))
+    onTestFinished(() => rm(testVault, { recursive: true }))
+    const databasePath = join(testVault, "index.db")
+    const search = createSearchIndex(databasePath, embedder, undefined, { fileToolsEnabled: true })
+    const database = new Database(databasePath, { readonly: true })
+    sqliteVec.load(database)
+    onTestFinished(() => {
+      database.close()
+    })
+    const watcher = new FSWatcher()
+    const watchMock = vi.mocked(watch).mockReturnValue(watcher)
+    onTestFinished(async () => {
+      watchMock.mockRestore()
+      await watcher.close()
+    })
+    const starting = startFileWatcher(testVault, search)
+    watcher.emit("ready")
+    await starting
+
+    const fire = async (event: "change" | "unlink", fileName: string): Promise<void> => {
+      const handler = watcher.listeners(event)[0]
+
+      if (!handler) throw new Error(`${event} handler was not registered`)
+      // EventEmitter types listeners as void, but the change handler returns
+      // its actual promise, so awaiting it observes all indexing work.
+      await handler(join(testVault, fileName))
+    }
+    return { testVault, search, database, fire }
+  }
+
+  const delayFirstRead = async (filePath: string) => {
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const delayedPaths = new Set<string>()
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      const content = await actualFs.readFile(requestedPath, options)
+
+      if (requestedPath === filePath && !delayedPaths.has(filePath)) {
+        delayedPaths.add(filePath)
+        entered.resolve(undefined)
+        await release.promise
+      }
+      return content
+    })
+    onTestFinished(() => vi.mocked(readFile).mockRestore())
+    return { entered: entered.promise, release: () => release.resolve(undefined) }
+  }
+
+  it.each([
+    { fileName: "note.md", sourceTable: "notes" },
+    { fileName: "content.txt", sourceTable: "file_content" },
+  ])("rejects a delayed $fileName read after unlink", async ({ fileName, sourceTable }) => {
+    const { testVault, database, fire } = await createControlledWatcher()
+    const filePath = join(testVault, fileName)
+    await writeFile(filePath, "oldquartz")
+    await fire("change", fileName)
+    const delayedRead = await delayFirstRead(filePath)
+    const lateChange = fire("change", fileName)
+    await delayedRead.entered
+    await unlink(filePath)
+    await fire("unlink", fileName)
+
+    expect(database.prepare(`SELECT path FROM ${sourceTable}`).all()).toEqual([])
+    delayedRead.release()
+    await lateChange
+    expect(database.prepare(`SELECT path FROM ${sourceTable}`).all()).toEqual([])
+    expect(database.prepare("SELECT path FROM notes").all()).toEqual([])
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+  })
+
+  it.each([
+    { fileName: "note.md", sourceTable: "notes" },
+    { fileName: "content.txt", sourceTable: "file_content" },
+  ])(
+    "rejects an older $fileName read after the newer handler finishes",
+    async ({ fileName, sourceTable }) => {
+      const { testVault, database, fire } = await createControlledWatcher()
+      const filePath = join(testVault, fileName)
+      await writeFile(filePath, "oldquartz")
+      const delayedRead = await delayFirstRead(filePath)
+      const olderChange = fire("change", fileName)
+      await delayedRead.entered
+      await writeFile(filePath, "newopal")
+      await fire("change", fileName)
+
+      expect(database.prepare(`SELECT path, content FROM ${sourceTable}`).all()).toEqual([
+        { path: fileName, content: "newopal" },
+      ])
+      delayedRead.release()
+      await olderChange
+      expect(database.prepare(`SELECT path, content FROM ${sourceTable}`).all()).toEqual([
+        { path: fileName, content: "newopal" },
+      ])
+    },
+  )
+
+  it("keeps the newer event active when an older handler finishes first", async () => {
+    const { testVault, database, fire } = await createControlledWatcher()
+    const filePath = join(testVault, "note.md")
+    await writeFile(filePath, "oldquartz")
+    const olderRead = await delayFirstRead(filePath)
+    const olderChange = fire("change", "note.md")
+    await olderRead.entered
+    await writeFile(filePath, "newopal")
+    const newerRead = await delayFirstRead(filePath)
+    const newerChange = fire("change", "note.md")
+    await newerRead.entered
+    olderRead.release()
+    await olderChange
+    expect(database.prepare("SELECT path FROM notes").all()).toEqual([])
+    newerRead.release()
+    await newerChange
+    expect(database.prepare("SELECT path, content FROM notes").all()).toEqual([
+      { path: "note.md", content: "newopal" },
+    ])
+  })
+
+  it("keeps the committed note when a newer read fails and an older read finishes late", async () => {
+    const { testVault, database, fire } = await createControlledWatcher()
+    const filePath = join(testVault, "note.md")
+    await writeFile(filePath, "committedamber")
+    await fire("change", "note.md")
+    await writeFile(filePath, "oldquartz")
+    const delayedRead = await delayFirstRead(filePath)
+    const olderChange = fire("change", "note.md")
+    await delayedRead.entered
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === filePath) throw new Error("controlled read failure")
+      return actualFs.readFile(requestedPath, options)
+    })
+    const errorSpy = vi.spyOn(logger, "error")
+    onTestFinished(() => errorSpy.mockRestore())
+    await fire("change", "note.md")
+    delayedRead.release()
+    await olderChange
+
+    expect(errorSpy).toHaveBeenCalledWith("failed to process file change", {
+      path: "note.md",
+      error: "[Error]: controlled read failure",
+    })
+    expect(database.prepare("SELECT path, content FROM notes").all()).toEqual([
+      { path: "note.md", content: "committedamber" },
+    ])
+  })
+
+  it("rejects non-markdown metadata after unlink during stat", async () => {
+    const { testVault, database, fire } = await createControlledWatcher()
+    const filePath = join(testVault, "image.png")
+    await writeFile(filePath, "image data")
+    await fire("change", "image.png")
+    const actualFs =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const statEntered = Promise.withResolvers<undefined>()
+    const releaseStat = Promise.withResolvers<undefined>()
+    vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      const fileStat = await actualFs.statOrNull(requestedPath)
+
+      if (requestedPath === filePath) {
+        statEntered.resolve(undefined)
+        await releaseStat.promise
+      }
+      return fileStat
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+    const lateChange = fire("change", "image.png")
+    await statEntered.promise
+    await unlink(filePath)
+    await fire("unlink", "image.png")
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+    releaseStat.resolve(undefined)
+    await lateChange
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+  })
+
+  it("rejects a PDF extraction that finishes after unlink", async () => {
+    const { testVault, database, fire } = await createControlledWatcher()
+    const { buildMinimalPdf } = await import("../../obsidian-markdown/__tests__/pdf-fixture.js")
+    const filePath = join(testVault, "doc.pdf")
+    await writeFile(filePath, buildMinimalPdf())
+    const extractionEntered = Promise.withResolvers<undefined>()
+    const releaseExtraction = Promise.withResolvers<undefined>()
+    const actualPdf = await vi.importActual<typeof import("../../obsidian-markdown/pdf.js")>(
+      "../../obsidian-markdown/pdf.js",
+    )
+    const extractionSpy = vi.mocked(extractPdfText).mockImplementation(async (pdfData) => {
+      const extracted = await actualPdf.extractPdfText(pdfData)
+      extractionEntered.resolve(undefined)
+      await releaseExtraction.promise
+      return extracted
+    })
+    onTestFinished(() => extractionSpy.mockRestore())
+    const lateChange = fire("change", "doc.pdf")
+    await extractionEntered.promise
+    await unlink(filePath)
+    await fire("unlink", "doc.pdf")
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+    releaseExtraction.resolve(undefined)
+    await lateChange
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+    expect(extractionSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    {
+      fileName: "note.md",
+      chunkTable: "note_chunks",
+      vectorTable: "note_vectors",
+      pathColumn: "note_path",
+      prefix: "note",
+    },
+    {
+      fileName: "content.txt",
+      chunkTable: "file_content_chunks",
+      vectorTable: "file_content_vectors",
+      pathColumn: "file_path",
+      prefix: "content",
+    },
+  ])(
+    "skips obsolete queued $fileName jobs and retains the latest queue tail",
+    async ({ fileName, chunkTable, vectorTable, pathColumn, prefix }) => {
+      const firstEntered = Promise.withResolvers<undefined>()
+      const releaseFirst = Promise.withResolvers<Float32Array>()
+      const replacementEntered = Promise.withResolvers<undefined>()
+      const releaseReplacement = Promise.withResolvers<Float32Array>()
+      const finalEntered = Promise.withResolvers<undefined>()
+      const releaseFinal = Promise.withResolvers<Float32Array>()
+      const vector = new Float32Array(384).fill(0.1)
+      const embedder = {
+        embedText: vi.fn(async (text: string) => {
+          if (text === `${prefix}\n\noldquartz`) {
+            firstEntered.resolve(undefined)
+            return releaseFirst.promise
+          }
+          if (text === `${prefix}\n\nnewopal`) {
+            replacementEntered.resolve(undefined)
+            return releaseReplacement.promise
+          }
+          if (text === `${prefix}\n\nfinalamber`) {
+            finalEntered.resolve(undefined)
+            return releaseFinal.promise
+          }
+          return vector
+        }),
+        embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+      }
+      const { testVault, database, search, fire } = await createControlledWatcher(embedder)
+      const filePath = join(testVault, fileName)
+      const sourceWritten = Promise.withResolvers<undefined>()
+      const replacementSourceWritten = Promise.withResolvers<undefined>()
+      const realUpsert = fileName.endsWith(".md") ? search.upsertNote : search.upsertFileContent
+      const upsertName = fileName.endsWith(".md") ? "upsertNote" : "upsertFileContent"
+      vi.spyOn(search, upsertName).mockImplementation(
+        (
+          params: Parameters<typeof realUpsert>[0],
+          requestLogger: Parameters<typeof realUpsert>[1],
+        ) => {
+          const sourceVersion = realUpsert(params, requestLogger)
+
+          if (params.rawContent === "queuedberyl") sourceWritten.resolve(undefined)
+          if (params.rawContent === "newopal") replacementSourceWritten.resolve(undefined)
+          return sourceVersion
+        },
+      )
+      await writeFile(filePath, "oldquartz")
+      const firstChange = fire("change", fileName)
+      await firstEntered.promise
+      await writeFile(filePath, "queuedberyl")
+      const queuedChange = fire("change", fileName)
+      await sourceWritten.promise
+      await unlink(filePath)
+      await fire("unlink", fileName)
+      expect(
+        database
+          .prepare(`SELECT path FROM ${fileName.endsWith(".md") ? "notes" : "file_content"}`)
+          .all(),
+      ).toEqual([])
+      await writeFile(filePath, "newopal")
+      const replacementChange = fire("change", fileName)
+      await replacementSourceWritten.promise
+      releaseFirst.resolve(vector)
+      await firstChange
+      await queuedChange
+      await replacementEntered.promise
+
+      expect(embedder.embedText).toHaveBeenCalledTimes(2)
+      expect(embedder.embedText).toHaveBeenNthCalledWith(1, `${prefix}\n\noldquartz`)
+      expect(embedder.embedText).toHaveBeenNthCalledWith(2, `${prefix}\n\nnewopal`)
+      expect(database.prepare(`SELECT chunk_text FROM ${chunkTable}`).all()).toEqual([])
+      expect(database.prepare(`SELECT COUNT(*) AS count FROM ${vectorTable}`).get()).toEqual({
+        count: 0,
+      })
+
+      const finalSourceWritten = Promise.withResolvers<undefined>()
+      vi.spyOn(search, upsertName).mockImplementation(
+        (
+          params: Parameters<typeof realUpsert>[0],
+          requestLogger: Parameters<typeof realUpsert>[1],
+        ) => {
+          const sourceVersion = realUpsert(params, requestLogger)
+          finalSourceWritten.resolve(undefined)
+          return sourceVersion
+        },
+      )
+      const finalFileEmbedFinished = Promise.withResolvers<undefined>()
+      const independentEmbedFinished = Promise.withResolvers<undefined>()
+      const independentFileName = fileName.endsWith(".md") ? "sentry.md" : "sentry.txt"
+      const realFileEmbed = search.embedFileContent
+      vi.spyOn(search, "embedFileContent").mockImplementation(async (params, requestLogger) => {
+        await realFileEmbed(params, requestLogger)
+        if (params.filePath === fileName) finalFileEmbedFinished.resolve(undefined)
+        if (params.filePath === independentFileName) independentEmbedFinished.resolve(undefined)
+      })
+      await writeFile(filePath, "finalamber")
+      const finalChange = fire("change", fileName)
+      await finalSourceWritten.promise
+      // A different path completes while the replacement stays held, giving
+      // any incorrectly unqueued final job time to reach its model call.
+      await writeFile(join(testVault, independentFileName), "independentjade")
+      await fire("change", independentFileName)
+      if (!fileName.endsWith(".md")) await independentEmbedFinished.promise
+      expect(embedder.embedText).toHaveBeenCalledTimes(3)
+      releaseReplacement.resolve(vector)
+      await replacementChange
+      await finalEntered.promise
+      expect(
+        database
+          .prepare(`SELECT chunk_text FROM ${chunkTable} WHERE ${pathColumn} = ?`)
+          .all(fileName),
+      ).toEqual([])
+      releaseFinal.resolve(vector)
+      await finalChange
+      if (!fileName.endsWith(".md")) await finalFileEmbedFinished.promise
+      const storedChunks = database
+        .prepare(
+          `SELECT ${pathColumn} AS path, chunk_text FROM ${chunkTable} WHERE ${pathColumn} = ?`,
+        )
+        .all(fileName)
+      expect(storedChunks).toEqual([{ path: fileName, chunk_text: `${prefix}\n\nfinalamber` }])
+      expect(database.prepare(`SELECT COUNT(*) AS count FROM ${vectorTable}`).get()).toEqual({
+        count: 2,
+      })
+      expect(embedder.embedText).toHaveBeenCalledTimes(4)
+    },
+  )
+
+  it("recovers after a rejected job while another path embeds independently", async () => {
+    const failingEntered = Promise.withResolvers<undefined>()
+    const releaseFailure = Promise.withResolvers<Float32Array>()
+    const recoveredEntered = Promise.withResolvers<undefined>()
+    const releaseRecovered = Promise.withResolvers<Float32Array>()
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn(async (text: string) => {
+        if (text === "note\n\noldquartz") {
+          failingEntered.resolve(undefined)
+          return releaseFailure.promise
+        }
+        if (text === "note\n\nnewopal") {
+          recoveredEntered.resolve(undefined)
+          return releaseRecovered.promise
+        }
+        return vector
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, database, search, fire } = await createControlledWatcher(embedder)
+    const sourceWritten = Promise.withResolvers<undefined>()
+    const realUpsert = search.upsertNote
+    vi.spyOn(search, "upsertNote").mockImplementation((params, requestLogger) => {
+      const sourceVersion = realUpsert(params, requestLogger)
+
+      if (params.rawContent === "newopal") sourceWritten.resolve(undefined)
+      return sourceVersion
+    })
+    const errorSpy = vi.spyOn(logger, "error")
+    const debugSpy = vi.spyOn(logger, "debug")
+    onTestFinished(() => {
+      errorSpy.mockRestore()
+      debugSpy.mockRestore()
+    })
+    await writeFile(join(testVault, "note.md"), "oldquartz")
+    const failingChange = fire("change", "note.md")
+    await failingEntered.promise
+    await writeFile(join(testVault, "note.md"), "newopal")
+    const recoveredChange = fire("change", "note.md")
+    await sourceWritten.promise
+    await writeFile(join(testVault, "other.md"), "independentjade")
+    await fire("change", "other.md")
+    expect(database.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
+      { note_path: "other.md", chunk_text: "other\n\nindependentjade" },
+    ])
+    releaseFailure.reject(new Error("controlled model failure"))
+    await failingChange
+    await recoveredEntered.promise
+    expect(errorSpy).toHaveBeenCalledWith("failed to process file change", {
+      path: "note.md",
+      error: "[Error]: controlled model failure",
+    })
+    expect(debugSpy).toHaveBeenCalledWith("previous embed failed, proceeding with current", {
+      path: "note.md",
+      error: "[Error]: controlled model failure",
+    })
+    releaseRecovered.resolve(vector)
+    await recoveredChange
+    expect(
+      database.prepare("SELECT note_path, chunk_text FROM note_chunks ORDER BY note_path").all(),
+    ).toEqual([
+      { note_path: "note.md", chunk_text: "note\n\nnewopal" },
+      { note_path: "other.md", chunk_text: "other\n\nindependentjade" },
+    ])
+    expect(embedder.embedText).toHaveBeenCalledTimes(3)
   })
 })
 

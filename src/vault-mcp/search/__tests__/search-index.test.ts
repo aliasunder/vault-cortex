@@ -63,6 +63,84 @@ const countRow = (row: unknown): { count: number } => {
   throw new Error("expected a count row")
 }
 
+const seedEmbeddingSource = (
+  searchIndex: SearchIndex,
+  params: { notePath: string; rawContent: string },
+): symbol => {
+  return searchIndex.upsertNote(
+    {
+      filePath: params.notePath,
+      rawContent: params.rawContent,
+      fileStat: { mtimeMs: 1000, size: Buffer.byteLength(params.rawContent) },
+    },
+    logger,
+  )
+}
+
+const createEmbeddingRaceIndex = async (sourceKind: "note" | "file") => {
+  const dir = await mkdtemp(join(tmpdir(), "embedding-race-"))
+  onTestFinished(() => rm(dir, { recursive: true, force: true }))
+  const embedder = {
+    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+    }),
+  }
+  const dbPath = join(dir, "index.db")
+  const searchIndex = createSearchIndex(dbPath, embedder, undefined, { fileToolsEnabled: true })
+  const inspect = new Database(dbPath)
+  sqliteVec.load(inspect)
+  onTestFinished(() => {
+    inspect.close()
+  })
+  const path = sourceKind === "note" ? "reuse.md" : "reuse.txt"
+  const chunkTable = sourceKind === "note" ? "note_chunks" : "file_content_chunks"
+  const vectorTable = sourceKind === "note" ? "note_vectors" : "file_content_vectors"
+  const sourceTable = sourceKind === "note" ? "notes" : "file_content"
+  const upsert = (content: string): symbol => {
+    const params = { filePath: path, rawContent: content, fileStat: testStat(1000) }
+
+    return sourceKind === "note"
+      ? searchIndex.upsertNote(params, logger)
+      : searchIndex.upsertFileContent(params, logger)
+  }
+  const embed = (content: string, sourceVersion: symbol): Promise<void> => {
+    return sourceKind === "note"
+      ? searchIndex.embedNote({ notePath: path, rawContent: content, sourceVersion }, logger)
+      : searchIndex.embedFileContent({ filePath: path, sourceVersion }, logger)
+  }
+  const remove = (): void => {
+    if (sourceKind === "note") {
+      searchIndex.removeNote(path)
+      return
+    }
+    searchIndex.removeFileContent({ filePath: path }, logger)
+  }
+  const chunks = (): Array<{ chunk_index: number; chunk_text: string }> => {
+    return inspect
+      .prepare<[], { chunk_index: number; chunk_text: string }>(
+        `SELECT chunk_index, chunk_text FROM ${chunkTable} ORDER BY chunk_index`,
+      )
+      .all()
+  }
+  const vectorCount = (): number => {
+    return countRow(inspect.prepare(`SELECT COUNT(*) AS count FROM ${vectorTable}`).get()).count
+  }
+  return {
+    searchIndex,
+    embedder,
+    inspect,
+    dir,
+    path,
+    sourceTable,
+    upsert,
+    embed,
+    remove,
+    chunks,
+    vectorCount,
+  }
+}
+
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
 const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
   mtimeMs,
@@ -483,7 +561,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // reverse, so the asserted order can come only from the secondary sort
     // keys — whichever way a vec0 build returns tied distances.
     for (const notePath of ["mmm.md", "zzz.md", "aaa.md"]) {
-      tieIndex.upsertNote(
+      const sourceVersion = tieIndex.upsertNote(
         {
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
@@ -491,7 +569,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+      await tieIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath, rawContent: IDENTICAL_NOTE },
+        logger,
+      )
     }
 
     // "orca" shares no stems with the note content, so the FTS leg is empty
@@ -510,7 +591,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // keys — whichever way a vec0 build returns tied distances.
     for (const filePath of ["mmm.txt", "zzz.txt", "aaa.txt"]) {
       tieIndex.upsertNonMdFile(filePath, 100)
-      tieIndex.upsertFileContent(
+      const sourceVersion = tieIndex.upsertFileContent(
         {
           filePath,
           rawContent: identicalFileContent,
@@ -518,7 +599,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedFileContent({ filePath }, logger)
+      await tieIndex.embedFileContent({ sourceVersion: sourceVersion, filePath }, logger)
     }
 
     // "orca" shares no stems with the file content, so the FTS legs are
@@ -536,7 +617,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // post-SQL note filter under either KNN statement — this pins the
     // in-folder statement's ordering keys, not which statement ran.
     for (const notePath of ["docs/mmm.md", "docs/zzz.md", "other/out.md", "docs/aaa.md"]) {
-      tieIndex.upsertNote(
+      const sourceVersion = tieIndex.upsertNote(
         {
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
@@ -544,7 +625,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+      await tieIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath, rawContent: IDENTICAL_NOTE },
+        logger,
+      )
     }
 
     const { results } = await tieIndex.hybridSearch(
@@ -568,7 +652,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // in-folder statement ran.
     for (const filePath of ["docs/mmm.txt", "docs/zzz.txt", "other/out.txt", "docs/aaa.txt"]) {
       tieIndex.upsertNonMdFile(filePath, 100)
-      tieIndex.upsertFileContent(
+      const sourceVersion = tieIndex.upsertFileContent(
         {
           filePath,
           rawContent: identicalFileContent,
@@ -576,7 +660,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedFileContent({ filePath }, logger)
+      await tieIndex.embedFileContent({ sourceVersion: sourceVersion, filePath }, logger)
     }
 
     const { results } = await tieIndex.hybridSearch(
@@ -607,7 +691,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "ggg.md",
       "hhh.md",
     ]) {
-      tieIndex.upsertNote(
+      const sourceVersion = tieIndex.upsertNote(
         {
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
@@ -615,7 +699,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+      await tieIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath, rawContent: IDENTICAL_NOTE },
+        logger,
+      )
     }
 
     const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
@@ -639,7 +726,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "hhh.txt",
     ]) {
       tieIndex.upsertNonMdFile(filePath, 100)
-      tieIndex.upsertFileContent(
+      const sourceVersion = tieIndex.upsertFileContent(
         {
           filePath,
           rawContent: identicalFileContent,
@@ -647,7 +734,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedFileContent({ filePath }, logger)
+      await tieIndex.embedFileContent({ sourceVersion: sourceVersion, filePath }, logger)
     }
 
     const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
@@ -672,7 +759,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "docs/ggg.md",
       "docs/hhh.md",
     ]) {
-      tieIndex.upsertNote(
+      const sourceVersion = tieIndex.upsertNote(
         {
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
@@ -680,7 +767,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+      await tieIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath, rawContent: IDENTICAL_NOTE },
+        logger,
+      )
     }
 
     const { results } = await tieIndex.hybridSearch(
@@ -712,7 +802,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "docs/hhh.txt",
     ]) {
       tieIndex.upsertNonMdFile(filePath, 100)
-      tieIndex.upsertFileContent(
+      const sourceVersion = tieIndex.upsertFileContent(
         {
           filePath,
           rawContent: identicalFileContent,
@@ -720,7 +810,7 @@ describe("equal-score tie-breaking in retrieval legs", () => {
         },
         logger,
       )
-      await tieIndex.embedFileContent({ filePath }, logger)
+      await tieIndex.embedFileContent({ sourceVersion: sourceVersion, filePath }, logger)
     }
 
     const { results } = await tieIndex.hybridSearch(
@@ -5042,8 +5132,13 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
+      const sourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
 
@@ -5056,8 +5151,15 @@ It has multiple sentences to verify chunking works correctly.
         ranking: { enrichChunkMetadata: true },
       })
 
+      const sourceVersion = seedEmbeddingSource(enrichedIndex, {
+        notePath: "typed.md",
+        rawContent:
+          "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
+      })
+
       await enrichedIndex.embedNote(
         {
+          sourceVersion: sourceVersion,
           notePath: "typed.md",
           rawContent:
             "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
@@ -5077,8 +5179,14 @@ It has multiple sentences to verify chunking works correctly.
         ranking: { enrichChunkMetadata: true },
       })
 
+      const sourceVersion = seedEmbeddingSource(enrichedIndex, {
+        notePath: "bare.md",
+        rawContent: "---\ntitle: Bare Note\n---\n\nBody without metadata.\n",
+      })
+
       await enrichedIndex.embedNote(
         {
+          sourceVersion: sourceVersion,
           notePath: "bare.md",
           rawContent: "---\ntitle: Bare Note\n---\n\nBody without metadata.\n",
         },
@@ -5093,8 +5201,15 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const defaultIndex = createSearchIndex(":memory:", mockEmbedder)
 
+      const sourceVersion = seedEmbeddingSource(defaultIndex, {
+        notePath: "typed.md",
+        rawContent:
+          "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
+      })
+
       await defaultIndex.embedNote(
         {
+          sourceVersion: sourceVersion,
           notePath: "typed.md",
           rawContent:
             "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
@@ -5113,15 +5228,20 @@ It has multiple sentences to verify chunking works correctly.
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
       // First embed
+      const sourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       // Second embed with same content — should skip (hash match)
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
         logger,
       )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
@@ -5131,8 +5251,17 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
+      const originalSourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        {
+          sourceVersion: originalSourceVersion,
+          notePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+        },
         logger,
       )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
@@ -5141,7 +5270,15 @@ It has multiple sentences to verify chunking works correctly.
         "multiple sentences",
         "different content entirely",
       )
-      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: updatedNote }, logger)
+      const updatedSourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: updatedNote,
+      })
+
+      await embeddingIndex.embedNote(
+        { sourceVersion: updatedSourceVersion, notePath: "test.md", rawContent: updatedNote },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
 
@@ -5149,7 +5286,7 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      embeddingIndex.upsertNote(
+      const originalSourceVersion = embeddingIndex.upsertNote(
         {
           filePath: "test.md",
           rawContent: NOTE_FOR_EMBEDDING,
@@ -5158,7 +5295,11 @@ It has multiple sentences to verify chunking works correctly.
         logger,
       )
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        {
+          sourceVersion: originalSourceVersion,
+          notePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+        },
         logger,
       )
 
@@ -5167,7 +5308,7 @@ It has multiple sentences to verify chunking works correctly.
 
       // Re-embedding after removal should embed again (not skip via hash)
       mockEmbedder.embedText.mockClear()
-      embeddingIndex.upsertNote(
+      const updatedSourceVersion = embeddingIndex.upsertNote(
         {
           filePath: "test.md",
           rawContent: NOTE_FOR_EMBEDDING,
@@ -5176,7 +5317,11 @@ It has multiple sentences to verify chunking works correctly.
         logger,
       )
       await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        {
+          sourceVersion: updatedSourceVersion,
+          notePath: "test.md",
+          rawContent: NOTE_FOR_EMBEDDING,
+        },
         logger,
       )
       expect(mockEmbedder.embedText).toHaveBeenCalled()
@@ -5186,7 +5331,15 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      await embeddingIndex.embedNote({ notePath: "empty.md", rawContent: "" }, logger)
+      const sourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "empty.md",
+        rawContent: "",
+      })
+
+      await embeddingIndex.embedNote(
+        { sourceVersion: sourceVersion, notePath: "empty.md", rawContent: "" },
+        logger,
+      )
 
       // chunker returns at least one chunk (the title-only fallback), so
       // embedText is called even for empty content
@@ -5198,8 +5351,16 @@ It has multiple sentences to verify chunking works correctly.
       mockEmbedder.embedText.mockRejectedValueOnce(new Error("embedding failed"))
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
+      const sourceVersion = seedEmbeddingSource(embeddingIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await expect(
-        embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger),
+        embeddingIndex.embedNote(
+          { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
       ).rejects.toThrow("embedding failed")
     })
   })
@@ -5208,8 +5369,16 @@ It has multiple sentences to verify chunking works correctly.
     it("embedNote is a no-op when no embedder is provided", async () => {
       const noEmbedIndex = createSearchIndex(":memory:")
 
+      const sourceVersion = seedEmbeddingSource(noEmbedIndex, {
+        notePath: "test.md",
+        rawContent: NOTE_FOR_EMBEDDING,
+      })
+
       await expect(
-        noEmbedIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger),
+        noEmbedIndex.embedNote(
+          { sourceVersion: sourceVersion, notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+          logger,
+        ),
       ).resolves.toBeUndefined()
     })
 
@@ -6175,6 +6344,419 @@ describe("canvas file content and links", () => {
 
 // ── File content vector embeddings ────────────────────────────
 
+describe("committed embedding source versions", () => {
+  it.each(["note", "file"] as const)(
+    "rejects a %s model result after source deletion",
+    async (sourceKind) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const model = Promise.withResolvers<Float32Array>()
+      fixture.embedder.embedText.mockImplementationOnce(() => model.promise)
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {})
+      onTestFinished(() => debugSpy.mockRestore())
+      const sourceVersion = fixture.upsert("Old oldquartz")
+      const job = fixture.embed("Old oldquartz", sourceVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+
+      fixture.remove()
+      expect(fixture.inspect.prepare(`SELECT path FROM ${fixture.sourceTable}`).all()).toEqual([])
+      model.resolve(new Float32Array(384).fill(0.1))
+      await job
+
+      expect(fixture.chunks()).toEqual([])
+      expect(fixture.vectorCount()).toBe(0)
+      expect(debugSpy).toHaveBeenCalledWith("skipped obsolete embedding", { path: fixture.path })
+    },
+  )
+
+  it.each(["note", "file"] as const)(
+    "keeps a recreated %s free of stale chunks while its replacement model is held",
+    async (sourceKind) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const oldModel = Promise.withResolvers<Float32Array>()
+      const replacementModel = Promise.withResolvers<Float32Array>()
+      fixture.embedder.embedText.mockImplementationOnce(() => oldModel.promise)
+      fixture.embedder.embedText.mockImplementationOnce(() => replacementModel.promise)
+      const originalContent =
+        sourceKind === "note" ? "---\ntitle: Old\n---\nOld oldquartz" : "Old oldquartz"
+      const replacementContent =
+        sourceKind === "note" ? "---\ntitle: New\n---\nNew newcobalt" : "New newcobalt"
+      const replacementTitle = sourceKind === "note" ? "New" : "reuse"
+      const originalVersion = fixture.upsert(originalContent)
+      const oldJob = fixture.embed(originalContent, originalVersion)
+      fixture.remove()
+      const replacementVersion = fixture.upsert(replacementContent)
+      const replacementJob = fixture.embed(replacementContent, replacementVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(2)
+
+      oldModel.resolve(new Float32Array(384).fill(0.1))
+      await oldJob
+      expect(
+        fixture.inspect.prepare(`SELECT title, content FROM ${fixture.sourceTable}`).all(),
+      ).toEqual([{ title: replacementTitle, content: "New newcobalt" }])
+      expect(fixture.chunks()).toEqual([])
+      expect(fixture.vectorCount()).toBe(0)
+
+      replacementModel.resolve(new Float32Array(384).fill(0.1))
+      await replacementJob
+      expect(fixture.chunks()).toEqual([
+        { chunk_index: 0, chunk_text: `${replacementTitle}\n\nNew newcobalt` },
+      ])
+      expect(fixture.vectorCount()).toBe(1)
+      const { results } = await fixture.searchIndex.hybridSearch(
+        { query: "unmatchedsemanticquery" },
+        logger,
+      )
+      expect(
+        results.map((result) => ({
+          path: result.path,
+          title: result.title,
+          snippet: result.snippet,
+        })),
+      ).toEqual([
+        {
+          path: fixture.path,
+          title: replacementTitle,
+          snippet: `${replacementTitle} New newcobalt`,
+        },
+      ])
+    },
+  )
+
+  it.each(["note", "file"] as const)(
+    "does not let a stale short %s job prune a newer long source's tail",
+    async (sourceKind) => {
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const staleModel = Promise.withResolvers<Float32Array>()
+      const shortVersion = fixture.upsert("Short obsolete body.")
+      fixture.embedder.embedText.mockImplementationOnce(() => staleModel.promise)
+      const staleJob = fixture.embed("Short obsolete body.", shortVersion)
+      const longContent = Array.from({ length: 8 }, (_, paragraphIndex) => {
+        return `## Section ${String(paragraphIndex)}\n\n${"Current content about cobalt systems. ".repeat(25)}`
+      }).join("\n\n")
+      const currentVersion = fixture.upsert(longContent)
+      await fixture.embed(longContent, currentVersion)
+      const currentChunks = fixture.chunks()
+      expect(currentChunks.length).toBeGreaterThan(1)
+      expect(fixture.vectorCount()).toBe(currentChunks.length)
+
+      staleModel.resolve(new Float32Array(384).fill(0.1))
+      await staleJob
+      expect(fixture.chunks()).toEqual(currentChunks)
+      expect(fixture.vectorCount()).toBe(currentChunks.length)
+    },
+  )
+
+  it.each(["note", "file"] as const)(
+    "preserves a %s source version when its upsert transaction fails",
+    async (sourceKind) => {
+      const sqlFragment =
+        sourceKind === "note" ? "INSERT INTO tasks" : "INSERT INTO file_content_fts"
+      const poison = installStatementPoison(sqlFragment)
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const originalContent = "Original committed content."
+      const sourceVersion = fixture.upsert(originalContent)
+      poison.arm()
+      expect(() => fixture.upsert("Replacement body.\n\n- [ ] trigger task")).toThrow(
+        poison.message,
+      )
+      poison.disarm()
+
+      await fixture.embed(originalContent, sourceVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.chunks()).toEqual([
+        { chunk_index: 0, chunk_text: "reuse\n\nOriginal committed content." },
+      ])
+      expect(fixture.inspect.prepare(`SELECT content FROM ${fixture.sourceTable}`).all()).toEqual([
+        { content: originalContent },
+      ])
+    },
+  )
+
+  it.each(["note", "file"] as const)(
+    "preserves a %s source version when its removal transaction fails",
+    async (sourceKind) => {
+      const sqlFragment =
+        sourceKind === "note" ? "DELETE FROM tasks" : "DELETE FROM file_content WHERE"
+      const poison = installStatementPoison(sqlFragment)
+      const fixture = await createEmbeddingRaceIndex(sourceKind)
+      const content = "Original retained source."
+      const sourceVersion = fixture.upsert(content)
+      poison.arm()
+      expect(fixture.remove).toThrow(poison.message)
+      poison.disarm()
+
+      await fixture.embed(content, sourceVersion)
+      expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+      expect(fixture.chunks()).toEqual([
+        { chunk_index: 0, chunk_text: "reuse\n\nOriginal retained source." },
+      ])
+      expect(fixture.inspect.prepare(`SELECT content FROM ${fixture.sourceTable}`).all()).toEqual([
+        { content },
+      ])
+    },
+  )
+
+  it("preserves the committed note version when replacement frontmatter cannot parse", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const content = "Original retained source."
+    const sourceVersion = fixture.upsert(content)
+    expect(() => fixture.upsert("---\ntitle: [unclosed\n---\nReplacement.")).toThrow(
+      "Flow sequence in block collection must be sufficiently indented and end with a ]",
+    )
+
+    await fixture.embed(content, sourceVersion)
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(fixture.chunks()).toEqual([
+      { chunk_index: 0, chunk_text: "reuse\n\nOriginal retained source." },
+    ])
+    expect(fixture.inspect.prepare("SELECT content FROM notes").all()).toEqual([{ content }])
+  })
+
+  it("skips deleted and same-mtime superseded rebuild snapshots before later model work", async () => {
+    const fixture = await createEmbeddingRaceIndex("note")
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+    const vaultPath = join(fixture.dir, "vault")
+    await mkdir(vaultPath)
+    await writeFile(join(vaultPath, "a.md"), "Old blocking snapshot.")
+    await writeFile(join(vaultPath, "b.md"), "Old queued snapshot.")
+    await writeFile(join(vaultPath, "queued.txt"), "Old file snapshot.")
+    const model = Promise.withResolvers<Float32Array>()
+    fixture.embedder.embedText.mockImplementationOnce(() => model.promise)
+    const { embedding } = await fixture.searchIndex.rebuildFromVault({ vaultPath }, logger)
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
+    const secondMtime = fixture.inspect
+      .prepare<[], { mtime: number }>("SELECT mtime FROM notes WHERE path = 'b.md'")
+      .get()?.mtime
+    const fileMtime = fixture.inspect
+      .prepare<[], { mtime: number }>("SELECT mtime FROM file_content WHERE path = 'queued.txt'")
+      .get()?.mtime
+
+    if (secondMtime === undefined || fileMtime === undefined)
+      throw new Error("rebuild sources missing")
+    fixture.searchIndex.removeNote("a.md")
+    const noteVersion = fixture.searchIndex.upsertNote(
+      { filePath: "b.md", rawContent: "New current note.", fileStat: testStat(secondMtime) },
+      logger,
+    )
+    const fileVersion = fixture.searchIndex.upsertFileContent(
+      { filePath: "queued.txt", rawContent: "New current file.", fileStat: testStat(fileMtime) },
+      logger,
+    )
+    await fixture.searchIndex.embedNote(
+      { notePath: "b.md", rawContent: "New current note.", sourceVersion: noteVersion },
+      logger,
+    )
+    await fixture.searchIndex.embedFileContent(
+      { filePath: "queued.txt", sourceVersion: fileVersion },
+      logger,
+    )
+    model.resolve(new Float32Array(384).fill(0.1))
+    await embedding
+
+    expect(fixture.embedder.embedText).toHaveBeenCalledTimes(3)
+    expect(
+      fixture.inspect
+        .prepare("SELECT note_path, chunk_text FROM note_chunks ORDER BY note_path")
+        .all(),
+    ).toEqual([{ note_path: "b.md", chunk_text: "b\n\nNew current note." }])
+    expect(
+      fixture.inspect.prepare("SELECT file_path, chunk_text FROM file_content_chunks").all(),
+    ).toEqual([{ file_path: "queued.txt", chunk_text: "queued\n\nNew current file." }])
+    expect(fixture.vectorCount()).toBe(1)
+    expect(infoSpy).toHaveBeenCalledWith("embedding pass complete", { notes: 2, chunksEmbedded: 0 })
+    expect(infoSpy).toHaveBeenCalledWith("file content embedding pass complete", {
+      files: 1,
+      fileChunksEmbedded: 0,
+    })
+  })
+
+  it("rejects an outer rebuild rollback after a nested upsert without launching models and recovers", async () => {
+    const poison = installStatementPoison("DELETE FROM memory_entries WHERE file = ?")
+    const dir = await mkdtemp(join(tmpdir(), "embedding-rebuild-rollback-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const vaultPath = join(dir, "vault")
+    await mkdir(vaultPath)
+    await writeFile(join(vaultPath, "new.md"), "New successfully parsed source.")
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+      embedBatch: vi.fn().mockResolvedValue([]),
+    }
+    const index = createSearchIndex(join(dir, "index.db"), embedder, undefined, {
+      memoryDir: "About Me",
+    })
+    index.upsertNote(
+      {
+        filePath: "About Me/Old.md",
+        rawContent: "## Practices\n\n- **2026-07-01**: Old memory entry.",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const inspect = new Database(join(dir, "index.db"), { readonly: true })
+    sqliteVec.load(inspect)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {})
+    onTestFinished(() => debugSpy.mockRestore())
+    poison.arm()
+
+    await expect(index.rebuildFromVault({ vaultPath }, logger)).rejects.toThrow(poison.message)
+    expect(debugSpy).toHaveBeenCalledWith("indexed note", {
+      path: "new.md",
+      bytes: 31,
+      tasksIndexed: 0,
+    })
+    expect(inspect.prepare("SELECT path FROM notes").all()).toEqual([])
+    expect(inspect.prepare("SELECT entry_text FROM memory_entries").all()).toEqual([
+      { entry_text: "- **2026-07-01**: Old memory entry." },
+    ])
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    poison.disarm()
+    const recovered = await index.rebuildFromVault({ vaultPath }, logger)
+    await recovered.embedding
+    expect(recovered.count).toBe(1)
+    expect(embedder.embedText).toHaveBeenCalledTimes(1)
+    expect(inspect.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
+      { note_path: "new.md", chunk_text: "new\n\nNew successfully parsed source." },
+    ])
+    expect(inspect.prepare("SELECT entry_text FROM memory_entries").all()).toEqual([])
+  })
+
+  it("removes only parentless vectors on startup and restores nearest-neighbor capacity idempotently", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "embedding-orphan-sweep-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const vaultPath = join(dir, "vault")
+    await mkdir(join(vaultPath, "About Me"), { recursive: true })
+    await writeFile(join(vaultPath, "note.md"), "Current note body.")
+    await writeFile(join(vaultPath, "guide.txt"), "Current file body.")
+    await writeFile(
+      join(vaultPath, "About Me/Practices.md"),
+      "## Practices\n\n- **2026-07-01**: Keep current entries.",
+    )
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) =>
+          Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1))),
+        ),
+    }
+    const dbPath = join(dir, "index.db")
+    const index = createSearchIndex(dbPath, embedder, undefined, {
+      fileToolsEnabled: true,
+      memoryDir: "About Me",
+    })
+    const initial = await index.rebuildFromVault({ vaultPath }, logger)
+    await initial.embedding
+    const inspect = new Database(dbPath)
+    sqliteVec.load(inspect)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const queryVector = new Float32Array(384)
+    queryVector[0] = 1
+    const queryBytes = Buffer.from(queryVector.buffer)
+    const stores = [
+      {
+        vectorTable: "note_vectors",
+        parentTable: "note_chunks",
+        vectorKey: "chunk_id",
+        expectedParents: 2,
+      },
+      {
+        vectorTable: "file_content_vectors",
+        parentTable: "file_content_chunks",
+        vectorKey: "chunk_id",
+        expectedParents: 1,
+      },
+      {
+        vectorTable: "memory_entry_vectors",
+        parentTable: "memory_entries",
+        vectorKey: "entry_id",
+        expectedParents: 1,
+      },
+    ]
+    const retainedStores = stores.map((store) => {
+      const parents = inspect.prepare(`SELECT * FROM ${store.parentTable} ORDER BY id`).all()
+      expect(parents).toHaveLength(store.expectedParents)
+      const vectors = inspect
+        .prepare(
+          `SELECT ${store.vectorKey}, hex(embedding) AS embedding FROM ${store.vectorTable} ORDER BY ${store.vectorKey}`,
+        )
+        .all()
+      const nearestParents = inspect.prepare<[Buffer, number], { id: number }>(
+        `SELECT parent.id FROM ${store.vectorTable} vector JOIN ${store.parentTable} parent ON parent.id = vector.${store.vectorKey}
+         WHERE vector.embedding MATCH ? AND vector.k = ? ORDER BY vector.distance, parent.id`,
+      )
+      const expectedHits = nearestParents.all(queryBytes, 2)
+      expect(expectedHits).toHaveLength(store.expectedParents)
+      const insertOrphan = inspect.prepare(
+        `INSERT INTO ${store.vectorTable} (${store.vectorKey}, embedding) VALUES (?, ?)`,
+      )
+      insertOrphan.run(10000n, queryBytes)
+      insertOrphan.run(10001n, queryBytes)
+      // Both nearest slots are occupied by vectors whose join has no parent.
+      expect(nearestParents.all(queryBytes, 2)).toEqual([])
+      return { ...store, parents, vectors, nearestParents, expectedHits }
+    })
+    embedder.embedText.mockClear()
+    embedder.embedBatch.mockClear()
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    const rebuilt = await index.rebuildFromVault({ vaultPath }, logger)
+    await rebuilt.embedding
+    for (const store of retainedStores) {
+      expect(inspect.prepare(`SELECT * FROM ${store.parentTable} ORDER BY id`).all()).toEqual(
+        store.parents,
+      )
+      expect(
+        inspect
+          .prepare(
+            `SELECT ${store.vectorKey}, hex(embedding) AS embedding FROM ${store.vectorTable} ORDER BY ${store.vectorKey}`,
+          )
+          .all(),
+      ).toEqual(store.vectors)
+      expect(store.nearestParents.all(queryBytes, 2)).toEqual(store.expectedHits)
+    }
+    expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
+      count: 2,
+      totalBytes: 71,
+      orphanNoteVectorsRemoved: 2,
+      orphanFileVectorsRemoved: 2,
+      orphanMemoryVectorsRemoved: 2,
+    })
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+
+    infoSpy.mockClear()
+    const repeated = await index.rebuildFromVault({ vaultPath }, logger)
+    await repeated.embedding
+    expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
+      count: 2,
+      totalBytes: 71,
+      orphanNoteVectorsRemoved: 0,
+      orphanFileVectorsRemoved: 0,
+      orphanMemoryVectorsRemoved: 0,
+    })
+    for (const store of retainedStores) {
+      expect(
+        inspect
+          .prepare(
+            `SELECT ${store.vectorKey}, hex(embedding) AS embedding FROM ${store.vectorTable} ORDER BY ${store.vectorKey}`,
+          )
+          .all(),
+      ).toEqual(store.vectors)
+    }
+    expect(embedder.embedText).not.toHaveBeenCalled()
+    expect(embedder.embedBatch).not.toHaveBeenCalled()
+  })
+})
+
 describe("file content vector embeddings", () => {
   const DIMENSIONS = 384
   const createMockEmbedder = () => ({
@@ -6194,7 +6776,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const sourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -6202,7 +6784,10 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
 
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
@@ -6214,7 +6799,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const sourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -6222,10 +6807,16 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
 
@@ -6236,7 +6827,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const originalSourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -6244,10 +6835,13 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: originalSourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
-      index.upsertFileContent(
+      const updatedSourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: "Completely different content about networking protocols.",
@@ -6255,19 +6849,20 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: updatedSourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
 
-    it("is a no-op when file is not in file_content table", async () => {
-      const mockEmbedder = createMockEmbedder()
-      const index = createSearchIndex(":memory:", mockEmbedder, undefined, {
-        fileToolsEnabled: true,
-      })
-
-      await index.embedFileContent({ filePath: "nonexistent.txt" }, logger)
-
-      expect(mockEmbedder.embedText).not.toHaveBeenCalled()
+    it("is a no-op when the captured file source was removed", async () => {
+      const fixture = await createEmbeddingRaceIndex("file")
+      const sourceVersion = fixture.upsert(TEXT_FILE_CONTENT)
+      fixture.remove()
+      expect(fixture.inspect.prepare("SELECT path FROM file_content").all()).toEqual([])
+      await fixture.embed(TEXT_FILE_CONTENT, sourceVersion)
+      expect(fixture.embedder.embedText).not.toHaveBeenCalled()
     })
 
     it("is a no-op when no embedder is provided", async () => {
@@ -6276,7 +6871,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const sourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -6286,7 +6881,10 @@ describe("file content vector embeddings", () => {
       )
 
       await expect(
-        index.embedFileContent({ filePath: "docs/overview.txt" }, logger),
+        index.embedFileContent(
+          { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+          logger,
+        ),
       ).resolves.toBeUndefined()
     })
   })
@@ -6303,7 +6901,7 @@ describe("file content vector embeddings", () => {
       })
 
       index.upsertNonMdFile("docs/overview.txt", 100)
-      index.upsertFileContent(
+      const sourceVersion = index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
           rawContent: TEXT_FILE_CONTENT,
@@ -6311,7 +6909,10 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/overview.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: sourceVersion, filePath: "docs/overview.txt" },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       const inspectDb = new Database(dbPath, { readonly: true })
@@ -6364,7 +6965,7 @@ describe("file content vector embeddings", () => {
       }).join("\n\n")
 
       index.upsertNonMdFile("docs/long.txt", 2000)
-      index.upsertFileContent(
+      const originalSourceVersion = index.upsertFileContent(
         {
           filePath: "docs/long.txt",
           rawContent: longContent,
@@ -6372,7 +6973,10 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: originalSourceVersion, filePath: "docs/long.txt" },
+        logger,
+      )
 
       // Verify multiple chunks were created via a read-only inspection connection
       const inspectDb = new Database(dbPath, { readonly: true })
@@ -6389,7 +6993,7 @@ describe("file content vector embeddings", () => {
       expect(chunkCountBefore.count).toBeGreaterThan(1)
 
       // Replace with short content — produces exactly 1 chunk
-      index.upsertFileContent(
+      const updatedSourceVersion = index.upsertFileContent(
         {
           filePath: "docs/long.txt",
           rawContent: "Short content.",
@@ -6397,7 +7001,10 @@ describe("file content vector embeddings", () => {
         },
         logger,
       )
-      await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
+      await index.embedFileContent(
+        { sourceVersion: updatedSourceVersion, filePath: "docs/long.txt" },
+        logger,
+      )
 
       const chunkCountAfter = countRow(
         inspectDb
@@ -6541,7 +7148,7 @@ describe("TOC source-path forwarding at the embed call sites", () => {
     )
     const doneContent = Array.from({ length: 300 }, (_, wordIndex) => `done${wordIndex}`).join(" ")
     const noteContent = `## Active\n${activeContent}\n\n## Done\n${doneContent}`
-    forwardingIndex.upsertNote(
+    const originalSourceVersion = forwardingIndex.upsertNote(
       {
         filePath: "Folder Alpha/Sub/TASKS.md",
         rawContent: noteContent,
@@ -6550,7 +7157,11 @@ describe("TOC source-path forwarding at the embed call sites", () => {
       logger,
     )
     await forwardingIndex.embedNote(
-      { notePath: "Folder Alpha/Sub/TASKS.md", rawContent: noteContent },
+      {
+        sourceVersion: originalSourceVersion,
+        notePath: "Folder Alpha/Sub/TASKS.md",
+        rawContent: noteContent,
+      },
       logger,
     )
 
@@ -6562,7 +7173,7 @@ describe("TOC source-path forwarding at the embed call sites", () => {
       " ",
     )
     forwardingIndex.upsertNonMdFile("Folder Alpha/data.csv", 100)
-    forwardingIndex.upsertFileContent(
+    const updatedSourceVersion = forwardingIndex.upsertFileContent(
       {
         filePath: "Folder Alpha/data.csv",
         rawContent: `## Metrics\n${metricsContent}\n\n## Notes\n${notesContent}`,
@@ -6570,7 +7181,10 @@ describe("TOC source-path forwarding at the embed call sites", () => {
       },
       logger,
     )
-    await forwardingIndex.embedFileContent({ filePath: "Folder Alpha/data.csv" }, logger)
+    await forwardingIndex.embedFileContent(
+      { sourceVersion: updatedSourceVersion, filePath: "Folder Alpha/data.csv" },
+      logger,
+    )
 
     const inspect = new Database(dbPath, { readonly: true })
     onTestFinished(() => {

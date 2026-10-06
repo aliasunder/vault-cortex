@@ -162,18 +162,24 @@ the Lightsail budget estimates for next quarter.
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      hybridIndex.upsertNote(
+      const noteASourceVersion = hybridIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      hybridIndex.upsertNote(
+      const noteBSourceVersion = hybridIndex.upsertNote(
         { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(1000) },
         logger,
       )
 
       // Embed both notes (same embedding = both match any query equally)
-      await hybridIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await hybridIndex.embedNote({ notePath: "b.md", rawContent: NOTE_B }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteBSourceVersion, notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
 
       // Query that matches NOTE_A via FTS ("career goals") and both via vector
       const { results, search_mode } = await hybridIndex.hybridSearch(
@@ -192,17 +198,23 @@ the Lightsail budget estimates for next quarter.
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      hybridIndex.upsertNote(
+      const noteASourceVersion = hybridIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      hybridIndex.upsertNote(
+      const noteBSourceVersion = hybridIndex.upsertNote(
         { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(1000) },
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await hybridIndex.embedNote({ notePath: "b.md", rawContent: NOTE_B }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteBSourceVersion, notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
 
       // Query that matches b.md via FTS ("project ideas CLI") and both via vector
       const { results } = await hybridIndex.hybridSearch({ query: "project ideas CLI" }, logger)
@@ -244,17 +256,23 @@ the Lightsail budget estimates for next quarter.
 
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      hybridIndex.upsertNote(
+      const noteASourceVersion = hybridIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      hybridIndex.upsertNote(
+      const noteCSourceVersion = hybridIndex.upsertNote(
         { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await hybridIndex.embedNote({ notePath: "c.md", rawContent: NOTE_C }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteCSourceVersion, notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
 
       // Query that doesn't match any note via FTS — results are vector-only
       const { results } = await hybridIndex.hybridSearch({ query: "zzz_no_fts_match" }, logger)
@@ -289,7 +307,7 @@ tags: [test]
 Content about deployment costs and infrastructure.
 `
 
-      hybridIndex.upsertNote(
+      const insideNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "Work/inside.md",
           rawContent: noteInFolder,
@@ -297,7 +315,7 @@ Content about deployment costs and infrastructure.
         },
         logger,
       )
-      hybridIndex.upsertNote(
+      const outsideNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "Personal/outside.md",
           rawContent: noteOutsideFolder,
@@ -306,9 +324,20 @@ Content about deployment costs and infrastructure.
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "Work/inside.md", rawContent: noteInFolder }, logger)
       await hybridIndex.embedNote(
-        { notePath: "Personal/outside.md", rawContent: noteOutsideFolder },
+        {
+          sourceVersion: insideNoteSourceVersion,
+          notePath: "Work/inside.md",
+          rawContent: noteInFolder,
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        {
+          sourceVersion: outsideNoteSourceVersion,
+          notePath: "Personal/outside.md",
+          rawContent: noteOutsideFolder,
+        },
         logger,
       )
 
@@ -332,7 +361,7 @@ title: Inside Folder
 ---
 Content about deployment costs and infrastructure.
 `
-      hybridIndex.upsertNote(
+      const insideNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "Work/inside.md",
           rawContent: noteInFolder,
@@ -340,10 +369,17 @@ Content about deployment costs and infrastructure.
         },
         logger,
       )
-      await hybridIndex.embedNote({ notePath: "Work/inside.md", rawContent: noteInFolder }, logger)
+      await hybridIndex.embedNote(
+        {
+          sourceVersion: insideNoteSourceVersion,
+          notePath: "Work/inside.md",
+          rawContent: noteInFolder,
+        },
+        logger,
+      )
       // An equally close note outside the folder proves the filter is
       // applied at all, not merely that the inside note survives
-      hybridIndex.upsertNote(
+      const outsideNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "Personal/outside.md",
           rawContent: noteInFolder,
@@ -352,7 +388,11 @@ Content about deployment costs and infrastructure.
         logger,
       )
       await hybridIndex.embedNote(
-        { notePath: "Personal/outside.md", rawContent: noteInFolder },
+        {
+          sourceVersion: outsideNoteSourceVersion,
+          notePath: "Personal/outside.md",
+          rawContent: noteInFolder,
+        },
         logger,
       )
 
@@ -371,17 +411,23 @@ Content about deployment costs and infrastructure.
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      hybridIndex.upsertNote(
+      const noteASourceVersion = hybridIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      hybridIndex.upsertNote(
+      const noteCSourceVersion = hybridIndex.upsertNote(
         { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await hybridIndex.embedNote({ notePath: "c.md", rawContent: NOTE_C }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteCSourceVersion, notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
 
       const { results } = await hybridIndex.hybridSearch(
         { query: "deployment infrastructure", filters: { tags: ["work"] } },
@@ -398,17 +444,23 @@ Content about deployment costs and infrastructure.
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      hybridIndex.upsertNote(
+      const noteASourceVersion = hybridIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      hybridIndex.upsertNote(
+      const noteCSourceVersion = hybridIndex.upsertNote(
         { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await hybridIndex.embedNote({ notePath: "c.md", rawContent: NOTE_C }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteCSourceVersion, notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
 
       const { results } = await hybridIndex.hybridSearch(
         { query: "deployment timeline", filters: { type: "meeting" } },
@@ -432,7 +484,7 @@ created: ${createdDate}
 Content about quarterly planning and roadmaps.
 `
 
-      hybridIndex.upsertNote(
+      const onDayNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "on-day.md",
           rawContent: noteCreatedOn("2026-03-10"),
@@ -440,7 +492,7 @@ Content about quarterly planning and roadmaps.
         },
         logger,
       )
-      hybridIndex.upsertNote(
+      const otherDayNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "other-day.md",
           rawContent: noteCreatedOn("2026-03-11"),
@@ -450,11 +502,19 @@ Content about quarterly planning and roadmaps.
       )
 
       await hybridIndex.embedNote(
-        { notePath: "on-day.md", rawContent: noteCreatedOn("2026-03-10") },
+        {
+          sourceVersion: onDayNoteSourceVersion,
+          notePath: "on-day.md",
+          rawContent: noteCreatedOn("2026-03-10"),
+        },
         logger,
       )
       await hybridIndex.embedNote(
-        { notePath: "other-day.md", rawContent: noteCreatedOn("2026-03-11") },
+        {
+          sourceVersion: otherDayNoteSourceVersion,
+          notePath: "other-day.md",
+          rawContent: noteCreatedOn("2026-03-11"),
+        },
         logger,
       )
 
@@ -481,7 +541,7 @@ title: Timestamped
 Content about quarterly planning and roadmaps.
 `
 
-      hybridIndex.upsertNote(
+      const duringNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "during.md",
           rawContent: noteBody,
@@ -489,7 +549,7 @@ Content about quarterly planning and roadmaps.
         },
         logger,
       )
-      hybridIndex.upsertNote(
+      const dayAfterNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "day-after.md",
           rawContent: noteBody,
@@ -498,8 +558,18 @@ Content about quarterly planning and roadmaps.
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "during.md", rawContent: noteBody }, logger)
-      await hybridIndex.embedNote({ notePath: "day-after.md", rawContent: noteBody }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: duringNoteSourceVersion, notePath: "during.md", rawContent: noteBody },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        {
+          sourceVersion: dayAfterNoteSourceVersion,
+          notePath: "day-after.md",
+          rawContent: noteBody,
+        },
+        logger,
+      )
 
       const { results } = await hybridIndex.hybridSearch(
         {
@@ -532,22 +602,31 @@ Content about quarterly planning and roadmaps.
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      hybridIndex.upsertNote(
+      const noteASourceVersion = hybridIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      hybridIndex.upsertNote(
+      const noteBSourceVersion = hybridIndex.upsertNote(
         { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(1000) },
         logger,
       )
-      hybridIndex.upsertNote(
+      const noteCSourceVersion = hybridIndex.upsertNote(
         { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await hybridIndex.embedNote({ notePath: "b.md", rawContent: NOTE_B }, logger)
-      await hybridIndex.embedNote({ notePath: "c.md", rawContent: NOTE_C }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteBSourceVersion, notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteCSourceVersion, notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
 
       const { results } = await hybridIndex.hybridSearch({ query: "project", limit: 1 }, logger)
 
@@ -580,11 +659,14 @@ This section is about monitoring and observability patterns.
 We should track latency and error rates across all services.
 `
 
-      hybridIndex.upsertNote(
+      const longNoteSourceVersion = hybridIndex.upsertNote(
         { filePath: "long.md", rawContent: longNote, fileStat: testStat(1000) },
         logger,
       )
-      await hybridIndex.embedNote({ notePath: "long.md", rawContent: longNote }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: longNoteSourceVersion, notePath: "long.md", rawContent: longNote },
+        logger,
+      )
 
       const { results } = await hybridIndex.hybridSearch({ query: "deployment" }, logger)
 
@@ -609,7 +691,7 @@ tags: [reference]
 
 The main content discusses RESTful API design and GraphQL alternatives.
 `
-      hybridIndex.upsertNote(
+      const refNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "ref.md",
           rawContent: noteWithCallout,
@@ -617,7 +699,10 @@ The main content discusses RESTful API design and GraphQL alternatives.
         },
         logger,
       )
-      await hybridIndex.embedNote({ notePath: "ref.md", rawContent: noteWithCallout }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: refNoteSourceVersion, notePath: "ref.md", rawContent: noteWithCallout },
+        logger,
+      )
 
       const { results } = await hybridIndex.hybridSearch(
         { query: "API design patterns", include_leading_callout: true },
@@ -640,17 +725,23 @@ The main content discusses RESTful API design and GraphQL alternatives.
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      hybridIndex.upsertNote(
+      const noteASourceVersion = hybridIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      hybridIndex.upsertNote(
+      const noteCSourceVersion = hybridIndex.upsertNote(
         { filePath: "c.md", rawContent: NOTE_C, fileStat: testStat(1000) },
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await hybridIndex.embedNote({ notePath: "c.md", rawContent: NOTE_C }, logger)
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteCSourceVersion, notePath: "c.md", rawContent: NOTE_C },
+        logger,
+      )
 
       const { results } = await hybridIndex.hybridSearch(
         {
@@ -687,7 +778,7 @@ status: archived
 This project is no longer maintained but had deployment infrastructure.
 `
 
-      hybridIndex.upsertNote(
+      const activeNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "active.md",
           rawContent: noteWithProperty,
@@ -695,7 +786,7 @@ This project is no longer maintained but had deployment infrastructure.
         },
         logger,
       )
-      hybridIndex.upsertNote(
+      const archivedNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "archived.md",
           rawContent: noteWithoutProperty,
@@ -704,9 +795,20 @@ This project is no longer maintained but had deployment infrastructure.
         logger,
       )
 
-      await hybridIndex.embedNote({ notePath: "active.md", rawContent: noteWithProperty }, logger)
       await hybridIndex.embedNote(
-        { notePath: "archived.md", rawContent: noteWithoutProperty },
+        {
+          sourceVersion: activeNoteSourceVersion,
+          notePath: "active.md",
+          rawContent: noteWithProperty,
+        },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        {
+          sourceVersion: archivedNoteSourceVersion,
+          notePath: "archived.md",
+          rawContent: noteWithoutProperty,
+        },
         logger,
       )
 
@@ -738,7 +840,7 @@ tags: [test]
 This is a note with many words that should be truncated when using a small snippet token limit for vector-only results.
 `
 
-      hybridIndex.upsertNote(
+      const verboseNoteSourceVersion = hybridIndex.upsertNote(
         {
           filePath: "verbose.md",
           rawContent: verboseNote,
@@ -746,7 +848,14 @@ This is a note with many words that should be truncated when using a small snipp
         },
         logger,
       )
-      await hybridIndex.embedNote({ notePath: "verbose.md", rawContent: verboseNote }, logger)
+      await hybridIndex.embedNote(
+        {
+          sourceVersion: verboseNoteSourceVersion,
+          notePath: "verbose.md",
+          rawContent: verboseNote,
+        },
+        logger,
+      )
 
       // Query that won't match via FTS — forces vector-only result path
       const { results } = await hybridIndex.hybridSearch(
@@ -772,16 +881,22 @@ This is a note with many words that should be truncated when using a small snipp
       const mockEmbedder = createHybridMockEmbedder()
       const mockReranker = createMockReranker([0.9, 0.1])
       const rerankedIndex = createSearchIndex(":memory:", mockEmbedder, mockReranker)
-      rerankedIndex.upsertNote(
+      const noteASourceVersion = rerankedIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      rerankedIndex.upsertNote(
+      const noteBSourceVersion = rerankedIndex.upsertNote(
         { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(2000) },
         logger,
       )
-      await rerankedIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await rerankedIndex.embedNote({ notePath: "b.md", rawContent: NOTE_B }, logger)
+      await rerankedIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await rerankedIndex.embedNote(
+        { sourceVersion: noteBSourceVersion, notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
 
       const { reranked } = await rerankedIndex.hybridSearch({ query: "career goals" }, logger)
       expect(reranked).toBe(true)
@@ -802,11 +917,14 @@ This is a note with many words that should be truncated when using a small snipp
     it("sets reranked to false when embedder exists but no reranker", async () => {
       const mockEmbedder = createHybridMockEmbedder()
       const noRerankerIndex = createSearchIndex(":memory:", mockEmbedder)
-      noRerankerIndex.upsertNote(
+      const noteASourceVersion = noRerankerIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      await noRerankerIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
+      await noRerankerIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
 
       const { reranked } = await noRerankerIndex.hybridSearch({ query: "career goals" }, logger)
       expect(reranked).toBe(false)
@@ -818,16 +936,22 @@ This is a note with many words that should be truncated when using a small snipp
         rerankPairs: vi.fn().mockRejectedValue(new Error("model failed to load")),
       }
       const failIndex = createSearchIndex(":memory:", mockEmbedder, failingReranker)
-      failIndex.upsertNote(
+      const noteASourceVersion = failIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      failIndex.upsertNote(
+      const noteBSourceVersion = failIndex.upsertNote(
         { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(2000) },
         logger,
       )
-      await failIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await failIndex.embedNote({ notePath: "b.md", rawContent: NOTE_B }, logger)
+      await failIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await failIndex.embedNote(
+        { sourceVersion: noteBSourceVersion, notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
 
       const warnSpy = vi.spyOn(logger, "warn")
       const { results, reranked } = await failIndex.hybridSearch({ query: "career goals" }, logger)
@@ -845,16 +969,22 @@ This is a note with many words that should be truncated when using a small snipp
       const mockEmbedder = createHybridMockEmbedder()
       const mockReranker = createMockReranker([0.9, 0.1])
       const rerankIndex = createSearchIndex(":memory:", mockEmbedder, mockReranker)
-      rerankIndex.upsertNote(
+      const noteASourceVersion = rerankIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      rerankIndex.upsertNote(
+      const noteBSourceVersion = rerankIndex.upsertNote(
         { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(2000) },
         logger,
       )
-      await rerankIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await rerankIndex.embedNote({ notePath: "b.md", rawContent: NOTE_B }, logger)
+      await rerankIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await rerankIndex.embedNote(
+        { sourceVersion: noteBSourceVersion, notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
 
       await rerankIndex.hybridSearch({ query: "career goals" }, logger)
 
@@ -873,29 +1003,41 @@ This is a note with many words that should be truncated when using a small snipp
       // Reranker strongly favors b.md (index 1) over a.md (index 0)
       const mockReranker = createMockReranker([0.1, 0.9])
       const rerankIndex = createSearchIndex(":memory:", mockEmbedder, mockReranker)
-      rerankIndex.upsertNote(
+      const noteASourceVersion = rerankIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      rerankIndex.upsertNote(
+      const noteBSourceVersion = rerankIndex.upsertNote(
         { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(2000) },
         logger,
       )
-      await rerankIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await rerankIndex.embedNote({ notePath: "b.md", rawContent: NOTE_B }, logger)
+      await rerankIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await rerankIndex.embedNote(
+        { sourceVersion: noteBSourceVersion, notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
 
       // Get RRF-only scores (no reranker)
       const rrfOnlyIndex = createSearchIndex(":memory:", mockEmbedder)
-      rrfOnlyIndex.upsertNote(
+      const rrfOnlyNoteASourceVersion = rrfOnlyIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      rrfOnlyIndex.upsertNote(
+      const rrfOnlyNoteBSourceVersion = rrfOnlyIndex.upsertNote(
         { filePath: "b.md", rawContent: NOTE_B, fileStat: testStat(2000) },
         logger,
       )
-      await rrfOnlyIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
-      await rrfOnlyIndex.embedNote({ notePath: "b.md", rawContent: NOTE_B }, logger)
+      await rrfOnlyIndex.embedNote(
+        { sourceVersion: rrfOnlyNoteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await rrfOnlyIndex.embedNote(
+        { sourceVersion: rrfOnlyNoteBSourceVersion, notePath: "b.md", rawContent: NOTE_B },
+        logger,
+      )
 
       const { results: rrfResults } = await rrfOnlyIndex.hybridSearch(
         { query: "career goals" },
@@ -921,11 +1063,14 @@ This is a note with many words that should be truncated when using a small snipp
       const singleResultIndex = createSearchIndex(":memory:", mockEmbedder, mockReranker)
 
       // Only index one note so only one result can appear
-      singleResultIndex.upsertNote(
+      const noteASourceVersion = singleResultIndex.upsertNote(
         { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
         logger,
       )
-      await singleResultIndex.embedNote({ notePath: "a.md", rawContent: NOTE_A }, logger)
+      await singleResultIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
 
       const { reranked, results } = await singleResultIndex.hybridSearch(
         { query: "career goals" },
@@ -961,7 +1106,7 @@ describe("hybridSearch — file content vector search", () => {
     })
 
     // Seed a note (FTS + vector) and a text file (FTS + vector)
-    fileIndex.upsertNote(
+    const careerNoteSourceVersion = fileIndex.upsertNote(
       {
         filePath: "notes/career.md",
         rawContent: "---\ntitle: Career\ntags: [personal]\n---\n\nCareer goals and aspirations.\n",
@@ -971,6 +1116,7 @@ describe("hybridSearch — file content vector search", () => {
     )
     await fileIndex.embedNote(
       {
+        sourceVersion: careerNoteSourceVersion,
         notePath: "notes/career.md",
         rawContent: "---\ntitle: Career\ntags: [personal]\n---\n\nCareer goals and aspirations.\n",
       },
@@ -978,7 +1124,7 @@ describe("hybridSearch — file content vector search", () => {
     )
 
     fileIndex.upsertNonMdFile("docs/guide.txt", 200)
-    fileIndex.upsertFileContent(
+    const guideFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "docs/guide.txt",
         rawContent: "Comprehensive deployment guide covering infrastructure and monitoring setup.",
@@ -986,7 +1132,10 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "docs/guide.txt" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: guideFileSourceVersion, filePath: "docs/guide.txt" },
+      logger,
+    )
 
     // Query that matches the text file via FTS ("deployment guide") and both
     // items via vector (all embeddings are identical)
@@ -1010,7 +1159,7 @@ describe("hybridSearch — file content vector search", () => {
 
     // Seed ONLY a text file with no lexical overlap with the query
     fileIndex.upsertNonMdFile("specs/api-spec.yaml", 300)
-    fileIndex.upsertFileContent(
+    const apiSpecFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "specs/api-spec.yaml",
         rawContent:
@@ -1019,7 +1168,10 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "specs/api-spec.yaml" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: apiSpecFileSourceVersion, filePath: "specs/api-spec.yaml" },
+      logger,
+    )
 
     // Query shares no stems with the file content — FTS returns nothing,
     // but the mock embedder returns identical embeddings so KNN matches
@@ -1043,7 +1195,7 @@ describe("hybridSearch — file content vector search", () => {
       fileToolsEnabled: true,
     })
 
-    fileIndex.upsertNote(
+    const careerNoteSourceVersion = fileIndex.upsertNote(
       {
         filePath: "notes/career.md",
         rawContent: "---\ntitle: Career\n---\n\nCareer goals and aspirations.\n",
@@ -1053,13 +1205,14 @@ describe("hybridSearch — file content vector search", () => {
     )
     await fileIndex.embedNote(
       {
+        sourceVersion: careerNoteSourceVersion,
         notePath: "notes/career.md",
         rawContent: "---\ntitle: Career\n---\n\nCareer goals and aspirations.\n",
       },
       logger,
     )
     fileIndex.upsertNonMdFile("docs/guide.txt", 200)
-    fileIndex.upsertFileContent(
+    const guideFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "docs/guide.txt",
         rawContent: "Deployment guide covering infrastructure setup.",
@@ -1067,7 +1220,10 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "docs/guide.txt" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: guideFileSourceVersion, filePath: "docs/guide.txt" },
+      logger,
+    )
 
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
@@ -1089,7 +1245,7 @@ describe("hybridSearch — file content vector search", () => {
     const mockEmbedder = createHybridMockEmbedder()
     const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
 
-    hybridIndex.upsertNote(
+    const careerNoteSourceVersion = hybridIndex.upsertNote(
       {
         filePath: "notes/career.md",
         rawContent: "---\ntitle: Career\n---\n\nCareer goals and aspirations.\n",
@@ -1099,6 +1255,7 @@ describe("hybridSearch — file content vector search", () => {
     )
     await hybridIndex.embedNote(
       {
+        sourceVersion: careerNoteSourceVersion,
         notePath: "notes/career.md",
         rawContent: "---\ntitle: Career\n---\n\nCareer goals and aspirations.\n",
       },
@@ -1131,7 +1288,7 @@ describe("hybridSearch — file content vector search", () => {
     })
 
     fileIndex.upsertNonMdFile("Docs/inside.txt", 100)
-    fileIndex.upsertFileContent(
+    const insideFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "Docs/inside.txt",
         rawContent: "Weekly operations checklist for the deployment crew.",
@@ -1139,12 +1296,15 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: insideFileSourceVersion, filePath: "Docs/inside.txt" },
+      logger,
+    )
 
     // "Docs2" starts with "Docs" as a bare string — only a segment-boundary
     // check (folder + "/") keeps it out of a "Docs" filter
     fileIndex.upsertNonMdFile("Docs2/outside.txt", 100)
-    fileIndex.upsertFileContent(
+    const outsideFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "Docs2/outside.txt",
         rawContent: "Weekly operations checklist for the deployment crew.",
@@ -1152,7 +1312,10 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "Docs2/outside.txt" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: outsideFileSourceVersion, filePath: "Docs2/outside.txt" },
+      logger,
+    )
 
     // No lexical overlap with the seeded content — both files can only
     // surface through the vector leg (identical mock embeddings), so the
@@ -1172,7 +1335,7 @@ describe("hybridSearch — file content vector search", () => {
     })
 
     fileIndex.upsertNonMdFile("Docs/inside.txt", 100)
-    fileIndex.upsertFileContent(
+    const insideFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "Docs/inside.txt",
         rawContent: "Weekly operations checklist for the deployment crew.",
@@ -1180,12 +1343,15 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: insideFileSourceVersion, filePath: "Docs/inside.txt" },
+      logger,
+    )
 
     // An equally close file outside the folder proves the filter is applied
     // at all — without it, "folder ignored" and "folder matched" look alike
     fileIndex.upsertNonMdFile("Archive/outside.txt", 100)
-    fileIndex.upsertFileContent(
+    const outsideFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "Archive/outside.txt",
         rawContent: "Weekly operations checklist for the deployment crew.",
@@ -1193,7 +1359,10 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "Archive/outside.txt" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: outsideFileSourceVersion, filePath: "Archive/outside.txt" },
+      logger,
+    )
 
     // Vector-only hit (no lexical overlap) + a folder filter that differs
     // only by case — must pass, as it would on the SQL LIKE leg
@@ -1211,7 +1380,7 @@ describe("hybridSearch — file content vector search", () => {
       fileToolsEnabled: true,
     })
 
-    fileIndex.upsertNote(
+    const taggedNoteSourceVersion = fileIndex.upsertNote(
       {
         filePath: "notes/tagged.md",
         rawContent: "---\ntitle: Tagged\ntags: [important]\n---\n\nTagged content here.\n",
@@ -1221,6 +1390,7 @@ describe("hybridSearch — file content vector search", () => {
     )
     await fileIndex.embedNote(
       {
+        sourceVersion: taggedNoteSourceVersion,
         notePath: "notes/tagged.md",
         rawContent: "---\ntitle: Tagged\ntags: [important]\n---\n\nTagged content here.\n",
       },
@@ -1228,7 +1398,7 @@ describe("hybridSearch — file content vector search", () => {
     )
 
     fileIndex.upsertNonMdFile("data/report.csv", 100)
-    fileIndex.upsertFileContent(
+    const reportFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "data/report.csv",
         rawContent: "tagged content in a file",
@@ -1236,7 +1406,10 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "data/report.csv" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: reportFileSourceVersion, filePath: "data/report.csv" },
+      logger,
+    )
 
     // Tag filter is note-specific — file content (FTS and vector) should be excluded
     const { results } = await fileIndex.hybridSearch(
@@ -1255,7 +1428,7 @@ describe("hybridSearch — file content vector search", () => {
       fileToolsEnabled: true,
     })
 
-    fileIndex.upsertNote(
+    const taggedNoteSourceVersion = fileIndex.upsertNote(
       {
         filePath: "notes/tagged.md",
         rawContent: "---\ntitle: Tagged\ntags: [important]\n---\n\nTagged content here.\n",
@@ -1265,6 +1438,7 @@ describe("hybridSearch — file content vector search", () => {
     )
     await fileIndex.embedNote(
       {
+        sourceVersion: taggedNoteSourceVersion,
         notePath: "notes/tagged.md",
         rawContent: "---\ntitle: Tagged\ntags: [important]\n---\n\nTagged content here.\n",
       },
@@ -1272,7 +1446,7 @@ describe("hybridSearch — file content vector search", () => {
     )
 
     fileIndex.upsertNonMdFile("data/report.csv", 100)
-    fileIndex.upsertFileContent(
+    const reportFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "data/report.csv",
         rawContent: "tagged content in a file",
@@ -1280,7 +1454,10 @@ describe("hybridSearch — file content vector search", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "data/report.csv" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: reportFileSourceVersion, filePath: "data/report.csv" },
+      logger,
+    )
 
     // Empty collections constrain nothing in the note leg, so the file
     // must stay in the merged results exactly as with no filters at all.
@@ -1410,11 +1587,14 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
     for (const noteNumber of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       const notePath = `Archive/outside-${noteNumber}.md`
       const rawContent = `# Outside ${noteNumber}\n\nUnrelated archive material.\n`
-      hybridIndex.upsertNote({ filePath: notePath, rawContent, fileStat: testStat(1000) }, logger)
-      await hybridIndex.embedNote({ notePath, rawContent }, logger)
+      const sourceVersion = hybridIndex.upsertNote(
+        { filePath: notePath, rawContent, fileStat: testStat(1000) },
+        logger,
+      )
+      await hybridIndex.embedNote({ sourceVersion, notePath, rawContent }, logger)
     }
     const insideContent = "# Inside\n\nThe one note that lives inside Work.\n"
-    hybridIndex.upsertNote(
+    const insideNoteSourceVersion = hybridIndex.upsertNote(
       {
         filePath: "Work/inside.md",
         rawContent: insideContent,
@@ -1422,7 +1602,14 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
       },
       logger,
     )
-    await hybridIndex.embedNote({ notePath: "Work/inside.md", rawContent: insideContent }, logger)
+    await hybridIndex.embedNote(
+      {
+        sourceVersion: insideNoteSourceVersion,
+        notePath: "Work/inside.md",
+        rawContent: insideContent,
+      },
+      logger,
+    )
 
     // No lexical overlap with anything seeded — vector legs only
     const { results, search_mode } = await hybridIndex.hybridSearch(
@@ -1443,7 +1630,7 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
     for (const fileNumber of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       const filePath = `Archive/outside-${fileNumber}.txt`
       fileIndex.upsertNonMdFile(filePath, 100)
-      fileIndex.upsertFileContent(
+      const sourceVersion = fileIndex.upsertFileContent(
         {
           filePath,
           rawContent: "Unrelated archive material.",
@@ -1451,10 +1638,10 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
         },
         logger,
       )
-      await fileIndex.embedFileContent({ filePath }, logger)
+      await fileIndex.embedFileContent({ sourceVersion, filePath }, logger)
     }
     fileIndex.upsertNonMdFile("Docs/inside.txt", 100)
-    fileIndex.upsertFileContent(
+    const insideFileSourceVersion = fileIndex.upsertFileContent(
       {
         filePath: "Docs/inside.txt",
         rawContent: "The one file that lives inside Docs.",
@@ -1462,7 +1649,10 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
       },
       logger,
     )
-    await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
+    await fileIndex.embedFileContent(
+      { sourceVersion: insideFileSourceVersion, filePath: "Docs/inside.txt" },
+      logger,
+    )
 
     const { results, search_mode } = await fileIndex.hybridSearch(
       { query: "zzqq", filters: { folder: "Docs" }, limit: 1 },
@@ -1496,7 +1686,7 @@ describe("hybridSearch — ranking tuning", () => {
    *  shape, where the file earns two leg ranks and the note only its
    *  vector leg. */
   const seedNoteAndFile = async (index: ReturnType<typeof createSearchIndex>): Promise<void> => {
-    index.upsertNote(
+    const careerNoteSourceVersion = index.upsertNote(
       {
         filePath: "notes/career.md",
         rawContent: NOTE_CONTENT,
@@ -1504,9 +1694,16 @@ describe("hybridSearch — ranking tuning", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "notes/career.md", rawContent: NOTE_CONTENT }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: careerNoteSourceVersion,
+        notePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+      },
+      logger,
+    )
     index.upsertNonMdFile("docs/guide.txt", 200)
-    index.upsertFileContent(
+    const guideFileSourceVersion = index.upsertFileContent(
       {
         filePath: "docs/guide.txt",
         rawContent: FILE_CONTENT,
@@ -1514,7 +1711,10 @@ describe("hybridSearch — ranking tuning", () => {
       },
       logger,
     )
-    await index.embedFileContent({ filePath: "docs/guide.txt" }, logger)
+    await index.embedFileContent(
+      { sourceVersion: guideFileSourceVersion, filePath: "docs/guide.txt" },
+      logger,
+    )
   }
 
   it("file-leg weight demotes a two-leg file hit below a note-vector hit", async () => {
@@ -1693,7 +1893,7 @@ describe("hybridSearch — ranking tuning", () => {
       ranking: { rerankKindPrefix: true },
     })
     // Seed a note so the reranker fires (needs >= 2 candidates)
-    index.upsertNote(
+    const careerNoteSourceVersion = index.upsertNote(
       {
         filePath: "notes/career.md",
         rawContent: NOTE_CONTENT,
@@ -1701,9 +1901,16 @@ describe("hybridSearch — ranking tuning", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "notes/career.md", rawContent: NOTE_CONTENT }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: careerNoteSourceVersion,
+        notePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+      },
+      logger,
+    )
     index.upsertNonMdFile("docs/report.pdf", 100)
-    index.upsertFileContent(
+    const reportFileSourceVersion = index.upsertFileContent(
       {
         filePath: "docs/report.pdf",
         rawContent: pdfContent,
@@ -1711,7 +1918,10 @@ describe("hybridSearch — ranking tuning", () => {
       },
       logger,
     )
-    await index.embedFileContent({ filePath: "docs/report.pdf" }, logger)
+    await index.embedFileContent(
+      { sourceVersion: reportFileSourceVersion, filePath: "docs/report.pdf" },
+      logger,
+    )
 
     await index.hybridSearch({ query: "quarterly earnings" }, logger)
 
@@ -1747,7 +1957,7 @@ describe("hybridSearch — ranking tuning", () => {
       ranking: { rerankKindPrefix: true },
     })
     // Seed a note so the reranker fires (needs >= 2 candidates)
-    index.upsertNote(
+    const careerNoteSourceVersion = index.upsertNote(
       {
         filePath: "notes/career.md",
         rawContent: NOTE_CONTENT,
@@ -1755,9 +1965,16 @@ describe("hybridSearch — ranking tuning", () => {
       },
       logger,
     )
-    await index.embedNote({ notePath: "notes/career.md", rawContent: NOTE_CONTENT }, logger)
+    await index.embedNote(
+      {
+        sourceVersion: careerNoteSourceVersion,
+        notePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+      },
+      logger,
+    )
     index.upsertNonMdFile("Diagrams/infra.canvas", 300)
-    index.upsertFileContent(
+    const infraFileSourceVersion = index.upsertFileContent(
       {
         filePath: "Diagrams/infra.canvas",
         rawContent: canvasJson,
@@ -1765,7 +1982,10 @@ describe("hybridSearch — ranking tuning", () => {
       },
       logger,
     )
-    await index.embedFileContent({ filePath: "Diagrams/infra.canvas" }, logger)
+    await index.embedFileContent(
+      { sourceVersion: infraFileSourceVersion, filePath: "Diagrams/infra.canvas" },
+      logger,
+    )
 
     await index.hybridSearch({ query: "infrastructure deployment topology" }, logger)
 

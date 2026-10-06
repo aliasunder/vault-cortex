@@ -750,6 +750,20 @@ export const createSearchIndex = (
       >("SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?")
     : null
 
+  /** Symbols distinguish source lifecycles even when content and mtime repeat. */
+  const sourceVersions = new Map<string, symbol>()
+  const isCurrentSourceVersion = (
+    params: { sourcePath: string; sourceVersion: symbol },
+    logger: Logger,
+  ): boolean => {
+    const { sourcePath, sourceVersion } = params
+    const currentVersion = sourceVersions.get(sourcePath)
+
+    if (currentVersion !== undefined && currentVersion === sourceVersion) return true
+    logger.debug("skipped obsolete embedding", { path: sourcePath })
+    return false
+  }
+
   // ── Vector prepared statements (conditional on embedder) ──────
   const upsertChunkStmt = embedder
     ? db.prepare(
@@ -839,16 +853,6 @@ export const createSearchIndex = (
       )
     : null
 
-  // ── Rebuild staleness checks ─────────────────────────────────────
-  // Used by rebuildFromVault's embedding pass to skip notes/files the file
-  // watcher already re-indexed while the pass was running.
-  const selectNoteMtimeStmt = db.prepare<[string], { mtime: number }>(
-    "SELECT mtime FROM notes WHERE path = ?",
-  )
-  const selectFileMtimeStmt = fileToolsEnabled
-    ? db.prepare<[string], { mtime: number }>("SELECT mtime FROM file_content WHERE path = ?")
-    : null
-
   // ── Memory-entry prepared statements (conditional on memoryDir) ──
   const insertMemoryEntryStmt = memoryDir
     ? db.prepare(
@@ -908,6 +912,21 @@ export const createSearchIndex = (
           `DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`,
         )
       : null
+  const deleteOrphanNoteVectorsStmt = embedder
+    ? db.prepare("DELETE FROM note_vectors WHERE chunk_id NOT IN (SELECT id FROM note_chunks)")
+    : null
+  const deleteOrphanFileVectorsStmt = fileContentVectorEnabled
+    ? db.prepare(
+        "DELETE FROM file_content_vectors WHERE chunk_id NOT IN (SELECT id FROM file_content_chunks)",
+      )
+    : null
+  const deleteOrphanMemoryVectorsStmt =
+    memoryDir && embedder
+      ? db.prepare(
+          "DELETE FROM memory_entry_vectors WHERE entry_id NOT IN (SELECT id FROM memory_entries)",
+        )
+      : null
+
   // Query side — memoryRecall's two retrieval legs, each returning whole
   // rows (the tie-break JOIN already reads memory_entries, so a separate
   // per-row hydration lookup would re-read the same data).
@@ -1154,7 +1173,7 @@ export const createSearchIndex = (
       fileStat: { mtimeMs: number; size: number }
     },
     logger: Logger,
-  ): void => {
+  ): symbol => {
     const extension = posix.extname(params.filePath)
     const isCanvas = extension === ".canvas"
 
@@ -1207,11 +1226,15 @@ export const createSearchIndex = (
       }
     })()
 
+    const sourceVersion = Symbol()
+    sourceVersions.set(params.filePath, sourceVersion)
+
     logger.debug("indexed file content", {
       path: params.filePath,
       links: canvasLinks.length,
       fts: Boolean(upsertFileContentStmt),
     })
+    return sourceVersion
   }
 
   /** Removes a file's content from FTS and its links from the graph. */
@@ -1227,6 +1250,7 @@ export const createSearchIndex = (
       }
       deleteLinksStmt.run(params.filePath)
     })()
+    sourceVersions.delete(params.filePath)
     logger.debug("removed file content", { path: params.filePath })
   }
 
@@ -1358,7 +1382,7 @@ export const createSearchIndex = (
       skipLinks?: boolean
     },
     logger: Logger,
-  ): void => {
+  ): symbol => {
     const { filePath, rawContent, fileStat } = params
     const skipLinks = params.skipLinks ?? false
     const parsed = parseNote(rawContent)
@@ -1524,13 +1548,16 @@ export const createSearchIndex = (
       }
     })()
 
-    // Emitted after the transaction commits so a rolled-back write can't
-    // leave a success line behind.
+    const sourceVersion = Symbol()
+    sourceVersions.set(filePath, sourceVersion)
+
+    /** A failed upsert never publishes a version or a success log. */
     logger.debug("indexed note", {
       path: note.path,
       bytes: note.bytes,
       tasksIndexed: extractedTasks.length,
     })
+    return sourceVersion
   }
 
   // ── Embedding pipeline ─────────────────────────────────────────
@@ -1539,7 +1566,7 @@ export const createSearchIndex = (
    *  gating skips chunks whose text hasn't changed since the last embedding.
    *  Returns the number of chunks that were actually embedded (0 = all cached). */
   const embedAndStoreChunks = async (
-    params: { notePath: string; rawContent: string },
+    params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<number> => {
     const { notePath, rawContent } = params
@@ -1555,6 +1582,11 @@ export const createSearchIndex = (
     ) {
       return 0
     }
+
+    if (
+      !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
+    )
+      return 0
 
     const parsed = parseNote(rawContent)
     const noteTitle =
@@ -1584,12 +1616,28 @@ export const createSearchIndex = (
     let embeddedCount = 0
 
     for (const chunk of chunks) {
+      if (
+        !isCurrentSourceVersion(
+          { sourcePath: notePath, sourceVersion: params.sourceVersion },
+          logger,
+        )
+      )
+        return embeddedCount
+
       const hash = contentHash(chunk.text)
 
       // Skip if content hasn't changed
       if (existingHashes.get(chunk.index) === hash) continue
 
       const embedding = await embedder.embedText(chunk.text)
+
+      if (
+        !isCurrentSourceVersion(
+          { sourcePath: notePath, sourceVersion: params.sourceVersion },
+          logger,
+        )
+      )
+        return embeddedCount
 
       // Wrap the DB writes in a transaction so the content hash is never
       // saved without its corresponding vector — prevents a crash between
@@ -1624,6 +1672,11 @@ export const createSearchIndex = (
       embeddedCount++
     }
 
+    if (
+      !isCurrentSourceVersion({ sourcePath: notePath, sourceVersion: params.sourceVersion }, logger)
+    )
+      return embeddedCount
+
     // Delete stale chunks and their vectors (note now has fewer chunks than before)
     if (deleteStaleVectorsStmt) {
       deleteStaleVectorsStmt.run(notePath, chunks.length)
@@ -1652,23 +1705,40 @@ export const createSearchIndex = (
    *  file and section name ("Agents > Communication\n...") so both the
    *  embedder and cross-encoder see which file an entry belongs to — the
    *  date is excluded (semantic noise). Returns the number embedded. */
-  const embedMemoryEntriesForFile = async (memoryFile: string, logger: Logger): Promise<number> => {
+  const embedMemoryEntriesForFile = async (
+    params: { memoryFile: string; notePath: string; sourceVersion: symbol },
+    logger: Logger,
+  ): Promise<number> => {
+    const { memoryFile, notePath, sourceVersion } = params
+
     if (!embedder || !selectUnembeddedMemoryEntriesStmt || !insertMemoryVectorStmt) {
       return 0
     }
+    if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger)) return 0
+
     const unembeddedRows = selectUnembeddedMemoryEntriesStmt.all(memoryFile)
 
     if (unembeddedRows.length === 0) return 0
+
+    /** Only completed batch writes count when a later batch becomes obsolete. */
+    let embeddedCount = 0
 
     for (
       let batchStart = 0;
       batchStart < unembeddedRows.length;
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
+      if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
+        return embeddedCount
+
       const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE)
       const embeddings = await embedder.embedBatch(
         batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`),
       )
+
+      if (!isCurrentSourceVersion({ sourcePath: notePath, sourceVersion }, logger))
+        return embeddedCount
+
       db.transaction(() => {
         for (const [rowIndexInBatch, row] of batchRows.entries()) {
           const embedding = embeddings[rowIndexInBatch]
@@ -1685,13 +1755,14 @@ export const createSearchIndex = (
           )
         }
       })()
+      embeddedCount += batchRows.length
     }
 
     logger.debug("embedded memory entries", {
       file: memoryFile,
-      embeddedCount: unembeddedRows.length,
+      embeddedCount,
     })
-    return unembeddedRows.length
+    return embeddedCount
   }
 
   /** Embed a note's content into vector storage — section-level chunks for
@@ -1699,15 +1770,24 @@ export const createSearchIndex = (
    *  No-op when the embedding pipeline is disabled (no embedder provided).
    *  Safe to call unconditionally. */
   const embedNote = async (
-    params: { notePath: string; rawContent: string },
+    params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<void> => {
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
     const memoryFile = memoryFileNameFromPath(params.notePath)
 
-    if (memoryFile) {
-      await embedMemoryEntriesForFile(memoryFile, logger)
+    if (
+      memoryFile &&
+      isCurrentSourceVersion(
+        { sourcePath: params.notePath, sourceVersion: params.sourceVersion },
+        logger,
+      )
+    ) {
+      await embedMemoryEntriesForFile(
+        { memoryFile, notePath: params.notePath, sourceVersion: params.sourceVersion },
+        logger,
+      )
     }
   }
 
@@ -1715,7 +1795,7 @@ export const createSearchIndex = (
    *  Mirrors embedAndStoreChunks for notes: content-hash gated, transaction-wrapped,
    *  stale chunks cleaned up. Returns the number of chunks actually (re-)embedded. */
   const embedAndStoreFileChunks = async (
-    params: { filePath: string; title: string; content: string },
+    params: { filePath: string; title: string; content: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<number> => {
     if (
@@ -1729,6 +1809,14 @@ export const createSearchIndex = (
     ) {
       return 0
     }
+
+    if (
+      !isCurrentSourceVersion(
+        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+        logger,
+      )
+    )
+      return 0
 
     // chunkContent handles file content too — sourcePath extracts folder
     // segments for the TOC chunk's disambiguation line.
@@ -1747,11 +1835,27 @@ export const createSearchIndex = (
     let embeddedCount = 0
 
     for (const chunk of chunks) {
+      if (
+        !isCurrentSourceVersion(
+          { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+          logger,
+        )
+      )
+        return embeddedCount
+
       const hash = contentHash(chunk.text)
 
       if (existingHashes.get(chunk.index) === hash) continue
 
       const embedding = await embedder.embedText(chunk.text)
+
+      if (
+        !isCurrentSourceVersion(
+          { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+          logger,
+        )
+      )
+        return embeddedCount
 
       db.transaction(() => {
         const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
@@ -1782,6 +1886,14 @@ export const createSearchIndex = (
       embeddedCount++
     }
 
+    if (
+      !isCurrentSourceVersion(
+        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+        logger,
+      )
+    )
+      return embeddedCount
+
     if (deleteStaleFileVectorsStmt) {
       deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
     }
@@ -1799,14 +1911,26 @@ export const createSearchIndex = (
    *  content from the file_content table (already linearized/truncated by
    *  upsertFileContent). No-op when the embedding pipeline or file tools are
    *  disabled, or the file is not in the FTS index. Safe to call unconditionally. */
-  const embedFileContent = async (params: { filePath: string }, logger: Logger): Promise<void> => {
+  const embedFileContent = async (
+    params: { filePath: string; sourceVersion: symbol },
+    logger: Logger,
+  ): Promise<void> => {
     if (!embedder || !selectFileContentForEmbeddingStmt) return
+    if (
+      !isCurrentSourceVersion(
+        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
+        logger,
+      )
+    )
+      return
+
     const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
 
     if (!fileContentRow) return
     await embedAndStoreFileChunks(
       {
         filePath: params.filePath,
+        sourceVersion: params.sourceVersion,
         title: fileContentRow.title,
         content: fileContentRow.content,
       },
@@ -1836,6 +1960,7 @@ export const createSearchIndex = (
         removeMemoryEntriesForFile(memoryFile)
       }
     })()
+    sourceVersions.delete(filePath)
   }
 
   /**
@@ -1849,6 +1974,10 @@ export const createSearchIndex = (
     logger: Logger,
   ): Promise<{ count: number; embedding: Promise<void> }> => {
     const { vaultPath } = params
+    const orphanNoteVectorsRemoved = deleteOrphanNoteVectorsStmt?.run().changes ?? 0
+    const orphanFileVectorsRemoved = deleteOrphanFileVectorsStmt?.run().changes ?? 0
+    const orphanMemoryVectorsRemoved = deleteOrphanMemoryVectorsStmt?.run().changes ?? 0
+    sourceVersions.clear()
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
@@ -2056,148 +2185,168 @@ export const createSearchIndex = (
     // prevent the server from starting.
     const skippedNotePaths = new Set<string>()
 
+    const notesForEmbedding: Array<{
+      relativePath: string
+      content: string
+      sourceVersion: symbol
+    }> = []
+    const fileVersionsForEmbedding = new Map<string, symbol>()
+
     // better-sqlite3: .transaction() returns a function; call it immediately
-    db.transaction(() => {
-      // Index non-markdown files so extensionless wikilinks to .canvas, .base,
-      // etc. are recognized as file references rather than broken note links.
-      const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
-      logger.debug("indexed non-md files", { count: nonMdCount })
+    try {
+      db.transaction(() => {
+        // Index non-markdown files so extensionless wikilinks to .canvas, .base,
+        // etc. are recognized as file references rather than broken note links.
+        const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
+        logger.debug("indexed non-md files", { count: nonMdCount })
 
-      // Pass 1: index all notes (content, frontmatter, FTS) — skip link
-      // extraction here; Pass 2 handles it with the complete path list.
-      for (const note of noteContents) {
-        try {
-          upsertNote(
-            {
-              filePath: note.relativePath,
-              rawContent: note.content,
-              fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
-              skipLinks: true,
-            },
-            logger,
-          )
-        } catch (error) {
-          skippedNotePaths.add(note.relativePath)
-          logger.warn("skipped malformed note during rebuild", {
-            path: note.relativePath,
-            error: describeError(error),
-          })
-        }
-      }
-
-      // Entry-index reconciliation for memory files deleted while the server
-      // was down: memory_entries is not wiped above (like the vector tables,
-      // its rows survive on content-hash identity), so files that vanished
-      // from disk leave orphaned entries the per-file upsert never touches.
-      if (selectDistinctMemoryFilesStmt) {
-        // Built from the disk listing (markdownFiles) on purpose: a note
-        // that failed to read or parse still exists on disk, and treating
-        // it as deleted here would permanently remove its memory_entries
-        // rows (the table survives rebuilds on content-hash identity).
-        const memoryFilesOnDisk = new Set(
-          markdownFiles
-            .map((file) => memoryFileNameFromPath(file.relativePath))
-            .filter((fileName) => fileName !== null),
-        )
-        const deletedMemoryFiles = selectDistinctMemoryFilesStmt
-          .all()
-          .map((row) => row.file)
-          .filter((fileName) => !memoryFilesOnDisk.has(fileName))
-        for (const deletedFile of deletedMemoryFiles) {
-          removeMemoryEntriesForFile(deletedFile)
-        }
-        if (deletedMemoryFiles.length > 0) {
-          logger.info("cleaned up entries for deleted memory files", {
-            count: deletedMemoryFiles.length,
-          })
-        }
-      }
-
-      // Pass 2: re-extract links now that all paths are in the notes table,
-      // resolving targets that the per-note upsertNote pass may have missed
-      // (e.g. Note A links to Note B, but Note B was indexed after Note A).
-      const allPaths = selectAllNotePathsStmt.all()
-      const pathList = allPaths.map((row) => row.path)
-
-      db.exec("DELETE FROM links")
-      for (const note of noteContents) {
-        if (skippedNotePaths.has(note.relativePath)) continue
-        try {
-          const parsed = parseNote(note.content)
-          for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
-            const resolved = links.resolve({
-              target: rawTarget,
-              allPaths: pathList,
-              sourcePath: note.relativePath,
-            })
-
-            if (resolved !== null) {
-              insertLinkStmt.run(note.relativePath, resolved)
-            } else {
-              const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.relativePath)
-              insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget)
-            }
-          }
-        } catch (error) {
-          skippedNotePaths.add(note.relativePath)
-          logger.warn("skipped malformed note during rebuild", {
-            path: note.relativePath,
-            error: describeError(error),
-          })
-        }
-      }
-
-      // File content indexing: canvas (FTS + link extraction), PDF and text
-      // (FTS only). upsertFileContent deletes old canvas links before
-      // inserting, so canvas links append cleanly after the note link pass.
-      const allFileContents = [...canvasContents, ...pdfContents, ...textFileContents]
-      for (const fileEntry of allFileContents) {
-        try {
-          upsertFileContent(
-            {
-              filePath: fileEntry.relativePath,
-              rawContent: fileEntry.content,
-              fileStat: {
-                mtimeMs: fileEntry.modifiedAtMs,
-                size: fileEntry.sizeBytes,
+        // Pass 1: index all notes (content, frontmatter, FTS) — skip link
+        // extraction here; Pass 2 handles it with the complete path list.
+        for (const note of noteContents) {
+          try {
+            const sourceVersion = upsertNote(
+              {
+                filePath: note.relativePath,
+                rawContent: note.content,
+                fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
+                skipLinks: true,
               },
-            },
-            logger,
-          )
-        } catch (error) {
-          logger.warn("skipped malformed file during rebuild", {
-            path: fileEntry.relativePath,
-            error: describeError(error),
-          })
+              logger,
+            )
+            notesForEmbedding.push({
+              relativePath: note.relativePath,
+              content: note.content,
+              sourceVersion,
+            })
+          } catch (error) {
+            skippedNotePaths.add(note.relativePath)
+            logger.warn("skipped malformed note during rebuild", {
+              path: note.relativePath,
+              error: describeError(error),
+            })
+          }
         }
-      }
-    })()
+
+        // Entry-index reconciliation for memory files deleted while the server
+        // was down: memory_entries is not wiped above (like the vector tables,
+        // its rows survive on content-hash identity), so files that vanished
+        // from disk leave orphaned entries the per-file upsert never touches.
+        if (selectDistinctMemoryFilesStmt) {
+          // Built from the disk listing (markdownFiles) on purpose: a note
+          // that failed to read or parse still exists on disk, and treating
+          // it as deleted here would permanently remove its memory_entries
+          // rows (the table survives rebuilds on content-hash identity).
+          const memoryFilesOnDisk = new Set(
+            markdownFiles
+              .map((file) => memoryFileNameFromPath(file.relativePath))
+              .filter((fileName) => fileName !== null),
+          )
+          const deletedMemoryFiles = selectDistinctMemoryFilesStmt
+            .all()
+            .map((row) => row.file)
+            .filter((fileName) => !memoryFilesOnDisk.has(fileName))
+          for (const deletedFile of deletedMemoryFiles) {
+            removeMemoryEntriesForFile(deletedFile)
+          }
+          if (deletedMemoryFiles.length > 0) {
+            logger.info("cleaned up entries for deleted memory files", {
+              count: deletedMemoryFiles.length,
+            })
+          }
+        }
+
+        // Pass 2: re-extract links now that all paths are in the notes table,
+        // resolving targets that the per-note upsertNote pass may have missed
+        // (e.g. Note A links to Note B, but Note B was indexed after Note A).
+        const allPaths = selectAllNotePathsStmt.all()
+        const pathList = allPaths.map((row) => row.path)
+
+        db.exec("DELETE FROM links")
+        for (const note of noteContents) {
+          if (skippedNotePaths.has(note.relativePath)) continue
+          try {
+            const parsed = parseNote(note.content)
+            for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
+              const resolved = links.resolve({
+                target: rawTarget,
+                allPaths: pathList,
+                sourcePath: note.relativePath,
+              })
+
+              if (resolved !== null) {
+                insertLinkStmt.run(note.relativePath, resolved)
+              } else {
+                const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.relativePath)
+                insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget)
+              }
+            }
+          } catch (error) {
+            skippedNotePaths.add(note.relativePath)
+            logger.warn("skipped malformed note during rebuild", {
+              path: note.relativePath,
+              error: describeError(error),
+            })
+          }
+        }
+
+        // File content indexing: canvas (FTS + link extraction), PDF and text
+        // (FTS only). upsertFileContent deletes old canvas links before
+        // inserting, so canvas links append cleanly after the note link pass.
+        const allFileContents = [...canvasContents, ...pdfContents, ...textFileContents]
+        for (const fileEntry of allFileContents) {
+          try {
+            const sourceVersion = upsertFileContent(
+              {
+                filePath: fileEntry.relativePath,
+                rawContent: fileEntry.content,
+                fileStat: {
+                  mtimeMs: fileEntry.modifiedAtMs,
+                  size: fileEntry.sizeBytes,
+                },
+              },
+              logger,
+            )
+            fileVersionsForEmbedding.set(fileEntry.relativePath, sourceVersion)
+          } catch (error) {
+            logger.warn("skipped malformed file during rebuild", {
+              path: fileEntry.relativePath,
+              error: describeError(error),
+            })
+          }
+        }
+      })()
+    } catch (error) {
+      /** Nested upserts can publish versions before the outer transaction commits. */
+      sourceVersions.clear()
+      throw error
+    }
 
     const indexedNotes = noteContents.filter((note) => !skippedNotePaths.has(note.relativePath))
     const totalBytes = indexedNotes.reduce((sum, note) => sum + note.sizeBytes, 0)
     logger.info("rebuilt index", {
       count: indexedNotes.length,
       totalBytes,
+      orphanNoteVectorsRemoved,
+      orphanFileVectorsRemoved,
+      orphanMemoryVectorsRemoved,
       ...(skippedNotePaths.size > 0 ? { skipped: skippedNotePaths.size } : {}),
     })
-
-    // Extract only what Pass 3 needs so the full noteContents array (with
-    // every note's body + stats) can be garbage-collected during embedding.
-    const notesForEmbedding = noteContents.map((note) => ({
-      relativePath: note.relativePath,
-      content: note.content,
-      snapshotMtimeMs: note.modifiedAtMs,
-    }))
 
     // File content for embedding — read the processed text from file_content
     // (already linearized/extracted/truncated by upsertFileContent above).
     const filesForEmbedding = fileContentVectorEnabled
       ? db
-          .prepare<unknown[], { path: string; title: string; content: string; mtime: number }>(
-            "SELECT path, title, content, mtime FROM file_content",
+          .prepare<unknown[], { path: string; title: string; content: string }>(
+            "SELECT path, title, content FROM file_content",
           )
           .all()
+          .flatMap((file) => {
+            const sourceVersion = fileVersionsForEmbedding.get(file.path)
+
+            return sourceVersion === undefined ? [] : [{ ...file, sourceVersion }]
+          })
       : []
+    const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
 
     // Pass 3 runs in the background — the server can start accepting requests
     // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
@@ -2205,13 +2354,12 @@ export const createSearchIndex = (
     const embeddingPromise = embedder
       ? (async () => {
           // Clean up vectors for notes that no longer exist on disk
-          const currentPaths = new Set(notesForEmbedding.map((note) => note.relativePath))
           const indexedChunkPaths = db
             .prepare<unknown[], { note_path: string }>("SELECT DISTINCT note_path FROM note_chunks")
             .all()
             .map((row) => row.note_path)
 
-          const deletedPaths = indexedChunkPaths.filter((path) => !currentPaths.has(path))
+          const deletedPaths = indexedChunkPaths.filter((path) => !readableNotePaths.has(path))
           const hasDeletedNotes =
             deletedPaths.length > 0 && deleteVectorsForNoteStmt && deleteChunksForNoteStmt
 
@@ -2230,24 +2378,36 @@ export const createSearchIndex = (
           let entriesEmbedded = 0
           let embedErrors = 0
           for (const note of notesForEmbedding) {
-            // The watcher can update the index between the Pass 1 snapshot and
-            // this embed — skip the note if its mtime changed.
-            const currentNote = selectNoteMtimeStmt.get(note.relativePath)
-            const noteIsStale = !currentNote || currentNote.mtime !== note.snapshotMtimeMs
-
-            if (noteIsStale) {
+            if (
+              !isCurrentSourceVersion(
+                { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
+                logger,
+              )
+            )
               continue
-            }
 
             try {
               chunksEmbedded += await embedAndStoreChunks(
-                { notePath: note.relativePath, rawContent: note.content },
+                {
+                  notePath: note.relativePath,
+                  rawContent: note.content,
+                  sourceVersion: note.sourceVersion,
+                },
                 logger,
               )
               const memoryFile = memoryFileNameFromPath(note.relativePath)
 
-              if (memoryFile) {
-                entriesEmbedded += await embedMemoryEntriesForFile(memoryFile, logger)
+              if (
+                memoryFile &&
+                isCurrentSourceVersion(
+                  { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
+                  logger,
+                )
+              ) {
+                entriesEmbedded += await embedMemoryEntriesForFile(
+                  { memoryFile, notePath: note.relativePath, sourceVersion: note.sourceVersion },
+                  logger,
+                )
               }
             } catch (err) {
               embedErrors++
@@ -2301,20 +2461,23 @@ export const createSearchIndex = (
             }
           }
 
-          if (filesForEmbedding.length > 0 && selectFileMtimeStmt) {
+          if (filesForEmbedding.length > 0) {
             let fileChunksEmbedded = 0
             let fileEmbedErrors = 0
             for (const file of filesForEmbedding) {
-              // Same watcher-race guard as for notes above.
-              const currentFile = selectFileMtimeStmt.get(file.path)
-              const fileIsStale = !currentFile || currentFile.mtime !== file.mtime
-
-              if (fileIsStale) continue
+              if (
+                !isCurrentSourceVersion(
+                  { sourcePath: file.path, sourceVersion: file.sourceVersion },
+                  logger,
+                )
+              )
+                continue
 
               try {
                 fileChunksEmbedded += await embedAndStoreFileChunks(
                   {
                     filePath: file.path,
+                    sourceVersion: file.sourceVersion,
                     title: file.title,
                     content: file.content,
                   },
