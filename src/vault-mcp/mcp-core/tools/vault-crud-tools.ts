@@ -320,14 +320,14 @@ When to use: Browsing what exists in a folder by filename, or finding notes matc
 Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
 Parameters:
-- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". This tool reads the filesystem rather than the search index, so use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
+- folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". This tool reads the filesystem rather than the search index, so use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
 - glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "*.md" lists the folder's top-level notes and "**/*.md" every note under it. Returned paths are always vault-relative.
 
-Behavior: Paths come back sorted by vault-relative path, uppercase before lowercase. Hidden (dot-prefixed) notes and folders are never listed, matching Obsidian; symlinked notes are included.
+Behavior: Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed, matching Obsidian; symlinked notes are included.
 
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
@@ -1034,36 +1034,45 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
   )
 
   // Under Obsidian Sync a delete never reads the "Deleted files" setting or
-  // touches .trash/, so the errors those two produce cannot occur.
+  // touches .trash/, so the text about that setting, the trash outcomes, and
+  // the errors they produce is left out.
+  const deleteNoteOpener = config.obsidianSyncEnabled
+    ? `Delete a markdown note for good: this server syncs through Obsidian Sync, which bypasses the vault's "Deleted files" setting; recover a deleted note from Sync's version history (1 month on Standard, 12 months on Plus).`
+    : `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`
+  const trashOutcomeEntries = config.obsidianSyncEnabled
+    ? ""
+    : `
+- The "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) decides the outcome:
+  - "Move to system trash" (\`system\`, also what an absent setting means) moves the note to \`.trash/\`, since the server has no system trash. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none); notes Obsidian itself trashed are never touched.
+  - "Move to Obsidian trash" (\`local\`) moves the note to \`.trash/\` and keeps it forever.
+  - "Permanently delete" (\`none\`) removes the note for good.
+- The caller can't choose or see the outcome in advance; the returned message says which happened.`
   const trashMoveErrorEntries = config.obsidianSyncEnabled
     ? ""
     : `
-- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); clear old copies, then retry
-- any other "cannot move to trash …" — the note stays put; fix .trash/ (e.g. a plain file blocks a needed folder), then retry`
+- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry
+- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`
   const trashConfigErrorEntry = config.obsidianSyncEnabled
     ? ""
     : `
-- "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable, and a guessed setting could let the retention sweep remove a keep-forever note; repair it, then retry`
+- "cannot read trash config from .obsidian/app.json" — the file exists but can't be read or parsed, and guessing the setting could let the server's trash cleanup delete a note Obsidian keeps forever; ask the vault owner to repair it, then retry`
+  const deleteNoteReturns = config.obsidianSyncEnabled
+    ? `Confirmation message — "Deleted <path>".`
+    : `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.
+      description: `${deleteNoteOpener}
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
 When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}${whenToolEnabledText("vault_move_note", "\nTo relocate a note, use vault_move_note instead.")}${whenToolEnabledText("vault_write_note", "\nTo replace a note's content, use vault_write_note with overwrite: true instead.")}
 
-Behavior:
-- Unless the server syncs through Obsidian Sync, the "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) decides the outcome:
-  - "Move to system trash" (\`system\`, also what an absent setting means) moves the note to \`.trash/\`, since the server has no system trash. The server deletes its own copies there after its TRASH_RETENTION_DAYS setting (default 30 days, or never when set to none), never touching notes Obsidian trashed.
-  - "Move to Obsidian trash" (\`local\`) moves the note to \`.trash/\` and keeps it forever.
-  - "Permanently delete" (\`none\`) removes the note for good.
-- When the server syncs through Obsidian Sync, the setting is bypassed and the note is always deleted for good; recover it from Sync's version history (1 month on Standard, 12 months on Plus).
-- The caller can't choose or see the outcome in advance; the returned message says which happened.
-- Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", " (detectable via vault_get_backlinks)")}. Protected paths (${describeProtectedPaths(config)}) are refused.
+Behavior:${trashOutcomeEntries}
+- Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", "; list them first with vault_get_backlinks")}. Protected paths are refused: ${describeProtectedPaths(config)}.
 
 Parameters:
 - prune_empty_folders removes each parent folder the delete leaves with zero entries, up to but never including the vault root; a folder holding any file, even a hidden .DS_Store, is kept. Pruning runs after the delete or trash move and is best-effort: a folder that can't be removed never fails the call. Without it, empty folders stay, matching Obsidian.
@@ -1074,10 +1083,10 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — ${noteNotFoundVerifyRemedy}${trashMoveErrorEntries}
-- any other "cannot delete …" — the note stays put; fix the cause (e.g. permissions), then retry${trashConfigErrorEntry}
-- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the protected daily notes folder is unknown; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
+- "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry${trashConfigErrorEntry}
+- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 
-Returns: Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<trash path>)" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
+Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any were.`,
       inputSchema: {
         path: z
           .string()
