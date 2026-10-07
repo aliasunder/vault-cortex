@@ -2083,10 +2083,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const mutatedLine = tagDedup.taskLine
 
     // assignBlockId was refused above, so a new trailing id on an indented
-    // board line can only come from description text ending in ` ^id`.
+    // board line can only come from description text ending in ` ^id`. After
+    // assignBlockId null, the line's old id counts as new: text restoring it
+    // would undo the removal while `changes` reports it done.
     const writtenBlockId = trailingBlockIdOf(mutatedLine)
+    const keptBlockId = newBlockId === null ? null : taskBefore.blockId
     const addsBlockIdToIndentedKanbanLine =
-      isIndentedKanbanLine && writtenBlockId !== undefined && writtenBlockId !== taskBefore.blockId
+      isIndentedKanbanLine && writtenBlockId !== undefined && writtenBlockId !== keptBlockId
 
     if (addsBlockIdToIndentedKanbanLine) {
       throw new Error(

@@ -7234,6 +7234,34 @@ title: Plan
     expect(await readTestNote(vault, "board.md")).toBe(BOARD)
   })
 
+  it("refuses a description that restores the id assignBlockId null removes on an indented Kanban line", async () => {
+    const vault = await createVault()
+    const board = BOARD.replace(
+      "\t- [ ] Existing sub-task\n",
+      "\t- [ ] Existing sub-task ^copied\n",
+    )
+    await writeTestNote(vault, "board.md", board)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          line: 8,
+          assignBlockId: null,
+          description: "Renamed sub-task ^copied",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `description ends in a block ID (^copied), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+      ),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(board)
+  })
+
   it("does not refuse a card description ending in a block id, and keeps the card's own id", async () => {
     const vault = await createVault()
     await writeTestNote(vault, "board.md", BOARD)
