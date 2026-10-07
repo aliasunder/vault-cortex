@@ -34,11 +34,14 @@ fi
 ' 2>/dev/null)
 
 # A test runner at a command position: the start of the line or after ;, &, |,
-# ( or $(. A mention elsewhere, as in `grep vitest package.json`, is not a run.
+# ( or $(, optionally after `env` and VAR=value settings (`CI=1 npm test`).
+# A mention elsewhere, as in `grep vitest package.json`, is not a run.
 # test:remote-boot is left out because it needs the Docker socket, which
 # nobody cannot open.
 test_runner='(npx[[:space:]]+)?([^[:space:];&|]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs|npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|test:cli-pty|snapshot:update))'
-runs_tests="(^|[;&|(]|\\\$\\()[[:space:]]*(${test_runner})([[:space:];&|)]|\$)"
+variable_setting="[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|'[^']*'|[^[:space:];&|'\"]*)[[:space:]]+"
+command_prefix="(env[[:space:]]+)?(${variable_setting})*"
+runs_tests="(^|[;&|(]|\\\$\\()[[:space:]]*${command_prefix}(${test_runner})([[:space:];&|)]|\$)"
 if [[ ! "${tool_command}" =~ ${runs_tests} || "${tool_command}" == *setpriv* ]]; then
   exit 0
 fi
