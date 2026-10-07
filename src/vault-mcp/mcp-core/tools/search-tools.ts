@@ -166,7 +166,7 @@ Parameters:
 Behavior: Reads the search index, which picks up a file change within a few seconds, so a note written moments ago may not appear yet.
 
 Errors:
-- No tag value causes an error: a tag that no note carries returns an empty array.
+- An unknown tag or no matches returns an empty array, not an error.
 - "#project" and "project/" do not match notes tagged "project"; drop the "#" and the trailing "/".
 
 Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing), tags (every frontmatter tag, not only the matched one), related, type (null when missing), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the "> [!type] title" callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
@@ -191,9 +191,9 @@ Returns: JSON array of notes sorted by most recently modified, then by path asce
           .describe("Max results (default 20, no upper cap)"),
       },
     },
-    async ({ tag, exact, limit }, { requestId }) => {
+    async ({ tag, exact, limit }, extra) => {
       const reqLogger = sessionLogger.child({
-        requestId,
+        requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
       })
       reqLogger.info("tool_call", { tag, exact, limit })
