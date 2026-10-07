@@ -51,7 +51,8 @@ if [[ ! -d "${checkout}/node_modules" ]]; then
   exit 0
 fi
 
-# Folders vitest writes under node_modules. The fake HOME keeps npm's cache and
+# Folders vitest writes: its caches under node_modules, and coverage/ for
+# test:coverage's report (gitignored). The fake HOME keeps npm's cache and
 # logs out of root's home. Snapshot files are tracked and root-owned, so
 # snapshot:update needs them writable; git records only the executable bit, so
 # opening them adds nothing to a diff.
@@ -59,6 +60,7 @@ nobody_writable=(
   "${checkout}/node_modules/.vite-temp"
   "${checkout}/node_modules/.vitest"
   "${checkout}/node_modules/.nobody-home"
+  "${checkout}/coverage"
 )
 mkdir -p "${nobody_writable[@]}"
 # Recursive, because files a root run left inside would stay root-owned.
@@ -74,4 +76,9 @@ Run the same test command as the nobody user, with this prefix in front of the t
   setpriv --reuid=$(id -u nobody) --regid=$(id -g nobody) --clear-groups env HOME=${checkout}/node_modules/.nobody-home
 The folders nobody needs to write in ${checkout} are ready.
 EOF
+# vitest deletes coverage/ before a coverage run, and deleting it needs write
+# access to the checkout root, so the run must keep the folder instead.
+if [[ "${tool_command}" == *test:coverage* || "${tool_command}" == *--coverage* ]]; then
+  echo "For a coverage run, also pass --coverage.clean=false (after -- for npm run): vitest otherwise deletes coverage/ first, which nobody cannot do in a root-owned checkout." >&2
+fi
 exit 2
