@@ -6763,6 +6763,108 @@ title: Tasks
   })
 })
 
+describe("block ids on more than one task line", () => {
+  // Line numbers in the expected messages are counted by hand: the properties
+  // block takes lines 1-3, so the card is line 7 and its sub-task line 8.
+  const BOARD_WITH_COPIED_ID = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Card ➕ 2026-07-01 ^copied
+\t- [ ] Sub-task ^copied
+- [ ] Other card ^other
+`
+
+  it("refuses an update by an id two task lines carry, naming both file lines", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD_WITH_COPIED_ID)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "copied",
+          priority: "high",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('blockId "copied" matches 2 task lines (7, 8) in "board.md"'))
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD_WITH_COPIED_ID)
+  })
+
+  it("refuses a create whose parent id two task lines carry", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD_WITH_COPIED_ID)
+
+    await expect(
+      taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          description: "Another sub-task",
+          blockId: "another",
+          parentBlockId: "copied",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('parent task ambiguous: blockId "copied" matches 2 task lines (7, 8)'),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD_WITH_COPIED_ID)
+  })
+
+  it("resolves an id shared with a NON_TASK checkbox to the one actionable task", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [>] Forwarded elsewhere ^shared\n- [ ] Real task ^shared\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: NON_TASK_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "shared",
+        priority: "high",
+      },
+      logger,
+    )
+
+    expect(result.description).toBe("Real task")
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      "---\ntitle: Tasks\n---\n\n- [>] Forwarded elsewhere ^shared\n- [ ] Real task ⏫ ^shared\n",
+    )
+  })
+
+  it("keeps the NON_TASK refusal when only NON_TASK checkboxes carry the id", async () => {
+    const vault = await createVault()
+    const content =
+      "---\ntitle: Tasks\n---\n\n- [>] Forwarded once ^forwarded\n- [>] Forwarded twice ^forwarded\n"
+    await writeTestNote(vault, "tasks.md", content)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: NON_TASK_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "forwarded",
+          priority: "high",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry'))
+    expect(await readTestNote(vault, "tasks.md")).toBe(content)
+  })
+})
+
 describe("properties block a rewrite would lose", () => {
   /** Awaits a call that must reject and returns what it rejected with. */
   const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {

@@ -445,8 +445,20 @@ const isExcludedFromLane = ({
 
   if (!statusRegistry) return false
 
-  const charMatch = CHECKBOX_CHAR_RE.exec(line)
-  const statusChar = charMatch?.[1]
+  return isNonTaskCheckbox({ taskLine: line, statusRegistry })
+}
+
+/** True when the line's checkbox character is typed NON_TASK in the Tasks
+ *  plugin's status registry — such a line matches the task grammar but is
+ *  not a task the index lists. */
+const isNonTaskCheckbox = ({
+  taskLine,
+  statusRegistry,
+}: {
+  taskLine: string
+  statusRegistry: ReadonlyMap<string, StatusClassification>
+}): boolean => {
+  const statusChar = CHECKBOX_CHAR_RE.exec(taskLine)?.[1]
 
   if (!statusChar) return false
 
@@ -601,7 +613,7 @@ const resolveNewTaskPlacement = ({
   heading: string | undefined
   isKanbanBoard: boolean
   position: "top" | "bottom" | number | undefined
-  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): NewTaskPlacement => {
   if (parentLocator) {
     const parentLineIndex = findParentLineIndex({
@@ -683,17 +695,34 @@ type LineEdit = {
   change: string
 }
 
+/** Where a block-id lookup landed, as body-line indices. */
+type BlockIdLookup =
+  | { status: "found"; index: number }
+  | { status: "ambiguous"; indices: readonly number[] }
+  | { status: "fenced_only" }
+  | { status: "not_found" }
+
 /** Block-id search that skips fenced code blocks and comment blocks —
- *  aligns lookup with validateBlockId's fence-skip uniqueness rule. */
-const findBlockIdSkippingFences = (
-  bodyLines: readonly string[],
-  blockId: string,
-): number | "fenced_only" | null => {
+ *  aligns lookup with validateBlockId's fence-skip uniqueness rule. Only
+ *  actionable tasks count toward a match, so an id on two of them is
+ *  ambiguous; a NON_TASK checkbox answers only when no actionable task
+ *  carries the id, which lets the caller's NON_TASK refusal fire. */
+const findBlockIdSkippingFences = ({
+  bodyLines,
+  blockId,
+  statusRegistry,
+}: {
+  bodyLines: readonly string[]
+  blockId: string
+  statusRegistry: ReadonlyMap<string, StatusClassification>
+}): BlockIdLookup => {
   const suffix = ` ^${blockId}`
   // Sequential parser state — fence and comment scanners are inherently stateful.
   let openFence: OpenFence = null
   let commentOpen = false
   let hasFencedMatch = false
+  const actionableIndices: number[] = []
+  const nonTaskIndices: number[] = []
 
   for (let index = 0; index < bodyLines.length; index++) {
     const lineText = bodyLines[index]
@@ -729,10 +758,38 @@ const findBlockIdSkippingFences = (
       continue
     }
 
-    return index
+    if (isNonTaskCheckbox({ taskLine: lineText, statusRegistry })) {
+      nonTaskIndices.push(index)
+      continue
+    }
+
+    actionableIndices.push(index)
   }
 
-  return hasFencedMatch ? "fenced_only" : null
+  const [firstActionableIndex] = actionableIndices
+  const [firstNonTaskIndex] = nonTaskIndices
+
+  if (actionableIndices.length > 1) {
+    return { status: "ambiguous", indices: actionableIndices }
+  }
+  if (firstActionableIndex !== undefined) {
+    return { status: "found", index: firstActionableIndex }
+  }
+  if (firstNonTaskIndex !== undefined) {
+    return { status: "found", index: firstNonTaskIndex }
+  }
+  return hasFencedMatch ? { status: "fenced_only" } : { status: "not_found" }
+}
+
+/** 1-based file lines for body-line indices, joined for an error message. */
+const formatFileLines = ({
+  indices,
+  bodyStartLine,
+}: {
+  indices: readonly number[]
+  bodyStartLine: number
+}): string => {
+  return indices.map((index) => bodyStartLine + index + 1).join(", ")
 }
 
 /** Body index of the task an update names — by block id, or by 1-based file
@@ -743,23 +800,32 @@ const locateTaskLine = ({
   blockId,
   line,
   path,
+  statusRegistry,
 }: {
   bodyLines: readonly string[]
   bodyStartLine: number
   blockId: string | undefined
   line: number | undefined
   path: string
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
   if (blockId) {
-    const result = findBlockIdSkippingFences(bodyLines, blockId)
+    const lookup = findBlockIdSkippingFences({ bodyLines, blockId, statusRegistry })
 
-    if (result === null) {
+    if (lookup.status === "not_found") {
       throw new Error(`blockId "${blockId}" not found in "${path}"`)
     }
-    if (result === "fenced_only") {
+    if (lookup.status === "fenced_only") {
       throw new Error(`blockId "${blockId}" is inside a fenced code block or comment in "${path}"`)
     }
-    return result
+    // Acting on the first match would edit whichever line comes first — on a
+    // Kanban board, the card that the plugin copied a sub-task's id onto.
+    if (lookup.status === "ambiguous") {
+      throw new Error(
+        `blockId "${blockId}" matches ${lookup.indices.length} task lines (${formatFileLines({ indices: lookup.indices, bodyStartLine })}) in "${path}"`,
+      )
+    }
+    return lookup.index
   }
   if (!line) {
     throw new Error("exactly one of blockId or line is required")
@@ -1335,25 +1401,34 @@ const findParentLineIndex = ({
   locator: ParentLocator
   bodyLines: readonly string[]
   bodyStartLine: number
-  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
   if (locator.kind === "blockId") {
-    const result = findBlockIdSkippingFences(bodyLines, locator.blockId)
+    const lookup = findBlockIdSkippingFences({
+      bodyLines,
+      blockId: locator.blockId,
+      statusRegistry,
+    })
 
-    if (result === null) {
+    if (lookup.status === "not_found") {
       throw new Error(`parent task not found: blockId "${locator.blockId}"`)
     }
-    if (result === "fenced_only") {
+    if (lookup.status === "fenced_only") {
       throw new Error(
         `parent task not found: blockId "${locator.blockId}" is inside a fenced code block or comment`,
       )
     }
-    const foundLine = bodyLines[result]
+    if (lookup.status === "ambiguous") {
+      throw new Error(
+        `parent task ambiguous: blockId "${locator.blockId}" matches ${lookup.indices.length} task lines (${formatFileLines({ indices: lookup.indices, bodyStartLine })})`,
+      )
+    }
+    const foundLine = bodyLines[lookup.index]
 
-    if (statusRegistry && foundLine) {
+    if (foundLine) {
       rejectNonTaskCheckbox({ taskLine: foundLine, statusRegistry })
     }
-    return result
+    return lookup.index
   }
   const parentLineIndex = locator.line - 1 - bodyStartLine
   const parentLineText = bodyLines[parentLineIndex]
@@ -1366,9 +1441,7 @@ const findParentLineIndex = ({
       `parent task not found: line ${locator.line} is inside a fenced code block or comment`,
     )
   }
-  if (statusRegistry) {
-    rejectNonTaskCheckbox({ taskLine: parentLineText, statusRegistry })
-  }
+  rejectNonTaskCheckbox({ taskLine: parentLineText, statusRegistry })
   return parentLineIndex
 }
 
@@ -1709,6 +1782,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       blockId,
       line,
       path,
+      statusRegistry,
     })
     const originalTaskLine = bodyLines[taskLineIndex]
 
