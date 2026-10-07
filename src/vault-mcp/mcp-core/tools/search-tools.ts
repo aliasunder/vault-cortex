@@ -153,48 +153,53 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a tag matches itself and every tag nested under it at any depth (e.g. "project" matches "project", "project/vault-cortex", "project/a/b").
+      description: `Find notes by frontmatter tag; inline #tags in note bodies are not searched. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project", "project/vault-cortex", and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
 
 Example: vault_search_by_tag({ tag: "project" })
 Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — notes tagged "project" itself, up to 50
 
-When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.
-Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
+When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.${whenToolEnabledText("vault_list_tags", " Use vault_list_tags first to discover available tags.")}${whenToolEnabledText("vault_search", "\nPrefer vault_search when you also need text-based relevance ranking; its tags filter matches the exact tag only, without nested tags.")}
 
 Parameters:
-- exact: prefix matching stops at the "/" separator, so "project" does NOT match "my-project" or "projects"; true matches only the tag itself.
-- limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+- limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: a result count equal to limit may mean more exist, so raise limit to check.
 
 Behavior: Reads the search index, which picks up a file change within a few seconds, so a note written moments ago may not appear yet.
 
 Errors:
-- An unknown tag or no matches returns an empty array, not an error.
+- No tag value causes an error: a tag that no note carries returns an empty array.
+- "#project" and "project/" do not match notes tagged "project"; drop the "#" and the trailing "/".
 
-Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title, tags, related, folder, type, created (frontmatter; null when missing), modified (file time), bytes (on-disk size), plus, when present, leading_callout (the note's opening callout, { type, title, body }) and additional_properties (frontmatter keys without their own top-level field).`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing), tags (every frontmatter tag, not only the matched one), related, type (null when missing), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the "> [!type] title" callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
           .min(1)
           .describe(
-            'Tag name without "#" prefix (e.g. "project", "session-log"). Hierarchical tags use "/" separators (e.g. "project/vault-cortex").',
+            'Tag name in its exact letter case, without the "#" prefix (e.g. "project", "session-log"). Hierarchical tags use "/" separators (e.g. "project/vault-cortex").',
           ),
         exact: z
           .boolean()
           .optional()
           .default(false)
-          .describe("Exact match only (default: false, prefix match)"),
-        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
+          .describe("Match only the tag itself, not tags nested under it (default: false)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(20)
+          .describe("Max results (default 20, no upper cap)"),
       },
     },
-    async ({ tag, exact, limit }, extra) => {
+    async ({ tag, exact, limit }, { requestId }) => {
       const reqLogger = sessionLogger.child({
-        requestId: extra.requestId,
+        requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
       })
       reqLogger.info("tool_call", { tag, exact, limit })
       return safeHandler(
         reqLogger,
-        async () => search.searchByTag({ tag, exactMatch: exact, limit }, reqLogger),
+        async () => search.searchByTag({ tag, exact, limit }, reqLogger),
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
           return JSON.stringify(results.map(formatNoteMetadata))

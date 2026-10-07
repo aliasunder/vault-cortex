@@ -1824,12 +1824,12 @@ describe("searchByTag", () => {
   })
 
   it("exact match mode", () => {
-    const results = index.searchByTag({ tag: "project", exactMatch: true }, logger)
+    const results = index.searchByTag({ tag: "project", exact: true }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("exact match finds specific tag", () => {
-    const results = index.searchByTag({ tag: "project/vault-mcp", exactMatch: true }, logger)
+    const results = index.searchByTag({ tag: "project/vault-mcp", exact: true }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("a.md")
   })
