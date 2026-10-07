@@ -61,7 +61,7 @@ on a folder for the full list.
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed Claude Code hooks only: settings.json registers hooks/install-deps.sh (nvm, npm ci, sst install) for session start and worktree entry; the rest is gitignored
+.claude/ # Committed Claude Code hooks only: settings.json registers hooks/install-deps.sh (nvm, npm ci, sst install) for session start and worktree entry, and at session start puts nvm's Node first on PATH for later commands; the rest is gitignored
 obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
 rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian that prints the Sync token for .env
 templates/memory/ # About Me/ memory file templates for new vaults

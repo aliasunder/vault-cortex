@@ -28,6 +28,36 @@ checkout="$(git -C "${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}" rev-parse --show-t
   exit 0
 }
 
+# Later Bash commands in the session start from the image's PATH, where a
+# system Node can come before nvm's (cloud images put /opt/node22 first) and
+# nvm itself is not loaded. Claude Code runs CLAUDE_ENV_FILE before each later
+# command, so putting the checkout's Node first there pins every command to
+# it. Only SessionStart hooks receive the variable; worktree entries skip this.
+persist_node_on_path() {
+  if [[ -z "${CLAUDE_ENV_FILE:-}" ]] || ! command -v nvm >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # The .nvmrc version when nvm has it installed, otherwise the default alias.
+  local node_path
+  node_path="$(cd "${checkout}" && { nvm which --silent 2>/dev/null || nvm which default 2>/dev/null; })" || true
+  if [[ ! -x "${node_path}" ]]; then
+    log "no nvm Node found for ${checkout} — later commands keep the image's PATH"
+    return 0
+  fi
+
+  # $PATH stays literal so it expands when each command runs. A resumed
+  # session runs this hook again against the same file, hence the check.
+  local path_line
+  path_line="export PATH=\"$(dirname "${node_path}"):\$PATH\""
+  if ! grep -qxF "${path_line}" "${CLAUDE_ENV_FILE}" 2>/dev/null; then
+    printf '%s\n' "${path_line}" >> "${CLAUDE_ENV_FILE}"
+    log "later commands use $("${node_path}" --version) from ${node_path}"
+  fi
+}
+
+persist_node_on_path
+
 # The marker, stamp, and lock live in the checkout's git directory, which is
 # per-worktree and never tracked. A .claude/ location would surface them as
 # untracked files in any checkout whose .gitignore predates this hook.
