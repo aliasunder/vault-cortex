@@ -171,17 +171,22 @@ const terminateChild = async (
 const pollHealthz = async (port: number, timeoutMs: number): Promise<void> => {
   const deadline = Date.now() + timeoutMs
   const url = `http://127.0.0.1:${port}/healthz`
+  // let: each failed probe replaces it, so a timeout reports the last refusal.
+  let lastProbeError: unknown = null
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url)
 
       if (response.ok) return
-    } catch {
-      // Server not ready yet
+    } catch (probeError) {
+      // Not listening yet: keep polling until the deadline.
+      lastProbeError = probeError
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 200))
   }
-  throw new Error(`Server on port ${port} did not become healthy within ${timeoutMs}ms`)
+  throw new Error(`Server on port ${port} did not become healthy within ${timeoutMs}ms`, {
+    cause: lastProbeError,
+  })
 }
 
 /** Boot the real server against a copy of the fixture vault. */
