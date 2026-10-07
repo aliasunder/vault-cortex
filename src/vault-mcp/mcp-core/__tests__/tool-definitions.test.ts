@@ -1536,6 +1536,12 @@ describe("vault_search_by_tag handler", () => {
     return `Projects/note-${noteNumber}.md`
   })
 
+  /** Tagged under project rather than with project itself, and newer than every
+   *  project note: it leads each prefix-match result, and an exact search returns
+   *  it only if exact is ignored. */
+  const NESTED_TAG_PATH = "Projects/archive/nested.md"
+  const TAGGED_PATHS_NEWEST_FIRST = [NESTED_TAG_PATH, ...PROJECT_PATHS_NEWEST_FIRST]
+
   /** Calls the tool the way the SDK does, with args parsed by its input schema,
    *  against a real index of the project notes. The decoy is the newest note of
    *  all but carries another tag, so it appears only if the tag filter breaks. */
@@ -1550,10 +1556,11 @@ describe("vault_search_by_tag handler", () => {
       tag: "project",
       mtimeMs: 2000 - offset,
     }))
+    const nestedTagNote = { filePath: NESTED_TAG_PATH, tag: "project/archive", mtimeMs: 2500 }
     const decoyNote = { filePath: "Other/newest.md", tag: "other", mtimeMs: 3000 }
     // Inserted in path order: inserting newest first would let the index's row
     // order stand in for the modified-time sort these tests check.
-    const notesInPathOrder = [...projectNotes, decoyNote].toSorted((noteA, noteB) =>
+    const notesInPathOrder = [...projectNotes, nestedTagNote, decoyNote].toSorted((noteA, noteB) =>
       noteA.filePath.localeCompare(noteB.filePath),
     )
 
@@ -1590,25 +1597,23 @@ describe("vault_search_by_tag handler", () => {
 
   it("returns the 20 most recently modified tagged notes when no limit is passed", async () => {
     expect(await queryTaggedPaths({ tag: "project" })).toEqual(
-      PROJECT_PATHS_NEWEST_FIRST.slice(0, 20),
+      TAGGED_PATHS_NEWEST_FIRST.slice(0, 20),
     )
   })
 
   it("returns every tagged note when limit exceeds their count", async () => {
-    expect(await queryTaggedPaths({ tag: "project", limit: 50 })).toEqual(
-      PROJECT_PATHS_NEWEST_FIRST,
-    )
+    expect(await queryTaggedPaths({ tag: "project", limit: 50 })).toEqual(TAGGED_PATHS_NEWEST_FIRST)
   })
 
   it("returns only the newest tagged notes up to a limit below the default", async () => {
     expect(await queryTaggedPaths({ tag: "project", limit: 3 })).toEqual([
+      "Projects/archive/nested.md",
       "Projects/note-01.md",
       "Projects/note-08.md",
-      "Projects/note-15.md",
     ])
   })
 
-  it("applies limit to an exact-match search", async () => {
+  it("applies limit to an exact-match search, which leaves out nested tags", async () => {
     expect(await queryTaggedPaths({ tag: "project", exact: true, limit: 3 })).toEqual([
       "Projects/note-01.md",
       "Projects/note-08.md",
@@ -2731,6 +2736,43 @@ describe("DISABLED_TOOLS", () => {
     expect(whenToUse).toBe(
       ["When to use: Removing a note you no longer need.", ...expectedLines].join("\n"),
     )
+  })
+
+  const TAG_SEARCH_SCOPE_SENTENCE =
+    "When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query."
+  const TAG_SEARCH_LIST_TAGS_SENTENCE = " Use vault_list_tags first to discover available tags."
+  const TAG_SEARCH_SEARCH_LINE =
+    "\nPrefer vault_search when you also need text-based relevance ranking; its tags filter matches the exact tag only, without nested tags."
+
+  it.each([
+    {
+      label: "names vault_list_tags and vault_search while both are served",
+      disabledTools: "",
+      expectedSection: `${TAG_SEARCH_SCOPE_SENTENCE}${TAG_SEARCH_LIST_TAGS_SENTENCE}${TAG_SEARCH_SEARCH_LINE}`,
+    },
+    {
+      label: "drops only the vault_list_tags sentence when that tool is disabled",
+      disabledTools: "vault_list_tags",
+      expectedSection: `${TAG_SEARCH_SCOPE_SENTENCE}${TAG_SEARCH_SEARCH_LINE}`,
+    },
+    {
+      label: "drops only the vault_search line when that tool is disabled",
+      disabledTools: "vault_search",
+      expectedSection: `${TAG_SEARCH_SCOPE_SENTENCE}${TAG_SEARCH_LIST_TAGS_SENTENCE}`,
+    },
+    {
+      label: "keeps only the scope sentence when both tools are disabled",
+      disabledTools: "vault_list_tags,vault_search",
+      expectedSection: TAG_SEARCH_SCOPE_SENTENCE,
+    },
+  ])("vault_search_by_tag's when-to-use $label", ({ disabledTools, expectedSection }) => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(expectedSection)
   })
 
   const PROPERTY_VALUES_CHECKBOX_LINE =
