@@ -264,7 +264,7 @@ Task metadata lives in plain markdown — scattered across files, encoded in emo
 The task layer handles this so agents don't have to:
 
 - **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its note path, line number, and nearest heading when the task sits under one (the lane on a Kanban board) — no follow-up reads needed to locate a task
-- **Create** — add a correctly-formatted task in one call: description, priority, dates, recurrence, "On completion" action, block_id, and checklist sub-items, placed under a heading at its top, bottom, or an exact card slot, or nested under a parent task
+- **Create** — add a correctly-formatted task in one call: description, priority, dates, recurrence, "On completion" action, block_id (left off sub-tasks on a Kanban board, where the Kanban plugin would move it onto the card), and checklist sub-items, placed under a heading at its top, bottom, or an exact card slot, or nested under a parent task
 - **Update** — complete, reprioritize, edit the text, set or clear dates, recurrence, and the "On completion" action, add checklist items, move tasks between headings, and reorder within a lane in a single call
 - **Complete** — marking a task done auto-detects the done lane and stamps the completion date, honoring the plugin's "Set done date" setting; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
   - a recurring task spawns its next occurrence, dates advanced the way the plugin computes them
