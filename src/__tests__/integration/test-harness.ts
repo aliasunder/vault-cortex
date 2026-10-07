@@ -12,11 +12,11 @@ import type { ChildProcess } from "node:child_process"
 
 const AUTH_TOKEN = "test-integration-token"
 const FIXTURE_VAULT = resolve(import.meta.dirname, "fixtures/vault")
-const SERVER_ENTRY = resolve(import.meta.dirname, "../../../src/vault-mcp/server.ts")
+const SERVER_ENTRY = resolve(import.meta.dirname, "../../vault-mcp/server.ts")
 
 type ServerHandle = {
   port: number
-  process: ChildProcess
+  child: ChildProcess
   vaultPath: string
   dataDir: string
   /** Everything the server has logged to stdout so far — the structured
@@ -31,22 +31,28 @@ type SpawnedServer = {
   dataDir: string
   stdout: () => string
   stderr: () => string
-  /** Resolves once this child logs its own "server started" line. */
+  /** Resolves once this child logs its own "server started" line. Never
+   *  rejects: callers race it against the child's exit and a timeout. */
   started: Promise<void>
 }
 
-/** Ask the OS for a currently free TCP port. Test files run in parallel and
- *  each boots its own servers, so a port drawn from a fixed random range can
- *  collide with a sibling file's live server; an OS-assigned ephemeral port
- *  does not repeat while the allocator cycles. */
+/** Ask the OS for a TCP port that no socket holds right now. Test files run
+ *  in parallel and each boots its own servers, so their ports must not
+ *  collide. The port is free again between the probe's close and the
+ *  server's bind; if a sibling file takes it in that gap, the server exits
+ *  on EADDRINUSE and startServer fails rather than let the tests reach the
+ *  sibling's server. */
 export const freePort = (): Promise<number> =>
-  new Promise((resolve, reject) => {
+  new Promise((resolvePort, reject) => {
     const probe = createServer()
+    // The probe never keeps the test process alive, even if left open.
     probe.unref()
     probe.once("error", reject)
     probe.listen(0, "127.0.0.1", () => {
       const address = probe.address()
 
+      // address() is null for an unbound server and a string for a pipe; a
+      // TCP listen gives an object carrying the port.
       if (!address || typeof address === "string") {
         probe.close()
         reject(new Error("port probe did not bind a TCP address"))
@@ -58,11 +64,14 @@ export const freePort = (): Promise<number> =>
           reject(closeError)
           return
         }
-        resolve(port)
+        resolvePort(port)
       })
     })
   })
 
+/** The server's whole environment, built from scratch so a developer's own
+ *  settings (VAULT_PATH, READONLY_MODE, …) never reach the server under test.
+ *  Only PATH and HOME pass through. */
 const buildServerEnv = (
   port: number,
   vaultPath: string,
@@ -100,9 +109,10 @@ const spawnServerProcess = async (
     stdio: ["ignore", "pipe", "pipe"],
   })
 
-  let stderrBuf = ""
+  // Appended as chunks arrive; stderr() reads it at call time.
+  let capturedStderr = ""
   child.stderr?.on("data", (chunk: Buffer) => {
-    stderrBuf += chunk.toString()
+    capturedStderr += chunk.toString()
   })
 
   // The server's structured "server started" log (stdout) is the only
@@ -110,11 +120,15 @@ const spawnServerProcess = async (
   // probe alone can be answered by any server already listening there —
   // if our child then dies with EADDRINUSE, tests silently run against a
   // sibling file's server with a different configuration.
-  let stdoutBuf = ""
-  const started = new Promise<void>((resolve) => {
+  // The logger writes compact JSON, so a change to its format shows up here
+  // as the start timeout.
+  const startedLogFragment = '"message":"server started"'
+  // Appended as chunks arrive; stdout() reads it at call time.
+  let capturedStdout = ""
+  const started = new Promise<void>((resolveStarted) => {
     child.stdout?.on("data", (chunk: Buffer) => {
-      stdoutBuf += chunk.toString()
-      if (stdoutBuf.includes('"message":"server started"')) resolve()
+      capturedStdout += chunk.toString()
+      if (capturedStdout.includes(startedLogFragment)) resolveStarted()
     })
   })
 
@@ -122,32 +136,52 @@ const spawnServerProcess = async (
     child,
     vaultPath,
     dataDir,
-    stdout: () => stdoutBuf,
-    stderr: () => stderrBuf,
+    stdout: () => capturedStdout,
+    stderr: () => capturedStderr,
     started,
   }
 }
 
 /** Signal the child and wait for it to close, escalating to SIGKILL after
- *  3 s. Temp directories are removed only after this resolves — `kill()`
- *  alone just sends the signal, and deleting files a live process still
- *  holds masks the real failure. */
+ *  3 s. Temp directories are removed only after this resolves: `kill()`
+ *  alone just sends the signal, and a server still writing into a folder
+ *  being deleted can make the delete fail (ENOTEMPTY). */
 const terminateChild = async (
   child: ChildProcess,
   signal: "SIGTERM" | "SIGKILL",
 ): Promise<void> => {
-  // A child killed by a signal has exitCode null but signalCode set —
-  // both are terminal states where kill() is a no-op and "close" has
-  // already fired (or will never fire), so waiting would hang for 3 s.
+  // Already exited: exitCode is set, or signalCode when a signal ended it.
+  // Nothing is left to stop, and "close" may have fired already, so waiting
+  // for it could stall for the full 3 s.
   if (child.exitCode !== null || child.signalCode !== null) return
   child.kill(signal)
   await new Promise<void>((resolveClosed) => {
-    child.once("close", () => resolveClosed())
-    setTimeout(() => {
+    const escalation = setTimeout(() => {
       child.kill("SIGKILL")
       resolveClosed()
-    }, 3_000).unref()
+    }, 3_000)
+    escalation.unref()
+    child.once("close", () => {
+      clearTimeout(escalation)
+      resolveClosed()
+    })
   })
+}
+
+const pollHealthz = async (port: number, timeoutMs: number): Promise<void> => {
+  const deadline = Date.now() + timeoutMs
+  const url = `http://127.0.0.1:${port}/healthz`
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url)
+
+      if (response.ok) return
+    } catch {
+      // Server not ready yet
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200))
+  }
+  throw new Error(`Server on port ${port} did not become healthy within ${timeoutMs}ms`)
 }
 
 /** Boot the real server against a copy of the fixture vault. */
@@ -160,10 +194,11 @@ export const startServer = async (
     envOverrides,
   )
 
-  // Both watchdogs are detached once the boot races settle: a timer that
-  // fires later, or the exit event that cleanup() itself triggers, would
-  // otherwise reject a Promise nobody awaits any more (an unhandled
-  // rejection in the test runner).
+  // Each boot step gets this long: the "server started" line, then /healthz.
+  const bootStepTimeoutMs = 15_000
+
+  // Boot fails as soon as the child exits, or when the "server started" line
+  // is late.
   const earlyExit = Promise.withResolvers<never>()
   const rejectOnExit = (code: number | null): void => {
     earlyExit.reject(new Error(`Server exited early with code ${code}`))
@@ -172,46 +207,62 @@ export const startServer = async (
   const startTimeout = Promise.withResolvers<never>()
   const startTimeoutTimer = setTimeout(() => {
     startTimeout.reject(
-      new Error(`Server on port ${port} did not log "server started" within 15000ms`),
+      new Error(
+        `Server on port ${port} did not log "server started" within ${bootStepTimeoutMs}ms`,
+      ),
     )
-  }, 15_000)
+  }, bootStepTimeoutMs)
   startTimeoutTimer.unref()
 
   try {
     await Promise.race([started, earlyExit.promise, startTimeout.promise])
-    await Promise.race([pollHealthz(port, 15_000), earlyExit.promise])
-  } catch (err) {
+    clearTimeout(startTimeoutTimer)
+    // "server started" proves this child bound the port; /healthz confirms
+    // it also answers HTTP requests.
+    await Promise.race([pollHealthz(port, bootStepTimeoutMs), earlyExit.promise])
+  } catch (bootError) {
+    // A server that never finished booting has no requests to drain, so it
+    // gets SIGKILL rather than cleanup's SIGTERM.
     await terminateChild(child, "SIGKILL")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
-    const reason = err instanceof Error ? err.message : String(err)
-    throw new Error(`${reason}\n\nServer stderr:\n${stderr()}`, { cause: err })
+    const reason = bootError instanceof Error ? bootError.message : String(bootError)
+    throw new Error(`${reason}\n\nServer stderr:\n${stderr()}`, { cause: bootError })
   } finally {
+    // The timer and the exit listener guard boot only; removing them here
+    // keeps either from firing later (cleanup's own kill would trigger the
+    // listener).
     clearTimeout(startTimeoutTimer)
     child.off("exit", rejectOnExit)
   }
 
   const cleanup = async (): Promise<void> => {
+    // SIGTERM lets the server drain in-flight requests before it exits.
     await terminateChild(child, "SIGTERM")
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
   }
 
-  return { port, process: child, vaultPath, dataDir, stdout, cleanup }
+  return { port, child, vaultPath, dataDir, stdout, cleanup }
 }
 
-/** Spawn server expecting it to fail — returns exit code and stderr. */
+/** Spawn server expecting it to fail — returns exit code and stderr.
+ *  exitCode is null when a signal ended the server, including the SIGKILL
+ *  sent to one still running after 10 s. */
 export const startServerExpectingFailure = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<{ exitCode: number | null; stderr: string }> => {
   const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(port, envOverrides)
 
-  const exitCode = await new Promise<number | null>((res) => {
-    child.on("close", (code) => res(code))
+  const exitCode = await new Promise<number | null>((resolveExitCode) => {
+    child.on("close", (code) => resolveExitCode(code))
+    // 10 s stays under the 15 s test timeout the callers set, so a server
+    // that boots instead of failing fails the exitCode assertion rather than
+    // timing the test out.
     setTimeout(() => {
       child.kill("SIGKILL")
-      res(null)
+      resolveExitCode(null)
     }, 10_000).unref()
   })
 
@@ -231,7 +282,8 @@ export const createTestClient = async (port: number): Promise<Client> => {
   const client = new Client({ name: "integration-test", version: "1.0.0" })
   // SDK's StreamableHTTPClientTransport.sessionId is `string | undefined` but
   // the Transport interface declares `sessionId?: string` — incompatible under
-  // exactOptionalPropertyTypes. Self-cleans when the SDK fixes the type.
+  // exactOptionalPropertyTypes. Once the SDK fixes the type, the directive
+  // below fails the build as unused, flagging it for deletion.
   // @ts-expect-error — SDK type misalignment (sessionId optionality)
   await client.connect(transport)
   return client
@@ -253,7 +305,8 @@ export const promptNames = async (client: Client): Promise<string[]> => {
 
 type SdkCallToolResult = Awaited<ReturnType<Client["callTool"]>>
 
-/** Content-response branch of the SDK's CallToolResult union. */
+/** The content branch of callTool's result union. The other branch is the
+ *  `{ toolResult }` shape of protocol version 2024-10-07. */
 export type ToolResult = Extract<SdkCallToolResult, { content: unknown[] }>
 
 const isContentResult = (result: SdkCallToolResult): result is ToolResult =>
@@ -280,6 +333,7 @@ export const callTool = async ({
 /** Join all text blocks from a tool result into a single string. */
 export const textContent = (result: ToolResult): string =>
   result.content
+    // The type check narrows each block to the text variant, which has .text.
     .filter((block) => block.type === "text")
     .map((block) => block.text)
     .join("\n")
@@ -300,6 +354,7 @@ export const mcpInitStatus = async (port: number, authHeader?: string): Promise<
       method: "initialize",
       id: 1,
       params: {
+        // A version the SDK supports; callers assert only the HTTP status.
         protocolVersion: "2025-03-26",
         capabilities: {},
         clientInfo: { name: "test", version: "1.0.0" },
@@ -307,20 +362,4 @@ export const mcpInitStatus = async (port: number, authHeader?: string): Promise<
     }),
   })
   return response.status
-}
-
-const pollHealthz = async (port: number, timeoutMs: number): Promise<void> => {
-  const deadline = Date.now() + timeoutMs
-  const url = `http://127.0.0.1:${port}/healthz`
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url)
-
-      if (response.ok) return
-    } catch {
-      // Server not ready yet
-    }
-    await new Promise((res) => setTimeout(res, 200))
-  }
-  throw new Error(`Server on port ${port} did not become healthy within ${timeoutMs}ms`)
 }
