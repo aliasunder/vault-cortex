@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Sends test runs to the nobody user when a session runs as root, as cloud
-# sessions do. Root reads files the permission tests make unreadable, so those
-# tests fail as root while CI, which runs as a normal user, passes them.
+# Stops test runs in a session that runs as root, as cloud sessions do, and
+# replies with the setpriv prefix that runs the same command as nobody. Root
+# reads files the permission tests make unreadable, so those tests fail as
+# root while CI, which runs as a normal user, passes them.
 # Registered on PreToolUse for Bash. A non-root session exits at the first
 # check, so the hook costs nothing on a developer machine.
 set -euo pipefail
@@ -60,8 +61,12 @@ nobody_writable=(
   "${checkout}/node_modules/.nobody-home"
 )
 mkdir -p "${nobody_writable[@]}"
-chmod 777 "${nobody_writable[@]}"
-chmod -R o+w "${checkout}/src/vault-mcp/mcp-core/__tests__/__snapshots__" 2>/dev/null || true
+# Recursive, because files a root run left inside would stay root-owned.
+chmod -R 777 "${nobody_writable[@]}"
+snapshots="${checkout}/src/vault-mcp/mcp-core/__tests__/__snapshots__"
+if [[ -d "${snapshots}" ]]; then
+  chmod -R o+w "${snapshots}"
+fi
 
 cat >&2 <<EOF
 Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.
