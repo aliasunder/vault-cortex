@@ -620,7 +620,7 @@ const UNCLOSED_BLOCK_MESSAGE =
   "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
 
 const CARRY_TEXT_REPAIR_STEPS =
-  "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties; 4. add the copied text back to the body with vault_patch_note, without the --- lines."
+  "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties (leave out a key to remove it; null keeps it with an empty value); 4. add the copied text back to the body with vault_patch_note, without the --- lines."
 
 const OVERWRITE_REPAIR_STEPS =
   "To overwrite it, read the note in full with vault_read_note, call vault_update_properties with replace: true and the properties to keep ({} for none), then run this write again."

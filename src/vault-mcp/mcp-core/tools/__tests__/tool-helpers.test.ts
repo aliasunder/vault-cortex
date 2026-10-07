@@ -18,10 +18,10 @@ const failWithCause = async (): Promise<string> => {
 const everyToolServed = (): boolean => true
 
 const CARRY_TEXT_REPAIR_STEPS =
-  "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties; 4. add the copied text back to the body with vault_patch_note, without the --- lines."
+  "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties (leave out a key to remove it; null keeps it with an empty value); 4. add the copied text back to the body with vault_patch_note, without the --- lines."
 
 const TAG_REPAIR_STEPS =
-  "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties. The tag cannot be kept; write the value without it."
+  "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties (leave out a key to remove it; null keeps it with an empty value). The tag cannot be kept; write the value without it."
 
 const OBSIDIAN_ONLY_STEP = "Fix the properties block in Obsidian."
 
