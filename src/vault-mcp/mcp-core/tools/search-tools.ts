@@ -153,21 +153,24 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
+      description: `Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog").
 
 Example: vault_search_by_tag({ tag: "project" })
+Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — notes tagged "project" itself, up to 50
 
 When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
 Parameters:
-- Prefix mode follows the "/" separator: "project" matches itself and every tag nested under it (project/a, project/a/b) but does NOT match "my-project" or "projects".
+- exact: the default (false) follows the "/" separator: "project" matches itself and every tag nested under it (project/a, project/a/b) but does NOT match "my-project" or "projects".
 - limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+
+Behavior: Reads the search index, which picks up a file change within a few seconds, so a note written moments ago may not appear yet.
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified, then by path. bytes is the on-disk file size. additional_properties holds only frontmatter keys without their own top-level field.`,
+Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title, tags, related, folder, type, created (frontmatter; null when missing), modified (file time), bytes (on-disk size), plus, when present, leading_callout (the note's opening callout, { type, title, body }) and additional_properties (frontmatter keys without their own top-level field).`,
       inputSchema: {
         tag: z
           .string()
