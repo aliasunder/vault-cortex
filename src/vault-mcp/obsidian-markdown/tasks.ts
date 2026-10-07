@@ -1518,6 +1518,18 @@ const assignBlockId = ({ taskLine, blockId }: { taskLine: string; blockId: strin
   return `${trimmedLine} ^${blockId}${trailingWhitespace}`
 }
 
+/** Removes a task line's trailing `^block-id`, keeping trailing whitespace
+ *  (a markdown hard break) as assignBlockId does; a line without one is
+ *  returned unchanged. */
+const removeBlockId = (taskLine: string): string => {
+  const trimmedLine = taskLine.trimEnd()
+  const trailingWhitespace = taskLine.slice(trimmedLine.length)
+  const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine)
+
+  if (!blockLinkMatch) return taskLine
+  return `${trimmedLine.slice(0, blockLinkMatch.index)}${trailingWhitespace}`
+}
+
 /** Removes the trailing `^block-id` from a task line, if it has one. */
 const stripBlockLink = (taskLine: string): string => {
   const trimmedLine = taskLine.trimEnd()
@@ -1544,7 +1556,7 @@ const getTaskIndent = (line: string): number => {
 /** Parameters for building a complete task line. */
 type BuildTaskLineParams = {
   description: string
-  blockId: string
+  blockId?: string | undefined
   priority?: TaskPriority | undefined
   recurrence?: string | undefined
   onCompletion?: string | undefined
@@ -1583,7 +1595,7 @@ const buildTaskLine = (params: BuildTaskLineParams, config: TaskFormatConfig): s
     ...optionalDateFields,
     ...(params.taskId ? [formatTaskId(params.taskId, format)] : []),
     ...(params.dependsOn?.length ? [formatDependsOn(params.dependsOn, format)] : []),
-    `^${params.blockId}`,
+    ...(params.blockId ? [`^${params.blockId}`] : []),
   ]
   return parts.join(" ")
 }
@@ -1856,6 +1868,7 @@ export const tasks = {
   describeTaskLine,
   diffTaskRoundTrip,
   assignBlockId,
+  removeBlockId,
   getTaskIndent,
   buildTaskLine,
   buildNextOccurrenceLine,

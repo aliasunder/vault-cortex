@@ -1570,6 +1570,24 @@ describe("task line mutations", () => {
     })
   })
 
+  describe("removeBlockId", () => {
+    it("removes a trailing block_id", () => {
+      expect(tasks.removeBlockId("\t- [ ] Sub-task ➕ 2026-08-01 ^sub-id")).toBe(
+        "\t- [ ] Sub-task ➕ 2026-08-01",
+      )
+    })
+
+    it("keeps a hard break's trailing whitespace", () => {
+      expect(tasks.removeBlockId("- [ ] My task ^my-task  ")).toBe("- [ ] My task  ")
+    })
+
+    it("returns a line without a block_id unchanged", () => {
+      expect(tasks.removeBlockId("- [ ] My task ➕ 2026-08-01  ")).toBe(
+        "- [ ] My task ➕ 2026-08-01  ",
+      )
+    })
+  })
+
   // ── deduplicateDescriptionTags ──────────────────────────────────
 
   describe("deduplicateDescriptionTags", () => {
@@ -2071,6 +2089,18 @@ describe("task line mutations", () => {
         EMOJI_CONFIG,
       )
       expect(line).toBe("- [ ] Buy groceries ➕ 2026-08-25 ^buy-groceries")
+    })
+
+    it("builds a line with no block link when no block id is given", () => {
+      const line = tasks.buildTaskLine(
+        {
+          description: "Sub-step",
+          created: "2026-08-25",
+          indent: "\t",
+        },
+        EMOJI_CONFIG,
+      )
+      expect(line).toBe("\t- [ ] Sub-step ➕ 2026-08-25")
     })
 
     it("builds a task with all fields (emoji)", () => {

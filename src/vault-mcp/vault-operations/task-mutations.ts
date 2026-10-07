@@ -47,7 +47,8 @@ type CreateTaskParams = {
    *  toggles are read live. */
   statusRegistry: ReadonlyMap<string, StatusClassification>
   description: string
-  blockId: string
+  /** Required, except on a sub-task on a Kanban board, which must not carry one. */
+  blockId?: string | undefined
   heading?: string | undefined
   parentBlockId?: string | undefined
   parentLine?: number | undefined
@@ -75,7 +76,7 @@ type CreateTaskResult = {
   path: string
   line: number
   description: string
-  block_id: string
+  block_id?: string | undefined
   heading?: string | undefined
   subtasks?: SubtaskPosition[] | undefined
   changes: string[]
@@ -106,7 +107,8 @@ type UpdateTaskParams = {
   taskId?: string | null | undefined
   dependsOn?: string[] | null | undefined
   addSubtasks?: string[] | undefined
-  assignBlockId?: string | undefined
+  /** A new id for the line, or null to remove its id. */
+  assignBlockId?: string | null | undefined
   format?: "emoji" | "dataview" | undefined
 }
 
@@ -1327,6 +1329,34 @@ const validateBlockId = (
   }
 }
 
+/** Why a Kanban board takes no block id on an indented line: the plugin
+ *  gives each card the last id found anywhere inside it, and its next save
+ *  writes that id onto the card in place of the card's own. */
+const KANBAN_INDENTED_ID_REASON =
+  "the Kanban plugin copies an indented line's block ID onto its card when it saves the board"
+
+/** The block id a line ends in, if any. Trimmed first, per BLOCK_LINK_RE's
+ *  contract: a hard break's trailing spaces would hide the anchored match. */
+const trailingBlockIdOf = (line: string): string | undefined => {
+  return tasks.BLOCK_LINK_RE.exec(line.trimEnd())?.[1]
+}
+
+/** Refuses checklist text that ends in a block id. Checklist items are always
+ *  written indented, so on a Kanban board each would hand its card an id. */
+const rejectKanbanSubtaskBlockIds = (subtaskDescriptions: readonly string[]): void => {
+  for (const subtaskText of subtaskDescriptions) {
+    // The written line puts a space before the text, so an item made only of
+    // "^id" still ends the line in a block id.
+    const subtaskBlockId = trailingBlockIdOf(` ${subtaskText}`)
+
+    if (subtaskBlockId) {
+      throw new Error(
+        `subtask "${subtaskText}" ends in a block ID (^${subtaskBlockId}), which is not allowed on an indented line on a Kanban board — ${KANBAN_INDENTED_ID_REASON}`,
+      )
+    }
+  }
+}
+
 /** Rejects a task_id or depends_on entry the parser could not read back —
  *  an id outside the plugin's grammar is written as prose, so the call
  *  would report success while the field silently never exists. */
@@ -1522,10 +1552,26 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     // content, which has no frontmatter) to count the frontmatter offset.
     const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
-    // Validate block_id grammar and uniqueness
-    validateBlockId(blockId, bodyLines)
-
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
+    // A sub-task is always written indented under its parent.
+    const isKanbanSubtask = isKanbanBoard && parentLocator !== undefined
+
+    if (blockId && isKanbanSubtask) {
+      throw new Error(
+        `blockId is not allowed on a sub-task on a Kanban board — ${KANBAN_INDENTED_ID_REASON}`,
+      )
+    }
+    if (!blockId && !isKanbanSubtask) {
+      throw new Error("blockId is required")
+    }
+    // Validate block_id grammar and uniqueness
+    if (blockId) {
+      validateBlockId(blockId, bodyLines)
+    }
+    if (isKanbanBoard && subtasks) {
+      rejectKanbanSubtaskBlockIds(subtasks)
+    }
+
     const pluginConfig = await readTaskFormatConfig(vaultPath, logger)
     const formatConfig = {
       ...pluginConfig,
@@ -1653,7 +1699,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
       path,
       line: finalLine,
       description,
-      block_id: blockId,
+      ...(blockId && { block_id: blockId }),
       heading: resolvedHeading,
       subtasks: subtaskPositions,
       changes,
@@ -1829,8 +1875,21 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     if (position && isSubtask) {
       throw new Error("cannot reposition a sub-task — the parent's position determines placement")
     }
+    // Indent, not depth: the plugin hoists from any line inside a card,
+    // including a task under a plain bullet or a NON_TASK card, which the
+    // index lists at depth 0.
+    const isIndentedKanbanLine = isKanbanBoard && tasks.getTaskIndent(originalTaskLine) > 0
+
+    if (newBlockId && isIndentedKanbanLine) {
+      throw new Error(
+        `assignBlockId is not allowed on an indented line on a Kanban board — ${KANBAN_INDENTED_ID_REASON}`,
+      )
+    }
     if (newBlockId) {
       validateBlockId(newBlockId, bodyLines, taskLineIndex)
+    }
+    if (isKanbanBoard && addSubtasks) {
+      rejectKanbanSubtaskBlockIds(addSubtasks)
     }
 
     const today = todayIsoDate()
@@ -1980,6 +2039,14 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
             },
           ]
         : []),
+      ...(newBlockId === null
+        ? [
+            {
+              apply: (taskLine: string) => tasks.removeBlockId(taskLine),
+              change: formatChange({ field: "block_id", before: taskBefore.blockId, after: null }),
+            },
+          ]
+        : []),
       // The description edit must run last. Every field edit above splits
       // the line at the description/metadata boundary, and a signifier in
       // the NEW description text shifts that boundary — a field edit running
@@ -2014,6 +2081,18 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // tail — the round-trip artifact of the parser's tag re-append.
     const tagDedup = tasks.deduplicateDescriptionTags(editedLine)
     const mutatedLine = tagDedup.taskLine
+
+    // assignBlockId was refused above, so a new trailing id on an indented
+    // board line can only come from description text ending in ` ^id`.
+    const writtenBlockId = trailingBlockIdOf(mutatedLine)
+    const addsBlockIdToIndentedKanbanLine =
+      isIndentedKanbanLine && writtenBlockId !== undefined && writtenBlockId !== taskBefore.blockId
+
+    if (addsBlockIdToIndentedKanbanLine) {
+      throw new Error(
+        `description ends in a block ID (^${writtenBlockId}), which is not allowed on an indented line on a Kanban board — ${KANBAN_INDENTED_ID_REASON}`,
+      )
+    }
 
     // The description edit's after-value previews the swap on the original
     // line, which predates dedup. When dedup strips a metadata tag, the
@@ -2324,9 +2403,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     const finalLine = bodyStartLine + finalTaskIndex + 1
     const finalTaskLine = resultLines[finalTaskIndex] ?? mutatedLine
-    // Trimmed-end per BLOCK_LINK_RE's contract: a heading-only move splices
-    // the raw line, and a trailing hard break would hide the anchored match.
-    const finalBlockId = tasks.BLOCK_LINK_RE.exec(finalTaskLine.trimEnd())?.[1]
+    // A heading-only move splices the raw line, hard break included, so the
+    // id is read through trailingBlockIdOf's trim.
+    const finalBlockId = trailingBlockIdOf(finalTaskLine)
     const finalHeading = parseHeadings(resultLines).findLast(
       (heading) => heading.startLine < finalTaskIndex,
     )

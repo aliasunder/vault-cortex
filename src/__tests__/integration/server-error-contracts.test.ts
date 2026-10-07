@@ -1720,23 +1720,23 @@ describe("task errors", () => {
   })
 
   it("vault_update_task — cannot move a sub-task to a heading", async () => {
-    // First create a sub-task on the board
-    await callTool({
+    // A sub-task on a board carries no block_id, so it is targeted by line
+    const createResult = await callTool({
       client,
       name: "vault_create_task",
       args: {
         path: "Projects/board.md",
         description: "Sub for error test",
-        block_id: "sub-error-test",
         parent_block_id: "board-active-1",
       },
     })
+    expect(createResult.isError).not.toBe(true)
     const result = await callTool({
       client,
       name: "vault_update_task",
       args: {
         path: "Projects/board.md",
-        block_id: "sub-error-test",
+        line: JSON.parse(textContent(createResult)).line,
         heading: "Done",
       },
     })
@@ -1750,7 +1750,6 @@ describe("task errors", () => {
       args: {
         path: "Projects/board.md",
         description: "Sub for position test",
-        block_id: "sub-pos-test",
         parent_block_id: "board-active-1",
       },
     })
@@ -1760,7 +1759,7 @@ describe("task errors", () => {
       name: "vault_update_task",
       args: {
         path: "Projects/board.md",
-        block_id: "sub-pos-test",
+        line: JSON.parse(textContent(createResult)).line,
         position: 1,
       },
     })
@@ -1961,6 +1960,157 @@ describe("task errors", () => {
       },
     })
     expectToolError(result, "is inside a fenced code block or comment")
+  })
+})
+
+describe("block ids on Kanban sub-tasks", () => {
+  const KANBAN_REASON =
+    "the Kanban plugin copies an indented line's block ID onto its card when it saves the board"
+
+  // Lines 6-9 of the written note: a card with a checklist item, then a card
+  // whose own block id was copied onto its sub-task.
+  const writeBoard = async (path: string): Promise<void> => {
+    const setupResult = await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path,
+        properties: { "kanban-plugin": "board" },
+        body: "## Active\n\n- [ ] Card ^kb-card\n\t- [ ] Checklist item\n- [ ] Copied card ^kb-copied\n\t- [ ] Copied sub-task ^kb-copied\n",
+      },
+    })
+    onTestFinished(async () => {
+      await callTool({ client, name: "vault_delete_note", args: { path } })
+    })
+    expect(setupResult.isError).not.toBe(true)
+  }
+
+  it("vault_create_task without block_id on a top-level card", async () => {
+    await writeBoard("Projects/kb-required.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: { path: "Projects/kb-required.md", description: "No id", heading: "Active" },
+    })
+    expectToolError(result, "blockId is required")
+  })
+
+  it("vault_create_task with block_id on a Kanban sub-task", async () => {
+    await writeBoard("Projects/kb-create-sub.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/kb-create-sub.md",
+        description: "Sub",
+        block_id: "kb-sub",
+        parent_block_id: "kb-card",
+      },
+    })
+    expectToolError(
+      result,
+      `blockId is not allowed on a sub-task on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_create_task with a checklist item ending in a block id on a Kanban board", async () => {
+    await writeBoard("Projects/kb-create-checklist.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/kb-create-checklist.md",
+        description: "New card",
+        block_id: "kb-new",
+        heading: "Active",
+        subtasks: ["Design ^kb-design"],
+      },
+    })
+    expectToolError(
+      result,
+      `subtask "Design ^kb-design" ends in a block ID (^kb-design), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_create_task under a parent block id that ends two task lines", async () => {
+    await writeBoard("Projects/kb-parent-ambiguous.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/kb-parent-ambiguous.md",
+        description: "Sub",
+        parent_block_id: "kb-copied",
+      },
+    })
+    expectToolError(
+      result,
+      'parent task ambiguous: blockId "kb-copied" matches 2 task lines (8, 9)',
+    )
+  })
+
+  it("vault_update_task with a block id that ends two task lines", async () => {
+    await writeBoard("Projects/kb-update-ambiguous.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/kb-update-ambiguous.md", block_id: "kb-copied", status: "done" },
+    })
+    expectToolError(
+      result,
+      'blockId "kb-copied" matches 2 task lines (8, 9) in "Projects/kb-update-ambiguous.md"',
+    )
+  })
+
+  it("vault_update_task assigning a block id to a Kanban sub-task", async () => {
+    await writeBoard("Projects/kb-assign.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/kb-assign.md", line: 7, assign_block_id: "kb-item" },
+    })
+    expectToolError(
+      result,
+      `assignBlockId is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_update_task with a Kanban sub-task description ending in a block id", async () => {
+    await writeBoard("Projects/kb-description.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/kb-description.md", line: 7, description: "Renamed ^kb-renamed" },
+    })
+    expectToolError(
+      result,
+      `description ends in a block ID (^kb-renamed), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_update_task adding a checklist item ending in a block id on a Kanban board", async () => {
+    await writeBoard("Projects/kb-add-checklist.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/kb-add-checklist.md",
+        block_id: "kb-card",
+        add_subtasks: ["Test ^kb-test"],
+      },
+    })
+    expectToolError(
+      result,
+      `subtask "Test ^kb-test" ends in a block ID (^kb-test), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
   })
 })
 

@@ -2144,14 +2144,14 @@ kanban-plugin: board
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
 
-      // Create a sub-task first so we have one to complete
-      await taskMutations.createTask(
+      // Create a sub-task first so we have one to complete. A Kanban
+      // sub-task carries no block id, so its line is the handle.
+      const created = await taskMutations.createTask(
         {
           statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           description: "Sub-stage",
-          blockId: "sub-stage",
           parentBlockId: "parent",
         },
         logger,
@@ -2162,7 +2162,7 @@ kanban-plugin: board
           statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
-          blockId: "sub-stage",
+          line: created.line,
           status: "done",
         },
         logger,
@@ -2172,7 +2172,7 @@ kanban-plugin: board
       const content = await readTestNote(vault, "board.md")
       // Sub-task completed in place under Active, not moved to Done
       const activeSection = content.split("## Active")[1]?.split("## ")[0] ?? ""
-      expect(activeSection).toContain(`[x] Sub-stage ➕ ${today()} ✅ ${today()} ^sub-stage`)
+      expect(activeSection).toContain(`[x] Sub-stage ➕ ${today()} ✅ ${today()}\n`)
       const doneSection = content.split("## Done")[1] ?? ""
       expect(doneSection).not.toContain("Sub-stage")
     })
@@ -2181,13 +2181,12 @@ kanban-plugin: board
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
 
-      await taskMutations.createTask(
+      const created = await taskMutations.createTask(
         {
           statusRegistry: DEFAULT_STATUS_REGISTRY,
           vaultPath: vault,
           path: "board.md",
           description: "Sub for heading test",
-          blockId: "sub-heading-test",
           parentBlockId: "parent",
         },
         logger,
@@ -2199,7 +2198,7 @@ kanban-plugin: board
             statusRegistry: DEFAULT_STATUS_REGISTRY,
             vaultPath: vault,
             path: "board.md",
-            blockId: "sub-heading-test",
+            line: created.line,
             heading: "Done",
           },
           logger,
@@ -6807,7 +6806,6 @@ kanban-plugin: board
           vaultPath: vault,
           path: "board.md",
           description: "Another sub-task",
-          blockId: "another",
           parentBlockId: "copied",
         },
         logger,
@@ -6862,6 +6860,399 @@ kanban-plugin: board
       ),
     ).rejects.toThrow(new Error('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry'))
     expect(await readTestNote(vault, "tasks.md")).toBe(content)
+  })
+})
+
+describe("block ids on indented Kanban lines", () => {
+  const KANBAN_REASON =
+    "the Kanban plugin copies an indented line's block ID onto its card when it saves the board"
+
+  // Lines counted by hand: card 7, its sub-task 8, the NON_TASK card 9 and
+  // the task under it 10, the other card 11.
+  const BOARD = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Card ➕ 2026-07-01 ^card
+\t- [ ] Existing sub-task
+- [>] Forwarded card ^forwarded
+\t- [ ] Under a NON_TASK card
+- [ ] Other card ^other
+
+## Done
+
+**Complete**
+`
+
+  const PLAIN_NOTE = `---
+title: Plan
+---
+
+- [ ] Parent ➕ 2026-07-01 ^parent
+  - [ ] Child
+`
+
+  it("writes a Kanban sub-task without an id and omits block_id from the result", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    const result = await taskMutations.createTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        description: "New sub-task",
+        parentBlockId: "card",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "board.md",
+      line: 9,
+      description: "New sub-task",
+      heading: "Active",
+      changes: [`created: (none) → ${today()}`],
+    })
+    expect(await readTestNote(vault, "board.md")).toBe(
+      BOARD.replace(
+        "\t- [ ] Existing sub-task\n",
+        `\t- [ ] Existing sub-task\n\t- [ ] New sub-task ➕ ${today()}\n`,
+      ),
+    )
+  })
+
+  it("refuses a Kanban sub-task given a block id and leaves the board unchanged", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    await expect(
+      taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          description: "New sub-task",
+          blockId: "new-sub",
+          parentBlockId: "card",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(`blockId is not allowed on a sub-task on a Kanban board — ${KANBAN_REASON}`),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("requires a block id on a sub-task in a plain note", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "plan.md", PLAIN_NOTE)
+
+    await expect(
+      taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "plan.md",
+          description: "Another child",
+          parentBlockId: "parent",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("blockId is required"))
+    expect(await readTestNote(vault, "plan.md")).toBe(PLAIN_NOTE)
+  })
+
+  it("requires a block id on a top-level card on a Kanban board", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    await expect(
+      taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          description: "New card",
+          heading: "Active",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("blockId is required"))
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("refuses assignBlockId on an indented Kanban line", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          line: 8,
+          assignBlockId: "sub-id",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `assignBlockId is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+      ),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("refuses assignBlockId on a task indented under a NON_TASK card", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: NON_TASK_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          line: 10,
+          assignBlockId: "under-forwarded",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `assignBlockId is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+      ),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("still assigns a block id to a Kanban card", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "other",
+        assignBlockId: "other-card",
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual(["block_id: other → other-card"])
+    expect(await readTestNote(vault, "board.md")).toBe(
+      BOARD.replace("- [ ] Other card ^other\n", "- [ ] Other card ^other-card\n"),
+    )
+  })
+
+  it("still assigns a block id to a sub-task in a plain note", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "plan.md", PLAIN_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "plan.md",
+        line: 6,
+        assignBlockId: "child",
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual(["block_id: (none) → child"])
+    expect(await readTestNote(vault, "plan.md")).toBe(
+      PLAIN_NOTE.replace("  - [ ] Child\n", "  - [ ] Child ^child\n"),
+    )
+  })
+
+  it("removes a Kanban sub-task's id with assignBlockId null, keeping a hard break", async () => {
+    const vault = await createVault()
+    const board = BOARD.replace(
+      "\t- [ ] Existing sub-task\n",
+      "\t- [ ] Existing sub-task ^copied  \n",
+    )
+    await writeTestNote(vault, "board.md", board)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        line: 8,
+        assignBlockId: null,
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual(["block_id: copied → (none)"])
+    expect(result.block_id).toBeUndefined()
+    expect(await readTestNote(vault, "board.md")).toBe(
+      BOARD.replace("\t- [ ] Existing sub-task\n", "\t- [ ] Existing sub-task  \n"),
+    )
+  })
+
+  it("records (none) → (none) when assignBlockId null meets a line without an id", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        line: 8,
+        assignBlockId: null,
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual(["block_id: (none) → (none)"])
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("refuses addSubtasks text ending in a block id on a Kanban board", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "card",
+          addSubtasks: ["Plain step", "Step ^step-id"],
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `subtask "Step ^step-id" ends in a block ID (^step-id), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+      ),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("refuses a checklist item made only of a block id on a Kanban board", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "card",
+          addSubtasks: ["^bare"],
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `subtask "^bare" ends in a block ID (^bare), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+      ),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("refuses create's subtasks text ending in a block id on a Kanban board", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    await expect(
+      taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          description: "New card",
+          blockId: "new-card",
+          heading: "Active",
+          subtasks: ["Step ^step-id"],
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `subtask "Step ^step-id" ends in a block ID (^step-id), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+      ),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("keeps only an advisory for addSubtasks text ending in a block id on a plain note", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "plan.md", PLAIN_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "plan.md",
+        blockId: "parent",
+        addSubtasks: ["Step ^step-id"],
+      },
+      logger,
+    )
+
+    expect(result.advisories).toEqual([
+      'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
+    ])
+    expect(await readTestNote(vault, "plan.md")).toBe(
+      PLAIN_NOTE.replace("  - [ ] Child\n", "  - [ ] Child\n  - [ ] Step ^step-id\n"),
+    )
+  })
+
+  it("refuses a description ending in a block id on an indented Kanban line", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "board.md",
+          line: 8,
+          description: "Renamed sub-task ^renamed",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error(
+        `description ends in a block ID (^renamed), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+      ),
+    )
+    expect(await readTestNote(vault, "board.md")).toBe(BOARD)
+  })
+
+  it("does not refuse a card description ending in a block id, and keeps the card's own id", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "other",
+        description: "Other card renamed ^typed",
+      },
+      logger,
+    )
+
+    expect(result.block_id).toBe("other")
+    expect(await readTestNote(vault, "board.md")).toBe(
+      BOARD.replace("- [ ] Other card ^other\n", "- [ ] Other card renamed ^typed ^other\n"),
+    )
   })
 })
 
