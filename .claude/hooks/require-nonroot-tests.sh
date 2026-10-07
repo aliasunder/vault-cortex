@@ -33,20 +33,39 @@ fi
   })
 ' 2>/dev/null)
 
-# A test runner at a command position: the start of the line or after ;, &, |,
+# A test runner at a command position: the start of a line or after ;, &, |,
 # ( or $(, optionally after `env` and VAR=value settings (`CI=1 npm test`).
 # A mention elsewhere, as in `grep vitest package.json`, is not a run.
-# test:remote-boot is left out because it needs the Docker socket, which
-# nobody cannot open.
-test_runner='(npx[[:space:]]+)?([^[:space:];&|]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs|npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|test:cli-pty|snapshot:update))'
+test_runner='(npx[[:space:]]+)?([^[:space:];&|]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs|npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|snapshot:update))'
 variable_setting="[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|'[^']*'|[^[:space:];&|'\"]*)[[:space:]]+"
 command_prefix="(env[[:space:]]+)?(${variable_setting})*"
-runs_tests="(^|[;&|(]|\\\$\\()[[:space:]]*${command_prefix}(${test_runner})([[:space:];&|)]|\$)"
-if [[ ! "${tool_command}" =~ ${runs_tests} || "${tool_command}" == *setpriv* ]]; then
+# A newline separates commands just as ; does.
+line_break=$'\n'
+runs_tests="(^|[;&|(${line_break}]|\\\$\\()[[:space:]]*${command_prefix}(${test_runner})([[:space:];&|)]|\$)"
+if [[ ! "${tool_command}" =~ ${runs_tests} ]]; then
   exit 0
 fi
 
-checkout="$(git -C "${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}" rev-parse --show-toplevel 2>/dev/null)" || exit 0
+# A command already prefixed goes through, and so do two suites, by npm script
+# or by vitest config, that have no permission tests and cannot run as nobody:
+# - remote-boot needs the Docker socket, which nobody cannot open.
+# - cli-pty starts the CLI with npx from a temp folder, so npx downloads tsx
+#   into nobody's empty npm cache. In a cloud session that download fails,
+#   because nobody cannot read the proxy's CA bundle under /root.
+case "${tool_command}" in
+  *setpriv* | *remote-boot* | *cli-pty*) exit 0 ;;
+esac
+
+# The tests run where the command's leading `cd` goes, which can be another
+# checkout than the session's folder (`cd /other/checkout && npm test`).
+session_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
+run_dir="${session_dir}"
+leading_cd='^[[:space:]]*cd[[:space:]]+(/[^[:space:];&|]*)'
+if [[ "${tool_command}" =~ ${leading_cd} ]]; then
+  run_dir="${BASH_REMATCH[1]}"
+fi
+checkout="$(git -C "${run_dir}" rev-parse --show-toplevel 2>/dev/null ||
+  git -C "${session_dir}" rev-parse --show-toplevel 2>/dev/null)" || exit 0
 
 # Before dependencies are installed there is nothing to run, and a folder made
 # under node_modules would let install-deps.sh take the checkout as installed.
