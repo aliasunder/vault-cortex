@@ -93,7 +93,9 @@ const spawnServerProcess = async (
   const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-data-"))
   const env = buildServerEnv(port, vaultPath, dataDir, envOverrides)
 
-  const child = spawn("npx", ["tsx", SERVER_ENTRY], {
+  // One process, so kill() reaches the server itself. Through `npx tsx`, the
+  // signal stops only npx, and the tsx wrapper and the server keep running.
+  const child = spawn(process.execPath, ["--import", "tsx", SERVER_ENTRY], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   })
