@@ -55,9 +55,9 @@ checkout="$(git -C "${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}" rev-parse --show-t
 # - nvm's Node is the checkout's .nvmrc version when nvm has it installed,
 #   otherwise nvm's default alias.
 persist_node_on_path() {
-  # Only a SessionStart run is handed the session's own env file. A worktree
-  # entry could inherit a CLAUDE_ENV_FILE the user exported, so writing there
-  # would append the PATH line to the user's own file.
+  # Only SessionStart runs write: Claude Code hands them the session's own env
+  # file. A worktree entry (PostToolUse) could inherit a CLAUDE_ENV_FILE the
+  # user exported, so writing there would append the PATH line to that file.
   local hook_event
   hook_event="$(read_payload_field hook_event_name)"
   [[ "${hook_event}" == "SessionStart" ]] || return 0
