@@ -1095,6 +1095,35 @@ describe("upsertNote", () => {
     ])
   })
 
+  it("stores the file name as title and null as type when those values are not text", () => {
+    index.upsertNote(
+      {
+        filePath: "text-values.md",
+        rawContent: "---\ntitle: Plan\ntype: meeting\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "non-text-values.md",
+        rawContent: "---\ntitle: 2024\ntype: [meeting]\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    // The text-valued note keeps both values, so the fallbacks come from the
+    // values' types, not from title and type never being stored.
+    const titleAndTypeByPath = index
+      .recentNotes({}, logger)
+      .map((note) => ({ path: note.path, title: note.title, type: note.type }))
+    expect(titleAndTypeByPath).toEqual([
+      { path: "text-values.md", title: "Plan", type: "meeting" },
+      { path: "non-text-values.md", title: "non-text-values", type: null },
+    ])
+  })
+
   it("stores empty folder for root-level notes", () => {
     index.upsertNote(
       {
