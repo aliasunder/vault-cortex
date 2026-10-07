@@ -1098,43 +1098,49 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
 })
 
 describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
-  /** Each Errors entry up to its first em dash, in listed order. */
-  const deleteNoteErrorLeads = (env: Record<string, string>): string[] => {
-    const errorsSection = extractDescriptionSection({
+  const deleteNoteErrors = (env: Record<string, string>): string => {
+    return extractDescriptionSection({
       registeredCalls: registerWithConfig(env),
       toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
       startMarker: "Errors:",
       endMarker: "\n\nReturns:",
     })
-    const [, ...errorEntries] = errorsSection.split("\n")
-    return errorEntries.map((entry) => entry.slice(0, entry.indexOf(" — ")))
   }
+  const PATH_AND_LOOKUP_ERROR_ENTRIES = [
+    '- "cannot delete protected path" — the path sits under a protected folder; use vault_delete_memory for memory entries',
+    '- "path must end in …" — add the .md extension',
+    '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it',
+    '- "concurrent write in progress" — another write to this note is in flight; retry',
+    '- "note not found: …" — verify path with vault_list_notes',
+  ]
+  const OTHER_DELETE_ERROR_ENTRY =
+    '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry'
+  const DAILY_NOTES_CONFIG_ERROR_ENTRY =
+    '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
 
   it("lists the trash-move and trash-setting errors when the server does not sync", () => {
-    expect(deleteNoteErrorLeads({})).toEqual([
-      '- "cannot delete protected path"',
-      '- "path must end in …"',
-      '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked"',
-      '- "concurrent write in progress"',
-      '- "note not found: …"',
-      '- "cannot move to trash …',
-      '- any other "cannot move to trash …"',
-      '- "cannot delete …" (other than a protected path)',
-      '- "cannot read trash config from .obsidian/app.json"',
-      '- "cannot read daily notes config from .obsidian/daily-notes.json"',
-    ])
+    expect(deleteNoteErrors({})).toBe(
+      [
+        "Errors:",
+        ...PATH_AND_LOOKUP_ERROR_ENTRIES,
+        '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry',
+        '- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
+        OTHER_DELETE_ERROR_ENTRY,
+        "- \"cannot read trash config from .obsidian/app.json\" — the file exists but can't be read or parsed, and guessing the setting could let the server's trash cleanup delete a note Obsidian keeps forever; ask the vault owner to repair it, then retry",
+        DAILY_NOTES_CONFIG_ERROR_ENTRY,
+      ].join("\n"),
+    )
   })
 
   it("leaves the trash-move and trash-setting errors out under OBSIDIAN_SYNC=true", () => {
-    expect(deleteNoteErrorLeads({ OBSIDIAN_SYNC: "true" })).toEqual([
-      '- "cannot delete protected path"',
-      '- "path must end in …"',
-      '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked"',
-      '- "concurrent write in progress"',
-      '- "note not found: …"',
-      '- "cannot delete …" (other than a protected path)',
-      '- "cannot read daily notes config from .obsidian/daily-notes.json"',
-    ])
+    expect(deleteNoteErrors({ OBSIDIAN_SYNC: "true" })).toBe(
+      [
+        "Errors:",
+        ...PATH_AND_LOOKUP_ERROR_ENTRIES,
+        OTHER_DELETE_ERROR_ENTRY,
+        DAILY_NOTES_CONFIG_ERROR_ENTRY,
+      ].join("\n"),
+    )
   })
 
   const deleteNoteOpener = (env: Record<string, string>): string | undefined => {
