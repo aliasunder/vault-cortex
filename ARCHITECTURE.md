@@ -386,7 +386,7 @@ Four design choices shape the query surface:
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
 - **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder (rejected when the task sits above the first heading or the lane's heading name is duplicated). A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
-- **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, a new ID on an indented line is refused, whether assigned or at the end of a new description or checklist item, for the reason given above.
+- **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, no new ID goes on an indented line, for the reason given above: `assign_block_id` is refused there, as is any edit that would leave the line ending in a new `^id`, such as a description ending in one with no fields after it. A checklist item ending in a `^id` is refused under any card on a board.
 
 Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 
