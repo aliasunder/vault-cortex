@@ -231,7 +231,7 @@ When to use: Creating a new task card on a board or in a note. Guarantees correc
 Parameters:
 - heading is required on Kanban boards (notes with a kanban-plugin property) unless a parent is given.
 - parent_block_id / parent_line: ${whenToolEnabledText("vault_update_task", "the same pair vault_update_task uses (block_id / line). ")}Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
-- block_id / subtasks: on a Kanban board, a block_id on a sub-task is refused, as is a subtasks item ending in a ^block-id. When the Kanban plugin saves the board, it copies an indented line's block ID onto its card, replacing the card's own ID.
+- block_id / subtasks: block_id is required, except on a Kanban sub-task, where it is refused, as is a subtasks item ending in a ^block-id on a board. When the Kanban plugin saves the board, it copies an indented line's block ID onto its card, replacing the card's own ID.
 - position: ignored without a heading, and under a parent, where the sub-task goes after the parent's last sub-item.
 - priority: the plugin ranks "no signifier" (normal priority) between medium and low.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day; a task with no dates recurs as a dateless copy.
@@ -279,7 +279,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .min(1)
           .optional()
           .describe(
-            "The ^block-id (without the ^) for stable identification — letters, digits, and hyphens only ([a-zA-Z0-9-]+), unique within the note. Required, except on a Kanban sub-task, which must not have one.",
+            "The ^block-id (without the ^) for stable identification — letters, digits, and hyphens only ([a-zA-Z0-9-]+), unique within the note.",
           ),
         heading: z
           .string()
@@ -527,7 +527,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
 - subtasks lists each checklist item add_subtasks wrote as { line, description } (omitted when none were added); checklist items are written without a block_id, so line is the handle for a follow-up update.
 - next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has. It carries no block_id, so line is its handle.
 - changes lists every field applied as "field: before → after", with "(none)" for an absent value. add_subtasks appears as "subtasks", its two sides checklist-item counts, and a spawn adds "next_occurrence: (none) → line N".
-- advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted (see Obsidian syntax above), a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text or a rule with no dates left).
+- advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted (see Obsidian syntax above), a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text, or a finite rule with no occurrences left).
 - on_completion_applied is "delete", present only when the effective on_completion was delete (already on the task or set in the same call) and the task was transitioned to done.`,
       inputSchema: {
         path: z
