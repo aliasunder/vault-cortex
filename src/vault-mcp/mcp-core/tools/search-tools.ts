@@ -153,7 +153,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes by frontmatter tag; inline #tags in note bodies are not searched. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project", "project/vault-cortex", and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
+      description: `Find notes by frontmatter tag; inline #tags in note bodies are not searched. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project/vault-cortex" and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
 
 Example: vault_search_by_tag({ tag: "project" })
 Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — notes tagged "project" itself, up to 50
@@ -167,21 +167,21 @@ Behavior: Reads the search index, which picks up a file change within a few seco
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error.
-- "#project" and "project/" do not match notes tagged "project"; drop the "#" and the trailing "/".
+- "#project", "project/", and "Project" do not match notes tagged "project"; drop the "#" and the trailing "/", and use the tag's letter case.
 
-Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing), tags (every frontmatter tag, not only the matched one), related, type (null when missing), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the "> [!type] title" callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing), tags (every frontmatter tag, not only the matched one), related ([] when missing), type (null when missing), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
           .min(1)
           .describe(
-            'Tag name in its exact letter case, without the "#" prefix (e.g. "project", "session-log"). Hierarchical tags use "/" separators (e.g. "project/vault-cortex").',
+            'Tag name without "#" prefix (e.g. "project", "session-log"). Hierarchical tags use "/" separators (e.g. "project/vault-cortex").',
           ),
         exact: z
           .boolean()
           .optional()
           .default(false)
-          .describe("Match only the tag itself, not tags nested under it (default: false)"),
+          .describe("Match only the tag itself (default: false)"),
         limit: z
           .number()
           .int()
