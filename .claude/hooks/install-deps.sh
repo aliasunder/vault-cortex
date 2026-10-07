@@ -20,9 +20,16 @@ for dir in "${HOME}/.nvm" /root/.nvm; do
   fi
 done
 
+# Stdin can be read once, so the payload is captured for each field read.
+hook_payload="$(cat)"
+read_payload_field() {
+  node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(0,"utf8"))[process.argv[1]]??"")' "$1" <<<"${hook_payload}" 2>/dev/null || true
+}
+
 # The payload cwd follows the session into a worktree; CLAUDE_PROJECT_DIR
 # stays at the original project root, so it is only the fallback.
-payload_cwd="$(node -e 'let d="";process.stdin.on("data",(c)=>d+=c).on("end",()=>process.stdout.write(JSON.parse(d).cwd??""))' 2>/dev/null || true)"
+payload_cwd="$(read_payload_field cwd)"
+hook_event="$(read_payload_field hook_event_name)"
 checkout="$(git -C "${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}" rev-parse --show-toplevel 2>/dev/null)" || {
   log "no git checkout resolved from '${payload_cwd:-<empty>}' — skipping"
   exit 0
@@ -32,9 +39,10 @@ checkout="$(git -C "${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}" rev-parse --show-t
 # system Node can come before nvm's (cloud images put /opt/node22 first) and
 # nvm itself is not loaded. Claude Code runs CLAUDE_ENV_FILE before each later
 # command, so putting the checkout's Node first there pins every command to
-# it. Only SessionStart hooks receive the variable; worktree entries skip this.
+# it. Only a SessionStart run is handed the session's own file; a worktree
+# entry could inherit a CLAUDE_ENV_FILE the user set, so it skips this.
 persist_node_on_path() {
-  if [[ -z "${CLAUDE_ENV_FILE:-}" ]] || ! command -v nvm >/dev/null 2>&1; then
+  if [[ "${hook_event}" != "SessionStart" || -z "${CLAUDE_ENV_FILE:-}" ]] || ! command -v nvm >/dev/null 2>&1; then
     return 0
   fi
 
