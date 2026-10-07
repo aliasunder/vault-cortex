@@ -667,10 +667,9 @@ title: Tasks
         changes: ["heading: TODO → Done"],
       })
       const content = await readTestNote(vault, "tasks.md")
-      const doneSection = content.split("## Done")[1] ?? ""
-      expect(doneSection).toContain("Task to move")
-      const todoSection = content.split("## TODO")[1]?.split("## Done")[0] ?? ""
-      expect(todoSection).not.toContain("Task to move")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n## TODO\n\n\n## Done\n- [ ] Task to move ➕ 2026-07-01 ^move-me\n\n- [x] Already done ➕ 2026-06-01 ✅ 2026-06-15\n",
+      )
     })
   })
 
@@ -1549,12 +1548,9 @@ kanban-plugin: board
 
       const content = await readTestNote(vault, "board.md")
       // New card should appear after **Complete**, not before it
-      const archiveSection = content.split("## Archive")[1] ?? ""
-      const completeIndex = archiveSection.indexOf("**Complete**")
-      const newCardIndex = archiveSection.indexOf("Archived card")
-      expect(completeIndex).toBeGreaterThan(-1)
-      expect(newCardIndex).toBeGreaterThan(-1)
-      expect(newCardIndex).toBeGreaterThan(completeIndex)
+      expect(content).toBe(
+        `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Task A ➕ 2026-07-01 ^task-a\n\n## Archive\n\n**Complete**\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n- [ ] Archived card ➕ ${today()} ^archived-card\n`,
+      )
     })
   })
 
@@ -2169,12 +2165,13 @@ kanban-plugin: board
       )
 
       expect(result.changes).toEqual(["status: todo → done"])
-      const content = await readTestNote(vault, "board.md")
       // Sub-task completed in place under Active, not moved to Done
-      const activeSection = content.split("## Active")[1]?.split("## ")[0] ?? ""
-      expect(activeSection).toContain(`[x] Sub-stage ➕ ${today()} ✅ ${today()}\n`)
-      const doneSection = content.split("## Done")[1] ?? ""
-      expect(doneSection).not.toContain("Sub-stage")
+      expect(await readTestNote(vault, "board.md")).toBe(
+        KANBAN_WITH_SUBITEMS.replace(
+          "  - Sub-item 2\n",
+          `  - Sub-item 2\n  - [x] Sub-stage ➕ ${today()} ✅ ${today()}\n`,
+        ),
+      )
     })
 
     it("errors when explicit heading is set on a sub-task", async () => {
@@ -6924,6 +6921,36 @@ title: Plan
     )
   })
 
+  it("writes a Kanban sub-task under a parent named by line without an id", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "board.md", BOARD)
+
+    const result = await taskMutations.createTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        description: "New sub-task",
+        parentLine: 7,
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "board.md",
+      line: 9,
+      description: "New sub-task",
+      heading: "Active",
+      changes: [`created: (none) → ${today()}`],
+    })
+    expect(await readTestNote(vault, "board.md")).toBe(
+      BOARD.replace(
+        "\t- [ ] Existing sub-task\n",
+        `\t- [ ] Existing sub-task\n\t- [ ] New sub-task ➕ ${today()}\n`,
+      ),
+    )
+  })
+
   it("refuses a Kanban sub-task given a block id and leaves the board unchanged", async () => {
     const vault = await createVault()
     await writeTestNote(vault, "board.md", BOARD)
@@ -7091,8 +7118,14 @@ title: Plan
       logger,
     )
 
-    expect(result.changes).toEqual(["block_id: copied → (none)"])
-    expect(result.block_id).toBeUndefined()
+    // No block_id key: the line no longer carries an id.
+    expect(result).toEqual({
+      path: "board.md",
+      line: 8,
+      description: "Existing sub-task",
+      heading: "Active",
+      changes: ["block_id: copied → (none)"],
+    })
     expect(await readTestNote(vault, "board.md")).toBe(
       BOARD.replace("\t- [ ] Existing sub-task\n", "\t- [ ] Existing sub-task  \n"),
     )
@@ -7211,6 +7244,30 @@ title: Plan
     )
   })
 
+  it("keeps only an advisory for create's subtasks text ending in a block id on a plain note", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "plan.md", PLAIN_NOTE)
+
+    const result = await taskMutations.createTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "plan.md",
+        description: "New task",
+        blockId: "new-task",
+        subtasks: ["Step ^step-id"],
+      },
+      logger,
+    )
+
+    expect(result.advisories).toEqual([
+      'subtask "Step ^step-id": written as submitted, but its stored text parses back as "Step" — the trailing "^step-id" was read as task metadata',
+    ])
+    expect(await readTestNote(vault, "plan.md")).toBe(
+      `${PLAIN_NOTE}\n- [ ] New task ➕ ${today()} ^new-task\n  - [ ] Step ^step-id\n`,
+    )
+  })
+
   it("refuses a description ending in a block id on an indented Kanban line", async () => {
     const vault = await createVault()
     await writeTestNote(vault, "board.md", BOARD)
@@ -7260,6 +7317,38 @@ title: Plan
       ),
     )
     expect(await readTestNote(vault, "board.md")).toBe(board)
+  })
+
+  it("still edits an indented Kanban line that already ends in a block id, keeping the id", async () => {
+    const vault = await createVault()
+    const board = BOARD.replace(
+      "\t- [ ] Existing sub-task\n",
+      "\t- [ ] Existing sub-task ^legacy\n",
+    )
+    await writeTestNote(vault, "board.md", board)
+
+    const result = await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        line: 8,
+        description: "Renamed sub-task",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "board.md",
+      line: 8,
+      description: "Renamed sub-task",
+      block_id: "legacy",
+      heading: "Active",
+      changes: ["description: Existing sub-task → Renamed sub-task"],
+    })
+    expect(await readTestNote(vault, "board.md")).toBe(
+      board.replace("\t- [ ] Existing sub-task ^legacy\n", "\t- [ ] Renamed sub-task ^legacy\n"),
+    )
   })
 
   it("does not refuse a card description ending in a block id, and keeps the card's own id", async () => {
