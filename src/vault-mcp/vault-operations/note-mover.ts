@@ -19,7 +19,13 @@
 
 import { readFile, mkdir, rename, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
-import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
+import {
+  parseNote,
+  parseNoteForRewrite,
+  stringifyNote,
+  UnkeepableOpeningBlockError,
+  UnsupportedPropertiesBlockError,
+} from "../obsidian-markdown/frontmatter.js"
 import {
   resolveSafePath,
   resolveVaultRelativePath,
@@ -415,6 +421,12 @@ const rewriteNoteContent = (
 
   if (linksRewritten === 0) return null
 
+  // Called only for its refusal; its result matches `parsed`. parseNote above
+  // reads a list, single-value or tagged block, but the stringifyNote below
+  // would drop it. A note with no link to change returned earlier and moves
+  // byte-for-byte, block and all.
+  parseNoteForRewrite(rawContent)
+
   const rewrittenData = frontmatterResult.value
 
   if (typeof rewrittenData !== "object" || rewrittenData === null) {
@@ -422,6 +434,37 @@ const rewriteNoteContent = (
   }
   const content = stringifyNote(bodyResult.body, rewrittenData)
   return { content, linksRewritten }
+}
+
+/** The error a move aborts with when a note it must rewrite cannot be
+ *  planned. The message says which step failed:
+ *  - "could not read": unreadable YAML, or any failure that is not a
+ *    properties-block refusal.
+ *  - "could not rewrite": a block the rewrite would lose, or a rewrite that
+ *    would leave `---` lines at the top of the note.
+ *
+ *  A properties-block refusal keeps its class (and kind), so the tool
+ *  boundary still adds how to fix it. */
+const buildMoveAbortError = (params: { subject: string; error: unknown }): Error => {
+  const { subject, error } = params
+
+  if (error instanceof UnkeepableOpeningBlockError) {
+    return new UnkeepableOpeningBlockError(
+      `move aborted: could not rewrite ${subject}: ${error.message}. Nothing was written.`,
+      { cause: error },
+    )
+  }
+  if (!(error instanceof UnsupportedPropertiesBlockError)) {
+    return new Error(`move aborted: could not read ${subject}. Nothing was written.`, {
+      cause: error,
+    })
+  }
+  const failedStep = error.kind === "invalid-yaml" ? "read" : "rewrite"
+  return new UnsupportedPropertiesBlockError({
+    message: `move aborted: could not ${failedStep} ${subject}: ${error.message}. Nothing was written.`,
+    kind: error.kind,
+    cause: error,
+  })
 }
 
 // ── Orchestration ───────────────────────────────────────────────
@@ -549,7 +592,8 @@ const discoverBacklinksFromFilesystem = async (
         }
         return linkTargets.some(resolvesToMovedNote) ? candidatePath : null
       } catch (error) {
-        logger.warn("backlink scan: skipping unreadable note", {
+        // Skipped rather than aborting the whole scan
+        logger.warn("backlink scan: skipping a note that could not be read or parsed", {
           path: candidatePath,
           error: describeError(error),
         })
@@ -777,14 +821,12 @@ const moveNote = async (
               linksRewritten: rewrite?.linksRewritten ?? 0,
             }
           } catch (error) {
-            logger.error("note move aborted: could not read the note being moved", {
+            logger.error("note move aborted: could not read/plan the note being moved", {
               from: oldPath,
               to: newPath,
               error: describeError(error),
             })
-            throw new Error(`move aborted: could not read "${oldPath}". Nothing was written.`, {
-              cause: error,
-            })
+            throw buildMoveAbortError({ subject: `"${oldPath}"`, error })
           }
         }
         const { content: movedContent, linksRewritten: movedLinksRewritten } = await planMovedNote()
@@ -815,12 +857,7 @@ const moveNote = async (
                   to: newPath,
                   error: describeError(error),
                 })
-                throw new Error(
-                  `move aborted: could not read backlink source "${source}". Nothing was written.`,
-                  {
-                    cause: error,
-                  },
-                )
+                throw buildMoveAbortError({ subject: `backlink source "${source}"`, error })
               }
             },
           })

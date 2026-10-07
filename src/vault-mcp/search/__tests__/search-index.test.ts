@@ -3660,6 +3660,21 @@ describe("rebuildFromVault", () => {
     expect(index.fullTextSearch({ query: "broken" }, logger)).toHaveLength(0)
   })
 
+  it.each([
+    { label: "a list", content: "---\n- a\n- b\n---\nquokka body text\n" },
+    { label: "a single value", content: "---\nJust a paragraph.\n---\nquokka body text\n" },
+    { label: "an explicitly tagged value", content: "---\nstatus: !done\n---\nquokka body text\n" },
+  ])("indexes a note whose properties block holds $label", async ({ content }) => {
+    await writeFile(join(vaultDir, "kept.md"), content, "utf8")
+
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+
+    // Two fixture notes from beforeEach plus this one: a skipped note would leave 2
+    expect(count).toBe(3)
+    const bodyHits = index.fullTextSearch({ query: "quokka" }, logger).map((result) => result.path)
+    expect(bodyHits).toEqual(["kept.md"])
+  })
+
   it("indexes a note opening with Multi Column plugin syntax as plain content", async () => {
     await writeFile(
       join(vaultDir, "multi-column.md"),

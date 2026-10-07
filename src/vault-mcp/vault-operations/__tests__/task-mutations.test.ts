@@ -8,6 +8,10 @@ import {
   DEFAULT_STATUS_REGISTRY,
   type StatusClassification,
 } from "../../obsidian-markdown/tasks.js"
+import {
+  UnkeepableOpeningBlockError,
+  UnsupportedPropertiesBlockError,
+} from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -6756,5 +6760,159 @@ title: Tasks
         ),
       ).rejects.toThrow("parent task not found: line 6 is inside a fenced code block or comment")
     })
+  })
+})
+
+describe("properties block a rewrite would lose", () => {
+  /** Awaits a call that must reject and returns what it rejected with. */
+  const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
+    try {
+      await pending
+    } catch (error) {
+      return error
+    }
+    throw new Error("expected the call to reject, but it resolved")
+  }
+
+  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
+  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
+    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
+    return { kind: thrown.kind, message: thrown.message }
+  }
+
+  /** Each block sits above a task line, so updateTask has a task to find. */
+  const UNKEEPABLE_BLOCK_CASES = [
+    {
+      label: "a list block",
+      content: "---\n- a\n- b\n---\n- [ ] Kept task ^kept-task\n",
+      refusal: {
+        kind: "not-key-value",
+        message:
+          "properties block holds a list, not key-value pairs, so rewriting the note would delete it",
+      },
+    },
+    {
+      label: "an explicitly tagged block",
+      content: "---\nstatus: !done\n---\n- [ ] Kept task ^kept-task\n",
+      refusal: {
+        kind: "explicit-tag",
+        message: "properties block uses the YAML tag !done, which rewriting the note would drop",
+      },
+    },
+  ]
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "createTask refuses $label and leaves the note unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", content)
+      expect(await readTestNote(vault, "tasks.md")).toBe(content)
+
+      const refusal = await captureRejection(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "New task",
+            blockId: "new-task",
+          },
+          logger,
+        ),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readTestNote(vault, "tasks.md")).toBe(content)
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "updateTask refuses $label and leaves the note unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", content)
+      expect(await readTestNote(vault, "tasks.md")).toBe(content)
+
+      const refusal = await captureRejection(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "kept-task",
+            status: "done",
+          },
+          logger,
+        ),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readTestNote(vault, "tasks.md")).toBe(content)
+    },
+  )
+
+  /** An empty block reads as no properties, so a rewrite writes none and the
+   *  body's own --- lines would become the note's first block. */
+  const STACKED_BLOCK_NOTE = "---\n---\n---\nJust a paragraph.\n---\n- [ ] Kept task ^kept-task\n"
+
+  /** The parts of a write's output refusal, an UnkeepableOpeningBlockError whose cause is the block refusal. */
+  const describeOutputRefusal = (
+    thrown: unknown,
+  ): { message: string; causeIsBlockRefusal: boolean } | null => {
+    if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
+    return {
+      message: thrown.message,
+      causeIsBlockRefusal: thrown.cause instanceof UnsupportedPropertiesBlockError,
+    }
+  }
+
+  const OPENING_BLOCK_REFUSAL = {
+    message:
+      "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it",
+    causeIsBlockRefusal: true,
+  }
+
+  it("createTask refuses a write that would open the note with --- lines it cannot keep", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", STACKED_BLOCK_NOTE)
+    expect(await readTestNote(vault, "tasks.md")).toBe(STACKED_BLOCK_NOTE)
+
+    const refusal = await captureRejection(
+      taskMutations.createTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "New task",
+          blockId: "new-task",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
+    expect(await readTestNote(vault, "tasks.md")).toBe(STACKED_BLOCK_NOTE)
+  })
+
+  it("updateTask refuses a write that would open the note with --- lines it cannot keep", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", STACKED_BLOCK_NOTE)
+    expect(await readTestNote(vault, "tasks.md")).toBe(STACKED_BLOCK_NOTE)
+
+    const refusal = await captureRejection(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "kept-task",
+          status: "done",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
+    expect(await readTestNote(vault, "tasks.md")).toBe(STACKED_BLOCK_NOTE)
   })
 })

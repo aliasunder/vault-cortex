@@ -3,7 +3,7 @@
  *  single atomic read-modify-write under an exclusive file lock. */
 
 import { DateTime } from "luxon"
-import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
+import { parseNoteForRewrite, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { readFileOrNull } from "../../utils/fs.js"
@@ -1441,7 +1441,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
 
   return withExclusiveFileLock(fullPath, async () => {
     const fileContent = await readNoteContent({ fullPath, path })
-    const parsed = parseNote(fileContent)
+    const parsed = parseNoteForRewrite(fileContent)
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
@@ -1695,7 +1695,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
   return withExclusiveFileLock(fullPath, async () => {
     const fileContent = await readNoteContent({ fullPath, path })
-    const parsed = parseNote(fileContent)
+    const parsed = parseNoteForRewrite(fileContent)
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
@@ -1951,7 +1951,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ? lineEdits.map((edit) => {
           // Identify the description entry by its formatted prefix —
           // formatChange produces "description: ..." strings.
-          if (edit.change?.startsWith("description:")) {
+          if (edit.change.startsWith("description:")) {
             return formatChange({
               field: "description",
               before: taskBefore.description,

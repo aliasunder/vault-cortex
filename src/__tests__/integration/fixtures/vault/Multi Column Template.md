@@ -5,7 +5,7 @@ largest column: left
 ```
 >[!info] First Column
 
-Fixture for issue 485: the server must boot and index this file even though its first line looks like a gray-matter engine directive.
+The server must boot and index this file even though its first line looks like a gray-matter engine directive.
 
 --- end-column ---
 

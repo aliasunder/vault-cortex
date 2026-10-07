@@ -143,6 +143,12 @@ mechanism-level detail.
 - Atomic writes: temp-then-rename — readers never see partial content
 - Per-file mutex: three modes (serializing, fail-fast, multi-file)
   prevent concurrent writes from corrupting each other
+- Properties-block guard: every rewrite refuses a note whose properties
+  block it cannot keep (invalid YAML, a list, a single value, or a value
+  with a YAML tag), and every write's result is checked before it reaches
+  disk, so no write silently drops a block's properties.
+  `vault_update_properties` with `replace: true` repairs a refused block.
+  YAML comments in a block are not kept by any rewrite
 - First-sync gate (remote image): the init chain runs Obsidian Sync to
   completion before the server starts, so in two-way sync memory bootstrap
   can never race an incoming sync (`pull-only` and `mirror-remote` never
@@ -165,8 +171,9 @@ mechanism-level detail.
 
 ### Information leak prevention
 
-- `safeHandler()` catches all exceptions and returns `.message` only —
-  no stack traces reach the client
+- `safeHandler()` catches all exceptions and returns the error's name and
+  message, plus how to fix a properties-block refusal — no stack traces
+  reach the client
 - In-lock existence checks return vault-relative "not found" instead of
   ENOENT (whose message leaks the container's absolute path)
 - Error middleware returns `"internal server error"` to clients;

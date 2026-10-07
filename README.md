@@ -321,7 +321,7 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 | **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                                |
 |                 | `vault_list_property_values` | Distinct values for a property key                                                                  |
 |                 | `vault_search_by_property`   | Find notes by property key-value                                                                    |
-|                 | `vault_update_properties`    | Add or update properties without touching the body                                                  |
+|                 | `vault_update_properties`    | Add, update, or replace properties without touching the body                                        |
 | **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                                       |
 |                 | `vault_get_outgoing_links`   | Links from a given note                                                                             |
 |                 | `vault_find_orphans`         | Notes with no incoming links                                                                        |
@@ -433,6 +433,7 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 
 - **Atomic writes** — every file write stages to a temp file, then renames. Readers never see a partial or 0-byte note. Exclusive creates use `link()` (POSIX no-clobber) to close the TOCTOU window on note moves.
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
+- **Properties are protected** — an edit refuses a note whose properties block it can't keep (invalid YAML, a list, a single value, or a value with a YAML tag) and leaves the file unchanged, and a write that would leave a note opening with `---` lines it can't keep is refused too. The error says how to repair the note; `vault_update_properties` with `replace: true` replaces the whole block. A rewrite keeps every property but not YAML comments in the block.
 - **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
 - **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
 - **Deletes honor Obsidian's trash setting** — with "Deleted files" at Obsidian's default "Move to system trash" or at "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed (a container has no system trash; `.trash/` is Obsidian's own fallback for that). "Permanently delete" removes the note for good.

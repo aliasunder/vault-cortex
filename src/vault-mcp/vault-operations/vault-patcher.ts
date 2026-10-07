@@ -1,7 +1,7 @@
 /** Surgical note editing — heading-targeted patches, find-and-replace, and
  *  anchor-targeted line spans (delete, replace, insert). */
 
-import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
+import { parseNoteForRewrite, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
@@ -144,7 +144,7 @@ const readNoteForPatch = async (
   if (fileContent === null) {
     throw new Error(`note not found: "${path}"`)
   }
-  const parsed = parseNote(fileContent)
+  const parsed = parseNoteForRewrite(fileContent)
   return {
     fullPath,
     data: parsed.data,

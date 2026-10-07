@@ -3,6 +3,10 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
+import {
+  UnkeepableOpeningBlockError,
+  UnsupportedPropertiesBlockError,
+} from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const {
@@ -2066,6 +2070,85 @@ describe("patchNote errors", () => {
     ).rejects.toThrow(
       "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
     )
+  })
+})
+
+describe("patchNote — properties block a rewrite would lose", () => {
+  /** Awaits a call that must reject and returns what it rejected with. */
+  const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
+    try {
+      await pending
+    } catch (error) {
+      return error
+    }
+    throw new Error("expected the call to reject, but it resolved")
+  }
+
+  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
+  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
+    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
+    return { kind: thrown.kind, message: thrown.message }
+  }
+
+  it.each([
+    {
+      label: "a list block",
+      content: "---\n- a\n- b\n---\nbody\n",
+      refusal: {
+        kind: "not-key-value",
+        message:
+          "properties block holds a list, not key-value pairs, so rewriting the note would delete it",
+      },
+    },
+    {
+      label: "an explicitly tagged block",
+      content: "---\nstatus: !done\n---\nbody\n",
+      refusal: {
+        kind: "explicit-tag",
+        message: "properties block uses the YAML tag !done, which rewriting the note would drop",
+      },
+    },
+  ])(
+    "append refuses $label and leaves the note unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await writeTestNote("kept.md", content)
+      expect(await readTestNote("kept.md")).toBe(content)
+
+      const refusal = await captureRejection(
+        patchNote(
+          { vaultPath: vault, path: "kept.md", operation: "append", content: "added" },
+          logger,
+        ),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readTestNote("kept.md")).toBe(content)
+    },
+  )
+
+  it("refuses a prepend that would open a note with no properties with --- lines it cannot keep", async () => {
+    const original = "Intro\n"
+    await writeTestNote("plain.md", original)
+    expect(await readTestNote("plain.md")).toBe(original)
+
+    const refusal = await captureRejection(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "plain.md",
+          operation: "prepend",
+          content: "---\nJust a paragraph.\n---\n",
+        },
+        logger,
+      ),
+    )
+
+    expect(refusal).toBeInstanceOf(UnkeepableOpeningBlockError)
+    expect(refusal).toHaveProperty(
+      "message",
+      "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it",
+    )
+    expect(await readTestNote("plain.md")).toBe(original)
   })
 })
 

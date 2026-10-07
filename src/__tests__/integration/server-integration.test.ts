@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
-import { readFile, readdir, stat, writeFile } from "node:fs/promises"
+import { readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { fileExists } from "../../utils/fs.js"
@@ -234,7 +234,7 @@ describe("default config", () => {
       expect(text).toContain("Orphan Note.md")
       // The Multi Column fixture opens with `--- start-multi-column:` —
       // its presence proves the server booted without crashing on a note
-      // whose first line gray-matter alone would reject (issue #485)
+      // whose first line gray-matter alone would reject
       expect(text).toContain("Multi Column Template.md")
     })
 
@@ -1515,12 +1515,14 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
 describe("READONLY_MODE=true", () => {
   let client: Client
   let cleanup: (() => Promise<void>) | undefined
+  let vaultPath: string
 
   beforeAll(async () => {
     const server = await startServer(await freePort(), {
       READONLY_MODE: "true",
     })
     cleanup = server.cleanup
+    vaultPath = server.vaultPath
     client = await createTestClient(server.port)
   }, 30_000)
 
@@ -1574,6 +1576,23 @@ describe("READONLY_MODE=true", () => {
     })
     expect(result.isError).not.toBe(true)
     expect(textContent(result)).toContain("Projects/alpha.md")
+  })
+
+  it("points an unreadable properties block at Obsidian, since no repair tool is served", async () => {
+    const notePath = "Broken Properties.md"
+    await writeFile(join(vaultPath, notePath), "---\ntitle: [unclosed\n---\nBody line\n")
+    onTestFinished(() => rm(join(vaultPath, notePath)))
+
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: notePath, properties_only: true },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      "[Error]: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]. Fix the properties block in Obsidian.",
+    )
   })
 })
 

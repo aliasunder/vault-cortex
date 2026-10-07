@@ -164,8 +164,10 @@ A module's folder is decided by **what it depends on**, not just its topic:
   `tools/` and `prompts/` both need it and cannot import each other. Each group
   module is self-contained: one register function and its data-layer imports,
   with tool names imported from the registry. Shared helpers
-  (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in
-  `tool-helpers.ts`.
+  (`createSafeHandlers`, `formatNoteMetadata`, `ToolRegistrationContext`
+  type) live in `tool-helpers.ts`. Group modules take `safeHandler` and
+  `safeHandlerContent` from the registration context; `createSafeHandlers`
+  builds them per server from the enabled tools.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
   one data-layer call, and content-block/JSON formatting. Multi-step
   composition — filtering, counting, pagination, dispatching across parsers
