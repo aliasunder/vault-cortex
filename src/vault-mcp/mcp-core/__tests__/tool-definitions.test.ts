@@ -2613,7 +2613,7 @@ describe("DISABLED_TOOLS", () => {
       label: "names both partial-edit tools while they are served",
       disabledTools: "",
       expectedEntry:
-        '- "note already exists" — set overwrite: true to replace it, or use vault_patch_note / vault_replace_in_note for partial edits',
+        '- "note already exists" — set overwrite: true to replace it, or use vault_patch_note or vault_replace_in_note for partial edits',
     },
     {
       label: "names only vault_patch_note when vault_replace_in_note is disabled",

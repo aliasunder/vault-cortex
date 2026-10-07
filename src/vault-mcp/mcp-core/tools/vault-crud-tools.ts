@@ -60,6 +60,7 @@ export const registerVaultCrudTools = ({
   safeHandler,
   safeHandlerContent,
   whenToolEnabledText,
+  formatEnabledToolList,
   vaultPath,
   search,
   logger: sessionLogger,
@@ -363,9 +364,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
 
   // The "note already exists" remedy names only the partial-edit tools the
   // server serves, and drops the clause when it serves neither.
-  const partialEditToolNames = (["vault_patch_note", "vault_replace_in_note"] as const)
-    .filter(isToolEnabled)
-    .join(" / ")
+  const partialEditToolNames = formatEnabledToolList(["vault_patch_note", "vault_replace_in_note"])
   const partialEditAdvice = partialEditToolNames
     ? `, or use ${partialEditToolNames} for partial edits`
     : ""
@@ -1154,9 +1153,10 @@ Returns: Confirmation message naming the outcome — "Deleted <path>" for perman
     },
   )
 
-  const bodyOrPropertiesEditToolNames = (["vault_patch_note", "vault_update_properties"] as const)
-    .filter(isToolEnabled)
-    .join(" or ")
+  const bodyOrPropertiesEditToolNames = formatEnabledToolList([
+    "vault_patch_note",
+    "vault_update_properties",
+  ])
   const bodyOrPropertiesEditSentence = bodyOrPropertiesEditToolNames
     ? ` To only change a note's body or properties, use ${bodyOrPropertiesEditToolNames}.`
     : ""
