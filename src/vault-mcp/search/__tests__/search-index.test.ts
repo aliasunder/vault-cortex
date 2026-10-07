@@ -2119,6 +2119,24 @@ describe("listAllTags", () => {
     })
   })
 
+  it("adds no tag for a mapping-valued tags property", () => {
+    const tagsBefore = index.listAllTags({}, logger)
+    index.upsertNote(
+      {
+        filePath: "mapped.md",
+        rawContent: "---\ntags:\n  project: true\n---\nmappedbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+
+    expect(
+      index.fullTextSearch({ query: "mappedbody" }, logger).map((result) => result.path),
+    ).toEqual(["mapped.md"])
+    expect(index.listAllTags({}, logger)).toEqual(tagsBefore)
+    expect(index.searchByTag({ tag: "[object Object]" }, logger)).toEqual([])
+  })
+
   it("handles notes with no tags", () => {
     index.upsertNote(
       {
