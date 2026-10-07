@@ -5,7 +5,7 @@
 # - Installs the checkout's dependencies (npm ci, sst install) when they are
 #   missing or out of date. Fresh cloud clones and fresh git worktrees start
 #   without node_modules.
-# Registered on SessionStart, which includes resumed sessions, and on
+# Registered on SessionStart for startup, resume, and /clear, and on
 # PostToolUse for EnterWorktree.
 set -euo pipefail
 
