@@ -254,6 +254,30 @@ describe("absolute path blocked", () => {
       `absolute path blocked: "${serverVaultPath}/moved.md" must be vault-relative`,
     )
   })
+
+  it("vault_list_notes rejects an absolute container path as folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: `${serverVaultPath}/Projects` },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects" must be vault-relative`,
+    )
+  })
+
+  it("vault_list_files rejects an absolute container path as folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_files",
+      args: { folder: `${serverVaultPath}/Projects` },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects" must be vault-relative`,
+    )
+  })
 })
 
 // ── Path traversal ───────────────────────────────────────────
@@ -370,6 +394,42 @@ describe("path traversal blocked", () => {
     })
     expectToolError(result, "path traversal blocked")
   })
+
+  it("vault_list_notes rejects a folder escaping the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: "../outside" },
+    })
+    expectToolError(result, 'path traversal blocked: "../outside" escapes vault root')
+  })
+
+  it("vault_list_notes rejects a folder naming the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: "." },
+    })
+    expectToolError(result, 'path traversal blocked: "." resolves to the vault root')
+  })
+
+  it("vault_list_files rejects a folder escaping the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_files",
+      args: { folder: "../outside" },
+    })
+    expectToolError(result, 'path traversal blocked: "../outside" escapes vault root')
+  })
+
+  it("vault_list_files rejects a folder naming the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_files",
+      args: { folder: "." },
+    })
+    expectToolError(result, 'path traversal blocked: "." resolves to the vault root')
+  })
 })
 
 // ── Hidden paths ─────────────────────────────────────────────
@@ -485,6 +545,24 @@ describe("hidden path blocked", () => {
       args: { old_path: "Projects/alpha.md", new_path: ".hidden/moved.md" },
     })
     expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_list_notes rejects a hidden folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: ".obsidian" },
+    })
+    expectToolError(result, 'hidden path blocked: ".obsidian" targets a hidden file or folder')
+  })
+
+  it("vault_list_files rejects a hidden folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_files",
+      args: { folder: ".obsidian" },
+    })
+    expectToolError(result, 'hidden path blocked: ".obsidian" targets a hidden file or folder')
   })
 })
 

@@ -10,6 +10,7 @@ import { formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
 export const registerSearchTools = ({
   registerTool,
   safeHandler,
+  formatEnabledToolList,
   whenToolEnabledText,
   search,
   vaultPath,
@@ -152,7 +153,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
+      description: `Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
 
 Example: vault_search_by_tag({ tag: "project" })
 
@@ -160,12 +161,12 @@ When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no tex
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
 Parameters:
-- tag + exact interact: the prefix match follows the "/" separator, so "project" matches itself and its children but does NOT match "my-project" or "projects". exact=true matches only the literal tag, excluding children.
+- Prefix mode follows the "/" separator: "project" matches itself and every tag nested under it (project/a, project/a/b) but does NOT match "my-project" or "projects".
 
 Errors:
-- An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
+- An unknown tag or no matches returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. bytes is the on-disk file size. additional_properties holds only frontmatter keys without their own top-level field.`,
       inputSchema: {
         tag: z
           .string()
@@ -244,19 +245,19 @@ When to use: Catching up on vault changes, finding recent work, or orienting aft
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
 Parameters:
-- sort_by + limit interact: "modified" (default) uses filesystem mtime, so every note has a value and limit works predictably. "created" uses the frontmatter created property — notes without it sort last (not excluded), so a small limit may return only notes that have the property; increase limit or use "modified" for broader coverage.
+- sort_by + limit interact: "modified" (default) uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
 - "modified" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
 
 Errors:
 - An empty vault returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted descending by chosen timestamp. created is null when the property is missing; bytes is on-disk file size.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted descending by chosen timestamp. created is null when the property is missing or not an ISO date; bytes is on-disk file size.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
           .optional()
           .default("modified")
-          .describe('Sort order (default "modified")'),
+          .describe('Timestamp to sort by, newest first (default "modified")'),
         limit: z
           .number()
           .int()
@@ -444,7 +445,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match).
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value.
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
@@ -453,35 +454,30 @@ When to use: Finding notes by metadata when you don't have a text query.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
 
 Parameters:
-- key is exact and case-sensitive. Text values match exactly and case-sensitively, with no partial matching or globbing. Stored numbers also match numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4".
-- Numeric matching accepts complete finite YAML core numeric forms: signed decimals, leading-zero decimals, .5, 4., exponents, 0x hexadecimal and 0o octal. Whitespace, final line breaks, prefixes like "4abc", comments, expressions, 0b binary, separators, non-finite values and overflow match only literal text.
-- Numeric equality uses stored number precision: large integers can round to the same value, and underflow such as "1e-999" matches stored zero.
-- Pass a checkbox as "1" or "0" (true is stored as 1, false as 0); "1.0" does not match a checked checkbox.
+- key matches exactly and case-sensitively; value matches stored text the same way, with no partial matching or globbing.
+- A value written as a complete, finite YAML number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary, "1e999") matches only as text. Numbers compare as 64-bit floats, so integers past 2^53 can compare equal and "1e-999" matches 0.
+- Pass a checkbox as "1" (checked) or "0" (unchecked); a checkbox matches only as text, so "1.0" and "true" do not match.
 - An array element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
-- limit applies after sorting. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+- limit keeps the most recently modified matches. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
 - An unknown key or unmatched value returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
 - leading_callout appears only when the note has a leading callout.
 - additional_properties appears only when frontmatter has keys outside title, tags, type, created, and related.`,
       inputSchema: {
-        key: z
-          .string()
-          .min(1)
-          .describe(
-            'Property key name (e.g. "status", "type", "tags"). Use vault_list_property_keys to discover valid keys.',
-          ),
-        value: z
-          .string()
-          .min(1)
-          .describe(
-            'Value to match (e.g. "active", "4", "1e-7"). Use vault_list_property_values to discover valid values for a key.',
-          ),
+        key: z.string().min(1).describe('Property key name (e.g. "status", "type", "tags").'),
+        value: z.string().min(1).describe('Value to match (e.g. "active", "4", "1e-7").'),
         folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
-        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(20)
+          .describe("Max results (default 20, no upper cap)"),
       },
     },
     async ({ key, value, folder, limit }, extra) => {
@@ -501,24 +497,38 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
+  // Every path-finding tool can be dropped via DISABLED_TOOLS, so the remedy
+  // falls back to checking the path itself when none is served.
+  const backlinksPathFinders = formatEnabledToolList([
+    TOOL_NAMES.VAULT_SEARCH,
+    TOOL_NAMES.VAULT_LIST_NOTES,
+    TOOL_NAMES.VAULT_LIST_FILES,
+  ])
+  const backlinksEmptyResultRemedy =
+    backlinksPathFinders.length > 0
+      ? `find valid paths with ${backlinksPathFinders}`
+      : "check the path's spelling and letter case"
+
   registerTool(
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
-      description: `Find all notes and files that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside frontmatter properties (e.g. related:), and canvas file-node references. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
+      description: `Find all notes and canvases that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside frontmatter properties (e.g. related:), and canvas cards that embed the file. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
 
 Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 Example: vault_get_backlinks({ path: "Diagrams/architecture.canvas" })
 
 When to use: Understanding what references a note or canvas, assessing its connectivity before editing or deleting, or finding related notes via the graph.
-For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
+For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes nothing else links to, use vault_find_orphans.
 
 Parameters:
 - path: exact vault-relative path including .md or .canvas extension, case-sensitive.
 
 Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title), and count. Backlink sources may be notes (.md) or canvas files (.canvas).
 
-Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.`,
+Errors:
+- "path must end in …" — add the .md or .canvas extension
+- A path nothing links to returns an empty result (count 0), not an error — if you expected links, ${backlinksEmptyResultRemedy}.`,
       inputSchema: {
         path: z
           .string()
@@ -614,10 +624,18 @@ Errors:
 
   const orphanDefaultFolders = config.orphanExcludeFoldersOverride
     ? JSON.stringify(config.orphanExcludeFoldersOverride)
-    : `daily notes folder, Templates, ${JSON.stringify(config.memoryDir)}`
+    : `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`
   const orphanDefaultDescription = config.orphanExcludeFoldersOverride
-    ? "With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override is used."
-    : 'The daily notes folder is resolved on each call (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"). ORPHAN_EXCLUDE_FOLDERS replaces the defaults. For unreadable daily settings, the server logs a warning and uses "Daily Notes".'
+    ? "With exclude_folders omitted, the server's configured list (the schema default) is used."
+    : 'With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable).'
+  // An override list may not include the daily notes folder, so the hint only
+  // accompanies the built-in defaults.
+  const dailyNotesFolderHint = config.orphanExcludeFoldersOverride
+    ? ""
+    : whenToolEnabledText(
+        "vault_get_daily_note",
+        " (vault_get_daily_note's path starts with the daily notes folder)",
+      )
 
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
@@ -626,14 +644,13 @@ Errors:
       description: `Find notes with no incoming links from other notes or canvases — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan (self-links are ignored).
 
 Example: vault_find_orphans({})
-Example: vault_find_orphans({ exclude_folders: ["Archive"], limit: 10 })
 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
 - ${orphanDefaultDescription}
-- exclude_folders replaces the defaults (including an environment override), it does not add to them — include the defaults yourself to keep them. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
+- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it${dailyNotesFolderHint}. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
 - limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
@@ -661,13 +678,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           const excludeFolders =
             exclude_folders ??
             (await readEffectiveOrphanExcludeFolders({ config, vaultPath }, reqLogger))
-          return search.findOrphans(
-            {
-              excludeFolders: [...excludeFolders],
-              limit,
-            },
-            reqLogger,
-          )
+          return search.findOrphans({ excludeFolders, limit }, reqLogger)
         },
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
