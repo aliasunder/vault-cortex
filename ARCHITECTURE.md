@@ -376,7 +376,7 @@ Four design choices shape the query surface:
 - **Field ordering is guaranteed** — description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
 - **Always todo** (`[ ]` by default, or the status registry's configured todo symbol) — creating a task is not starting it.
 - **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body. Within a heading, `position` selects the slot: `"top"`, `"bottom"`, or a 1-based integer for exact placement among the lane's top-level cards.
-- **Block IDs** — required on every task except a sub-task on a Kanban board, where a `block_id` is refused, as is checklist text ending in one. When the [Kanban plugin](https://github.com/mgmeyers/obsidian-kanban) saves a board, it copies an indented line's block ID onto its card, replacing the card's own. The result's `line` is the handle for such a sub-task.
+- **Block IDs** — required on every task except a sub-task on a Kanban board, where a `block_id` is refused. On a board, checklist text ending in a block ID is refused too, since checklist items are always indented. When the [Kanban plugin](https://github.com/mgmeyers/obsidian-kanban) saves a board, it copies an indented line's block ID onto its card, replacing the card's own. The result's `line` is the handle for such a sub-task.
 
 `vault_update_task` applies status, priority, recurrence, on_completion, description, dates, task_id, depends_on, block_id assignment, heading moves, position reordering, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
 
@@ -388,7 +388,7 @@ Four design choices shape the query surface:
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
 - **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, a new ID on an indented line is refused, whether assigned or at the end of a new description or checklist item, for the reason given above.
 
-Both tools refuse a `block_id` that ends more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
+Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 
 `vault_create_task` and `vault_update_task` read the Tasks plugin's format and date toggles on every write, so a change in Obsidian applies to the next write. The plugin's status registry is read once at boot, so `vault_list_tasks` and the two write tools always agree on which checkboxes are tasks; a status-type change needs a restart.
 

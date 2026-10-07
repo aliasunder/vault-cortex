@@ -429,6 +429,26 @@ const taskAppendIndexUnderHeading = ({
   return heading.bodyStartLine + lastContentOffset + 1
 }
 
+/** Extracts the single character between `[` and `]` from a task line. */
+const CHECKBOX_CHAR_RE = /\[(.)\]/u
+
+/** True when the line's checkbox character is typed NON_TASK in the Tasks
+ *  plugin's status registry — such a line matches the task grammar but is
+ *  not a task the index lists. */
+const isNonTaskCheckbox = ({
+  taskLine,
+  statusRegistry,
+}: {
+  taskLine: string
+  statusRegistry: ReadonlyMap<string, StatusClassification>
+}): boolean => {
+  const statusChar = CHECKBOX_CHAR_RE.exec(taskLine)?.[1]
+
+  if (!statusChar) return false
+
+  return tasks.statusForChar(statusChar, statusRegistry) === "non_task"
+}
+
 /** A task line that the index would exclude — inside a fence/comment or
  *  typed NON_TASK in the status registry — is not a lane card for
  *  position-counting purposes. */
@@ -448,23 +468,6 @@ const isExcludedFromLane = ({
   if (!statusRegistry) return false
 
   return isNonTaskCheckbox({ taskLine: line, statusRegistry })
-}
-
-/** True when the line's checkbox character is typed NON_TASK in the Tasks
- *  plugin's status registry — such a line matches the task grammar but is
- *  not a task the index lists. */
-const isNonTaskCheckbox = ({
-  taskLine,
-  statusRegistry,
-}: {
-  taskLine: string
-  statusRegistry: ReadonlyMap<string, StatusClassification>
-}): boolean => {
-  const statusChar = CHECKBOX_CHAR_RE.exec(taskLine)?.[1]
-
-  if (!statusChar) return false
-
-  return tasks.statusForChar(statusChar, statusRegistry) === "non_task"
 }
 
 /** Body-line index for inserting at position N (1-based) among a lane's
@@ -701,15 +704,15 @@ type LineEdit = {
 type BlockIdLookup =
   | { status: "found"; index: number }
   | { status: "ambiguous"; indices: readonly number[] }
-  | { status: "fenced_only" }
+  | { status: "only_in_fence_or_comment" }
   | { status: "not_found" }
 
-/** Block-id search that skips fenced code blocks and comment blocks —
- *  aligns lookup with validateBlockId's fence-skip uniqueness rule. Only
- *  actionable tasks count toward a match, so an id on two of them is
- *  ambiguous; a NON_TASK checkbox answers only when no actionable task
- *  carries the id, which lets the caller's NON_TASK refusal fire. */
-const findBlockIdSkippingFences = ({
+/** Finds the task line ending in ` ^blockId`, skipping the fenced code and
+ *  `%% %%` comment lines validateBlockId also skips. Only actionable tasks
+ *  count toward a match, so an id on two of them is ambiguous. A NON_TASK
+ *  checkbox is "found" only when no actionable task carries the id; the
+ *  caller then refuses that line through rejectNonTaskCheckbox. */
+const findTaskLineByBlockId = ({
   bodyLines,
   blockId,
   statusRegistry,
@@ -722,7 +725,7 @@ const findBlockIdSkippingFences = ({
   // Sequential parser state — fence and comment scanners are inherently stateful.
   let openFence: OpenFence = null
   let commentOpen = false
-  let hasFencedMatch = false
+  let hasMatchInFenceOrComment = false
   const actionableIndices: number[] = []
   const nonTaskIndices: number[] = []
 
@@ -732,7 +735,9 @@ const findBlockIdSkippingFences = ({
     // Empty strings are valid body lines (blank lines), so only undefined is skipped.
     if (lineText === undefined) continue
 
-    // Fence scanner runs first; comment scanner only advances on non-fenced lines.
+    // Each scanner hides the other's markers: an open %% comment hides fence
+    // markers, and a code line hides %%. So the fence scanner skips lines
+    // inside a comment, and the comment scanner skips code lines.
     let isExcluded = false
 
     if (!commentOpen) {
@@ -753,10 +758,12 @@ const findBlockIdSkippingFences = ({
       }
     }
 
+    // The scanners must see every line to keep their state, so the id
+    // filter runs after them.
     if (!lineText.trimEnd().endsWith(suffix) || !tasks.isTaskLine(lineText)) continue
 
     if (isExcluded) {
-      hasFencedMatch = true
+      hasMatchInFenceOrComment = true
       continue
     }
 
@@ -777,13 +784,16 @@ const findBlockIdSkippingFences = ({
   if (firstActionableIndex !== undefined) {
     return { status: "found", index: firstActionableIndex }
   }
+  // Any NON_TASK line will do: the caller refuses whichever comes back.
   if (firstNonTaskIndex !== undefined) {
     return { status: "found", index: firstNonTaskIndex }
   }
-  return hasFencedMatch ? { status: "fenced_only" } : { status: "not_found" }
+  return hasMatchInFenceOrComment ? { status: "only_in_fence_or_comment" } : { status: "not_found" }
 }
 
-/** 1-based file lines for body-line indices, joined for an error message. */
+/** 1-based file lines for body-line indices, joined for an error message.
+ *  bodyStartLine counts the lines above the body (the properties block), so
+ *  body index i sits on file line bodyStartLine + i + 1. */
 const formatFileLines = ({
   indices,
   bodyStartLine,
@@ -794,8 +804,9 @@ const formatFileLines = ({
   return indices.map((index) => bodyStartLine + index + 1).join(", ")
 }
 
-/** Body index of the task an update names — by block id, or by 1-based file
- *  line. Callers guarantee exactly one identifier is set. */
+/** Body index of the task an update names — by block id, or else by 1-based
+ *  file line. updateTask has already refused a call naming both or neither.
+ *  A block id can resolve to a NON_TASK line, which updateTask refuses next. */
 const locateTaskLine = ({
   bodyLines,
   bodyStartLine,
@@ -812,16 +823,17 @@ const locateTaskLine = ({
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
   if (blockId) {
-    const lookup = findBlockIdSkippingFences({ bodyLines, blockId, statusRegistry })
+    const lookup = findTaskLineByBlockId({ bodyLines, blockId, statusRegistry })
 
     if (lookup.status === "not_found") {
       throw new Error(`blockId "${blockId}" not found in "${path}"`)
     }
-    if (lookup.status === "fenced_only") {
+    if (lookup.status === "only_in_fence_or_comment") {
       throw new Error(`blockId "${blockId}" is inside a fenced code block or comment in "${path}"`)
     }
-    // Acting on the first match would edit whichever line comes first — on a
-    // Kanban board, the card that the plugin copied a sub-task's id onto.
+    // Acting on the first match would edit whichever line comes first. On a
+    // Kanban board that is the card, since the plugin copies an indented
+    // line's id onto its card (see KANBAN_INDENTED_ID_REASON).
     if (lookup.status === "ambiguous") {
       throw new Error(
         `blockId "${blockId}" matches ${lookup.indices.length} task lines (${formatFileLines({ indices: lookup.indices, bodyStartLine })}) in "${path}"`,
@@ -829,6 +841,7 @@ const locateTaskLine = ({
     }
     return lookup.index
   }
+  // Unreachable after updateTask's identifier check; narrows line to a number.
   if (!line) {
     throw new Error("exactly one of blockId or line is required")
   }
@@ -846,9 +859,6 @@ const locateTaskLine = ({
   return taskLineIndex
 }
 
-/** Extracts the single character between `[` and `]` from a task line. */
-const CHECKBOX_CHAR_RE = /\[(.)\]/u
-
 /** The Tasks plugin's NON_TASK status type marks checkboxes that are
  *  excluded from the task system. The grammar regex still matches them,
  *  so callers guard after locating the line. */
@@ -859,19 +869,10 @@ const rejectNonTaskCheckbox = ({
   taskLine: string
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): void => {
-  const charMatch = CHECKBOX_CHAR_RE.exec(taskLine)
+  if (!isNonTaskCheckbox({ taskLine, statusRegistry })) return
 
-  if (!charMatch) return
-
-  const statusChar = charMatch[1]
-
-  if (!statusChar) return
-
-  const classification = tasks.statusForChar(statusChar, statusRegistry)
-
-  if (classification === "non_task") {
-    throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
-  }
+  const statusChar = CHECKBOX_CHAR_RE.exec(taskLine)?.[1]
+  throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
 }
 
 /** Returns true when the body-line index falls inside a fenced code block
@@ -1305,19 +1306,25 @@ const detectDoneLane = (
   throw new Error("no done lane detected")
 }
 
-/** Validates a block_id: grammar check + uniqueness within the note. */
-const validateBlockId = (
-  blockId: string,
-  bodyLines: readonly string[],
-  excludeLineIndex?: number,
-): void => {
+/** Validates a block_id: grammar check + uniqueness within the note, not
+ *  counting the line at excludeLineIndex (the line the id is assigned to). */
+const validateBlockId = ({
+  blockId,
+  bodyLines,
+  excludeLineIndex,
+}: {
+  blockId: string
+  bodyLines: readonly string[]
+  excludeLineIndex?: number | undefined
+}): void => {
   if (!BLOCK_ID_RE.test(blockId)) {
     throw new Error(
       `blockId "${blockId}" contains invalid characters (allowed: letters, digits, hyphens)`,
     )
   }
-  // trimEnd: a hard break's trailing spaces must not hide an existing
-  // block link — an invisible duplicate would win every later id lookup.
+  // - Every line counts, not only tasks: Obsidian resolves a block id on any line.
+  // - trimEnd, so a hard break's trailing spaces cannot hide an existing id; a
+  //   missed duplicate on a task line would make later lookups by it ambiguous.
   const existingIndex = bodyLines.findIndex((bodyLine, index) => {
     if (index === excludeLineIndex) return false
     if (!bodyLine.trimEnd().endsWith(` ^${blockId}`)) return false
@@ -1330,28 +1337,28 @@ const validateBlockId = (
 }
 
 /** Why a Kanban board takes no block id on an indented line: the plugin
- *  gives each card the last id found anywhere inside it, and its next save
- *  writes that id onto the card in place of the card's own. */
+ *  gives each card the last line-ending id among the card's lines, and its
+ *  next save writes that id onto the card in place of the card's own. */
 const KANBAN_INDENTED_ID_REASON =
   "the Kanban plugin copies an indented line's block ID onto its card when it saves the board"
 
-/** The block id a line ends in, if any. Trimmed first, per BLOCK_LINK_RE's
- *  contract: a hard break's trailing spaces would hide the anchored match. */
+/** The block id a line ends in, if any. BLOCK_LINK_RE is anchored at the end
+ *  of the line, so trailing spaces (a markdown hard break) are trimmed first. */
 const trailingBlockIdOf = (line: string): string | undefined => {
   return tasks.BLOCK_LINK_RE.exec(line.trimEnd())?.[1]
 }
 
 /** Refuses checklist text that ends in a block id. Checklist items are always
  *  written indented, so on a Kanban board each would hand its card an id. */
-const rejectKanbanSubtaskBlockIds = (subtaskDescriptions: readonly string[]): void => {
-  for (const subtaskText of subtaskDescriptions) {
+const rejectKanbanChecklistBlockIds = (checklistItemTexts: readonly string[]): void => {
+  for (const checklistItemText of checklistItemTexts) {
     // The written line puts a space before the text, so an item made only of
     // "^id" still ends the line in a block id.
-    const subtaskBlockId = trailingBlockIdOf(` ${subtaskText}`)
+    const checklistItemBlockId = trailingBlockIdOf(` ${checklistItemText}`)
 
-    if (subtaskBlockId) {
+    if (checklistItemBlockId) {
       throw new Error(
-        `subtask "${subtaskText}" ends in a block ID (^${subtaskBlockId}), which is not allowed on an indented line on a Kanban board — ${KANBAN_INDENTED_ID_REASON}`,
+        `subtask "${checklistItemText}" ends in a block ID (^${checklistItemBlockId}), which is not allowed on an indented line on a Kanban board — ${KANBAN_INDENTED_ID_REASON}`,
       )
     }
   }
@@ -1434,16 +1441,18 @@ const findParentLineIndex = ({
   statusRegistry: ReadonlyMap<string, StatusClassification>
 }): number => {
   if (locator.kind === "blockId") {
-    const lookup = findBlockIdSkippingFences({
+    const lookup = findTaskLineByBlockId({
       bodyLines,
       blockId: locator.blockId,
       statusRegistry,
     })
 
+    // The same outcomes locateTaskLine decodes, worded as "parent task ..."
+    // errors so a create call's message names the parent it could not use.
     if (lookup.status === "not_found") {
       throw new Error(`parent task not found: blockId "${locator.blockId}"`)
     }
-    if (lookup.status === "fenced_only") {
+    if (lookup.status === "only_in_fence_or_comment") {
       throw new Error(
         `parent task not found: blockId "${locator.blockId}" is inside a fenced code block or comment`,
       )
@@ -1453,11 +1462,12 @@ const findParentLineIndex = ({
         `parent task ambiguous: blockId "${locator.blockId}" matches ${lookup.indices.length} task lines (${formatFileLines({ indices: lookup.indices, bodyStartLine })})`,
       )
     }
-    const foundLine = bodyLines[lookup.index]
+    const foundParentLine = bodyLines[lookup.index]
 
-    if (foundLine) {
-      rejectNonTaskCheckbox({ taskLine: foundLine, statusRegistry })
+    if (!foundParentLine) {
+      throw new Error(`parent line index ${lookup.index} out of bounds`)
     }
+    rejectNonTaskCheckbox({ taskLine: foundParentLine, statusRegistry })
     return lookup.index
   }
   const parentLineIndex = locator.line - 1 - bodyStartLine
@@ -1552,6 +1562,8 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     // content, which has no frontmatter) to count the frontmatter offset.
     const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
+    // The block id rules run here, after the read, because the note's
+    // properties say whether it is a Kanban board.
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
     // A sub-task is always written indented under its parent.
     const isKanbanSubtask = isKanbanBoard && parentLocator !== undefined
@@ -1564,12 +1576,14 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     if (!blockId && !isKanbanSubtask) {
       throw new Error("blockId is required")
     }
-    // Validate block_id grammar and uniqueness
     if (blockId) {
-      validateBlockId(blockId, bodyLines)
+      validateBlockId({ blockId, bodyLines })
     }
+    // A Kanban sub-task's description is not checked for a trailing ` ^id`:
+    // buildTaskLine writes ➕ created after it, so the id never ends the
+    // line. A checklist line ends in its text, so its id would.
     if (isKanbanBoard && subtasks) {
-      rejectKanbanSubtaskBlockIds(subtasks)
+      rejectKanbanChecklistBlockIds(subtasks)
     }
 
     const pluginConfig = await readTaskFormatConfig(vaultPath, logger)
@@ -1653,6 +1667,8 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
       ...subtaskRoundTripAdvisories(subtasks ?? []),
     ]
 
+    // A new task has no children yet, so its checklist takes the task's own
+    // prefix plus two spaces — what subtaskIndentUnder gives a childless task.
     const subtaskIndent = `${indent}  `
     const subtaskTodoChar = tasks.charForStatus("todo", formatConfig.statusRegistry)
     const subtaskLines = (subtasks ?? []).map(
@@ -1835,6 +1851,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     if (!originalTaskLine) {
       throw new Error(`task line index ${taskLineIndex} out of bounds`)
     }
+    rejectNonTaskCheckbox({ taskLine: originalTaskLine, statusRegistry })
+
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
 
     // Resolve format config early — the status registry is needed for
@@ -1845,11 +1863,6 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       taskFormat: format ?? pluginConfig.taskFormat,
       statusRegistry,
     }
-
-    rejectNonTaskCheckbox({
-      taskLine: originalTaskLine,
-      statusRegistry: formatConfig.statusRegistry,
-    })
 
     // Prior field values, so every `changes` entry can state before → after.
     // Parsed from the whole note so `depth` counts task ancestors the way
@@ -1875,9 +1888,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     if (position && isSubtask) {
       throw new Error("cannot reposition a sub-task — the parent's position determines placement")
     }
-    // Indent, not depth: the plugin hoists from any line inside a card,
-    // including a task under a plain bullet or a NON_TASK card, which the
-    // index lists at depth 0.
+    // Indent, not depth: the plugin copies an id from any indented line inside
+    // a card, including a task under a plain bullet or a NON_TASK card, which
+    // the index lists at depth 0.
     const isIndentedKanbanLine = isKanbanBoard && tasks.getTaskIndent(originalTaskLine) > 0
 
     if (newBlockId && isIndentedKanbanLine) {
@@ -1886,10 +1899,10 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       )
     }
     if (newBlockId) {
-      validateBlockId(newBlockId, bodyLines, taskLineIndex)
+      validateBlockId({ blockId: newBlockId, bodyLines, excludeLineIndex: taskLineIndex })
     }
     if (isKanbanBoard && addSubtasks) {
-      rejectKanbanSubtaskBlockIds(addSubtasks)
+      rejectKanbanChecklistBlockIds(addSubtasks)
     }
 
     const today = todayIsoDate()
@@ -2082,12 +2095,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const tagDedup = tasks.deduplicateDescriptionTags(editedLine)
     const mutatedLine = tagDedup.taskLine
 
-    // assignBlockId was refused above, so a new trailing id on an indented
-    // board line can only come from description text ending in ` ^id`. After
-    // assignBlockId null, the line's old id counts as new: text restoring it
-    // would undo the removal while `changes` reports it done.
+    // On an indented board line a string assignBlockId was refused above, so
+    // a new trailing id can only come from description text ending in ` ^id`:
+    // - text keeping the line's own id is allowed;
+    // - after assignBlockId null the line keeps no id, so text restoring the
+    //   old one is refused, since `changes` reports that id removed.
     const writtenBlockId = trailingBlockIdOf(mutatedLine)
-    const keptBlockId = newBlockId === null ? null : taskBefore.blockId
+    const keptBlockId = newBlockId === null ? undefined : (taskBefore.blockId ?? undefined)
     const addsBlockIdToIndentedKanbanLine =
       isIndentedKanbanLine && writtenBlockId !== undefined && writtenBlockId !== keptBlockId
 
@@ -2261,6 +2275,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         path,
         line: bodyStartLine + completedIndexAfterSpawn + 1,
         description: tasks.describeTaskLine(mutatedLine),
+        // The line is gone, so block_id is the id it carried before this call.
         block_id: taskBefore.blockId ?? undefined,
         heading: headingBefore?.text,
         next_occurrence: nextOccurrence,
@@ -2406,8 +2421,6 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     const finalLine = bodyStartLine + finalTaskIndex + 1
     const finalTaskLine = resultLines[finalTaskIndex] ?? mutatedLine
-    // A heading-only move splices the raw line, hard break included, so the
-    // id is read through trailingBlockIdOf's trim.
     const finalBlockId = trailingBlockIdOf(finalTaskLine)
     const finalHeading = parseHeadings(resultLines).findLast(
       (heading) => heading.startLine < finalTaskIndex,

@@ -19,7 +19,9 @@
  *
  *  Like links.ts, the raw grammar regexes stay module-private behind the
  *  `tasks` namespace: one is `/g` (shared `lastIndex` footgun) and the
- *  `$`-anchored field regexes are only meaningful inside the stripping loop. */
+ *  `$`-anchored field regexes are only meaningful inside the stripping loop.
+ *  BLOCK_LINK_RE is the one exported regex: it is non-global and reads a
+ *  whole line's trailing block id, so it is safe to use outside the loop. */
 
 import { DateTime } from "luxon"
 import { advanceComment, advanceFence, type OpenFence, splitIntoLines } from "./lines.js"
@@ -1530,7 +1532,9 @@ const removeBlockId = (taskLine: string): string => {
   return `${trimmedLine.slice(0, blockLinkMatch.index)}${trailingWhitespace}`
 }
 
-/** Removes the trailing `^block-id` from a task line, if it has one. */
+/** Removes the trailing `^block-id` from a task line, if it has one, and
+ *  drops trailing whitespace either way — unlike removeBlockId, which keeps a
+ *  hard break. Used to start a spawned occurrence's line. */
 const stripBlockLink = (taskLine: string): string => {
   const trimmedLine = taskLine.trimEnd()
   const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine)
