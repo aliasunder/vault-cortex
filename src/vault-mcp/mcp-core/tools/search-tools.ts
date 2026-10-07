@@ -162,11 +162,12 @@ Prefer vault_search when you also need text-based relevance ranking. Use vault_l
 
 Parameters:
 - Prefix mode follows the "/" separator: "project" matches itself and every tag nested under it (project/a, project/a/b) but does NOT match "my-project" or "projects".
+- limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. bytes is the on-disk file size. additional_properties holds only frontmatter keys without their own top-level field.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified, then by path. bytes is the on-disk file size. additional_properties holds only frontmatter keys without their own top-level field.`,
       inputSchema: {
         tag: z
           .string()
@@ -179,17 +180,18 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .optional()
           .default(false)
           .describe("Exact match only (default: false, prefix match)"),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
-    async ({ tag, exact }, extra) => {
+    async ({ tag, exact, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
       })
-      reqLogger.info("tool_call", { tag, exact })
+      reqLogger.info("tool_call", { tag, exact, limit })
       return safeHandler(
         reqLogger,
-        async () => search.searchByTag({ tag, exactMatch: exact }, reqLogger),
+        async () => search.searchByTag({ tag, exactMatch: exact, limit }, reqLogger),
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
           return JSON.stringify(results.map(formatNoteMetadata))

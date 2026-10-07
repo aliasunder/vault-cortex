@@ -1524,6 +1524,94 @@ describe("vault_search handler", () => {
   })
 })
 
+describe("vault_search_by_tag handler", () => {
+  // More tagged notes than the default limit of 20, so the default visibly cuts.
+  const PROJECT_NOTE_COUNT = 25
+
+  /** Paths of the project notes, newest first. Stepping by 7 through 25 note
+   *  numbers visits each once in an order unrelated to the path, so a sort by
+   *  path instead of modified time cannot produce this list. */
+  const PROJECT_PATHS_NEWEST_FIRST = Array.from({ length: PROJECT_NOTE_COUNT }, (_, offset) => {
+    const noteNumber = String(((offset * 7) % PROJECT_NOTE_COUNT) + 1).padStart(2, "0")
+    return `Projects/note-${noteNumber}.md`
+  })
+
+  /** Calls the tool the way the SDK does, with args parsed by its input schema,
+   *  against a real index of the project notes. The decoy is the newest note of
+   *  all but carries another tag, so it appears only if the tag filter breaks. */
+  const queryTaggedPaths = async (args: {
+    tag: string
+    exact?: boolean
+    limit?: number
+  }): Promise<string[]> => {
+    const searchIndex = createSearchIndex(":memory:")
+    const projectNotes = PROJECT_PATHS_NEWEST_FIRST.map((filePath, offset) => ({
+      filePath,
+      tag: "project",
+      mtimeMs: 2000 - offset,
+    }))
+    const decoyNote = { filePath: "Other/newest.md", tag: "other", mtimeMs: 3000 }
+
+    for (const { filePath, tag, mtimeMs } of [...projectNotes, decoyNote]) {
+      searchIndex.upsertNote(
+        {
+          filePath,
+          rawContent: `---\ntags: [${tag}]\n---\nBody.`,
+          fileStat: { mtimeMs, size: 100 },
+        },
+        logger,
+      )
+    }
+
+    const searchByTagCall = registerWithConfig({}, { search: searchIndex }).find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+    )
+
+    if (!searchByTagCall?.[1].inputSchema) throw new Error("vault_search_by_tag not registered")
+
+    const parsedArgs = z.object(searchByTagCall[1].inputSchema).parse(args)
+    const result = z
+      .object({
+        content: z.array(z.object({ text: z.string() })),
+        isError: z.boolean().optional(),
+      })
+      .parse(await searchByTagCall[2](parsedArgs, { requestId: "tag-request" }))
+    expect(result.isError).toBeUndefined()
+    return z
+      .array(z.object({ path: z.string() }))
+      .parse(JSON.parse(requireTextContent(result)))
+      .map((note) => note.path)
+  }
+
+  it("returns the 20 most recently modified tagged notes when no limit is passed", async () => {
+    expect(await queryTaggedPaths({ tag: "project" })).toEqual(
+      PROJECT_PATHS_NEWEST_FIRST.slice(0, 20),
+    )
+  })
+
+  it("returns every tagged note when limit exceeds their count", async () => {
+    expect(await queryTaggedPaths({ tag: "project", limit: 50 })).toEqual(
+      PROJECT_PATHS_NEWEST_FIRST,
+    )
+  })
+
+  it("returns only the newest tagged notes up to a limit below the default", async () => {
+    expect(await queryTaggedPaths({ tag: "project", limit: 3 })).toEqual([
+      "Projects/note-01.md",
+      "Projects/note-08.md",
+      "Projects/note-15.md",
+    ])
+  })
+
+  it("applies limit to an exact-match search", async () => {
+    expect(await queryTaggedPaths({ tag: "project", exact: true, limit: 3 })).toEqual([
+      "Projects/note-01.md",
+      "Projects/note-08.md",
+      "Projects/note-15.md",
+    ])
+  })
+})
+
 describe("vault_find_orphans live folder defaults", () => {
   const setupOrphans = async (
     options: {

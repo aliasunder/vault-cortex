@@ -918,7 +918,7 @@
     {
       "name": "vault_search_by_tag",
       "title": "Search by Tag",
-      "description": "Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a parent tag matches all children (e.g. \"project\" matches \"project/vault-cortex\", \"project/blog\"). Set exact=true for exact match only.\n\nExample: vault_search_by_tag({ tag: \"project\" })\n\nWhen to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.\nPrefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.\n\nParameters:\n- Prefix mode follows the \"/\" separator: \"project\" matches itself and every tag nested under it (project/a, project/a/b) but does NOT match \"my-project\" or \"projects\".\n\nErrors:\n- An unknown tag or no matches returns an empty array, not an error.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. bytes is the on-disk file size. additional_properties holds only frontmatter keys without their own top-level field.",
+      "description": "Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a parent tag matches all children (e.g. \"project\" matches \"project/vault-cortex\", \"project/blog\"). Set exact=true for exact match only.\n\nExample: vault_search_by_tag({ tag: \"project\" })\n\nWhen to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.\nPrefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.\n\nParameters:\n- Prefix mode follows the \"/\" separator: \"project\" matches itself and every tag nested under it (project/a, project/a/b) but does NOT match \"my-project\" or \"projects\".\n- limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.\n\nErrors:\n- An unknown tag or no matches returns an empty array, not an error.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified, then by path. bytes is the on-disk file size. additional_properties holds only frontmatter keys without their own top-level field.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -931,6 +931,13 @@
             "default": false,
             "description": "Exact match only (default: false, prefix match)",
             "type": "boolean"
+          },
+          "limit": {
+            "default": 20,
+            "description": "Max results (default 20)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "required": [

@@ -203,7 +203,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 | Tool                     | Input                                                                | Annotation   |
 | ------------------------ | -------------------------------------------------------------------- | ------------ |
 | `vault_search`           | `query, filters?, limit?, snippet_tokens?, include_leading_callout?` | readOnlyHint |
-| `vault_search_by_tag`    | `tag, exact?`                                                        | readOnlyHint |
+| `vault_search_by_tag`    | `tag, exact?, limit?`                                                | readOnlyHint |
 | `vault_search_by_folder` | `folder, recursive?, limit?`                                         | readOnlyHint |
 | `vault_list_tags`        | —                                                                    | readOnlyHint |
 | `vault_recent_notes`     | `sort_by?, limit?`                                                   | readOnlyHint |
