@@ -25,6 +25,10 @@ export const isString = (value: unknown): value is string => typeof value === "s
 export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value))
     return value.filter((element) => element != null && typeof element !== "object").map(String)
+
+  // A mapping value (tags: { project: true }) is dropped, as mappings inside a
+  // list are above; String() would index it as the value "[object Object]".
+  if (typeof value === "object") return []
   return value ? [String(value)] : []
 }
 
