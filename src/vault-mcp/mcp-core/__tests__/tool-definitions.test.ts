@@ -1551,8 +1551,13 @@ describe("vault_search_by_tag handler", () => {
       mtimeMs: 2000 - offset,
     }))
     const decoyNote = { filePath: "Other/newest.md", tag: "other", mtimeMs: 3000 }
+    // Inserted in path order: inserting newest first would let the index's row
+    // order stand in for the modified-time sort these tests check.
+    const notesInPathOrder = [...projectNotes, decoyNote].toSorted((noteA, noteB) =>
+      noteA.filePath.localeCompare(noteB.filePath),
+    )
 
-    for (const { filePath, tag, mtimeMs } of [...projectNotes, decoyNote]) {
+    for (const { filePath, tag, mtimeMs } of notesInPathOrder) {
       searchIndex.upsertNote(
         {
           filePath,
