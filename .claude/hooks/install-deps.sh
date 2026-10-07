@@ -51,7 +51,11 @@ persist_node_on_path() {
   local path_line
   path_line="export PATH=\"$(dirname "${node_path}"):\$PATH\""
   if ! grep -qxF "${path_line}" "${CLAUDE_ENV_FILE}" 2>/dev/null; then
-    printf '%s\n' "${path_line}" >> "${CLAUDE_ENV_FILE}"
+    # Under set -e a failed write would end the hook before the install below.
+    if ! printf '%s\n' "${path_line}" >> "${CLAUDE_ENV_FILE}"; then
+      log "could not write ${CLAUDE_ENV_FILE} — later commands keep the image's PATH"
+      return 0
+    fi
     log "later commands use $("${node_path}" --version) from ${node_path}"
   fi
 }
