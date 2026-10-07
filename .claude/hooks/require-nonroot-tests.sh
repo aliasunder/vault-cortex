@@ -19,6 +19,8 @@ fi
 # The payload is JSON on stdin. node prints the command and the session's cwd
 # separated by a NUL, because a command can hold any other character. A payload
 # node cannot parse yields an empty command, which lets the call through.
+# The script is single-quoted on purpose: its ${...} is JavaScript, not shell.
+# shellcheck disable=SC2016
 {
   IFS= read -r -d '' tool_command || true
   IFS= read -r -d '' payload_cwd || true
