@@ -791,6 +791,66 @@ describe("unreadable properties blocks", () => {
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 
+  it("refuses a vault_replace_in_note deletion that would leave a note opening with a broken block", async () => {
+    const original = "Intro paragraph\n---\ntitle: [unclosed\n---\nrest\n"
+    const fullPath = await plantNote("Replace Then Block.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: { path: "Replace Then Block.md", old_text: "Intro paragraph\n", new_text: "" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  it("refuses a vault_replace_span that would open a note with a broken block", async () => {
+    const original = "Intro paragraph\nrest\n"
+    const fullPath = await plantNote("Span To Block.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: "Span To Block.md",
+        start_anchor: "Intro paragraph",
+        content: "---\ntitle: [unclosed\n---",
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  it("refuses a vault_insert_at_anchor that would open a note with a broken block", async () => {
+    const original = "Intro paragraph\nrest\n"
+    const fullPath = await plantNote("Insert Block.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_insert_at_anchor",
+      args: {
+        path: "Insert Block.md",
+        anchor: "Intro paragraph",
+        position: "before",
+        content: "---\ntitle: [unclosed\n---",
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
   it.each([
     { label: "with properties", properties: { title: "Fixed" } },
     { label: "without properties", properties: undefined },
