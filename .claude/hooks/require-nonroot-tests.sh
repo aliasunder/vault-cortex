@@ -26,19 +26,24 @@ fi
   IFS= read -r -d '' tool_command || true
   IFS= read -r -d '' payload_cwd || true
 } < <(node -e '
-  let payload = ""
-  process.stdin.on("data", (chunk) => (payload += chunk)).on("end", () => {
-    const parsed = JSON.parse(payload)
+  const chunks = []
+  // Decoded once at the end: a multi-byte character can be split across chunks.
+  process.stdin.on("data", (chunk) => chunks.push(chunk)).on("end", () => {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"))
     process.stdout.write(`${parsed.tool_input?.command ?? ""}\0${parsed.cwd ?? ""}\0`)
   })
 ' 2>/dev/null)
 
 # A test runner at a command position: the start of a line or after ;, &, |,
-# ( or $(, optionally after `env` and VAR=value settings (`CI=1 npm test`).
-# A mention elsewhere, as in `grep vitest package.json`, is not a run.
+# ( or $(, optionally after wrappers (`env`, `time`, `timeout 600`, `exec`,
+# `command`), shell keywords (`if`, `then`, `do`, `else`, `elif`, `!`, `{`) and
+# VAR=value settings (`CI=1 npm test`). A mention elsewhere, as in
+# `grep vitest package.json`, is not a run.
 test_runner='(npx[[:space:]]+)?([^[:space:];&|]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs|npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|snapshot:update))'
 variable_setting="[A-Za-z_][A-Za-z0-9_]*=(\"[^\"]*\"|'[^']*'|[^[:space:];&|'\"]*)[[:space:]]+"
-command_prefix="(env[[:space:]]+)?(${variable_setting})*"
+# timeout takes flags and then a duration, as in `timeout -k 5 600 npm test`.
+wrapper='(env|time|exec|command|if|then|do|else|elif|!|\{|timeout([[:space:]]+-[^[:space:]]*)*([[:space:]]+[0-9][^[:space:]]*)+)[[:space:]]+'
+command_prefix="(${wrapper}|${variable_setting})*"
 # A newline separates commands just as ; does.
 line_break=$'\n'
 runs_tests="(^|[;&|(${line_break}]|\\\$\\()[[:space:]]*${command_prefix}(${test_runner})([[:space:];&|)]|\$)"
@@ -85,8 +90,11 @@ nobody_writable=(
   "${checkout}/coverage"
 )
 mkdir -p "${nobody_writable[@]}"
-# Recursive, because files a root run left inside would stay root-owned.
-chmod -R 777 "${nobody_writable[@]}"
+# Owned by nobody rather than opened to every user, because vitest runs code
+# from its caches. Recursive, because files a root run left inside would stay
+# root-owned.
+chown -R "$(id -u nobody):$(id -g nobody)" "${nobody_writable[@]}"
+chmod -R go-w "${nobody_writable[@]}"
 snapshots="${checkout}/src/vault-mcp/mcp-core/__tests__/__snapshots__"
 if [[ -d "${snapshots}" ]]; then
   chmod -R o+w "${snapshots}"
