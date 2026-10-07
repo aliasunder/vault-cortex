@@ -153,7 +153,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog").
+      description: `Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a tag matches itself and every tag nested under it at any depth (e.g. "project" matches "project", "project/vault-cortex", "project/a/b").
 
 Example: vault_search_by_tag({ tag: "project" })
 Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — notes tagged "project" itself, up to 50
@@ -162,7 +162,7 @@ When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no tex
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
 Parameters:
-- exact: the default (false) follows the "/" separator: "project" matches itself and every tag nested under it (project/a, project/a/b) but does NOT match "my-project" or "projects".
+- exact: prefix matching stops at the "/" separator, so "project" does NOT match "my-project" or "projects"; true matches only the tag itself.
 - limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Behavior: Reads the search index, which picks up a file change within a few seconds, so a note written moments ago may not appear yet.
