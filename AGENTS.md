@@ -924,22 +924,22 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   centralized test directory higher up the tree. Don't spawn a
   standalone test file just to mock differently; use
   `vi.mock(path, { spy: true })` to keep the real implementation.
-  **Exception — the remote image's s6 init scripts.** The shell scripts
-  under `rootfs/etc/s6-overlay/scripts/` are the `vault-mcp` server's
-  boot chain for the `:remote` target, not TypeScript modules, and
-  vitest's include paths (`src/`, `cli/src/`, `scripts/`) don't reach
-  `rootfs/`. Their tests live in
+  **Exception — shell scripts outside vitest's include paths.** The
+  remote image's s6 init scripts under `rootfs/etc/s6-overlay/scripts/`
+  are the `vault-mcp` server's boot chain for the `:remote` target, and
+  the Claude Code hooks sit in `.claude/hooks/`. Neither is a TypeScript
+  module, and vitest's include paths (`src/`, `cli/src/`, `scripts/`)
+  reach neither folder. The init-script tests live in
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes), and the tests for the Claude Code hooks
-  in `.claude/hooks/` live in `src/__tests__/`
-  (`require-nonroot-tests.test.ts`, which runs its hook under `bash`).
-  These script tests run the real
-  script under `sh` with stub binaries on `PATH`, and name the script
-  they cover — don't move them under `rootfs/` or widen vitest's
-  include for them. Whole-image behaviour (the init chain's ordering,
+  `init-derive-env` publishes), and the hook tests in `src/__tests__/`
+  (`require-nonroot-tests.test.ts`). These script tests run the real
+  script under its own shell (`sh` for the init scripts, `bash` for the
+  hooks) with stub binaries on `PATH`, and name the script they cover —
+  don't move them next to the scripts or widen vitest's include for
+  them. Whole-image behaviour (the init chain's ordering,
   the `container_environment` files the chain publishes, the volume
   layout, and the checks that stop the container) belongs in the
   remote-boot test suite (`src/__tests__/docker/`, see "Remote image
