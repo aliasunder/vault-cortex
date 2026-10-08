@@ -166,6 +166,7 @@ fi
 # - The 480s wait sits well inside the 600s hook timeout in settings.json.
 #   Perl exits 75 when that wait times out.
 exec 9>>"${state_dir}/install-deps.lock"
+lock_held=false
 if command -v perl >/dev/null 2>&1; then
   lock_status=0
   perl -MFcntl=:flock -e '
@@ -182,7 +183,9 @@ if command -v perl >/dev/null 2>&1; then
     log "concurrent install still running after 480s in ${checkout} — skipping"
     exit 0
   fi
-  if ((lock_status != 0)); then
+  if ((lock_status == 0)); then
+    lock_held=true
+  else
     log "could not take the install lock in ${checkout} (perl exit ${lock_status}) — installing without it"
   fi
 else
@@ -199,18 +202,19 @@ if dependencies_are_current; then
 fi
 
 # A hook killed by timeout can leave the marker even though its orphaned npm ci
-# finished the install. A tree whose top-level dependencies all resolve
-# (npm ls --depth=0) is taken as complete, so this clears the marker and stamps
+# finished the install. A tree whose dependencies all resolve at every depth
+# (npm ls --all) is taken as complete, so this clears the marker and stamps
 # the tree instead of rebuilding it.
-# - With the lock held, no orphaned npm ci is still writing, because that
-#   npm ci would still hold fd 9. The no-lock fallbacks above lack this
-#   guarantee.
+# - Only with the lock held: then no orphaned npm ci is still writing, because
+#   that npm ci would still hold fd 9. Without the lock a half-written tree
+#   can pass npm ls while npm ci is still adding to it, so the tree is rebuilt
+#   instead.
 # - The marker's lockfile hash must match the current one. A tree built from
 #   an older lockfile passes npm ls whenever package.json ranges still hold,
 #   and stamping it would hide the lockfile change forever.
 marker_lockfile_hash="$(cat "${marker}" 2>/dev/null || true)"
-if [[ -d "${checkout}/node_modules" && -f "${marker}" && "${marker_lockfile_hash}" == "${lockfile_hash}" ]]; then
-  if npm --prefix "${checkout}" ls --depth=0 >/dev/null 2>&1; then
+if [[ "${lock_held}" == true && -d "${checkout}/node_modules" && -f "${marker}" && "${marker_lockfile_hash}" == "${lockfile_hash}" ]]; then
+  if npm --prefix "${checkout}" ls --all >/dev/null 2>&1; then
     rm -f "${marker}"
 
     # The orphaned install was still the hook's own, so it is stamped like the
