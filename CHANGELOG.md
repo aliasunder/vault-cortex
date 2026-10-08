@@ -115,6 +115,33 @@
 
 
 
+
+## [0.54.11] — 2026-10-08
+
+### Features
+
+- **tools:** Add limit to vault_search_by_tag (#653)
+
+### Bug Fixes
+
+- **tasks:** Keep block IDs off sub-tasks on Kanban boards (#656)
+- **tests:** Stop test servers when their tests end, and run a root session's tests as nobody (#654)
+- **tools:** Tighten seven tool definitions (#652)
+- **notes:** Refuse writes that would lose a properties block, and repair one with replace: true (#641)
+
+### Documentation
+
+- **agents:** List folders, not files, in the Structure tree (#651)
+- Update CHANGELOG.md for v0.54.10
+
+### Maintenance
+
+- **hooks:** Put nvm's Node first on PATH for later commands (#655)
+
+### Other Changes
+
+- **memory:** Assert complete file ordering (#650)
+
 ## [0.54.10] — 2026-10-06
 
 ### Bug Fixes
