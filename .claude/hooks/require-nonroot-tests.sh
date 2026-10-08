@@ -51,12 +51,13 @@ flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space
 # The two kinds of test runner:
 # - vitest itself: bare or by path (node_modules/.bin/vitest); after npx and
 #   its flags (`npx -y vitest`); or `node node_modules/vitest/vitest.mjs`.
-# - npm running a package.json script: `npm test` or `npm t`, and the scripts
-#   test, test:coverage, test:watch and snapshot:update. The scripts
+# - npm running a package.json script, after any npm flags (`npm -s test`,
+#   `npm run --silent test`): `npm test` or `npm t`, and the scripts test,
+#   test:coverage, test:watch and snapshot:update. The scripts
 #   test:remote-boot and test:cli-pty are left out; the exemptions below say
 #   why.
 vitest_runner="(npx${flags_with_optional_argument}[[:space:]]+)?([^[:space:]]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs"
-npm_runner='npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|snapshot:update))'
+npm_runner="npm${flags_with_optional_argument}[[:space:]]+(test|t|run${flags_with_optional_argument}[[:space:]]+(test|test:coverage|test:watch|snapshot:update))"
 test_runner="${vitest_runner}|${npm_runner}"
 
 # A VAR=value setting before the command (`CI=1 npm test`). The value is
@@ -102,18 +103,27 @@ vitest_root_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${argumen
 npm_root_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments}[[:space:]]+--${arguments}[[:space:]]+${root_suite_config}"
 root_suite_run="${vitest_root_suite_run}|${npm_root_suite_run}"
 
-# The command is split into the commands it runs, one per line.
+# A `cd` to an unquoted absolute path, to an unquoted relative path, and any
+# other cd.
+cd_to_absolute_path='^[[:space:]]*cd[[:space:]]+(/[^[:space:]]*)'
+cd_to_relative_path="^[[:space:]]*cd[[:space:]]+([^-~\"'\$[:space:]][^[:space:]]*)"
+any_cd='^[[:space:]]*cd([[:space:]]|$)'
+
+# The command is split into the commands it runs, one per line, and only the
+# cds and test runs the walk below acts on are kept.
 # - A command starts at the start of a line, or after ;, &, |, ( or a
 #   backtick. The ( also covers $( ).
 # - tr maps each of the five characters to a line break, which SC2020 takes
 #   for a word replacement. tr, not bash's ${//}, because bash's substitution
 #   slows to seconds on a large multi-byte command.
+# - grep drops the other commands in one pass. The walk's =~ tests take
+#   seconds when they run on each line of a command thousands of lines long.
+# - grep exits 1 when it keeps no line, so `|| true` stops set -e and
+#   pipefail from ending the hook.
 # shellcheck disable=SC2020
-split_commands="$(printf '%s\n' "${tool_command}" | tr ';&|(`' '\n\n\n\n\n')"
-
-# A `cd` to an unquoted absolute path, and any other cd.
-cd_to_absolute_path='^[[:space:]]*cd[[:space:]]+(/[^[:space:]]*)'
-any_cd='^[[:space:]]*cd([[:space:]]|$)'
+cd_or_test_commands="$(printf '%s\n' "${tool_command}" |
+  tr ';&|(`' '\n\n\n\n\n' |
+  grep -E "${any_cd}|${test_run}")" || true
 
 # The walk checks each command on its own, so an exemption covers only its
 # own command, and tracks the folder the first stopped run runs in.
@@ -131,10 +141,13 @@ any_cd='^[[:space:]]*cd([[:space:]]|$)'
 # - The run's folder starts as the session's current folder: the payload's
 #   cwd, or CLAUDE_PROJECT_DIR, which Claude Code sets to the project root,
 #   when the payload has no cwd.
-#   - The last `cd` before the run moves it: to an unquoted absolute path
-#     (`git pull && cd /other/checkout && npm test`), or back to the
-#     session's folder for a relative, ~ or quoted path, which only the shell
-#     can resolve. A cd after the run does not count.
+#   - Each `cd` before the run moves it: to an unquoted absolute path
+#     (`git pull && cd /other/checkout && npm test`), relative to the folder
+#     so far for an unquoted relative path (`cd /other/checkout && cd src`),
+#     or back to the session's folder for a ~ or quoted path, which only the
+#     shell can resolve. A cd after the run does not count.
+#   - npm's --prefix folder is not followed: `npm --prefix /other/checkout
+#     test` counts as `npm test`.
 #   - When that folder is in no checkout, the session's folder's checkout
 #     stands in, and the run is still stopped rather than let through as root.
 session_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
@@ -144,6 +157,10 @@ root_test_runs=""
 while IFS= read -r split_command; do
   if [[ "${split_command}" =~ ${cd_to_absolute_path} ]]; then
     current_dir="${BASH_REMATCH[1]}"
+    continue
+  fi
+  if [[ "${split_command}" =~ ${cd_to_relative_path} ]]; then
+    current_dir="${current_dir}/${BASH_REMATCH[1]}"
     continue
   fi
   if [[ "${split_command}" =~ ${any_cd} ]]; then
@@ -157,7 +174,7 @@ while IFS= read -r split_command; do
     run_dir="${current_dir}"
   fi
   root_test_runs+="${split_command}"$'\n'
-done <<<"${split_commands}"
+done <<<"${cd_or_test_commands}"
 if [[ -z "${root_test_runs}" ]]; then
   exit 0
 fi

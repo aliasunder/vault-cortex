@@ -324,6 +324,15 @@ describe("require-nonroot-tests hook", () => {
         label: "npm test with a config flag npm consumes",
         command: "npm test --config vitest.cli-pty.config.ts",
       },
+      { label: "npm with a flag before the script", command: "npm -s test" },
+      {
+        label: "npm with a flag and its argument before the script",
+        command: "npm --prefix . test",
+      },
+      {
+        label: "npm run with a flag before the script",
+        command: "npm run --silent snapshot:update",
+      },
       {
         label: "vitest by its path under node_modules/.bin",
         command: "node_modules/.bin/vitest run",
@@ -398,6 +407,10 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "npm test handing the cli-pty config to vitest after --",
         command: "npm test -- --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "npm with a flag handing the cli-pty config to vitest after --",
+        command: "npm -s test -- --config vitest.cli-pty.config.ts",
       },
       { label: "a variable setting as an argument", command: "echo CI=1 npm test" },
       { label: "a variable setting before another command", command: "FOO=1 echo npm test" },
@@ -638,13 +651,28 @@ describe("require-nonroot-tests hook", () => {
       expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
     })
 
+    it("prepares the checkout a relative cd into a subfolder stays in", () => {
+      const fixture = createHookFixture()
+      mkdirSync(join(fixture.checkout, "src"))
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({
+          command: `cd ${fixture.checkout} && cd src && npm test`,
+          cwd: fixture.outsideDir,
+        }),
+      })
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
+    })
+
     it.each([
       {
         label: "a cd after the test run",
         command: (checkout: string) => `npm test; cd ${checkout}`,
       },
       {
-        label: "a relative cd after an absolute one",
+        label: "a relative cd out of the checkout",
         command: (checkout: string) => `cd ${checkout} && cd .. && npm test`,
       },
       {
