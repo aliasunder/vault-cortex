@@ -117,7 +117,7 @@ const createHookFixture = (): HookFixture => {
   return { checkout, outsideDir, stubBinDir }
 }
 
-const hookEnv = (options: HookRunOptions): Record<string, string> => {
+const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string> => {
   const { uid, gid } = runnerIds()
 
   // Built from scratch, so a CLAUDE_PROJECT_DIR or GIT_DIR in the runner's
@@ -185,7 +185,7 @@ describe("require-nonroot-tests hook", () => {
     const lookup = spawnSync("bash", ["-c", "command -v id; command -v setpriv"], {
       cwd: fixture.outsideDir,
       encoding: "utf8",
-      env: hookEnv({ fixture, stdin: "" }),
+      env: hookEnv({ fixture }),
     })
 
     expect(lookup.stdout).toBe(`${fixture.stubBinDir}/id\n${fixture.stubBinDir}/setpriv\n`)
