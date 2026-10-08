@@ -17,11 +17,10 @@ import { describe, expect, it, onTestFinished } from "vitest"
 /**
  * Behavioral spec for the Claude Code hook that stops test runs in a root
  * session (.claude/hooks/require-nonroot-tests.sh): which commands it stops,
- * which checkout's folders it prepares, and the prefix it replies with. The
- * real hook runs under `bash` with real node and git, and with stub `id` and
- * `setpriv` executables first on PATH. The stub `id` poses as root and
- * reports the test runner's own ids for nobody, so the hook's chown needs no
- * privileges.
+ * which checkout's folders it prepares, and the reply it gives. The real hook
+ * runs under `bash` with real node and git, and with stub `id` and `setpriv`
+ * executables first on PATH. The stub `id` poses as root and reports the test
+ * runner's own ids for nobody, so the hook's chown needs no privileges.
  */
 
 const HOOK_PATH = resolve(import.meta.dirname, "../../.claude/hooks/require-nonroot-tests.sh")
@@ -53,6 +52,8 @@ esac
 const SETPRIV_STUB = `#!/bin/sh
 exit 0
 `
+
+const SNAPSHOTS_FOLDER = "src/vault-mcp/mcp-core/__tests__/__snapshots__"
 
 type HookFixture = {
   /** A fresh git checkout with a node_modules folder, symlinks resolved the
@@ -90,6 +91,13 @@ const runnerIds = (): { uid: number; gid: number } => {
   return { uid, gid }
 }
 
+/** PATH lookup skips a file without the executable bit, and would run the
+ *  real binary instead. */
+const writeExecutable = (path: string, script: string): void => {
+  writeFileSync(path, script)
+  chmodSync(path, 0o755)
+}
+
 const createHookFixture = (): HookFixture => {
   // realpath: git reports the checkout with symlinks resolved, and macOS's
   // tmpdir is a symlink.
@@ -98,16 +106,12 @@ const createHookFixture = (): HookFixture => {
   const stubBinDir = join(tempDir, "bin")
   const checkout = join(tempDir, "checkout")
   const outsideDir = join(tempDir, "outside")
-  mkdirSync(stubBinDir)
-  mkdirSync(outsideDir)
-
-  // PATH lookup skips a file without the executable bit, and would run the
-  // real binary instead.
-  for (const [stubName, stubScript] of Object.entries({ id: ID_STUB, setpriv: SETPRIV_STUB })) {
-    const stubPath = join(stubBinDir, stubName)
-    writeFileSync(stubPath, stubScript)
-    chmodSync(stubPath, 0o755)
+  for (const folder of [stubBinDir, outsideDir]) {
+    mkdirSync(folder)
   }
+
+  writeExecutable(join(stubBinDir, "id"), ID_STUB)
+  writeExecutable(join(stubBinDir, "setpriv"), SETPRIV_STUB)
 
   execFileSync("git", ["init", "--quiet", checkout], {
     env: { PATH: process.env.PATH ?? "", HOME: outsideDir },
@@ -119,12 +123,13 @@ const createHookFixture = (): HookFixture => {
 
 const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string> => {
   const { uid, gid } = runnerIds()
+  const { fixture } = options
 
   // Built from scratch, so a CLAUDE_PROJECT_DIR or GIT_DIR in the runner's
   // own environment never reaches the hook.
   return {
-    PATH: `${options.fixture.stubBinDir}:${process.env.PATH ?? ""}`,
-    HOME: options.fixture.outsideDir,
+    PATH: `${fixture.stubBinDir}:${process.env.PATH ?? ""}`,
+    HOME: fixture.outsideDir,
     STUB_SESSION_UID: String(options.sessionUid ?? 0),
     STUB_NOBODY_EXISTS: options.nobodyExists === false ? "0" : "1",
     STUB_NOBODY_UID: String(uid),
@@ -205,16 +210,39 @@ describe("require-nonroot-tests hook", () => {
       { label: "npm run snapshot:update", command: "npm run snapshot:update" },
       { label: "a subshell", command: "(cd sub; npm test)" },
       { label: "a subshell inside command substitution", command: "out=$( (npm test) )" },
+      { label: "a backtick substitution", command: "out=`npm test 2>&1`" },
       { label: "a variable setting before npx", command: "CI=1 npx vitest run" },
       { label: "env with a variable setting", command: "env CI=1 npm test" },
+      { label: "env with a flag", command: "env -i npm test" },
       { label: "a double-quoted value with a space", command: 'FOO="a b" npm test' },
       { label: "time", command: "time npm test" },
+      { label: "time with a flag", command: "time -p npm test" },
       {
         label: "timeout with a flag argument and a duration",
         command: "timeout -k 5 600 npm test",
       },
+      { label: "timeout with a named signal", command: "timeout -s KILL 600 npm test" },
       { label: "an if condition", command: "if npm test; then :; fi" },
+      { label: "a while condition", command: "while npm test; do :; done" },
+      { label: "an until condition", command: "until npm test; do sleep 1; done" },
       { label: "a brace group", command: "{ npm test; }" },
+      {
+        label: "a test run after an exempt suite's npm script",
+        command: "npm run test:cli-pty && npm test",
+      },
+      {
+        label: "a vitest run whose test filter names an exempt suite",
+        command: "npm run test:remote-boot; npx vitest run -t cli-pty",
+      },
+      {
+        label: "a test run after a command that mentions setpriv",
+        command: "grep setpriv notes; npm test",
+      },
+      {
+        label: "a test run after a run through setpriv",
+        command:
+          "setpriv --reuid=65534 --regid=65534 --clear-groups env HOME=/repo/node_modules/.nobody-home npm test; npm test",
+      },
     ])("stops $label and replies with the nobody prefix", ({ command }) => {
       const fixture = createHookFixture()
 
@@ -228,6 +256,7 @@ describe("require-nonroot-tests hook", () => {
     it.each([
       { label: "git status", command: "git status" },
       { label: "a mention of vitest as an argument", command: "grep vitest package.json" },
+      { label: "a lookup of vitest with command -v", command: "command -v vitest" },
       { label: "a quoted mention of npm test", command: 'echo "npm test"' },
       { label: "a script whose name only starts with test", command: "npm run testx" },
       { label: "npm run test:remote-boot", command: "npm run test:remote-boot" },
@@ -237,11 +266,12 @@ describe("require-nonroot-tests hook", () => {
         command: "npx vitest run --config vitest.cli-pty.config.ts",
       },
       {
-        label: "vitest with the remote-boot config",
-        command: "npx vitest run --config vitest.remote-boot.config.ts",
+        label: "vitest with the remote-boot config, given with = and a path",
+        command: "npx vitest run --config=./vitest.remote-boot.config.ts",
       },
       { label: "a variable setting as an argument", command: "echo CI=1 npm test" },
       { label: "a variable setting before another command", command: "FOO=1 echo npm test" },
+      { label: "env with a flag running another command", command: "env -i echo npm test" },
       { label: "timeout running another command", command: "timeout 600 echo npm test" },
       {
         label: "a command already run through setpriv",
@@ -291,6 +321,17 @@ describe("require-nonroot-tests hook", () => {
       })
     })
 
+    it("leaves the coverage hint out when only an exempt suite's run asks for coverage", () => {
+      const fixture = createHookFixture()
+
+      const run = runCommandThroughHook(
+        fixture,
+        "npx vitest run --config vitest.cli-pty.config.ts --coverage; npm test",
+      )
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
+    })
+
     it("creates the four scratch folders a test run writes", () => {
       const fixture = createHookFixture()
 
@@ -329,10 +370,7 @@ describe("require-nonroot-tests hook", () => {
 
     it("opens the tool-surface snapshot folder to writes by other users", () => {
       const fixture = createHookFixture()
-      const snapshotFolder = join(
-        fixture.checkout,
-        "src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface",
-      )
+      const snapshotFolder = join(fixture.checkout, SNAPSHOTS_FOLDER, "tool-surface")
       const snapshotFile = join(snapshotFolder, "default.json")
       mkdirSync(snapshotFolder, { recursive: true })
       chmodSync(snapshotFolder, 0o755)

@@ -46,57 +46,75 @@ fi
 # `npx vitest`; `node node_modules/vitest/vitest.mjs`; `npm test` or `npm t`;
 # and the package.json scripts test, test:coverage, test:watch and
 # snapshot:update. The scripts test:remote-boot and test:cli-pty are left out;
-# the exemptions after the match say why.
-test_runner='(npx[[:space:]]+)?([^[:space:];&|]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs|npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|snapshot:update))'
+# the exemptions below say why.
+test_runner='(npx[[:space:]]+)?([^[:space:]]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs|npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|snapshot:update))'
 
 # A VAR=value setting before the command (`CI=1 npm test`). The value is
-# double-quoted, single-quoted, or unquoted up to a space, quote, ;, & or |.
+# double-quoted, single-quoted, or unquoted up to a space or quote.
 double_quoted='"[^"]*"'
 single_quoted="'[^']*'"
-unquoted="[^[:space:];&|'\"]*"
+unquoted="[^[:space:]'\"]*"
 variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${unquoted})[[:space:]]+"
 
-# A wrapper that runs the command after it: env, time, exec, command, or
-# timeout. timeout takes flags, then one or more numbers: a flag's numeric
-# argument and the duration, as in `timeout -k 5 600 npm test`.
-wrapper='(env|time|exec|command|timeout([[:space:]]+-[^[:space:]]*)*([[:space:]]+[0-9][^[:space:]]*)+)[[:space:]]+'
+# A wrapper that runs the command after it:
+# - env and time, with flags that take no argument (`env -i`, `time -p`). A
+#   flag's argument would look the same as the command it runs.
+# - exec and command, without flags, so `command -v vitest` is not a run.
+# - timeout, whose flags may each take one argument, then the duration
+#   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
+# setpriv is not a wrapper here: a run through setpriv is the nobody run the
+# reply asks for, so the runner after it never counts.
+flags_without_argument='([[:space:]]+-[^[:space:]]*)*'
+flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
+timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
+wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+"
 
 # A shell keyword that a command can follow: `if npm test`, then, do, else,
-# elif, `! npm test`, `{ npm test; }`.
-shell_keyword='(if|then|do|else|elif|!|\{)[[:space:]]+'
+# elif, while, until, `! npm test`, `{ npm test; }`.
+shell_keyword='(if|then|do|else|elif|while|until|!|\{)[[:space:]]+'
 
 command_prefix="(${wrapper}|${shell_keyword}|${variable_setting})*"
 
-# A command starts at the start of a line or after ;, &, | or ( (which also
-# covers $( ). bash's ^ matches only at the start of the whole string, so a
-# newline is listed with the separators. A mention elsewhere, as in
-# `grep vitest package.json`, is not a run.
-line_break=$'\n'
-command_start="(^|[;&|(${line_break}])"
-
-# The runner ends at a space, ;, &, |, ) or the end of the command, so
+# The runner ends at a space, a ) or the end of its command, so
 # `npm run testx` and `npm run test:cli-pty` are not runs.
-runner_end='([[:space:];&|)]|$)'
+runner_end='([[:space:])]|$)'
 
-runs_tests="${command_start}[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
-if [[ ! "${tool_command}" =~ ${runs_tests} ]]; then
+# A command that runs tests starts with the runner, after any prefix. A
+# mention elsewhere, as in `grep vitest package.json`, is not a run.
+test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
+
+# vitest's config flag naming one of the two suites that stay with root
+# (`--config vitest.cli-pty.config.ts`); the exemptions below say why.
+root_suite_config='(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts'
+
+# The command is split into the commands it runs, one per line, and each is
+# checked on its own, so an exemption covers only its own command.
+# - A command starts at the start of a line, or after ;, &, |, ( or a
+#   backtick. The ( also covers $( ).
+# - Exemptions:
+#   - A run through setpriv never matches test_run, because setpriv is not
+#     one of the wrappers above.
+#   - Two suites have no permission tests and cannot run as nobody. Their
+#     npm scripts never match test_run, and grep -v drops a vitest run with
+#     either suite's config.
+#     - remote-boot needs the Docker socket, which nobody cannot open.
+#     - cli-pty starts the CLI with npx from a temp folder, so npx downloads
+#       tsx into nobody's empty npm cache. Cloud sessions reach the npm
+#       registry through a proxy whose CA bundle sits under /root, where
+#       nobody cannot read it, so that download fails.
+# - tr maps each of the five characters to a line break, which SC2020 takes
+#   for a word replacement. tr, not bash's ${//}, because bash's substitution
+#   slows to seconds on a large multi-byte command.
+# - grep exits 1 when it keeps no line, so `|| true` stops set -e and
+#   pipefail from ending the hook.
+# shellcheck disable=SC2020
+root_test_runs="$(printf '%s\n' "${tool_command}" |
+  tr ';&|(`' '\n\n\n\n\n' |
+  grep -E "${test_run}" |
+  grep -vE "${root_suite_config}")" || true
+if [[ -z "${root_test_runs}" ]]; then
   exit 0
 fi
-
-# Exemptions:
-# - A command that contains setpriv anywhere is taken as already prefixed.
-# - Two suites have no permission tests and cannot run as nobody. Their npm
-#   scripts never match runs_tests, but a direct vitest run with their config
-#   (`npx vitest run --config vitest.cli-pty.config.ts`) does, and goes
-#   through here.
-#   - remote-boot needs the Docker socket, which nobody cannot open.
-#   - cli-pty starts the CLI with npx from a temp folder, so npx downloads tsx
-#     into nobody's empty npm cache. Cloud sessions reach the npm registry
-#     through a proxy whose CA bundle sits under /root, where nobody cannot
-#     read it, so that download fails.
-case "${tool_command}" in
-  *setpriv* | *remote-boot* | *cli-pty*) exit 0 ;;
-esac
 
 # The checkout whose folders get prepared:
 # - The payload's cwd is the session's current folder. CLAUDE_PROJECT_DIR,
@@ -108,6 +126,8 @@ esac
 #   relative, ~ or quoted path, which only the shell can resolve, or an
 #   absolute path in no checkout. The run is then still stopped rather than
 #   let through as root.
+# - When neither folder is in a checkout, there are no folders to prepare, and
+#   the run is let through.
 session_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
 run_dir="${session_dir}"
 leading_cd='^[[:space:]]*cd[[:space:]]+(/[^[:space:];&|]*)'
@@ -158,7 +178,7 @@ The folders nobody needs to write in ${checkout} are ready.
 EOF
 # vitest deletes coverage/ before a coverage run, and deleting it needs write
 # access to the checkout root, so the run must keep the folder instead.
-if [[ "${tool_command}" == *test:coverage* || "${tool_command}" == *--coverage* ]]; then
+if [[ "${root_test_runs}" == *test:coverage* || "${root_test_runs}" == *--coverage* ]]; then
   echo "For a coverage run, also pass --coverage.clean=false (after -- for npm run): vitest otherwise deletes coverage/ first, which nobody cannot do in a root-owned checkout." >&2
 fi
 exit 2
