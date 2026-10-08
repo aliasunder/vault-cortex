@@ -211,11 +211,14 @@ describe("setup-server entry point", () => {
     })
   })
 
-  it("falls back to a relative setup URL when PUBLIC_URL is unset or unparseable", async () => {
+  it.each([
+    { label: "unset", publicUrlEnv: {} },
+    { label: "unparseable", publicUrlEnv: { PUBLIC_URL: "not a url" } },
+  ])("falls back to a relative setup URL when PUBLIC_URL is $label", async ({ publicUrlEnv }) => {
     const server = await spawnSetupServer({
       HOME: tmpdir(),
       MCP_AUTH_TOKEN: AUTH_TOKEN,
-      PUBLIC_URL: "not a url",
+      ...publicUrlEnv,
     })
     await waitForStart(server)
 
