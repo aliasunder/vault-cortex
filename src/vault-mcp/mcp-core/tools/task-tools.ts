@@ -362,7 +362,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .min(1)
           .optional()
           .describe(
-            "Checklist items, not sub-tasks: plain indented todo lines under the card, with no metadata (not even ➕). For full sub-tasks with dates and priority, make a separate call with parent_block_id.",
+            "Checklist sub-items: text-only todo lines indented under the card, with no metadata (not even ➕). For a sub-task with dates or priority, make a separate call with parent_block_id.",
           ),
         format: z
           .enum(["emoji", "dataview"])
