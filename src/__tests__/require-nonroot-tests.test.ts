@@ -450,12 +450,12 @@ describe("require-nonroot-tests hook", () => {
       const stdin = payloadFor({ command: "npm test", cwd: fixture.checkout })
 
       const run = runHook({ fixture, stdin, nobodyHasNode: false })
-      const foldersCreated = scratchFolders(fixture.checkout).filter((folder) => existsSync(folder))
+      const foldersMade = scratchFolders(fixture.checkout).filter((folder) => existsSync(folder))
       const controlRun = runHook({ fixture, stdin })
 
-      expect({ run, foldersCreated, controlStatus: controlRun.status }).toEqual({
+      expect({ run, foldersMade, controlStatus: controlRun.status }).toEqual({
         run: LET_THROUGH,
-        foldersCreated: [],
+        foldersMade: [],
         controlStatus: 2,
       })
     })
