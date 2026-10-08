@@ -203,7 +203,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 | Tool                     | Input                                                                | Annotation   |
 | ------------------------ | -------------------------------------------------------------------- | ------------ |
 | `vault_search`           | `query, filters?, limit?, snippet_tokens?, include_leading_callout?` | readOnlyHint |
-| `vault_search_by_tag`    | `tag, exact?`                                                        | readOnlyHint |
+| `vault_search_by_tag`    | `tag, exact?, limit?`                                                | readOnlyHint |
 | `vault_search_by_folder` | `folder, recursive?, limit?`                                         | readOnlyHint |
 | `vault_list_tags`        | —                                                                    | readOnlyHint |
 | `vault_recent_notes`     | `sort_by?, limit?`                                                   | readOnlyHint |
@@ -215,7 +215,9 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 - `folder`, `tags`, `related`, `type`, and `properties` (arbitrary frontmatter keys)
 - `created` / `modified` — date bounds `{ before, on, after }` in YYYY-MM-DD, both server-local (before/after exclusive, on exact). `created` matches the frontmatter created day and never matches notes without a parseable value for the property; `modified` matches the filesystem-mtime day
 
-`limit`, `snippet_tokens`, and `include_leading_callout` are top-level pagination/projection params alongside `query`.
+`limit`, `snippet_tokens`, and `include_leading_callout` sit beside `query`, outside `filters`: they set how many results come back and what each result carries.
+
+`vault_search_by_tag` matches a frontmatter tag and every tag nested under it (`project` matches `project/a/b` but not `projects`), or the tag alone with `exact: true`. It returns the most recently modified notes first, up to `limit` (default 20).
 
 `vault_recent_notes` sorts by `sort_by` — `"created"` or `"modified"` (default `"modified"`).
 

@@ -1053,16 +1053,75 @@ describe("upsertNote", () => {
   })
 
   it("stores folder as first path segment", () => {
+    // Nested two levels deep, so the first segment differs from the parent folder.
     index.upsertNote(
       {
-        filePath: "About Me/Principles.md",
+        filePath: "About Me/Archive/Principles.md",
         rawContent: NOTE_WITH_FRONTMATTER,
         fileStat: testStat(1000),
       },
       logger,
     )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
-    expect(results[0]?.folder).toBe("About Me")
+    expect(results.map((result) => result.folder)).toEqual(["About Me"])
+  })
+
+  it("stores created as null when the frontmatter value is not an ISO date", () => {
+    index.upsertNote(
+      {
+        filePath: "dated.md",
+        rawContent: "---\ncreated: 2026-01-15\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "undated.md",
+        rawContent: "---\ncreated: next week\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    // The ISO note keeps its date, so the null comes from the failed parse,
+    // not from created never being stored.
+    const createdByPath = index
+      .recentNotes({}, logger)
+      .map((note) => ({ path: note.path, created: note.created }))
+    expect(createdByPath).toEqual([
+      { path: "dated.md", created: DateTime.fromISO("2026-01-15").toISO() },
+      { path: "undated.md", created: null },
+    ])
+  })
+
+  it("stores the file name as title and null as type when those values are not text", () => {
+    index.upsertNote(
+      {
+        filePath: "text-values.md",
+        rawContent: "---\ntitle: Plan\ntype: meeting\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "non-text-values.md",
+        rawContent: "---\ntitle: 2024\ntype: [meeting]\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    // The text-valued note keeps both values, so the fallbacks come from the
+    // values' types, not from title and type never being stored.
+    const titleAndTypeByPath = index
+      .recentNotes({}, logger)
+      .map((note) => ({ path: note.path, title: note.title, type: note.type }))
+    expect(titleAndTypeByPath).toEqual([
+      { path: "text-values.md", title: "Plan", type: "meeting" },
+      { path: "non-text-values.md", title: "non-text-values", type: null },
+    ])
   })
 
   it("stores empty folder for root-level notes", () => {
@@ -1820,18 +1879,102 @@ describe("searchByTag", () => {
 
   it("prefix match: parent tag matches children", () => {
     const results = index.searchByTag({ tag: "project" }, logger)
-    expect(results).toHaveLength(2)
+    expect(results.map((result) => result.path)).toEqual(["b.md", "a.md"])
   })
 
-  it("exact match mode", () => {
-    const results = index.searchByTag({ tag: "project", exactMatch: true }, logger)
-    expect(results).toHaveLength(0)
+  it("prefix match needs a / after the tag, so projects and my-project do not match", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [projects]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "e.md",
+        rawContent: "---\ntags: [my-project]\n---\nbody\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+
+    const results = index.searchByTag({ tag: "project" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["b.md", "a.md"])
+  })
+
+  it.each([
+    { label: 'a leading "#"', tag: "#project" },
+    { label: 'a trailing "/"', tag: "project/" },
+  ])("matches no note tagged project when the tag has $label", ({ tag }) => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [project]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    // The bare tag finds d.md, so the empty result below comes from the
+    // "#" or "/" alone, not from a fixture without a matching note.
+    const bareTagResults = index.searchByTag({ tag: "project" }, logger)
+    expect(bareTagResults.map((result) => result.path)).toEqual(["d.md", "b.md", "a.md"])
+
+    expect(index.searchByTag({ tag }, logger)).toEqual([])
+  })
+
+  it("exact match returns the tag itself, not tags nested under it", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [project]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+
+    const results = index.searchByTag({ tag: "project", exact: true }, logger)
+    expect(results.map((result) => result.path)).toEqual(["d.md"])
   })
 
   it("exact match finds specific tag", () => {
-    const results = index.searchByTag({ tag: "project/vault-mcp", exactMatch: true }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("a.md")
+    const results = index.searchByTag({ tag: "project/vault-mcp", exact: true }, logger)
+    expect(results.map((result) => result.path)).toEqual(["a.md"])
+  })
+
+  it("returns each match's full metadata, with tags other than the matched one", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/plan.md",
+        rawContent:
+          "---\ntags: [project/alpha, planning]\ntype: plan\ncreated: 2026-01-15\nrelated: [Roadmap]\nstatus: active\n---\n> [!info] Scope\n> Next quarter.\n\nBody.\n",
+        fileStat: testStat(4000, 321),
+      },
+      logger,
+    )
+
+    expect(index.searchByTag({ tag: "project/alpha" }, logger)).toEqual([
+      {
+        path: "Projects/plan.md",
+        title: "plan",
+        tags: ["project/alpha", "planning"],
+        related: ["Roadmap"],
+        folder: "Projects",
+        type: "plan",
+        created: DateTime.fromISO("2026-01-15").toISO(),
+        modified: isoFromMillis(4000),
+        bytes: 321,
+        properties: {
+          tags: ["project/alpha", "planning"],
+          type: "plan",
+          created: "2026-01-15",
+          related: ["Roadmap"],
+          status: "active",
+        },
+        leading_callout: { type: "info", title: "Scope", body: "Next quarter." },
+      },
+    ])
   })
 
   it("returns empty for non-existent tag", () => {
@@ -1974,6 +2117,24 @@ describe("listAllTags", () => {
       tag: "self",
       count: 1,
     })
+  })
+
+  it("adds no tag for a mapping-valued tags property", () => {
+    const tagsBefore = index.listAllTags({}, logger)
+    index.upsertNote(
+      {
+        filePath: "mapped.md",
+        rawContent: "---\ntags:\n  project: true\n---\nmappedbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+
+    expect(
+      index.fullTextSearch({ query: "mappedbody" }, logger).map((result) => result.path),
+    ).toEqual(["mapped.md"])
+    expect(index.listAllTags({}, logger)).toEqual(tagsBefore)
+    expect(index.searchByTag({ tag: "[object Object]" }, logger)).toEqual([])
   })
 
   it("handles notes with no tags", () => {

@@ -767,18 +767,18 @@ export const searchByTag = (
   context: SearchQueryContext,
   params: {
     tag: string
-    exactMatch?: boolean | undefined
+    exact?: boolean | undefined
     limit?: number | undefined
   },
   logger: Logger,
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
-  const condition = params.exactMatch
+  const condition = params.exact
     ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
     : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')"
 
-  const queryParams: unknown[] = params.exactMatch
+  const queryParams: unknown[] = params.exact
     ? [params.tag, limit]
     : [params.tag, escapeLikeWildcards(params.tag), limit]
 

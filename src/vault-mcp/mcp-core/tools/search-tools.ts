@@ -153,20 +153,23 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes with a specific frontmatter tag (inline #tags are not indexed). By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
+      description: `Find notes by frontmatter tag; inline #tags in note bodies are not searched. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project/vault-cortex" and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
 
 Example: vault_search_by_tag({ tag: "project" })
+Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — notes tagged "project" itself, up to 50
 
-When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.
-Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
+When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.${whenToolEnabledText("vault_list_tags", " Use vault_list_tags first to discover available tags.")}${whenToolEnabledText("vault_search", "\nPrefer vault_search when you also need text-based relevance ranking; its tags filter matches the exact tag only, without nested tags.")}
 
 Parameters:
-- Prefix mode follows the "/" separator: "project" matches itself and every tag nested under it (project/a, project/a/b) but does NOT match "my-project" or "projects".
+- limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: a result count equal to limit may mean more exist, so raise limit to check.
+
+Behavior: Reads the search index, which picks up a file change within a few seconds, so a note written moments ago may not appear yet.
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error.
+- "#project", "project/", and "Project" do not match notes tagged "project"; drop the "#" and the trailing "/", and use the tag's letter case.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. bytes is the on-disk file size. additional_properties holds only frontmatter keys without their own top-level field.`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag, not only the matched one), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
@@ -178,18 +181,25 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .boolean()
           .optional()
           .default(false)
-          .describe("Exact match only (default: false, prefix match)"),
+          .describe("Match only the tag itself (default: false)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(20)
+          .describe("Max results (default 20, no upper cap)"),
       },
     },
-    async ({ tag, exact }, extra) => {
+    async ({ tag, exact, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
       })
-      reqLogger.info("tool_call", { tag, exact })
+      reqLogger.info("tool_call", { tag, exact, limit })
       return safeHandler(
         reqLogger,
-        async () => search.searchByTag({ tag, exactMatch: exact }, reqLogger),
+        async () => search.searchByTag({ tag, exact, limit }, reqLogger),
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
           return JSON.stringify(results.map(formatNoteMetadata))

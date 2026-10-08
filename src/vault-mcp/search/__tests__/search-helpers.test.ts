@@ -53,6 +53,10 @@ describe("coerceToArray", () => {
     expect(coerceToArray(42)).toEqual(["42"])
   })
 
+  it("returns empty array for a mapping instead of stringifying it", () => {
+    expect(coerceToArray({ project: true })).toEqual([])
+  })
+
   it("returns empty array for null", () => {
     expect(coerceToArray(null)).toEqual([])
   })
