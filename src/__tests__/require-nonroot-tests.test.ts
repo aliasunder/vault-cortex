@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   statSync,
@@ -18,9 +19,10 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * Behavioral spec for the Claude Code hook that stops test runs in a root
  * session (.claude/hooks/require-nonroot-tests.sh): which commands it stops,
  * which checkout's folders it prepares, and the reply it gives. The real hook
- * runs under `bash` with real node and git, and with stub `id` and `setpriv`
- * executables first on PATH. The stub `id` poses as root and reports the test
- * runner's own ids for nobody, so the hook's chown needs no privileges.
+ * runs under `bash` with real node and git, and with stub `id`, `setpriv` and
+ * `chown` executables first on PATH. The stub `id` poses as root and reports
+ * the test runner's own ids for nobody, so the hook's chown needs no
+ * privileges.
  */
 
 const HOOK_PATH = resolve(import.meta.dirname, "../../.claude/hooks/require-nonroot-tests.sh")
@@ -53,6 +55,13 @@ const SETPRIV_STUB = `#!/bin/sh
 exit 0
 `
 
+/** Stub `chown`: appends its arguments to STUB_CHOWN_LOG, one call per line,
+ *  then runs the real chown. */
+const CHOWN_STUB = `#!/bin/sh
+printf '%s\\n' "$*" >> "$STUB_CHOWN_LOG"
+exec "$(command -p -v chown)" "$@"
+`
+
 const SNAPSHOTS_FOLDER = "src/vault-mcp/mcp-core/__tests__/__snapshots__"
 
 type HookFixture = {
@@ -62,6 +71,7 @@ type HookFixture = {
   /** A folder in no checkout: the hook's working directory and HOME. */
   outsideDir: string
   stubBinDir: string
+  chownLog: string
 }
 
 type HookRun = {
@@ -112,13 +122,19 @@ const createHookFixture = (): HookFixture => {
 
   writeExecutable(join(stubBinDir, "id"), ID_STUB)
   writeExecutable(join(stubBinDir, "setpriv"), SETPRIV_STUB)
+  writeExecutable(join(stubBinDir, "chown"), CHOWN_STUB)
 
   execFileSync("git", ["init", "--quiet", checkout], {
     env: { PATH: process.env.PATH ?? "", HOME: outsideDir },
     stdio: "pipe",
   })
   mkdirSync(join(checkout, "node_modules"))
-  return { checkout, outsideDir, stubBinDir }
+  return {
+    checkout,
+    outsideDir,
+    stubBinDir,
+    chownLog: join(tempDir, "chown.log"),
+  }
 }
 
 const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string> => {
@@ -134,6 +150,7 @@ const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string>
     STUB_NOBODY_EXISTS: options.nobodyExists === false ? "0" : "1",
     STUB_NOBODY_UID: String(uid),
     STUB_NOBODY_GID: String(gid),
+    STUB_CHOWN_LOG: fixture.chownLog,
     ...(options.claudeProjectDir ? { CLAUDE_PROJECT_DIR: options.claudeProjectDir } : {}),
   }
 }
@@ -181,19 +198,27 @@ const scratchFolders = (checkout: string): string[] => [
 
 const permissionBits = (path: string): number => statSync(path).mode & 0o777
 
+/** The chown calls the hook made, each as its space-joined arguments. */
+const recordedChownCalls = (fixture: HookFixture): string[] => {
+  if (!existsSync(fixture.chownLog)) return []
+  return readFileSync(fixture.chownLog, "utf8").trimEnd().split("\n")
+}
+
 const LET_THROUGH: HookRun = { status: 0, stdout: "", stderr: "" }
 
 describe("require-nonroot-tests hook", () => {
-  it("resolves id and setpriv to the stubs ahead of the real binaries", () => {
+  it("resolves id, setpriv and chown to the stubs ahead of the real binaries", () => {
     const fixture = createHookFixture()
 
-    const lookup = spawnSync("bash", ["-c", "command -v id; command -v setpriv"], {
-      cwd: fixture.outsideDir,
-      encoding: "utf8",
-      env: hookEnv({ fixture }),
-    })
+    const lookup = spawnSync(
+      "bash",
+      ["-c", "command -v id; command -v setpriv; command -v chown"],
+      { cwd: fixture.outsideDir, encoding: "utf8", env: hookEnv({ fixture }) },
+    )
 
-    expect(lookup.stdout).toBe(`${fixture.stubBinDir}/id\n${fixture.stubBinDir}/setpriv\n`)
+    expect(lookup.stdout).toBe(
+      `${fixture.stubBinDir}/id\n${fixture.stubBinDir}/setpriv\n${fixture.stubBinDir}/chown\n`,
+    )
   })
 
   describe("in a root session", () => {
@@ -343,6 +368,33 @@ describe("require-nonroot-tests hook", () => {
       expect({ status: run.status, missingFolders }).toEqual({ status: 2, missingFolders: [] })
     })
 
+    it("gives the scratch folders to nobody", () => {
+      const fixture = createHookFixture()
+      const { uid, gid } = runnerIds()
+
+      const run = runCommandThroughHook(fixture, "npm test")
+
+      expect({ status: run.status, chownCalls: recordedChownCalls(fixture) }).toEqual({
+        status: 2,
+        chownCalls: [`-R ${uid}:${gid} ${scratchFolders(fixture.checkout).join(" ")}`],
+      })
+    })
+
+    it("gives the tool-surface snapshot folder to nobody along with the scratch folders", () => {
+      const fixture = createHookFixture()
+      const { uid, gid } = runnerIds()
+      const snapshotsFolder = join(fixture.checkout, SNAPSHOTS_FOLDER)
+      mkdirSync(join(snapshotsFolder, "tool-surface"), { recursive: true })
+
+      const run = runCommandThroughHook(fixture, "npm test")
+      const nobodyOwnedFolders = [...scratchFolders(fixture.checkout), snapshotsFolder]
+
+      expect({ status: run.status, chownCalls: recordedChownCalls(fixture) }).toEqual({
+        status: 2,
+        chownCalls: [`-R ${uid}:${gid} ${nobodyOwnedFolders.join(" ")}`],
+      })
+    })
+
     it("closes the scratch folders, and files left inside them, to group and other writes", () => {
       const fixture = createHookFixture()
       const folders = scratchFolders(fixture.checkout)
@@ -368,14 +420,14 @@ describe("require-nonroot-tests hook", () => {
       })
     })
 
-    it("opens the tool-surface snapshot folder to writes by other users", () => {
+    it("closes the tool-surface snapshot folder, and the files in it, to group and other writes", () => {
       const fixture = createHookFixture()
       const snapshotFolder = join(fixture.checkout, SNAPSHOTS_FOLDER, "tool-surface")
       const snapshotFile = join(snapshotFolder, "default.json")
       mkdirSync(snapshotFolder, { recursive: true })
-      chmodSync(snapshotFolder, 0o755)
+      chmodSync(snapshotFolder, 0o777)
       writeFileSync(snapshotFile, "{}")
-      chmodSync(snapshotFile, 0o644)
+      chmodSync(snapshotFile, 0o666)
 
       const run = runCommandThroughHook(fixture, "npm test")
 
@@ -383,7 +435,7 @@ describe("require-nonroot-tests hook", () => {
         status: run.status,
         folderMode: permissionBits(snapshotFolder),
         fileMode: permissionBits(snapshotFile),
-      }).toEqual({ status: 2, folderMode: 0o757, fileMode: 0o646 })
+      }).toEqual({ status: 2, folderMode: 0o755, fileMode: 0o644 })
     })
 
     it("prepares the checkout a leading cd names, not the session's folder", () => {

@@ -154,21 +154,20 @@ nobody_writable=(
   "${checkout}/coverage"
 )
 mkdir -p "${nobody_writable[@]}"
-# Owned by nobody and closed to other users, because vitest runs code from its
-# caches. Recursive, because files a root run left inside would stay
-# root-owned.
-chown -R "$(id -u nobody):$(id -g nobody)" "${nobody_writable[@]}"
-chmod -R go-w "${nobody_writable[@]}"
 
-# snapshot:update rewrites the tool-surface baseline here, the only snapshot
-# folder in the repo. Its files are tracked JSON that vitest compares against,
-# not code it runs, so they keep their owner and are made writable for every
-# user (o+w). git records only the executable bit, so the mode change adds
-# nothing to a diff.
+# snapshot:update rewrites the tool-surface baseline in this folder, the only
+# snapshot folder in the repo. git tracks neither owner nor write bits, so the
+# changes below add nothing to a diff.
 snapshots="${checkout}/src/vault-mcp/mcp-core/__tests__/__snapshots__"
 if [[ -d "${snapshots}" ]]; then
-  chmod -R o+w "${snapshots}"
+  nobody_writable+=("${snapshots}")
 fi
+
+# Owned by nobody and closed to other users, because vitest runs code from its
+# caches and checks test output against the snapshots. Recursive, because
+# files a root run left inside would stay root-owned.
+chown -R "$(id -u nobody):$(id -g nobody)" "${nobody_writable[@]}"
+chmod -R go-w "${nobody_writable[@]}"
 
 cat >&2 <<EOF
 Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.
