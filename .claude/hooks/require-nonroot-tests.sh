@@ -42,12 +42,22 @@ fi
   })
 ' 2>/dev/null)
 
-# A test runner: `vitest`, bare or by path (node_modules/.bin/vitest);
-# `npx vitest`; `node node_modules/vitest/vitest.mjs`; `npm test` or `npm t`;
-# and the package.json scripts test, test:coverage, test:watch and
-# snapshot:update. The scripts test:remote-boot and test:cli-pty are left out;
-# the exemptions below say why.
-test_runner='(npx[[:space:]]+)?([^[:space:]]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs|npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|snapshot:update))'
+# Flags between a command and what it runs: flags that take no argument
+# (`env -i`, `time -p`), or flags that may each take one argument
+# (`timeout -k 5`, `npx -p vitest`).
+flags_without_argument='([[:space:]]+-[^[:space:]]*)*'
+flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
+
+# The two kinds of test runner:
+# - vitest itself: bare or by path (node_modules/.bin/vitest); after npx and
+#   its flags (`npx -y vitest`); or `node node_modules/vitest/vitest.mjs`.
+# - npm running a package.json script: `npm test` or `npm t`, and the scripts
+#   test, test:coverage, test:watch and snapshot:update. The scripts
+#   test:remote-boot and test:cli-pty are left out; the exemptions below say
+#   why.
+vitest_runner="(npx${flags_with_optional_argument}[[:space:]]+)?([^[:space:]]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs"
+npm_runner='npm[[:space:]]+(test|t|run[[:space:]]+(test|test:coverage|test:watch|snapshot:update))'
+test_runner="${vitest_runner}|${npm_runner}"
 
 # A VAR=value setting before the command (`CI=1 npm test`). The value is
 # double-quoted, single-quoted, or unquoted up to a space or quote.
@@ -57,15 +67,13 @@ unquoted="[^[:space:]'\"]*"
 variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${unquoted})[[:space:]]+"
 
 # A wrapper that runs the command after it:
-# - env and time, with flags that take no argument (`env -i`, `time -p`). A
-#   flag's argument would look the same as the command it runs.
+# - env and time, with flags that take no argument. A flag's argument would
+#   look the same as the command it runs.
 # - exec and command, without flags, so `command -v vitest` is not a run.
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
-flags_without_argument='([[:space:]]+-[^[:space:]]*)*'
-flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
 timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
 wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+"
 
@@ -83,57 +91,79 @@ runner_end='([[:space:])]|$)'
 # mention elsewhere, as in `grep vitest package.json`, is not a run.
 test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
 
-# vitest's config flag naming one of the two suites that stay with root
-# (`--config vitest.cli-pty.config.ts`); the exemptions below say why.
+# A run of one of the two suites that stay with root, told by vitest's config
+# flag among the arguments: `vitest run --config vitest.cli-pty.config.ts`.
+# For an npm run the flag counts only after `--`, which hands it to vitest;
+# npm itself consumes `npm test --config x`, and the script runs the main
+# suite. The exemptions below say why the two suites stay with root.
 root_suite_config='(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts'
+arguments='([[:space:]]+[^[:space:]]+)*'
+vitest_root_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${arguments}[[:space:]]+${root_suite_config}"
+npm_root_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments}[[:space:]]+--${arguments}[[:space:]]+${root_suite_config}"
+root_suite_run="${vitest_root_suite_run}|${npm_root_suite_run}"
 
-# The command is split into the commands it runs, one per line, and each is
-# checked on its own, so an exemption covers only its own command.
+# The command is split into the commands it runs, one per line.
 # - A command starts at the start of a line, or after ;, &, |, ( or a
 #   backtick. The ( also covers $( ).
+# - tr maps each of the five characters to a line break, which SC2020 takes
+#   for a word replacement. tr, not bash's ${//}, because bash's substitution
+#   slows to seconds on a large multi-byte command.
+# shellcheck disable=SC2020
+split_commands="$(printf '%s\n' "${tool_command}" | tr ';&|(`' '\n\n\n\n\n')"
+
+# A `cd` to an unquoted absolute path, and any other cd.
+cd_to_absolute_path='^[[:space:]]*cd[[:space:]]+(/[^[:space:]]*)'
+any_cd='^[[:space:]]*cd([[:space:]]|$)'
+
+# The walk checks each command on its own, so an exemption covers only its
+# own command, and tracks the folder the first stopped run runs in.
 # - Exemptions:
 #   - A run through setpriv never matches test_run, because setpriv is not
 #     one of the wrappers above.
 #   - Two suites have no permission tests and cannot run as nobody. Their
-#     npm scripts never match test_run, and grep -v drops a vitest run with
+#     npm scripts never match test_run, and root_suite_run drops a run with
 #     either suite's config.
 #     - remote-boot needs the Docker socket, which nobody cannot open.
 #     - cli-pty starts the CLI with npx from a temp folder, so npx downloads
 #       tsx into nobody's empty npm cache. Cloud sessions reach the npm
 #       registry through a proxy whose CA bundle sits under /root, where
 #       nobody cannot read it, so that download fails.
-# - tr maps each of the five characters to a line break, which SC2020 takes
-#   for a word replacement. tr, not bash's ${//}, because bash's substitution
-#   slows to seconds on a large multi-byte command.
-# - grep exits 1 when it keeps no line, so `|| true` stops set -e and
-#   pipefail from ending the hook.
-# shellcheck disable=SC2020
-root_test_runs="$(printf '%s\n' "${tool_command}" |
-  tr ';&|(`' '\n\n\n\n\n' |
-  grep -E "${test_run}" |
-  grep -vE "${root_suite_config}")" || true
+# - The run's folder starts as the session's current folder: the payload's
+#   cwd, or CLAUDE_PROJECT_DIR, which Claude Code sets to the project root,
+#   when the payload has no cwd.
+#   - The last `cd` before the run moves it: to an unquoted absolute path
+#     (`git pull && cd /other/checkout && npm test`), or back to the
+#     session's folder for a relative, ~ or quoted path, which only the shell
+#     can resolve. A cd after the run does not count.
+#   - When that folder is in no checkout, the session's folder's checkout
+#     stands in, and the run is still stopped rather than let through as root.
+session_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
+run_dir="${session_dir}"
+current_dir="${session_dir}"
+root_test_runs=""
+while IFS= read -r split_command; do
+  if [[ "${split_command}" =~ ${cd_to_absolute_path} ]]; then
+    current_dir="${BASH_REMATCH[1]}"
+    continue
+  fi
+  if [[ "${split_command}" =~ ${any_cd} ]]; then
+    current_dir="${session_dir}"
+    continue
+  fi
+  [[ "${split_command}" =~ ${test_run} ]] || continue
+  [[ "${split_command}" =~ ${root_suite_run} ]] && continue
+
+  if [[ -z "${root_test_runs}" ]]; then
+    run_dir="${current_dir}"
+  fi
+  root_test_runs+="${split_command}"$'\n'
+done <<<"${split_commands}"
 if [[ -z "${root_test_runs}" ]]; then
   exit 0
 fi
 
-# The checkout whose folders get prepared:
-# - The payload's cwd is the session's current folder. CLAUDE_PROJECT_DIR,
-#   which Claude Code sets to the project root, stands in when the payload
-#   has no cwd.
-# - A leading `cd` to an absolute path moves the run to that path's checkout
-#   (`cd /other/checkout && npm test`).
-# - Any other cd target falls back to the current folder's checkout: a
-#   relative, ~ or quoted path, which only the shell can resolve, or an
-#   absolute path in no checkout. The run is then still stopped rather than
-#   let through as root.
-# - When neither folder is in a checkout, there are no folders to prepare, and
-#   the run is let through.
-session_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
-run_dir="${session_dir}"
-leading_cd='^[[:space:]]*cd[[:space:]]+(/[^[:space:];&|]*)'
-if [[ "${tool_command}" =~ ${leading_cd} ]]; then
-  run_dir="${BASH_REMATCH[1]}"
-fi
+# When neither folder is in a checkout, there are no folders to prepare, and
+# the run is let through.
 checkout="$(git -C "${run_dir}" rev-parse --show-toplevel 2>/dev/null ||
   git -C "${session_dir}" rev-parse --show-toplevel 2>/dev/null)" || exit 0
 
