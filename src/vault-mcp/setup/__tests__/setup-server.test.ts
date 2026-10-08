@@ -5,10 +5,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
-import { freePort } from "../../../__tests__/integration/test-harness.js"
+import { freePort, stopChild } from "../../../__tests__/integration/test-harness.js"
 import { startFakeObsidianApi } from "./fake-obsidian-api.js"
 
-// The entry point spawns npx + tsx; 15 s start timeout inside the tests
+// The entry point starts through tsx; the 15 s start timeout inside the tests
 // needs vitest's own timeout above that so the custom error fires first.
 vi.setConfig({ testTimeout: 20_000 })
 
@@ -33,12 +33,10 @@ const spawnSetupServer = async (env: Record<string, string>): Promise<SetupServe
   const port = await freePort()
   const vaultPath = await mkdtemp(join(tmpdir(), "setup-server-vault-"))
   onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
-  const runnerPath = process.env.PATH
-
-  if (!runnerPath) throw new Error("PATH is unset; npx cannot be resolved")
-  const child = spawn("npx", ["tsx", SETUP_SERVER_ENTRY], {
+  // One process, so kill() reaches the server itself. Through `npx tsx`, the
+  // signal stops only npx, and the tsx wrapper and the server keep running.
+  const child = spawn(process.execPath, ["--import", "tsx", SETUP_SERVER_ENTRY], {
     env: {
-      PATH: runnerPath,
       VAULT_PATH: vaultPath,
       INDEX_DB_PATH: join(vaultPath, "index.db"),
       EMBEDDING_ENABLED: "false",
@@ -67,20 +65,9 @@ const spawnSetupServer = async (env: Record<string, string>): Promise<SetupServe
   const exited = new Promise<number | null>((resolve) => {
     child.once("close", (code) => resolve(code))
   })
-  // SIGTERM first: `npx` forwards it to the tsx child, which owns the stdio
-  // pipes. A SIGKILL to npx alone would orphan that child and `close` would
-  // never fire.
-  onTestFinished(async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return
-    child.kill("SIGTERM")
-    const forceKill = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        child.kill("SIGKILL")
-        resolve()
-      }, 3_000).unref()
-    })
-    await Promise.race([exited, forceKill])
-  })
+  // Runs before the vault folder's removal above: onTestFinished callbacks run
+  // in reverse order.
+  onTestFinished(() => stopChild(child))
   return {
     child,
     port,
@@ -214,11 +201,14 @@ describe("setup-server entry point", () => {
     })
   })
 
-  it("falls back to a relative setup URL when PUBLIC_URL is unset or unparseable", async () => {
+  it.each([
+    { label: "unset", publicUrlEnv: {} },
+    { label: "unparseable", publicUrlEnv: { PUBLIC_URL: "not a url" } },
+  ])("falls back to a relative setup URL when PUBLIC_URL is $label", async ({ publicUrlEnv }) => {
     const server = await spawnSetupServer({
       HOME: tmpdir(),
       MCP_AUTH_TOKEN: AUTH_TOKEN,
-      PUBLIC_URL: "not a url",
+      ...publicUrlEnv,
     })
     await waitForStart(server)
 
