@@ -147,6 +147,15 @@ fi
 nobody_uid="$(id -u nobody)"
 nobody_gid="$(id -g nobody)"
 
+# The prefix runs whichever node nobody finds on PATH. nobody cannot read
+# root's home, where nvm installs Node, so that node can be another version
+# than the .nvmrc one CI runs, or missing. Without one there is no command to
+# offer, so the run goes through, as it does without setpriv or a nobody user.
+nobody_node_version="$(setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups node --version 2>/dev/null)" || nobody_node_version=""
+if [[ -z "${nobody_node_version}" ]]; then
+  exit 0
+fi
+
 # Folders a test run writes: vitest's caches under node_modules, a fake HOME
 # that keeps npm's cache and logs out of root's home, and coverage/ for
 # test:coverage's report (gitignored).
@@ -179,21 +188,14 @@ Run the same test command as the nobody user, with this prefix in front of the t
 The folders nobody needs to write in ${checkout} are ready.
 EOF
 
-# The prefix runs whichever node nobody finds on PATH. nobody cannot read
-# root's home, where nvm installs Node, so that node can be another version
-# than the .nvmrc one CI runs, or missing.
-# - An empty version means nobody found no node.
-# - The major versions are compared only when .nvmrc names a number (24 or
-#   v24.1.0), not an alias such as lts/*.
-nobody_node_version="$(setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups node --version 2>/dev/null)" || nobody_node_version=""
+# The major versions are compared only when .nvmrc names a number (24 or
+# v24.1.0), not an alias such as lts/*.
 nvmrc_version="$(cat "${checkout}/.nvmrc" 2>/dev/null)" || nvmrc_version=""
 nvmrc_major="${nvmrc_version#v}"
 nvmrc_major="${nvmrc_major%%.*}"
 nobody_node_major="${nobody_node_version#v}"
 nobody_node_major="${nobody_node_major%%.*}"
-if [[ -z "${nobody_node_version}" ]]; then
-  echo "nobody finds no node on PATH, so the prefixed command fails until a Node outside root's home is on PATH." >&2
-elif [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
+if [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
   echo "nobody's node is ${nobody_node_version}, not the ${nvmrc_version} that .nvmrc names and CI runs, so a result can differ from CI's." >&2
 fi
 

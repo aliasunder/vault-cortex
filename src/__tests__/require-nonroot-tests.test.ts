@@ -445,19 +445,18 @@ describe("require-nonroot-tests hook", () => {
       })
     })
 
-    it("adds a line to the reply when nobody finds no node", () => {
+    it("lets a test run through, preparing nothing, when nobody finds no node", () => {
       const fixture = createHookFixture()
+      const stdin = payloadFor({ command: "npm test", cwd: fixture.checkout })
 
-      const run = runHook({
-        fixture,
-        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
-        nobodyHasNode: false,
-      })
+      const run = runHook({ fixture, stdin, nobodyHasNode: false })
+      const foldersCreated = scratchFolders(fixture.checkout).filter((folder) => existsSync(folder))
+      const controlRun = runHook({ fixture, stdin })
 
-      expect(run).toEqual({
-        status: 2,
-        stdout: "",
-        stderr: `${expectedRefusal(fixture.checkout)}nobody finds no node on PATH, so the prefixed command fails until a Node outside root's home is on PATH.\n`,
+      expect({ run, foldersCreated, controlStatus: controlRun.status }).toEqual({
+        run: LET_THROUGH,
+        foldersCreated: [],
+        controlStatus: 2,
       })
     })
 
