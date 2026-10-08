@@ -933,7 +933,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes). These script tests run the real
+  `init-derive-env` publishes), and the tests for the Claude Code hooks
+  in `.claude/hooks/` live in `src/__tests__/`
+  (`require-nonroot-tests.test.ts`, which runs its hook under `bash`).
+  These script tests run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
   include for them. Whole-image behaviour (the init chain's ordering,
