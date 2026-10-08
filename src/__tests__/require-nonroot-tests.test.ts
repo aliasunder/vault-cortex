@@ -188,8 +188,8 @@ const HOOK_TOOLS_BESIDES_SETPRIV = [
 ]
 
 /** A PATH folder linking the stub `id` and the real tools, without setpriv.
- *  The tools let a hook that skipped its setpriv check go on to stop the
- *  run, so a let-through can only come from that check. */
+ *  With the tools present, only the missing setpriv can let the run through:
+ *  the hook's setpriv check, or its nobody node check, which runs setpriv. */
 const createBinDirWithoutSetpriv = (fixture: HookFixture): string => {
   const binDir = join(fixture.outsideDir, "bin-without-setpriv")
   mkdirSync(binDir)
