@@ -50,9 +50,19 @@ case "$*" in
 esac
 `
 
-/** Stub `setpriv`: the hook only checks that it exists. */
+/** Stub `setpriv`: drops its own options and runs the rest of the command
+ *  with STUB_NOBODY_PATH as PATH, standing in for the PATH entries nobody
+ *  can read. */
 const SETPRIV_STUB = `#!/bin/sh
-exit 0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --*) shift ;;
+    *) break ;;
+  esac
+done
+PATH="$STUB_NOBODY_PATH"
+export PATH
+exec "$@"
 `
 
 /** Stub `chown`: appends its arguments to STUB_CHOWN_LOG, one call per line,
@@ -62,15 +72,28 @@ printf '%s\\n' "$*" >> "$STUB_CHOWN_LOG"
 exec "$(command -p -v chown)" "$@"
 `
 
+/** The node nobody finds: prints STUB_NOBODY_NODE_VERSION. */
+const NOBODY_NODE_STUB = `#!/bin/sh
+echo "$STUB_NOBODY_NODE_VERSION"
+`
+
+/** The fixture checkout's .nvmrc, and a nobody node version that matches it. */
+const NVMRC_VERSION = "24"
+const MATCHING_NODE_VERSION = "v24.11.0"
+
 const SNAPSHOTS_FOLDER = "src/vault-mcp/mcp-core/__tests__/__snapshots__"
 
 type HookFixture = {
-  /** A fresh git checkout with a node_modules folder, symlinks resolved the
-   *  way `git rev-parse --show-toplevel` reports it. */
+  /** A fresh git checkout with a node_modules folder and an .nvmrc, symlinks
+   *  resolved the way `git rev-parse --show-toplevel` reports it. */
   checkout: string
   /** A folder in no checkout: the hook's working directory and HOME. */
   outsideDir: string
   stubBinDir: string
+  /** nobody's PATH when it has a node: holds only the node stub. */
+  nobodyBinDir: string
+  /** nobody's PATH when it has no node. */
+  emptyBinDir: string
   chownLog: string
 }
 
@@ -88,6 +111,11 @@ type HookRunOptions = {
   sessionUid?: number
   /** Whether the stub `id nobody` succeeds. Defaults to true. */
   nobodyExists?: boolean
+  /** Whether nobody finds a node on PATH. Defaults to true. */
+  nobodyHasNode?: boolean
+  /** What nobody's node prints for --version. Defaults to a version that
+   *  matches the fixture's .nvmrc. */
+  nobodyNodeVersion?: string
   claudeProjectDir?: string
 }
 
@@ -114,25 +142,31 @@ const createHookFixture = (): HookFixture => {
   const tempDir = realpathSync(mkdtempSync(join(tmpdir(), "require-nonroot-tests-")))
   onTestFinished(() => rmSync(tempDir, { recursive: true, force: true }))
   const stubBinDir = join(tempDir, "bin")
+  const nobodyBinDir = join(tempDir, "nobody-bin")
+  const emptyBinDir = join(tempDir, "empty-bin")
   const checkout = join(tempDir, "checkout")
   const outsideDir = join(tempDir, "outside")
-  for (const folder of [stubBinDir, outsideDir]) {
+  for (const folder of [stubBinDir, nobodyBinDir, emptyBinDir, outsideDir]) {
     mkdirSync(folder)
   }
 
   writeExecutable(join(stubBinDir, "id"), ID_STUB)
   writeExecutable(join(stubBinDir, "setpriv"), SETPRIV_STUB)
   writeExecutable(join(stubBinDir, "chown"), CHOWN_STUB)
+  writeExecutable(join(nobodyBinDir, "node"), NOBODY_NODE_STUB)
 
   execFileSync("git", ["init", "--quiet", checkout], {
     env: { PATH: process.env.PATH ?? "", HOME: outsideDir },
     stdio: "pipe",
   })
   mkdirSync(join(checkout, "node_modules"))
+  writeFileSync(join(checkout, ".nvmrc"), `${NVMRC_VERSION}\n`)
   return {
     checkout,
     outsideDir,
     stubBinDir,
+    nobodyBinDir,
+    emptyBinDir,
     chownLog: join(tempDir, "chown.log"),
   }
 }
@@ -150,6 +184,8 @@ const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string>
     STUB_NOBODY_EXISTS: options.nobodyExists === false ? "0" : "1",
     STUB_NOBODY_UID: String(uid),
     STUB_NOBODY_GID: String(gid),
+    STUB_NOBODY_PATH: options.nobodyHasNode === false ? fixture.emptyBinDir : fixture.nobodyBinDir,
+    STUB_NOBODY_NODE_VERSION: options.nobodyNodeVersion ?? MATCHING_NODE_VERSION,
     STUB_CHOWN_LOG: fixture.chownLog,
     ...(options.claudeProjectDir ? { CLAUDE_PROJECT_DIR: options.claudeProjectDir } : {}),
   }
@@ -353,6 +389,51 @@ describe("require-nonroot-tests hook", () => {
         fixture,
         "npx vitest run --config vitest.cli-pty.config.ts --coverage; npm test",
       )
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
+    })
+
+    it("adds a line to the reply when nobody's node is another major version than .nvmrc", () => {
+      const fixture = createHookFixture()
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: "v22.22.0",
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: `${expectedRefusal(fixture.checkout)}nobody's node is v22.22.0, not the 24 that .nvmrc names and CI runs, so a result can differ from CI's.\n`,
+      })
+    })
+
+    it("adds a line to the reply when nobody finds no node", () => {
+      const fixture = createHookFixture()
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyHasNode: false,
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: `${expectedRefusal(fixture.checkout)}nobody finds no node on PATH, so the prefixed command fails until a Node outside root's home is on PATH.\n`,
+      })
+    })
+
+    it("leaves the version line out when .nvmrc names an alias rather than a version", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), "lts/*\n")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: "v22.22.0",
+      })
 
       expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
     })

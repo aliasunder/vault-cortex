@@ -144,6 +144,9 @@ if [[ ! -d "${checkout}/node_modules" ]]; then
   exit 0
 fi
 
+nobody_uid="$(id -u nobody)"
+nobody_gid="$(id -g nobody)"
+
 # Folders a test run writes: vitest's caches under node_modules, a fake HOME
 # that keeps npm's cache and logs out of root's home, and coverage/ for
 # test:coverage's report (gitignored).
@@ -166,15 +169,34 @@ fi
 # Owned by nobody and closed to other users, because vitest runs code from its
 # caches and checks test output against the snapshots. Recursive, because
 # files a root run left inside would stay root-owned.
-chown -R "$(id -u nobody):$(id -g nobody)" "${nobody_writable[@]}"
+chown -R "${nobody_uid}:${nobody_gid}" "${nobody_writable[@]}"
 chmod -R go-w "${nobody_writable[@]}"
 
 cat >&2 <<EOF
 Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.
 Run the same test command as the nobody user, with this prefix in front of the test command itself (after any cd):
-  setpriv --reuid=$(id -u nobody) --regid=$(id -g nobody) --clear-groups env HOME=${checkout}/node_modules/.nobody-home
+  setpriv --reuid=${nobody_uid} --regid=${nobody_gid} --clear-groups env HOME=${checkout}/node_modules/.nobody-home
 The folders nobody needs to write in ${checkout} are ready.
 EOF
+
+# The prefix runs whichever node nobody finds on PATH. nobody cannot read
+# root's home, where nvm installs Node, so that node can be another version
+# than the .nvmrc one CI runs, or missing.
+# - An empty version means nobody found no node.
+# - The major versions are compared only when .nvmrc names a number (24 or
+#   v24.1.0), not an alias such as lts/*.
+nobody_node_version="$(setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups node --version 2>/dev/null)" || nobody_node_version=""
+nvmrc_version="$(cat "${checkout}/.nvmrc" 2>/dev/null)" || nvmrc_version=""
+nvmrc_major="${nvmrc_version#v}"
+nvmrc_major="${nvmrc_major%%.*}"
+nobody_node_major="${nobody_node_version#v}"
+nobody_node_major="${nobody_node_major%%.*}"
+if [[ -z "${nobody_node_version}" ]]; then
+  echo "nobody finds no node on PATH, so the prefixed command fails until a Node outside root's home is on PATH." >&2
+elif [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
+  echo "nobody's node is ${nobody_node_version}, not the ${nvmrc_version} that .nvmrc names and CI runs, so a result can differ from CI's." >&2
+fi
+
 # vitest deletes coverage/ before a coverage run, and deleting it needs write
 # access to the checkout root, so the run must keep the folder instead.
 if [[ "${root_test_runs}" == *test:coverage* || "${root_test_runs}" == *--coverage* ]]; then
