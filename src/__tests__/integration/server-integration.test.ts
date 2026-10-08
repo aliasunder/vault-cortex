@@ -912,6 +912,95 @@ describe("default config", () => {
       expect(topLevelCards[0]?.includes("Reorder test card")).toBe(false)
       expect(topLevelCards[1]?.includes("Reorder test card")).toBe(true)
     })
+
+    it("vault_create_task — a Kanban sub-task is written without a block id", async () => {
+      const todayDate = DateTime.now().toISODate()
+      const setupResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/kb-subtask.md",
+          properties: { "kanban-plugin": "board" },
+          body: "## Active\n\n- [ ] Card ^kb-card\n\t- [ ] Existing item\n",
+        },
+      })
+      onTestFinished(async () => {
+        await callTool({
+          client,
+          name: "vault_delete_note",
+          args: { path: "Projects/kb-subtask.md" },
+        })
+      })
+      expect(setupResult.isError).not.toBe(true)
+
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/kb-subtask.md",
+          description: "Write the tests",
+          parent_block_id: "kb-card",
+          due: "2026-11-02",
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+      expect(JSON.parse(textContent(createResult))).toEqual({
+        path: "Projects/kb-subtask.md",
+        line: 8,
+        description: "Write the tests",
+        heading: "Active",
+        changes: [`created: (none) → ${todayDate}`, "due: (none) → 2026-11-02"],
+      })
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/kb-subtask.md", heading: "Active" },
+      })
+      expect(textContent(readback)).toBe(
+        `## Active\n\n- [ ] Card ^kb-card\n\t- [ ] Existing item\n\t- [ ] Write the tests ➕ ${todayDate} 📅 2026-11-02\n`,
+      )
+    })
+
+    it("vault_update_task — assign_block_id null removes the block id", async () => {
+      const setupResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/remove-block-id.md",
+          body: "## Tasks\n\n- [ ] Keep the text 📅 2026-11-02 ^old-id\n",
+        },
+      })
+      onTestFinished(async () => {
+        await callTool({
+          client,
+          name: "vault_delete_note",
+          args: { path: "Projects/remove-block-id.md" },
+        })
+      })
+      expect(setupResult.isError).not.toBe(true)
+
+      const updateResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: { path: "Projects/remove-block-id.md", block_id: "old-id", assign_block_id: null },
+      })
+      expect(updateResult.isError).not.toBe(true)
+      expect(JSON.parse(textContent(updateResult))).toEqual({
+        path: "Projects/remove-block-id.md",
+        line: 3,
+        description: "Keep the text",
+        heading: "Tasks",
+        changes: ["block_id: old-id → (none)"],
+      })
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/remove-block-id.md" },
+      })
+      expect(textContent(readback)).toBe("## Tasks\n\n- [ ] Keep the text 📅 2026-11-02\n")
+    })
   })
 
   describe("daily note tool", () => {

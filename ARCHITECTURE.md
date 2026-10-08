@@ -347,7 +347,7 @@ The extension-to-representation routing above is implemented by the `vault-opera
 | Tool                | Input                                                                                                                                                                                                             | Annotation       |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
 | `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`                                                   | readOnlyHint     |
-| `vault_create_task` | `path, description, block_id, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                   | !destructiveHint |
+| `vault_create_task` | `path, description, block_id?, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                  | !destructiveHint |
 | `vault_update_task` | `path, block_id?, line?, status?, priority?, recurrence?, on_completion?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
 
 A `tasks` table in the same SQLite database stores checkbox task lines, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
@@ -376,6 +376,7 @@ Four design choices shape the query surface:
 - **Field ordering is guaranteed** — description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
 - **Always todo** (`[ ]` by default, or the status registry's configured todo symbol) — creating a task is not starting it.
 - **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body. Within a heading, `position` selects the slot: `"top"`, `"bottom"`, or a 1-based integer for exact placement among the lane's top-level cards.
+- **Block IDs** — required on every task except a sub-task on a Kanban board, where a `block_id` is refused. On a board, checklist text ending in a block ID is refused too, since checklist items are always indented. When the [Kanban plugin](https://github.com/mgmeyers/obsidian-kanban) saves a board, it copies an indented line's block ID onto its card, replacing the card's own. The result's `line` is the handle for such a sub-task.
 
 `vault_update_task` applies status, priority, recurrence, on_completion, description, dates, task_id, depends_on, block_id assignment, heading moves, position reordering, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
 
@@ -385,6 +386,9 @@ Four design choices shape the query surface:
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
 - **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder (rejected when the task sits above the first heading or the lane's heading name is duplicated). A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
+- **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, no new ID goes on an indented line, for the reason given above: `assign_block_id` is refused there, as is any edit that would leave the line ending in a new `^id`, such as a description ending in one with no fields after it. A checklist item ending in a `^id` is refused under any card on a board.
+
+Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 
 `vault_create_task` and `vault_update_task` read the Tasks plugin's format and date toggles on every write, so a change in Obsidian applies to the next write. The plugin's status registry is read once at boot, so `vault_list_tasks` and the two write tools always agree on which checkboxes are tasks; a status-type change needs a restart.
 
