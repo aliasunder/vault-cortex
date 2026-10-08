@@ -6,6 +6,7 @@ import { mkdtemp, cp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { createServer } from "node:net"
+import { setTimeout as delay } from "node:timers/promises"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import type { ChildProcess } from "node:child_process"
@@ -142,30 +143,49 @@ const spawnServerProcess = async (
   }
 }
 
-/** Signal the child and wait for it to close, escalating to SIGKILL after
- *  3 s. Temp directories are removed only after this resolves: `kill()`
- *  alone just sends the signal, and a server still writing into a folder
- *  being deleted can make the delete fail (ENOTEMPTY). */
-const terminateChild = async (
-  child: ChildProcess,
-  signal: "SIGTERM" | "SIGKILL",
-): Promise<void> => {
-  // Already exited: exitCode is set, or signalCode when a signal ended it.
-  // Nothing is left to stop, and "close" may have fired already, so waiting
-  // for it could stall for the full 3 s.
-  if (child.exitCode !== null || child.signalCode !== null) return
-  child.kill(signal)
-  await new Promise<void>((resolveClosed) => {
-    const escalation = setTimeout(() => {
-      child.kill("SIGKILL")
-      resolveClosed()
-    }, 3_000)
-    escalation.unref()
-    child.once("close", () => {
-      clearTimeout(escalation)
-      resolveClosed()
-    })
+/** Already exited: exitCode is set, or signalCode when a signal ended it.
+ *  Nothing is left to stop, and "close" may have fired already, so waiting
+ *  for it would stall until the timeout. */
+const hasExited = (child: ChildProcess): boolean =>
+  child.exitCode !== null || child.signalCode !== null
+
+/** Sends the signal, then resolves true once the child closes, or false when
+ *  it is still open after timeoutMs. */
+const closesAfterSignal = ({
+  child,
+  signal,
+  timeoutMs,
+}: {
+  child: ChildProcess
+  signal: "SIGTERM" | "SIGKILL"
+  timeoutMs: number
+}): Promise<boolean> => {
+  // Listening before the signal is sent, so a close that follows at once is
+  // not missed.
+  const closed = new Promise<true>((resolveClosed) => {
+    child.once("close", () => resolveClosed(true))
   })
+  child.kill(signal)
+  return Promise.race([closed, delay(timeoutMs, false, { ref: false })])
+}
+
+/** SIGKILL the child and wait for it to close. Temp directories are removed
+ *  only after this resolves: `kill()` alone just sends the signal, and a
+ *  server still writing into a folder being deleted can make the delete fail
+ *  (ENOTEMPTY). The wait ends after 2 s, so a child that never closes cannot
+ *  hang the suite. */
+export const killChild = async (child: ChildProcess): Promise<void> => {
+  if (hasExited(child)) return
+  await closesAfterSignal({ child, signal: "SIGKILL", timeoutMs: 2_000 })
+}
+
+/** SIGTERM the child, so a server can finish in-flight requests, and wait
+ *  for it to close; killChild takes over when it is still open after 3 s. */
+export const stopChild = async (child: ChildProcess): Promise<void> => {
+  if (hasExited(child)) return
+
+  if (await closesAfterSignal({ child, signal: "SIGTERM", timeoutMs: 3_000 })) return
+  await killChild(child)
 }
 
 const pollHealthz = async (port: number, timeoutMs: number): Promise<void> => {
@@ -228,7 +248,7 @@ export const startServer = async (
   } catch (bootError) {
     // A server that never finished booting has no requests to drain, so it
     // gets SIGKILL rather than cleanup's SIGTERM.
-    await terminateChild(child, "SIGKILL")
+    await killChild(child)
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
     const reason = bootError instanceof Error ? bootError.message : String(bootError)
@@ -242,8 +262,7 @@ export const startServer = async (
   }
 
   const cleanup = async (): Promise<void> => {
-    // SIGTERM lets the server drain in-flight requests before it exits.
-    await terminateChild(child, "SIGTERM")
+    await stopChild(child)
     await rm(vaultPath, { recursive: true, force: true })
     await rm(dataDir, { recursive: true, force: true })
   }
@@ -260,20 +279,20 @@ export const startServerExpectingFailure = async (
 ): Promise<{ exitCode: number | null; stderr: string }> => {
   const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(port, envOverrides)
 
-  const exitCode = await new Promise<number | null>((resolveExitCode) => {
-    child.on("close", (code) => resolveExitCode(code))
-    // 10 s stays under the 15 s test timeout the callers set, so a server
-    // that boots instead of failing fails the exitCode assertion rather than
-    // timing the test out.
-    setTimeout(() => {
-      child.kill("SIGKILL")
-      resolveExitCode(null)
-    }, 10_000).unref()
+  const closed = new Promise<number | null>((resolveExitCode) => {
+    child.once("close", (code) => resolveExitCode(code))
   })
+  // 10 s, plus killChild's 2 s wait, stays under the 15 s test timeout the
+  // callers set, so a server that boots instead of failing fails the exitCode
+  // assertion rather than timing the test out.
+  const timedOut = delay(10_000, "timed out" as const, { ref: false })
+  const exitCodeOrTimeout = await Promise.race([closed, timedOut])
 
+  if (exitCodeOrTimeout === "timed out") await killChild(child)
   await rm(vaultPath, { recursive: true, force: true })
   await rm(dataDir, { recursive: true, force: true })
 
+  const exitCode = exitCodeOrTimeout === "timed out" ? null : exitCodeOrTimeout
   return { exitCode, stderr: stderr() }
 }
 

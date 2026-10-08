@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
-import { freePort } from "../../../__tests__/integration/test-harness.js"
+import { freePort, stopChild } from "../../../__tests__/integration/test-harness.js"
 import { startFakeObsidianApi } from "./fake-obsidian-api.js"
 
 // The entry point starts through tsx; the 15 s start timeout inside the tests
@@ -65,19 +65,9 @@ const spawnSetupServer = async (env: Record<string, string>): Promise<SetupServe
   const exited = new Promise<number | null>((resolve) => {
     child.once("close", (code) => resolve(code))
   })
-  // SIGTERM first so the server can shut down cleanly; SIGKILL after 3 s if
-  // it has not.
-  onTestFinished(async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return
-    child.kill("SIGTERM")
-    const forceKill = new Promise<void>((resolve) => {
-      setTimeout(() => {
-        child.kill("SIGKILL")
-        resolve()
-      }, 3_000).unref()
-    })
-    await Promise.race([exited, forceKill])
-  })
+  // Runs before the vault folder's removal above: onTestFinished callbacks run
+  // in reverse order.
+  onTestFinished(() => stopChild(child))
   return {
     child,
     port,
