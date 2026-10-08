@@ -8,10 +8,11 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { basename, join, resolve } from "node:path"
 
 import { describe, expect, it, onTestFinished } from "vitest"
 
@@ -117,6 +118,8 @@ type HookRunOptions = {
    *  matches the fixture's .nvmrc. */
   nobodyNodeVersion?: string
   claudeProjectDir?: string
+  /** The hook's PATH. Defaults to the stubs ahead of the runner's PATH. */
+  path?: string
 }
 
 /** The test runner's own ids, which the stub reports for nobody: chown to
@@ -171,6 +174,39 @@ const createHookFixture = (): HookFixture => {
   }
 }
 
+/** Every tool the hook runs on a stopped run except setpriv. */
+const HOOK_TOOLS_BESIDES_SETPRIV = [
+  "bash",
+  "node",
+  "git",
+  "grep",
+  "tr",
+  "cat",
+  "mkdir",
+  "chown",
+  "chmod",
+]
+
+/** A PATH folder linking the stub `id` and the real tools, without setpriv.
+ *  The tools let a hook that skipped its setpriv check go on to stop the
+ *  run, so a let-through can only come from that check. */
+const createBinDirWithoutSetpriv = (fixture: HookFixture): string => {
+  const binDir = join(fixture.outsideDir, "bin-without-setpriv")
+  mkdirSync(binDir)
+  const toolPaths = execFileSync(
+    "bash",
+    ["-c", 'command -v "$@"', "bash", ...HOOK_TOOLS_BESIDES_SETPRIV],
+    { encoding: "utf8" },
+  )
+    .trimEnd()
+    .split("\n")
+  for (const toolPath of toolPaths) {
+    symlinkSync(toolPath, join(binDir, basename(toolPath)))
+  }
+  symlinkSync(join(fixture.stubBinDir, "id"), join(binDir, "id"))
+  return binDir
+}
+
 const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string> => {
   const { uid, gid } = runnerIds()
   const { fixture } = options
@@ -178,7 +214,7 @@ const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string>
   // Built from scratch, so a CLAUDE_PROJECT_DIR or GIT_DIR in the runner's
   // own environment never reaches the hook.
   return {
-    PATH: `${fixture.stubBinDir}:${process.env.PATH ?? ""}`,
+    PATH: options.path ?? `${fixture.stubBinDir}:${process.env.PATH ?? ""}`,
     HOME: fixture.outsideDir,
     STUB_SESSION_UID: String(options.sessionUid ?? 0),
     STUB_NOBODY_EXISTS: options.nobodyExists === false ? "0" : "1",
@@ -569,6 +605,35 @@ describe("require-nonroot-tests hook", () => {
       expect({ run, nodeModulesCreated, controlStatus: controlRun.status }).toEqual({
         run: LET_THROUGH,
         nodeModulesCreated: false,
+        controlStatus: 2,
+      })
+    })
+
+    it("prepares the session's checkout when a leading cd names a folder in no checkout", () => {
+      const fixture = createHookFixture()
+
+      const run = runCommandThroughHook(fixture, `cd ${fixture.outsideDir} && npm test`)
+      const missingFolders = scratchFolders(fixture.checkout).filter(
+        (folder) => !existsSync(folder),
+      )
+
+      expect({ run, missingFolders }).toEqual({
+        run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+        missingFolders: [],
+      })
+    })
+
+    it("lets a test run through, preparing nothing, when setpriv is missing", () => {
+      const fixture = createHookFixture()
+      const stdin = payloadFor({ command: "npm test", cwd: fixture.checkout })
+
+      const run = runHook({ fixture, stdin, path: createBinDirWithoutSetpriv(fixture) })
+      const foldersMade = scratchFolders(fixture.checkout).filter((folder) => existsSync(folder))
+      const controlRun = runHook({ fixture, stdin })
+
+      expect({ run, foldersMade, controlStatus: controlRun.status }).toEqual({
+        run: LET_THROUGH,
+        foldersMade: [],
         controlStatus: 2,
       })
     })
