@@ -563,23 +563,28 @@ export const trashDomainLockKey = (vaultPath: string): string => {
 }
 
 /** The identity the retention sweep checks before it deletes a trashed file:
- *  inode number, size, and modification time, read without following a
- *  symlink. The trash move records it and the sweep (trash-sweeper.ts)
- *  compares against it, so both MUST read it here. Throws when nothing is at
- *  the path.
+ *  inode number, size, modification time, and inode change time, read
+ *  without following a symlink. The trash move records it and the sweep
+ *  (trash-sweeper.ts) compares against it, so both MUST read it here. Each
+ *  field can only stop a deletion, so a field that changes for an unrelated
+ *  reason keeps a file past retention and never deletes one. Throws when
+ *  nothing is at the path.
  *  - The string is stored in trash_entries rows. Changing its format makes
  *    every recorded row a mismatch, so the sweep drops those rows and never
  *    deletes their files.
+ *  - The inode alone is not enough, because ext4 reuses freed inode numbers.
+ *  - The inode change time moves on every rename, so a note restored from
+ *    .trash/ by hand and trashed again no longer matches. Attribute writes,
+ *    such as a Finder tag, a sync tool's metadata, or chmod, move it too.
  *  - The device number is left out because, inside a Docker Desktop bind
  *    mount, it is a number Docker Desktop's VM assigned when it mounted the
  *    share, which can change when Docker Desktop restarts, and rows outlive
- *    restarts.
- *  - The inode alone is not enough, because ext4 reuses freed inode numbers. */
+ *    restarts. */
 export const readTrashFileIdentity = async (fullPath: string): Promise<string> => {
   // A bigint keeps every digit, because a file ID seen through a Windows bind
   // mount can exceed 2^53, and a number would round two IDs to one value.
   const fileStats = await lstat(fullPath, { bigint: true })
-  return `${fileStats.ino}:${fileStats.size}:${fileStats.mtimeNs}`
+  return `${fileStats.ino}:${fileStats.size}:${fileStats.mtimeNs}:${fileStats.ctimeNs}`
 }
 
 /** Retention-sweep bookkeeping hook for a trash move. It receives the
@@ -677,9 +682,11 @@ const moveNoteToTrash = async (
       // left .trash/:
       // - A recorded move replaces that row.
       // - An unrecorded move ("local", Obsidian's keep-forever trash) must
-      //   clear it. A rename keeps a file's inode, size, and mtime, so a note
-      //   restored from .trash/ by hand and trashed again still matches its
-      //   old row, and the sweep would unlink it.
+      //   clear it. The sweep already keeps a file that was renamed since its
+      //   row was recorded, but only on a file system that updates the inode
+      //   change time on rename, which POSIX leaves optional. There, a note
+      //   restored from .trash/ by hand and trashed again would still match
+      //   its old row, and the sweep would unlink it.
       // - Both writes are fail-open because the note has already moved, so a
       //   failed identity read or row write is logged, not reported as a
       //   failed move.

@@ -1,9 +1,10 @@
 /** Trash bookkeeping — retention sweep (unlink expired files) and orphan
  *  purge (drop rows whose files are gone). Both operate on trash_entries
  *  rows and never walk the .trash/ folder. The sweep unlinks a file only
- *  while it still has the identity its row recorded (inode number, size, and
- *  modification time), so Obsidian's own trash entries and hand-placed files
- *  are out of reach, even under a name the server once used. */
+ *  while it still has the identity its row recorded (inode number, size,
+ *  modification time, and inode change time), so Obsidian's own trash entries
+ *  and hand-placed files are out of reach, even under a name the server once
+ *  used. */
 
 import { unlink } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"

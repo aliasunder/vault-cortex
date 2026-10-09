@@ -1045,15 +1045,79 @@ describe("readTrashFileIdentity", () => {
   /** A whole-second timestamp, so every file set to it has the same mtimeNs. */
   const FIXED_EPOCH_SECONDS = 1_700_000_000
 
-  it("stays the same when the file is renamed into .trash/", async () => {
+  /** Linux stamps inode times from a clock that advances once per scheduler
+   *  tick (up to 10 ms), so two changes inside one tick share a change time.
+   *  Waiting past a tick makes the next change land a new one. */
+  const waitPastTimestampTick = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+
+  it("joins the link's own inode number, size, modification time and change time", async () => {
+    await writeFile(join(vault, "target.md"), "a longer target body", "utf8")
+    await symlink(join(vault, "target.md"), join(vault, "link.md"))
+    const linkStats = await lstat(join(vault, "link.md"), { bigint: true })
+    const targetStats = await lstat(join(vault, "target.md"), { bigint: true })
+    // The link and its target differ in inode and size, so reading through
+    // the link would change the expected string.
+    expect(linkStats.ino).not.toBe(targetStats.ino)
+
+    const linkIdentity = await readTrashFileIdentity(join(vault, "link.md"))
+
+    expect(linkIdentity).toBe(
+      `${linkStats.ino}:${linkStats.size}:${linkStats.mtimeNs}:${linkStats.ctimeNs}`,
+    )
+  })
+
+  it("stays the same when the file is only read", async () => {
+    const notePath = join(vault, "read-only.md")
+    await writeFile(notePath, "content", "utf8")
+    const identityBeforeRead = await readTrashFileIdentity(notePath)
+    await waitPastTimestampTick()
+
+    await readFile(notePath, "utf8")
+
+    expect(await readTrashFileIdentity(notePath)).toBe(identityBeforeRead)
+  })
+
+  it("differs after the file is renamed out of .trash/ and back", async () => {
+    // A trashed note restored by hand and trashed again keeps its inode, size
+    // and modification time; only the change time records the two renames.
     await mkdir(join(vault, ".trash"), { recursive: true })
-    await writeFile(join(vault, "moved.md"), "content", "utf8")
-    const identityBeforeMove = await readTrashFileIdentity(join(vault, "moved.md"))
+    await writeFile(join(vault, ".trash", "restored.md"), "content", "utf8")
+    const trashedStats = await lstat(join(vault, ".trash", "restored.md"), { bigint: true })
+    const identityWhenTrashed = await readTrashFileIdentity(join(vault, ".trash", "restored.md"))
+    await waitPastTimestampTick()
 
-    await rename(join(vault, "moved.md"), join(vault, ".trash", "moved.md"))
+    await rename(join(vault, ".trash", "restored.md"), join(vault, "restored.md"))
+    await rename(join(vault, "restored.md"), join(vault, ".trash", "restored.md"))
 
-    const identityAfterMove = await readTrashFileIdentity(join(vault, ".trash", "moved.md"))
-    expect(identityAfterMove).toBe(identityBeforeMove)
+    const retrashedStats = await lstat(join(vault, ".trash", "restored.md"), { bigint: true })
+    expect([retrashedStats.ino, retrashedStats.size, retrashedStats.mtimeNs]).toEqual([
+      trashedStats.ino,
+      trashedStats.size,
+      trashedStats.mtimeNs,
+    ])
+    expect(await readTrashFileIdentity(join(vault, ".trash", "restored.md"))).not.toBe(
+      identityWhenTrashed,
+    )
+  })
+
+  it("differs after only the file's attributes change", async () => {
+    const notePath = join(vault, "chmodded.md")
+    await writeFile(notePath, "content", "utf8")
+    const originalStats = await lstat(notePath, { bigint: true })
+    const originalIdentity = await readTrashFileIdentity(notePath)
+    await waitPastTimestampTick()
+
+    await chmod(notePath, 0o600)
+
+    const chmoddedStats = await lstat(notePath, { bigint: true })
+    expect([chmoddedStats.ino, chmoddedStats.size, chmoddedStats.mtimeNs]).toEqual([
+      originalStats.ino,
+      originalStats.size,
+      originalStats.mtimeNs,
+    ])
+    expect(await readTrashFileIdentity(notePath)).not.toBe(originalIdentity)
   })
 
   it("differs for another file with the same size and modification time", async () => {
@@ -1082,7 +1146,7 @@ describe("readTrashFileIdentity", () => {
     await writeFile(notePath, "bbbb", "utf8")
     await utimes(notePath, FIXED_EPOCH_SECONDS + 60, FIXED_EPOCH_SECONDS + 60)
 
-    // Only the modification time changed: same inode, same size.
+    // Same inode and size; the rewrite moved the modification time.
     const rewrittenStats = await lstat(notePath, { bigint: true })
     expect([rewrittenStats.ino, rewrittenStats.size]).toEqual([
       originalStats.ino,
@@ -1091,7 +1155,7 @@ describe("readTrashFileIdentity", () => {
     expect(await readTrashFileIdentity(notePath)).not.toBe(originalIdentity)
   })
 
-  it("differs when only the size changes", async () => {
+  it("differs after the file grows, even with its modification time restored", async () => {
     const notePath = join(vault, "resized.md")
     await writeFile(notePath, "short", "utf8")
     await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
@@ -1270,7 +1334,7 @@ describe("deleteNote — trash behavior", () => {
     expect(recordTrashEntry).toHaveBeenCalledTimes(1)
     expect(recordTrashEntry).toHaveBeenCalledWith({
       trashPath: ".trash/rec 1.md",
-      fileIdentity: `${landedStats.ino}:${landedStats.size}:${landedStats.mtimeNs}`,
+      fileIdentity: `${landedStats.ino}:${landedStats.size}:${landedStats.mtimeNs}:${landedStats.ctimeNs}`,
     })
   })
 

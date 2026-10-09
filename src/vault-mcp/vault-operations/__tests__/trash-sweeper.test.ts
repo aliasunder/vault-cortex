@@ -31,7 +31,14 @@ type RecordedTrashFile = { trashPath: string; fileIdentity: string }
 
 /** An identity no real file has (no file is ever given inode 0), for a row
  *  whose file is absent or never compared. */
-const ABSENT_FILE_IDENTITY = "0:0:0"
+const ABSENT_FILE_IDENTITY = "0:0:0:0"
+
+/** Linux stamps inode times from a clock that advances once per scheduler
+ *  tick (up to 10 ms), so two changes inside one tick share a change time.
+ *  Waiting past a tick makes the next change land a new one. */
+const waitPastTimestampTick = async (): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, 25))
+}
 
 /** The row the server records for the file now at `trashPath`, which must
  *  exist. */
@@ -280,22 +287,14 @@ describe("sweepExpiredTrashEntries", () => {
     })
   })
 
-  it("never unlinks an unrecorded delete that lands at a stale row's path with the recorded identity", async () => {
-    // A note restored from .trash/ by hand keeps its identity and leaves its
-    // row behind. A keep-forever "local" delete that lands it back at that
-    // path clears the row on the way in; otherwise the identity still matches
-    // and this sweep would unlink the note.
+  it("an unrecorded delete clears a stale row at its landed path before any sweep runs", async () => {
+    // A row can outlive its file in .trash/. A keep-forever "local" delete
+    // landing at that path drops the row on the way in, so the sweep never
+    // has to tell the new file apart from the one the row recorded.
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
+    recordEntryDaysAgo(index, recordedAbsentFile(".trash/reused.md"), 31)
     await writeFile(join(vault, "reused.md"), "keep forever", "utf8")
-    // A rename keeps a file's identity, so the note's identity here is the
-    // one it will have at .trash/reused.md.
-    const restoredNoteIdentity = await readTrashFileIdentity(join(vault, "reused.md"))
-    recordEntryDaysAgo(
-      index,
-      { trashPath: ".trash/reused.md", fileIdentity: restoredNoteIdentity },
-      31,
-    )
     const deleteResult = await vaultFs.deleteNote(
       {
         vaultPath: vault,
@@ -308,6 +307,7 @@ describe("sweepExpiredTrashEntries", () => {
       logger,
     )
     expect(deleteResult.trashLocation).toBe(".trash/reused.md")
+    expect(index.getTrashEntry(".trash/reused.md")).toBeNull()
 
     await trashSweeper.sweepExpiredTrashEntries(
       { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
@@ -317,6 +317,43 @@ describe("sweepExpiredTrashEntries", () => {
     const keptContent = await readFile(join(vault, ".trash", "reused.md"), "utf8")
     expect(keptContent).toBe("keep forever")
     expect(index.getTrashEntry(".trash/reused.md")).toBeNull()
+  })
+
+  it("keeps a server-trashed note that was restored by hand and trashed again", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, "restored.md"), "deleted twice", "utf8")
+    await vaultFs.deleteNote(
+      {
+        vaultPath: vault,
+        path: "restored.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry: (recordedFile) => recordEntryDaysAgo(index, recordedFile, 31),
+      },
+      logger,
+    )
+    await waitPastTimestampTick()
+    // Restored by hand, then trashed again by Obsidian. Both renames keep
+    // the inode, size and modification time the row recorded.
+    await rename(join(vault, ".trash", "restored.md"), join(vault, "restored.md"))
+    await rename(join(vault, "restored.md"), join(vault, ".trash", "restored.md"))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
+
+    const retrashedContent = await readFile(join(vault, ".trash", "restored.md"), "utf8")
+    expect(retrashedContent).toBe("deleted twice")
+    expect(index.getTrashEntry(".trash/restored.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledWith(
+      "trash entry cannot be matched to the file the server trashed — kept, row dropped",
+      { trashPath: ".trash/restored.md" },
+    )
   })
 
   it("keeps a note Obsidian trashed under a recycled name after .trash/ was emptied by hand", async () => {

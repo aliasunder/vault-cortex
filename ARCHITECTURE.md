@@ -1204,8 +1204,8 @@ Docker hardening, and durability seatbelts above.
   exclusive create, so an existing trash copy is never overwritten.
   - **Recording** — moves made under the `system` setting are recorded in
     the index DB's `trash_entries` table, together with the landed file's
-    identity (its inode number, size and modification time, read by
-    `readTrashFileIdentity`). Recording is fail-open — a failed identity
+    identity (its inode number, size, modification time and inode change
+    time, read by `readTrashFileIdentity`). Recording is fail-open — a failed identity
     read or row write logs a warning, the delete still succeeds, and an
     unrecorded entry is never swept.
   - **Stale rows** — a move that is not recorded (`local`, or a failed
@@ -1231,10 +1231,14 @@ Docker hardening, and durability seatbelts above.
     2. The parent directory's realpath must sit inside `.trash/`, so a
        directory symlink cannot redirect the path onto live notes.
     3. The file at the path must still have the row's recorded identity.
-       Emptying `.trash/` by hand leaves the row behind, and Obsidian can
-       later trash a different note under the same name; that file is
-       kept and the row dropped. A row recorded before identities were
-       kept is treated the same way.
+       Otherwise the file is kept, the row dropped, and a warning logged.
+       This keeps:
+       - a different note that Obsidian trashed under the same name after
+         `.trash/` was emptied by hand, which leaves the row behind
+       - a trashed note restored by hand and trashed again, because each
+         rename moves its inode change time
+       - a file whose attributes changed while it sat in `.trash/`
+       - the file of a row recorded before identities were kept
   - Both share a serializing lock with the trash move and re-read each
     row under it before acting, so neither operates on a stale snapshot.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
