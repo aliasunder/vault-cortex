@@ -68,11 +68,15 @@ mechanism-level detail.
   escapes from the memory directory — and leading dots, which would
   create hidden files
 - The trash retention sweep deletes only files it previously recorded.
-  Every removal passes two gates — the recorded path must resolve inside
-  `.trash/`, and the file's parent directory must realpath-resolve inside
-  it too. A corrupted or hand-edited index row, or a directory symlink
-  planted in `.trash/`, is skipped with a warning instead of followed to
-  a live note
+  Every removal passes three gates:
+  - The recorded path must resolve inside `.trash/`, so a corrupted or
+    hand-edited index row is skipped with a warning instead of followed
+    to a live note
+  - The file's parent directory must realpath-resolve inside `.trash/`,
+    so a directory symlink planted there is skipped the same way
+  - The file must still have the inode number, size, and modification
+    time recorded when the server trashed it, so a different file under
+    a recorded name is kept
 
 ### Hidden paths
 

@@ -149,9 +149,10 @@ const sweepOneEntry = async (
   }
   if (identityCheck === "differs") {
     trashEntryStore.deleteTrashEntry(trashPath)
-    logger.warn("trash entry no longer holds the file the server trashed — kept, row dropped", {
-      trashPath,
-    })
+    logger.warn(
+      "trash entry cannot be matched to the file the server trashed — kept, row dropped",
+      { trashPath },
+    )
     return "unmatched"
   }
 
@@ -184,8 +185,9 @@ const sweepOneEntry = async (
   return "purged"
 }
 
-/** Removes every recorded trash entry older than `retentionDays` and drops
- *  rows whose files are already gone. Each row is processed under the shared
+/** Removes every recorded trash entry older than `retentionDays` whose file
+ *  still has its recorded identity, and drops the rows of entries whose files
+ *  are gone or no longer match. Each row is processed under the shared
  *  trash-domain lock (per row, so a long sweep never starves deletes), with
  *  an in-lock re-read deciding whether the row is still expired. */
 const sweepExpiredTrashEntries = async (params: SweepParams, logger: Logger): Promise<void> => {

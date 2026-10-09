@@ -353,7 +353,7 @@ describe("sweepExpiredTrashEntries", () => {
     expect(obsidianCopy).toBe("obsidian trashed this")
     expect(index.getTrashEntry(".trash/recycled.md")).toBeNull()
     expect(warnSpy).toHaveBeenCalledWith(
-      "trash entry no longer holds the file the server trashed — kept, row dropped",
+      "trash entry cannot be matched to the file the server trashed — kept, row dropped",
       { trashPath: ".trash/recycled.md" },
     )
     expect(infoSpy).toHaveBeenCalledWith("trash retention sweep complete", {
@@ -397,7 +397,7 @@ describe("sweepExpiredTrashEntries", () => {
     expect(legacyContent).toBe("recorded long ago")
     expect(index.getTrashEntry(".trash/legacy.md")).toBeNull()
     expect(warnSpy).toHaveBeenCalledWith(
-      "trash entry no longer holds the file the server trashed — kept, row dropped",
+      "trash entry cannot be matched to the file the server trashed — kept, row dropped",
       { trashPath: ".trash/legacy.md" },
     )
   })
