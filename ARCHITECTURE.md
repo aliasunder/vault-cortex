@@ -1232,9 +1232,10 @@ Docker hardening, and durability seatbelts above.
        directory symlink cannot redirect the path onto live notes.
     3. The file at the path must still have the row's recorded identity.
     4. The file's inode change time must be no later than 60 seconds after
-       the row was recorded. The change time is not stored in the row,
-       because a Docker Desktop container keeps reporting a file's old
-       change time after its own rename while the host's value moves.
+       the row was recorded. The change time is not stored in the row:
+       after a Docker Desktop container renames a file, it keeps reporting
+       the file's old change time while the host's value moves, so a stored
+       value stops matching once the container restarts.
 
     A file that fails gate 3 or 4 is kept, its row dropped, and a warning
     logged with the reason. This keeps:

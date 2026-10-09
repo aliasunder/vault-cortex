@@ -29,28 +29,20 @@ type SweepParams = {
   trashEntryStore: TrashEntryStore
 }
 
-/** How far a trashed file's change time may run past the moment its row was
- *  recorded before the sweep keeps the file. The server's own rename sets the
- *  change time just before the row is written; the margin covers the row's
- *  whole-second rounding and, on Docker Desktop, a host clock (which stamps
- *  the change time) running a little ahead of the VM clock (which stamps the
- *  row). A note restored by hand and trashed again within this window still
- *  matches. */
-const CHANGE_TIME_ALLOWANCE_SECONDS = 60
-
-const NANOSECONDS_PER_SECOND = 1_000_000_000n
-
 type SweepRowOutcome = "unlinked" | "missing" | "unmatched" | "skipped"
 
-/** Why a trashed file was kept: its row predates recorded identities, the
- *  file at the path is a different one or was rewritten, or the file changed
- *  status after the server trashed it (renamed, or its attributes written). */
+/** Why the sweep kept a trashed file and dropped its row:
+ *  - `unrecorded` — the row was recorded before identities were kept.
+ *  - `replaced` — the file at the path is a different file, or was rewritten.
+ *  - `changed` — the file's change time runs past the change-time allowance,
+ *    so it was renamed or had its attributes written after the server trashed
+ *    it. */
 type MismatchReason = "unrecorded" | "replaced" | "changed"
 
-type IdentityCheck = "matches" | MismatchReason | "missing" | "unreadable"
+type RecordedFileCheck = "matches" | MismatchReason | "missing" | "unreadable"
 
-/** Decides whether a trashed file is still, unchanged, the one its row
- *  recorded. */
+/** Decides whether a trashed file is still the file its row recorded and has
+ *  not changed since, or names the reason it is not. */
 const compareWithRecordedFile = (
   fileState: TrashFileState,
   entry: TrashEntry,
@@ -58,6 +50,16 @@ const compareWithRecordedFile = (
   if (!entry.fileIdentity) return "unrecorded"
   if (fileState.identity !== entry.fileIdentity) return "replaced"
 
+  // The server's own rename sets the change time just before the row is
+  // written. The allowance covers:
+  // - trashedAt rounding down to a whole second, which can put it up to a
+  //   second before the change time
+  // - on Docker Desktop, the host clock (which stamps the change time)
+  //   running a little ahead of the VM clock (which stamps the row)
+  // A note restored by hand and trashed again within the allowance still
+  // matches.
+  const CHANGE_TIME_ALLOWANCE_SECONDS = 60
+  const NANOSECONDS_PER_SECOND = 1_000_000_000n
   const changeTimeLimitNs =
     BigInt(entry.trashedAt + CHANGE_TIME_ALLOWANCE_SECONDS) * NANOSECONDS_PER_SECOND
 
@@ -68,12 +70,13 @@ const compareWithRecordedFile = (
 /** Reads the file now at a trash entry's path and compares it with the row.
  *  A read failure other than a missing file is logged and reported as
  *  "unreadable". */
-const checkRecordedFileIdentity = async (
+const checkRecordedFile = async (
   params: { fullPath: string; entry: TrashEntry },
   logger: Logger,
-): Promise<IdentityCheck> => {
+): Promise<RecordedFileCheck> => {
   try {
-    return compareWithRecordedFile(await readTrashFileState(params.fullPath), params.entry)
+    const fileState = await readTrashFileState(params.fullPath)
+    return compareWithRecordedFile(fileState, params.entry)
   } catch (error) {
     if (isMissingPathError(error)) return "missing"
     logger.warn("failed to read trash entry identity", {
@@ -172,28 +175,28 @@ const sweepOneEntry = async (
     return "skipped"
   }
 
-  // Identity gate — the file at the row's path must be the one the server
-  // trashed, unchanged since. Emptying .trash/ by hand leaves the row behind,
-  // and Obsidian can later trash another note under the same name; deleting
-  // that file would destroy a note the server never trashed. Any file that
-  // cannot be shown to be the recorded one is kept and its row dropped.
-  const identityCheck = await checkRecordedFileIdentity(
+  // Identity and change-time gate — the file at the row's path must be the one
+  // the server trashed, unchanged since. Emptying .trash/ by hand leaves the
+  // row behind, and Obsidian can later trash another note under the same name;
+  // deleting that file would destroy a note the server never trashed. A file
+  // that fails either check is kept and its row dropped.
+  const recordedFileCheck = await checkRecordedFile(
     { fullPath: resolvedPath, entry: currentEntry },
     logger,
   )
 
   // Every result but "matches" returns here, so only the file the server
   // trashed reaches the unlink below.
-  if (identityCheck === "unreadable") return "skipped"
-  if (identityCheck === "missing") {
+  if (recordedFileCheck === "unreadable") return "skipped"
+  if (recordedFileCheck === "missing") {
     trashEntryStore.deleteTrashEntry(trashPath)
     return "missing"
   }
-  if (identityCheck !== "matches") {
+  if (recordedFileCheck !== "matches") {
     trashEntryStore.deleteTrashEntry(trashPath)
     logger.warn(
       "trash entry cannot be matched to the file the server trashed — kept, row dropped",
-      { trashPath, reason: identityCheck },
+      { trashPath, reason: recordedFileCheck },
     )
     return "unmatched"
   }
@@ -232,9 +235,9 @@ const sweepOneEntry = async (
 /** Removes every recorded trash entry older than `retentionDays` whose file
  *  still has its recorded identity and meets the change-time limit, and drops
  *  the rows of entries whose files are gone or fail either check. Each row is
- *  processed under the shared
- *  trash-domain lock (per row, so a long sweep never starves deletes), with
- *  an in-lock re-read deciding whether the row is still expired. */
+ *  processed under the shared trash-domain lock (per row, so a long sweep
+ *  never starves deletes), with an in-lock re-read deciding whether the row
+ *  is still expired. */
 const sweepExpiredTrashEntries = async (params: SweepParams, logger: Logger): Promise<void> => {
   const cutoffEpochSeconds = DateTime.now().minus({ days: params.retentionDays }).toUnixInteger()
   const expiredEntries = params.trashEntryStore.listExpiredTrashEntries(cutoffEpochSeconds)

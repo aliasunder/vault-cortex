@@ -2774,9 +2774,10 @@ export type SearchIndex = ReturnType<typeof createSearchIndex>
 /** A file this server moved to .trash/, as recorded for the retention sweep. */
 export type TrashEntry = {
   trashPath: string
+  /** Unix time when the row was recorded, rounded down to a whole second. */
   trashedAt: number
-  /** The recorded file's TrashFileState identity; null on a row recorded before
-   *  identities were kept, which the sweep cannot match to any file. */
+  /** The recorded file's `TrashFileState.identity`; null on a row recorded
+   *  before identities were kept, which the sweep cannot match to any file. */
   fileIdentity: string | null
 }
 

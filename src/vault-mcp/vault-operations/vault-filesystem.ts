@@ -578,10 +578,10 @@ export type TrashFileState = {
    *  was recorded.
    *  - Every attribute write moves it, and so does a rename on most file
    *    systems (POSIX leaves that optional).
-   *  - It is never stored, because inside a Docker Desktop bind mount the
-   *    container keeps reporting the old change time after its own rename
-   *    while the host's value moves, so a stored value stops matching after
-   *    a restart. */
+   *  - It is never stored. After a container renames a file inside a Docker
+   *    Desktop bind mount, the container keeps reporting the file's old change
+   *    time while the host's value moves, so a stored value stops matching
+   *    once the container restarts. */
   changeTimeNs: bigint
 }
 
@@ -601,7 +601,7 @@ export const readTrashFileState = async (fullPath: string): Promise<TrashFileSta
 
 /** Retention-sweep bookkeeping hook for a trash move. It receives the
  *  vault-relative path the note landed at and the landed file's
- *  TrashFileState identity. */
+ *  `TrashFileState.identity`. */
 type RecordTrashEntry = (entry: { trashPath: string; fileIdentity: string }) => void
 
 /** Claims a trash destination with an exclusive create — the empty placeholder
@@ -698,9 +698,9 @@ const moveNoteToTrash = async (
       //   clear it. A rename keeps a file's identity, so a note restored from
       //   .trash/ by hand and trashed again matches its old row. The sweep
       //   keeps it only when the rename moved its change time more than a
-      //   minute past the old row's moment, which misses a quick restore and a
-      //   file system that leaves the change time alone on rename (POSIX
-      //   allows both behaviours).
+      //   minute past the old row's trashedAt. That misses a quick restore,
+      //   and every restore on a file system that leaves the change time
+      //   alone on rename, which POSIX permits.
       // - Both writes are fail-open because the note has already moved, so a
       //   failed identity read or row write is logged, not reported as a
       //   failed move.
