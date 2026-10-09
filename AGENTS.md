@@ -391,8 +391,10 @@ log would produce N lines during a vault rebuild (one per note), it's
   (tool names, routes) or prescribe caller-level remediation.
 - Log full detail internally, return generic messages externally —
   error responses to clients never include the server's own paths,
-  stack traces, or implementation state. A path a client error does
-  name is vault-relative (`describeErrorRelativeTo`).
+  stack traces, or implementation state. Any path in a client error is
+  vault-relative: the tool and prompt boundaries rewrite a Node error's
+  paths (`describeErrorRelativeTo`), so a wrapper passes the Node error
+  as `cause` and never copies its message into its own.
 - `/healthz` needs no sign-in, so never add deployment settings or host
   details to its response. The full server returns `{ ok: true }`, and
   setup mode adds `mode: "setup"` so the setup page can tell when the full
