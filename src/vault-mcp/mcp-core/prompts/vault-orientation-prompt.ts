@@ -4,10 +4,14 @@ import { createMemoryStore, type MemoryFileOutline } from "../../vault-operation
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { resolveEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { describeError, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../../utils/compare-utf8-bytes.js"
 import type { ToolName } from "../tool-registry.js"
-import { type PromptRegistrationContext, textResult, formatNoteLine } from "./prompt-helpers.js"
+import {
+  type PromptRegistrationContext,
+  textResult,
+  formatNoteLine,
+  describePromptFailure,
+} from "./prompt-helpers.js"
 
 const PROMPT_NAMES = {
   VAULT_ORIENTATION: "vault-orientation",
@@ -97,6 +101,21 @@ const formatMemoryOutlineEntry = (outline: MemoryFileOutline): string => {
 const formatMemoryOutline = (outlines: readonly MemoryFileOutline[]): string =>
   outlines.map(formatMemoryOutlineEntry).join("\n")
 
+/** The "excludes N forward-refs in <folder>/" note, or "" when none were excluded. */
+const formatExcludedForwardRefs = (params: {
+  excludedFolder: string | null
+  excludedCount: number
+}): string => {
+  const { excludedFolder, excludedCount } = params
+
+  if (excludedCount === 0) return ""
+
+  // Collapses a trailing slash the folder name may already carry
+  const excludedFolderLabel = `${excludedFolder}/`.replace(/\/+$/, "/")
+  const forwardReferenceLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
+  return `excludes ${excludedCount} ${forwardReferenceLabel} in ${excludedFolderLabel}`
+}
+
 /** Formats the broken-link count for the stats line, including excluded
  *  forward-refs when present. Returns "" when both counts are zero. */
 const formatBrokenLinkSegment = (result: {
@@ -105,12 +124,7 @@ const formatBrokenLinkSegment = (result: {
   excludedCount: number
 }): string => {
   const { count, excludedFolder, excludedCount } = result
-  const excludedFolderLabel = `${excludedFolder}/`.replace(/\/+$/, "/")
-  const forwardReferenceLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
-  const excludedNote =
-    excludedCount > 0
-      ? `excludes ${excludedCount} ${forwardReferenceLabel} in ${excludedFolderLabel}`
-      : ""
+  const excludedNote = formatExcludedForwardRefs({ excludedFolder, excludedCount })
 
   if (count === 0 && excludedNote.length === 0) return ""
 
@@ -160,10 +174,9 @@ export const registerVaultOrientationPrompt = ({
           reqLogger,
         )
         const paths = await vaultFs.listNotes({ vaultPath }, reqLogger)
-        const memoryFiles =
-          config.memoryEnabled && memoryStore
-            ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
-            : []
+        const memoryFiles = memoryStore
+          ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
+          : []
         const dailyNotesConfig = await readDailyNotesConfig(
           {
             vaultPath,
@@ -320,8 +333,7 @@ export const registerVaultOrientationPrompt = ({
         })
         return textResult(orientationSurvey)
       } catch (error) {
-        reqLogger.error("prompt_error", { error: describeError(error) })
-        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
+        const clientMessage = describePromptFailure({ error, vaultPath, logger: reqLogger })
         const fallbackTools = formatEnabledToolList([
           "vault_list_tags",
           "vault_list_property_keys",

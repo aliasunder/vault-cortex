@@ -103,7 +103,7 @@ const assertTextWithinCap = (params: { text: string; path: string }): void => {
 
 /**
  * Builds the text result for a rendition — whole or paged. Without paging
- * params the full text returns byte-identical, cap enforced as before. With
+ * params the full text returns byte-identical, within the text output cap. With
  * paging, delegates line splitting, validation, and slicing to the shared
  * pageTextByLines primitive, then enforces the asset-specific byte cap on
  * the resulting window.
@@ -344,6 +344,7 @@ const readAssetContent = async (
         const totalPages = proxy.numPages
         const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
 
+        // Config rejects MAX_PDF_RENDER_PAGES=0 at boot, so 0 here means the PDF has no pages.
         if (pagesToRender === 0) {
           throw new Error(
             `PDF page rendering failed: "${path}" exists ` +
@@ -401,8 +402,8 @@ const readAssetContent = async (
   throw new Error(
     `unsupported file type "${asset.extension}": "${path}" exists ` +
       `(${asset.bytes} bytes). Readable types: images ` +
-      `(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats ` +
-      `(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)`,
+      `(${[...IMAGE_EXTENSIONS].join("/")}), .canvas, .pdf, and text formats ` +
+      `(${[...TEXT_PASSTHROUGH_EXTENSIONS].join("/")})`,
   )
 }
 
@@ -454,9 +455,7 @@ const buildAssetListing = async (
     ? new Set(params.extensions.map(normalizeExtension))
     : undefined
   const filteredPaths = extensionFilter
-    ? assetPaths.filter((assetPath) =>
-        extensionFilter.has(links.getExtension(assetPath).toLowerCase()),
-      )
+    ? assetPaths.filter((assetPath) => extensionFilter.has(extensionOf(assetPath)))
     : assetPaths
 
   const filteredExtensions = filteredPaths.map(extensionOf)

@@ -27,11 +27,13 @@ export type DailyNotesEnvSettings = {
   format?: string | undefined
 }
 
+export const DEFAULT_DAILY_NOTES_FOLDER = "Daily Notes"
+
 // The format matches Obsidian's default; the folder is this server's own
 // choice — Obsidian with no configured location creates dailies in the
 // vault root, which is not a sensible folder for the server to assume.
 const FALLBACK_CONFIG: DailyNotesConfig = {
-  folder: "Daily Notes",
+  folder: DEFAULT_DAILY_NOTES_FOLDER,
   format: "YYYY-MM-DD",
 }
 

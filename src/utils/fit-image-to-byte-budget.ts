@@ -145,12 +145,7 @@ export const fitImageToByteBudget = async (params: {
   while (attemptCount < MAX_ENCODE_ATTEMPTS) {
     // The quality this attempt encodes at: the next ladder rung while the
     // ladder descends, mid-ladder once dimension-shrinking takes over.
-    const attemptQuality =
-      qualityLadderIndex < QUALITY_LADDER.length
-        ? QUALITY_LADDER[qualityLadderIndex]
-        : MID_LADDER_QUALITY
-
-    if (!attemptQuality) break
+    const attemptQuality = QUALITY_LADDER[qualityLadderIndex] ?? MID_LADDER_QUALITY
     const { data, info } = await encodeAttempt({
       buffer: params.buffer,
       longEdgePx,
@@ -179,6 +174,7 @@ export const fitImageToByteBudget = async (params: {
     // is a real reduction even when the overshoot is marginal. Descent clamps
     // to the 64px floor and encodes there before giving up — breaking only
     // when no further reduction is possible.
+    // Past the last rung, so later attempts fall back to mid-ladder quality.
     qualityLadderIndex = QUALITY_LADDER.length
     const areaScale = Math.sqrt(params.budgetBytes / lastEncodedBytes)
     const nextLongEdgePx = Math.max(
@@ -192,6 +188,6 @@ export const fitImageToByteBudget = async (params: {
 
   throw new Error(
     `image cannot be fitted into ${params.budgetBytes} bytes ` +
-      `(smallest attempt was ${lastEncodedBytes} bytes after ${attemptCount} attempts)`,
+      `(last attempt was ${lastEncodedBytes} bytes after ${attemptCount} attempts)`,
   )
 }

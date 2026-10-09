@@ -72,6 +72,18 @@ describe("daily-review handler", () => {
     expect(text).toContain("No notes were modified on 2020-01-01.")
   })
 
+  it("says an existing whitespace-only daily note is empty rather than missing", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      dailyContent: "  \n\n",
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+    const dailyNoteSection = text.split("## Daily note\n\n")[1]?.split("\n\n## Outgoing links")[0]
+
+    expect(dailyNoteSection).toBe("_The daily note at `Daily Notes/2026-06-16.md` is empty._")
+  })
+
   it("defaults to today when no date is given", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(DateTime.fromISO("2026-06-16T12:00:00Z").toJSDate())

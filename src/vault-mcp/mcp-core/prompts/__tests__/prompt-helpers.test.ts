@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest"
+import { recordingLogger, type LogCall } from "./prompt-test-harness.js"
 import {
   formatNoteLine,
   capContent,
   exceedsCharCap,
   escapeVaultContentClosingTag,
   wrapWithDataMarkers,
+  describePromptFailure,
 } from "../prompt-helpers.js"
 
 describe("formatNoteLine", () => {
@@ -163,5 +165,44 @@ describe("wrapWithDataMarkers", () => {
       truncationToolName: undefined,
     })
     expect(result).toContain('source="path &quot;with&quot; &amp;chars"')
+  })
+})
+
+describe("describePromptFailure", () => {
+  it("logs the error at error level and returns the vault-relative message", () => {
+    const logCalls: LogCall[] = []
+    const message = describePromptFailure({
+      error: Object.assign(new Error("ENOENT: no such file, open '/vault/Notes/a.md'"), {
+        code: "ENOENT",
+      }),
+      vaultPath: "/vault",
+      logger: recordingLogger(logCalls),
+    })
+
+    expect(message).toBe("[Error]: ENOENT: no such file, open 'Notes/a.md'")
+    expect(logCalls).toEqual([
+      {
+        level: "error",
+        message: "prompt_error",
+        data: { error: "[Error]: ENOENT: no such file, open '/vault/Notes/a.md'" },
+      },
+    ])
+  })
+
+  it("logs the cause too when the error carries one", () => {
+    const logCalls: LogCall[] = []
+    describePromptFailure({
+      error: new Error("wrapper", { cause: new Error("root cause") }),
+      vaultPath: "/vault",
+      logger: recordingLogger(logCalls),
+    })
+
+    expect(logCalls).toEqual([
+      {
+        level: "error",
+        message: "prompt_error",
+        data: { error: "[Error]: wrapper", cause: "[Error]: root cause" },
+      },
+    ])
   })
 })
