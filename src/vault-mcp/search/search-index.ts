@@ -13,6 +13,7 @@ import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
 import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
+import { parseFrontmatterTags } from "../obsidian-markdown/tags.js"
 import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
@@ -30,6 +31,7 @@ import {
   coerceToArray,
   buildFtsMetadataText,
   escapeLikeWildcards,
+  foldTag,
   parseNoteForIndex,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
@@ -363,6 +365,12 @@ export const createSearchIndex = (
    * while SQLite's CAST to TEXT produces "1.0e-07". */
   db.function("property_value_text", { deterministic: true }, (value: unknown): string => {
     return String(value)
+  })
+
+  // Tag predicates compare folded values; the same fold runs in the
+  // JavaScript mirror of the search filters (foldTag)
+  db.function("fold_tag", { deterministic: true }, (value: unknown): string => {
+    return foldTag(String(value))
   })
 
   db.pragma("journal_mode = WAL")
@@ -1455,7 +1463,7 @@ export const createSearchIndex = (
       unreadableBlockError,
     } = parseNoteForIndex(rawContent)
 
-    const tags = coerceToArray(frontmatter.tags)
+    const tags = parseFrontmatterTags(frontmatter)
     const related = coerceToArray(frontmatter.related)
     const bodyLines = splitIntoLines(noteBody)
 
@@ -1681,7 +1689,7 @@ export const createSearchIndex = (
     const metadataPrefix = options?.ranking?.enrichChunkMetadata
       ? buildChunkMetadataPrefix({
           type: isString(frontmatter.type) ? frontmatter.type : null,
-          tags: coerceToArray(frontmatter.tags),
+          tags: parseFrontmatterTags(frontmatter),
         })
       : null
     const chunks = chunkContent({

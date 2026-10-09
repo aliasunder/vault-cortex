@@ -38,6 +38,47 @@ export const coerceToArray = (value: unknown): string[] => {
   return value ? [String(value)] : []
 }
 
+// ── Tag comparison ─────────────────────────────────────────────
+
+/** Folds a tag for comparison with `toLowerCase()`, the rule Obsidian's Tags
+ *  view groups spellings by. Shared by the `fold_tag` SQL function and the
+ *  JavaScript mirror of the SQL tag filters, so both compare by one rule. */
+export const foldTag = (tag: string): string => tag.toLowerCase()
+
+/**
+ * Folds a tag input the way the index compares it: one leading `#` removed,
+ * then `foldTag`. Throws when nothing is left, because an empty prefix would
+ * match every nested tag.
+ */
+export const normalizeTagQuery = (input: string): string => {
+  const name = input.startsWith("#") ? input.slice(1) : input
+
+  if (name === "") throw new Error('tag must not be empty after its leading "#"')
+  return foldTag(name)
+}
+
+/** True when a stored tag is the folded query or nested under it. The
+ *  JavaScript side of NESTED_TAG_PREDICATE. */
+export const tagMatchesQuery = (params: { storedTag: string; foldedQuery: string }): boolean => {
+  const folded = foldTag(params.storedTag)
+  return folded === params.foldedQuery || folded.startsWith(`${params.foldedQuery}/`)
+}
+
+/**
+ * SQL predicate over a `json_each` `value` that matches the query tag itself
+ * or any tag nested under it, folding each stored value once; bound to
+ * `nestedTagLikePattern(input)`. Appending `/` to the stored value turns
+ * "equal or nested" into one LIKE, so `project/%` matches `project` and
+ * `project/x` but not `projects`.
+ */
+export const NESTED_TAG_PREDICATE = "fold_tag(value) || '/' LIKE ? ESCAPE '\\'"
+
+/** The pattern NESTED_TAG_PREDICATE binds for a tag input: normalized, its
+ *  LIKE wildcards escaped, then `/%`. Throws like normalizeTagQuery. */
+export const nestedTagLikePattern = (input: string): string => {
+  return `${escapeLikeWildcards(normalizeTagQuery(input))}/%`
+}
+
 // ── Note parsing for the index ─────────────────────────────────
 
 /**
@@ -315,8 +356,12 @@ export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters):
 
   if (filters.tags) {
     const noteTags = parseStringArray(note.tags)
+    const foldedQueries = filters.tags.map(normalizeTagQuery)
+    const everyQueryMatches = foldedQueries.every((foldedQuery) => {
+      return noteTags.some((storedTag) => tagMatchesQuery({ storedTag, foldedQuery }))
+    })
 
-    if (!filters.tags.every((tag) => noteTags.includes(tag))) return false
+    if (!everyQueryMatches) return false
   }
 
   if (filters.type && note.type !== filters.type) return false

@@ -16,6 +16,10 @@ import {
   pathIsInFolder,
   dayToEpochMsRange,
   parseNoteForIndex,
+  foldTag,
+  normalizeTagQuery,
+  tagMatchesQuery,
+  nestedTagLikePattern,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
 import { parseNote, UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
@@ -497,6 +501,82 @@ describe("fileContentRowToSearchResult", () => {
   })
 })
 
+// ── Tag comparison ───────────────────────────────────────────────────
+
+describe("foldTag", () => {
+  it("lowercases ASCII and accented letters", () => {
+    expect(foldTag("Project")).toBe("project")
+    expect(foldTag("Ärger")).toBe("ärger")
+  })
+
+  it("folds a capital sharp s to the small one, so the pair compares equal", () => {
+    expect(foldTag("ẞ")).toBe(foldTag("ß"))
+  })
+
+  it("keeps sharp s apart from double s, which Obsidian lists apart", () => {
+    expect(foldTag("Straße")).not.toBe(foldTag("STRASSE"))
+  })
+})
+
+describe("normalizeTagQuery", () => {
+  it("removes one leading # and folds", () => {
+    expect(normalizeTagQuery("#Project")).toBe("project")
+    expect(normalizeTagQuery("##x")).toBe("#x")
+  })
+
+  it("keeps a trailing slash, which only a stored tag ending in a slash equals", () => {
+    expect(normalizeTagQuery("foo/")).toBe("foo/")
+  })
+
+  it("throws when nothing is left after the leading #", () => {
+    expect(() => normalizeTagQuery("#")).toThrow('tag must not be empty after its leading "#"')
+  })
+})
+
+describe("tagMatchesQuery", () => {
+  it.each([
+    {
+      label: "the tag itself in another letter case",
+      storedTag: "Project",
+      foldedQuery: "project",
+    },
+    { label: "a nested tag", storedTag: "project/alpha", foldedQuery: "project" },
+    {
+      label: "a nested tag in another letter case",
+      storedTag: "PROJECT/Alpha",
+      foldedQuery: "project",
+    },
+  ])("matches $label", ({ storedTag, foldedQuery }) => {
+    expect(tagMatchesQuery({ storedTag, foldedQuery })).toBe(true)
+  })
+
+  it.each([
+    {
+      label: "a longer tag without a slash boundary",
+      storedTag: "projects",
+      foldedQuery: "project",
+    },
+    {
+      label: "a tag that only ends with the query",
+      storedTag: "my-project",
+      foldedQuery: "project",
+    },
+    { label: "the parent of the query", storedTag: "project", foldedQuery: "project/alpha" },
+  ])("rejects $label", ({ storedTag, foldedQuery }) => {
+    expect(tagMatchesQuery({ storedTag, foldedQuery })).toBe(false)
+  })
+})
+
+describe("nestedTagLikePattern", () => {
+  it("folds, removes the leading #, escapes LIKE wildcards, and appends /%", () => {
+    expect(nestedTagLikePattern("#A_b%")).toBe("a\\_b\\%/%")
+  })
+
+  it("throws for an input that is only a #", () => {
+    expect(() => nestedTagLikePattern("#")).toThrow('tag must not be empty after its leading "#"')
+  })
+})
+
 // ── noteMatchesSearchFilters ─────────────────────────────────────────
 
 describe("noteMatchesSearchFilters", () => {
@@ -528,6 +608,26 @@ describe("noteMatchesSearchFilters", () => {
     expect(noteMatchesSearchFilters(baseRow, { tags: ["project"] })).toBe(true)
     expect(noteMatchesSearchFilters(baseRow, { tags: ["project", "project/alpha"] })).toBe(true)
     expect(noteMatchesSearchFilters(baseRow, { tags: ["missing"] })).toBe(false)
+    expect(noteMatchesSearchFilters(baseRow, { tags: ["project", "missing"] })).toBe(false)
+  })
+
+  it("matches a tag filter ignoring letter case and a leading #", () => {
+    expect(noteMatchesSearchFilters(baseRow, { tags: ["PROJECT"] })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { tags: ["#Project/Alpha"] })).toBe(true)
+  })
+
+  it("matches a tag filter by a parent tag but not by a longer or child-only name", () => {
+    const childOnlyRow = { ...baseRow, tags: JSON.stringify(["project/alpha"]) }
+
+    expect(noteMatchesSearchFilters(childOnlyRow, { tags: ["project"] })).toBe(true)
+    expect(noteMatchesSearchFilters(childOnlyRow, { tags: ["alpha"] })).toBe(false)
+    expect(noteMatchesSearchFilters(baseRow, { tags: ["projects"] })).toBe(false)
+  })
+
+  it("rejects a tag filter that is only a #", () => {
+    expect(() => noteMatchesSearchFilters(baseRow, { tags: ["#"] })).toThrow(
+      'tag must not be empty after its leading "#"',
+    )
   })
 
   it("filters by type", () => {

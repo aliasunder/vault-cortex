@@ -18,6 +18,9 @@ import {
   folderLikePattern,
   stripTrailingSlashes,
   dayToEpochMsRange,
+  normalizeTagQuery,
+  nestedTagLikePattern,
+  NESTED_TAG_PREDICATE,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
@@ -173,9 +176,12 @@ export const fullTextSearch = (
   }
 
   if (params.filters?.tags) {
+    // Each listed tag matches the tag itself or any tag nested under it, as
+    // Obsidian's tag: search operator does; the JavaScript mirror is
+    // noteMatchesSearchFilters
     for (const tag of params.filters.tags) {
-      conditions.push("EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)")
-      queryParams.push(tag)
+      conditions.push(`EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${NESTED_TAG_PREDICATE})`)
+      queryParams.push(nestedTagLikePattern(tag))
     }
   }
 
@@ -762,7 +768,7 @@ export const memoryRecall = async (
 
 // ── Discovery queries ──────────────────────────────────────────
 
-/** Finds notes with a specific tag. Supports hierarchical prefix matching. */
+/** Finds notes with a specific tag, ignoring letter case. Supports hierarchical prefix matching. */
 export const searchByTag = (
   context: SearchQueryContext,
   params: {
@@ -775,12 +781,12 @@ export const searchByTag = (
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   const condition = params.exact
-    ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
-    : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')"
+    ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE fold_tag(value) = ?)"
+    : `EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${NESTED_TAG_PREDICATE})`
 
   const queryParams: unknown[] = params.exact
-    ? [params.tag, limit]
-    : [params.tag, escapeLikeWildcards(params.tag), limit]
+    ? [normalizeTagQuery(params.tag), limit]
+    : [nestedTagLikePattern(params.tag), limit]
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -1035,11 +1041,9 @@ export const listTasks = (
 
   if (params.tag !== undefined) {
     // Same nested-tag semantics as searchByTag's prefix mode: "project"
-    // matches both #project and #project/vault-cortex.
-    conditions.push(
-      "EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')",
-    )
-    queryParams.push(params.tag, escapeLikeWildcards(params.tag))
+    // matches both #project and #project/vault-cortex, in any letter case.
+    conditions.push(`EXISTS (SELECT 1 FROM json_each(t.tags) WHERE ${NESTED_TAG_PREDICATE})`)
+    queryParams.push(nestedTagLikePattern(params.tag))
   }
 
   if (params.heading !== undefined) {
@@ -1123,16 +1127,35 @@ export const listTasks = (
   return { total, tasks: taskEntries }
 }
 
-/** Returns all tags in the vault with their note counts. */
+/** Returns all tags in the vault with their note counts, spellings that differ
+ *  only in letter case merged under the most-used spelling. */
 export const listAllTags = (
   context: SearchQueryContext,
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
+  // Spellings group by their folded form. A group's count is its distinct
+  // notes, and the spelling shown is the one with the most occurrences across
+  // notes, which is Obsidian's Tags view rule, with ties broken by binary order.
   const sql = `
-    SELECT value as tag, COUNT(DISTINCT notes.path) as count
-    FROM notes, json_each(notes.tags)
-    GROUP BY value
+    WITH spelling AS (
+      SELECT fold_tag(value) AS folded, value AS tag, COUNT(*) AS occurrences
+      FROM notes, json_each(notes.tags)
+      GROUP BY folded, tag
+    ),
+    folded_count AS (
+      SELECT fold_tag(value) AS folded, COUNT(DISTINCT notes.path) AS count
+      FROM notes, json_each(notes.tags)
+      GROUP BY folded
+    ),
+    ranked AS (
+      SELECT spelling.folded, spelling.tag,
+             ROW_NUMBER() OVER (PARTITION BY spelling.folded ORDER BY spelling.occurrences DESC, spelling.tag) AS rank
+      FROM spelling
+    )
+    SELECT ranked.tag AS tag, folded_count.count AS count
+    FROM ranked JOIN folded_count ON folded_count.folded = ranked.folded
+    WHERE ranked.rank = 1
     ORDER BY count DESC, tag
   `
   const results = context.db.prepare<unknown[], TagCount>(sql).all()

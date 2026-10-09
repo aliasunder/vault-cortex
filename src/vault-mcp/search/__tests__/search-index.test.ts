@@ -1253,6 +1253,32 @@ describe("upsertNote", () => {
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
   })
 
+  it.each([
+    {
+      label: 'a quoted "#Alpha" entry stored without the #',
+      frontmatter: 'tags: ["#Alpha"]',
+      stored: ["Alpha"],
+    },
+    {
+      label: "a comma-joined text value stored as no tag",
+      frontmatter: "tags: alpha, beta",
+      stored: [],
+    },
+    { label: "a numeric text value stored as no tag", frontmatter: "tags: 2024", stored: [] },
+    { label: "a Tags key read in its own letter case", frontmatter: "Tags: [x]", stored: ["x"] },
+  ])("stores $label", ({ frontmatter, stored }) => {
+    index.upsertNote(
+      {
+        filePath: "tagged.md",
+        rawContent: `---\n${frontmatter}\n---\nbody\n`,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    expect(index.recentNotes({}, logger).map((note) => note.tags)).toEqual([stored])
+  })
+
   it("exposes the status registry it was built with", () => {
     const statusRegistry: ReadonlyMap<string, StatusClassification> = new Map([
       [" ", "todo"],
@@ -1655,6 +1681,42 @@ describe("fullTextSearch", () => {
     expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
+  it("matches a tags filter by a parent tag in any letter case, not a longer tag", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/child.md",
+        rawContent: "---\ntags: [Project/child]\n---\n\nMeeting notes about the child\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/decoy.md",
+        rawContent: "---\ntags: [projects]\n---\n\nMeeting notes about the decoy\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { tags: ["#PROJECT"] } },
+      logger,
+    )
+    expect(results.map((result) => result.path).toSorted()).toEqual([
+      "Projects/child.md",
+      "Projects/notes.md",
+    ])
+  })
+
+  it("rejects a tags filter entry that is only a #", () => {
+    const searchWithEmptyTag = () => {
+      return index.fullTextSearch({ query: "notes", filters: { tags: ["#"] } }, logger)
+    }
+
+    expect(searchWithEmptyTag).toThrow('tag must not be empty after its leading "#"')
+  })
+
   it("respects type filter", () => {
     const results = index.fullTextSearch({ query: "notes", filters: { type: "project" } }, logger)
     expect(results).toHaveLength(1)
@@ -1971,10 +2033,7 @@ describe("searchByTag", () => {
     expect(results.map((result) => result.path)).toEqual(["b.md", "a.md"])
   })
 
-  it.each([
-    { label: 'a leading "#"', tag: "#project" },
-    { label: 'a trailing "/"', tag: "project/" },
-  ])("matches no note tagged project when the tag has $label", ({ tag }) => {
+  it('matches notes tagged project when the tag has a leading "#", but not a trailing "/"', () => {
     index.upsertNote(
       {
         filePath: "d.md",
@@ -1983,12 +2042,82 @@ describe("searchByTag", () => {
       },
       logger,
     )
-    // The bare tag finds d.md, so the empty result below comes from the
-    // "#" or "/" alone, not from a fixture without a matching note.
+    // The bare tag finds d.md, so the empty "/" result below comes from the
+    // "/" alone, not from a fixture without a matching note.
     const bareTagResults = index.searchByTag({ tag: "project" }, logger)
     expect(bareTagResults.map((result) => result.path)).toEqual(["d.md", "b.md", "a.md"])
 
-    expect(index.searchByTag({ tag }, logger)).toEqual([])
+    const hashResults = index.searchByTag({ tag: "#project" }, logger)
+    expect(hashResults.map((result) => result.path)).toEqual(["d.md", "b.md", "a.md"])
+    expect(index.searchByTag({ tag: "project/" }, logger)).toEqual([])
+  })
+
+  it("treats a stored tag that ends in a slash as itself and as nested under its parent", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [foo//]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+
+    // `foo//` is stored as `foo/`: the query `foo/` is the tag itself, the
+    // query `foo` is its parent, and exact mode with `foo` is neither
+    expect(index.searchByTag({ tag: "foo/" }, logger).map((result) => result.path)).toEqual([
+      "d.md",
+    ])
+    expect(index.searchByTag({ tag: "foo" }, logger).map((result) => result.path)).toEqual(["d.md"])
+    expect(index.searchByTag({ tag: "foo", exact: true }, logger)).toEqual([])
+  })
+
+  it("ignores letter case in both modes, with Projects and my-project as decoys", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [Project]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "e.md",
+        rawContent: "---\ntags: [project, Projects, my-project]\n---\nbody\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+
+    expect(index.searchByTag({ tag: "PROJECT" }, logger).map((result) => result.path)).toEqual([
+      "e.md",
+      "d.md",
+      "b.md",
+      "a.md",
+    ])
+    expect(
+      index.searchByTag({ tag: "PROJECT", exact: true }, logger).map((result) => result.path),
+    ).toEqual(["e.md", "d.md"])
+  })
+
+  it("folds the query the way it folds stored tags, so a capital sharp s finds a small one", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [ß, Straße]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+
+    expect(index.searchByTag({ tag: "ẞ" }, logger).map((result) => result.path)).toEqual(["d.md"])
+    expect(index.searchByTag({ tag: "STRASSE" }, logger)).toEqual([])
+  })
+
+  it("rejects a tag that is only a #", () => {
+    expect(() => index.searchByTag({ tag: "#" }, logger)).toThrow(
+      'tag must not be empty after its leading "#"',
+    )
   })
 
   it("exact match returns the tag itself, not tags nested under it", () => {
@@ -2184,6 +2313,50 @@ describe("listAllTags", () => {
       tag: "self",
       count: 1,
     })
+  })
+
+  it("merges spellings that differ in letter case under the most-used spelling, counting notes", () => {
+    index.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\ntags: [Work]\n---\nbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "c.md",
+        rawContent: "---\ntags: [WORK, WORK, WORK]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+
+    // `WORK` has three occurrences in one note, `work` and `Work` one each:
+    // the spelling follows occurrences, the count follows distinct notes
+    const workEntry = index
+      .listAllTags({}, logger)
+      .find((entry) => entry.tag.toLowerCase() === "work")
+    expect(workEntry).toEqual({ tag: "WORK", count: 3 })
+  })
+
+  it("breaks a spelling tie by binary order and counts a note with both spellings once", () => {
+    index.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\ntags: [tie, Tie]\n---\nbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+
+    // One occurrence each: `Tie` sorts before `tie` in binary order, and the
+    // single note carrying both counts once
+    const tieEntry = index
+      .listAllTags({}, logger)
+      .find((entry) => entry.tag.toLowerCase() === "tie")
+    expect(tieEntry).toEqual({ tag: "Tie", count: 1 })
   })
 
   it("adds no tag for a mapping-valued tags property", () => {

@@ -221,6 +221,8 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 `vault_search_by_tag` matches a frontmatter tag and every tag nested under it (`project` matches `project/a/b` but not `projects`), or the tag alone with `exact: true`. It returns the most recently modified notes first, up to `limit` (default 20).
 
+Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tags` filter on `vault_search`) matches nested tags the same way and ignores letter case. Both sides of a comparison are folded with `toLowerCase()`, the rule Obsidian's Tags view groups spellings by.
+
 `vault_recent_notes` sorts by `sort_by` — `"created"` or `"modified"` (default `"modified"`).
 
 ### Property discovery + daily notes
@@ -234,6 +236,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 **Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
 
+- **Tags column:** holds the tags Obsidian's Tags view shows for the note, read by `obsidian-markdown/tags.ts` from the first key spelled `tags` in any letter case. A text value is one tag and a list keeps its text entries; each loses a leading `#` and a trailing `/`, and only names Obsidian accepts as tags are kept (no spaces, none of the punctuation Obsidian rejects such as `,`, `:` or `+`, and not digits only).
 - **Listing values:** `vault_list_property_values`, and the `sample_values` in `vault_list_property_keys`, count each value by the text the tool returns. The number `1` and the text `"1"` both return `"1"`, so they share one count; the text `"1.0"` keeps its own. Counting happens before `limit` and sample selection apply, and each item of a list property counts on its own.
 - **Matching a value:** `vault_search_by_property` matches text exactly. A value written as a whole, finite number in [YAML 1.2 core schema](https://yaml.org/spec/1.2.2/#1032-tag-resolution) form (`4`, `-0.5`, `1e3`, `0x1F`, `0o17`) also matches stored numbers equal to it as [JavaScript numbers](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number#number_encoding). So `"04"` matches the number `4` and the text `"04"`, but not the text `"4"`. Checkbox values match only `"1"` and `"0"`.
 

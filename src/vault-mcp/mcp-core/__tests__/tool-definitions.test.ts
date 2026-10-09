@@ -2742,7 +2742,7 @@ describe("DISABLED_TOOLS", () => {
     "When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query."
   const TAG_SEARCH_LIST_TAGS_SENTENCE = " Use vault_list_tags first to discover available tags."
   const TAG_SEARCH_SEARCH_LINE =
-    "\nPrefer vault_search when you also need text-based relevance ranking; its tags filter matches the exact tag only, without nested tags."
+    "\nPrefer vault_search when you also need text-based relevance ranking."
 
   it.each([
     {

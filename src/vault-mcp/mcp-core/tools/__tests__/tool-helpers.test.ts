@@ -6,7 +6,7 @@ import {
   UnsupportedPropertiesBlockError,
 } from "../../../obsidian-markdown/frontmatter.js"
 import type { ToolName } from "../../tool-registry.js"
-import { createSafeHandlers, describeTextWindow } from "../tool-helpers.js"
+import { createSafeHandlers, describeTextWindow, formatNoteMetadata } from "../tool-helpers.js"
 
 /** A handler failure whose cause carries detail the client must never see. */
 const failWithCause = async (): Promise<string> => {
@@ -405,5 +405,42 @@ describe("describeTextWindow", () => {
         totalLines: 1,
       }),
     ).toBe("full.md — lines 1–1 of 1 (end of file)")
+  })
+})
+
+describe("formatNoteMetadata", () => {
+  it("keeps only unpromoted keys under additional_properties", () => {
+    const formatted = formatNoteMetadata({
+      path: "a.md",
+      title: "A",
+      tags: ["x"],
+      leading_callout: null,
+      properties: {
+        title: "A",
+        tags: ["x"],
+        type: "note",
+        created: "2026-01-01",
+        related: [],
+        topic: "tags",
+      },
+    })
+
+    expect(formatted).toEqual({
+      path: "a.md",
+      title: "A",
+      tags: ["x"],
+      additional_properties: { topic: "tags" },
+    })
+  })
+
+  it("treats a tags key in any letter case as promoted, so a Tags: note reports its tags once", () => {
+    const formatted = formatNoteMetadata({
+      path: "a.md",
+      tags: ["x"],
+      leading_callout: null,
+      properties: { Tags: ["x"], TAGS: ["y"] },
+    })
+
+    expect(formatted).toEqual({ path: "a.md", tags: ["x"] })
   })
 })

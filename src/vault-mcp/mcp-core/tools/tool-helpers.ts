@@ -42,6 +42,12 @@ export type ToolRegistrationContext = ToolAvailability &
 // so the response doesn't contain the same data twice.
 const PROMOTED_KEYS = new Set(["title", "tags", "type", "created", "related"])
 
+// The index reads the tags from the first key spelled `tags` in any letter
+// case, as Obsidian does, so a `Tags:` key is promoted too
+const isPromotedKey = (key: string): boolean => {
+  return PROMOTED_KEYS.has(key) || key.toLowerCase() === "tags"
+}
+
 /** Reshapes NoteMetadata for client responses: keeps all top-level fields,
  *  replaces `properties` (full frontmatter, mostly duplicated) with
  *  `additional_properties` (only unpromoted keys like topic, agent, date). */
@@ -54,7 +60,7 @@ export const formatNoteMetadata = (meta: {
   const { properties, leading_callout: leadingCallout, ...fields } = meta
 
   const additional_properties = Object.fromEntries(
-    Object.entries(properties).filter(([key]) => !PROMOTED_KEYS.has(key)),
+    Object.entries(properties).filter(([key]) => !isPromotedKey(key)),
   )
 
   return {
