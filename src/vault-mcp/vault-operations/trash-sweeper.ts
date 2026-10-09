@@ -42,9 +42,9 @@ const NANOSECONDS_PER_SECOND = 1_000_000_000n
 
 type SweepRowOutcome = "unlinked" | "missing" | "unmatched" | "skipped"
 
-/** Why a trashed file was kept: its row predates recorded identities, a
- *  different file now stands at the path, or the file changed status after
- *  the server trashed it (renamed, or its attributes written). */
+/** Why a trashed file was kept: its row predates recorded identities, the
+ *  file at the path is a different one or was rewritten, or the file changed
+ *  status after the server trashed it (renamed, or its attributes written). */
 type MismatchReason = "unrecorded" | "replaced" | "changed"
 
 type IdentityCheck = "matches" | MismatchReason | "missing" | "unreadable"
@@ -313,11 +313,17 @@ const purgeOrphanedTrashEntries = async (
   for (const entry of allEntries) {
     const wasPurged = await withFileLock(trashDomainLockKey(params.vaultPath), async () => {
       // Re-read under the lock, because a concurrent trash move can replace
-      // the row (INSERT OR REPLACE refreshes trashedAt), meaning a new file
-      // now lives at this path. Dropping that row would leave the new file
-      // unrecorded, so the sweep would never delete it.
+      // the row with one for a new file at this path or at a case alias of it.
+      // - Dropping that row would leave the new file unrecorded, so the sweep
+      //   would never delete it.
+      // - The whole row is compared because two records in one second share
+      //   a trashedAt.
       const currentEntry = params.trashEntryStore.getTrashEntry(entry.trashPath)
-      const rowChanged = !currentEntry || currentEntry.trashedAt !== entry.trashedAt
+      const rowChanged =
+        !currentEntry ||
+        currentEntry.trashPath !== entry.trashPath ||
+        currentEntry.trashedAt !== entry.trashedAt ||
+        currentEntry.fileIdentity !== entry.fileIdentity
 
       if (rowChanged) return false
 

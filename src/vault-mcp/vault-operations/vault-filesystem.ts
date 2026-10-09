@@ -574,11 +574,14 @@ export type TrashFileState = {
    *    share, which can change when Docker Desktop restarts, and rows outlive
    *    restarts. */
   identity: string
-  /** The inode change time, which every rename and attribute write moves.
-   *  It is never stored, because inside a Docker Desktop bind mount the
-   *  container keeps reporting the old change time after its own rename while
-   *  the host's value moves, so a stored value stops matching after a
-   *  restart. The sweep compares it with the moment the row was recorded. */
+  /** The inode change time, which the sweep compares with the moment the row
+   *  was recorded.
+   *  - Every attribute write moves it, and so does a rename on most file
+   *    systems (POSIX leaves that optional).
+   *  - It is never stored, because inside a Docker Desktop bind mount the
+   *    container keeps reporting the old change time after its own rename
+   *    while the host's value moves, so a stored value stops matching after
+   *    a restart. */
   changeTimeNs: bigint
 }
 

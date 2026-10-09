@@ -885,6 +885,50 @@ describe("purgeOrphanedTrashEntries", () => {
     expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
   })
 
+  it.each([
+    {
+      label: "another file's record at the same path",
+      replacement: { trashPath: ".trash/raced.md", fileIdentity: "1:1:1" },
+    },
+    {
+      label: "a case alias's record",
+      replacement: { trashPath: ".trash/RACED.md", fileIdentity: ABSENT_FILE_IDENTITY },
+    },
+  ])("skips a row replaced within the same second by $label", async ({ replacement }) => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    // Both records share one moment, so their trashedAt values are equal.
+    const recordedMoment = DateTime.now().minus({ days: 1 })
+    recordEntryAt(index, recordedAbsentFile(".trash/raced.md"), recordedMoment)
+    // A control orphan, dropped whenever the purge runs, proves it ran.
+    index.recordTrashEntry(recordedAbsentFile(".trash/control-orphan.md"))
+    const racingStore: TrashEntryStore = {
+      listAllTrashEntries: () => {
+        const listed = index.listAllTrashEntries()
+        // A concurrent trash move replaces the row between the snapshot and
+        // the per-row lock.
+        recordEntryAt(index, replacement, recordedMoment)
+        return listed
+      },
+      listExpiredTrashEntries: index.listExpiredTrashEntries,
+      getTrashEntry: index.getTrashEntry,
+      deleteTrashEntry: index.deleteTrashEntry,
+    }
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: racingStore },
+      logger,
+    )
+
+    // No file is on disk at either spelling, so only the re-read's comparison
+    // can keep the replacement's row.
+    expect(index.getTrashEntry(".trash/raced.md")).toEqual({
+      ...replacement,
+      trashedAt: recordedMoment.toUnixInteger(),
+    })
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
+  })
+
   it("skips a row deleted between listing and lock acquisition", async () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
