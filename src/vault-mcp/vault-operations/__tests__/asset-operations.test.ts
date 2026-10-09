@@ -64,8 +64,8 @@ const defaultParams = {
 /** Builds a single-page StructuredTextItem array from lines of text. Items
  *  are positioned vertically (descending y, like a real PDF) with the given
  *  fontSize and fontFamily. */
-const buildPageItems = (lines: string[], options?: { fontSize?: number; fontFamily?: string }) =>
-  lines.map((str, index) => ({
+const buildPageItems = (lines: string[], options?: { fontSize?: number; fontFamily?: string }) => {
+  return lines.map((str, index) => ({
     str,
     x: 42,
     y: 780 - index * 15,
@@ -76,6 +76,7 @@ const buildPageItems = (lines: string[], options?: { fontSize?: number; fontFami
     dir: "ltr" as const,
     hasEOL: true,
   }))
+}
 
 describe("readAssetContent — PDF extraction", () => {
   it("returns structured markdown with title, headings, and text", async () => {
@@ -643,15 +644,17 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       logger,
     )
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       kind: "pages",
-      pagesRendered: 3,
-      totalPages: 10,
       pages: [
-        { pageNumber: 1, fitted: fittedResult },
-        { pageNumber: 2, fitted: fittedResult },
-        { pageNumber: 3, fitted: fittedResult },
+        { pageNumber: 1, fitted: fittedResult, originalBytes: 5_000 },
+        { pageNumber: 2, fitted: fittedResult, originalBytes: 5_000 },
+        { pageNumber: 3, fitted: fittedResult, originalBytes: 5_000 },
       ],
+      title: "Long PDF",
+      totalPages: 10,
+      pagesRendered: 3,
+      path: "long.pdf",
     })
     expect(mockRenderPageAsImage).toHaveBeenCalledTimes(3)
   })
