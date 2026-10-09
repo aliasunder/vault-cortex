@@ -17,6 +17,9 @@ const DIGITS_ONLY_RE = /^\d+$/
 /** Matches the `tags` property key in any letter case, as Obsidian looks it up. */
 const TAGS_KEY_RE = /^tags$/i
 
+/** True for a property key Obsidian reads tags from: `tags` in any letter case. */
+export const isTagsKey = (key: string): boolean => TAGS_KEY_RE.test(key)
+
 /** True for a name that Obsidian's Tags view would list as a tag. */
 export const isObsidianTagName = (name: string): boolean =>
   TAG_NAME_RE.test(name) && !DIGITS_ONLY_RE.test(name)
@@ -25,7 +28,7 @@ export const isObsidianTagName = (name: string): boolean =>
  *  only key Obsidian reads: a later `Tags` key is ignored even if the first
  *  one is empty. */
 const findTagsValue = (frontmatter: Record<string, unknown>): unknown => {
-  const tagsKey = Object.keys(frontmatter).find((key) => TAGS_KEY_RE.test(key))
+  const tagsKey = Object.keys(frontmatter).find(isTagsKey)
   return tagsKey ? frontmatter[tagsKey] : undefined
 }
 

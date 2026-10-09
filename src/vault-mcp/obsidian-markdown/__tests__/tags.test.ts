@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest"
-import { isObsidianTagName, parseFrontmatterTags } from "../tags.js"
+import { isObsidianTagName, isTagsKey, parseFrontmatterTags } from "../tags.js"
+
+describe("isTagsKey", () => {
+  it.each(["tags", "Tags", "TAGS"])("accepts %s", (key) => {
+    expect(isTagsKey(key)).toBe(true)
+  })
+
+  it.each(["tag", "tags ", "#tags", "related"])("rejects %j", (key) => {
+    expect(isTagsKey(key)).toBe(false)
+  })
+})
 
 describe("isObsidianTagName", () => {
   it.each([
