@@ -676,19 +676,18 @@ covers both kinds, with reasons:
   a language on every fenced block, no bare URLs. Ignores are documented
   in the config.
 - **ShellCheck** (`npm run lint:shell`, lint-staged + CI) lints the repo's
-  shell scripts: the Claude Code hooks, `.github/scripts/`, the `:remote`
-  image's s6 and helper scripts, and the test stubs for `ob` and `docker`.
-  `scripts/lint-shell.ts` holds the list; a new script outside those paths
-  is added to its `SHELL_SCRIPT_GLOBS`. The script pins the ShellCheck
-  version and each platform's archive SHA-256, so local runs and CI use the
-  same release. The first run that needs it downloads the build into
-  `vault-cortex/shellcheck-<version>/` under `$XDG_CACHE_HOME` (default
-  `~/.cache`). A version bump replaces every hash from the new release's
-  files. The pre-commit hook checks only staged shell scripts, so a commit
-  without one never downloads ShellCheck. ShellCheck cannot read the
-  `#!/command/with-contenv sh` shebang, so each s6 script that starts with
-  it carries a `# shellcheck shell=sh` line. A disable directive gets a
-  comment saying why.
+  shell scripts through `scripts/lint-shell.ts`:
+  - **Which scripts:** its `SHELL_SCRIPT_GLOBS` covers the Claude Code
+    hooks, `.github/scripts/`, the `:remote` image's s6 and helper
+    scripts, and the `ob` and `docker` test stubs. Add a new script
+    outside those paths there.
+  - **Which version:** pinned with each platform's archive SHA-256, so
+    local runs and CI match. The first run that needs it downloads it into
+    `$XDG_CACHE_HOME/vault-cortex/` (default `~/.cache`). A version bump
+    replaces every hash from the new release's files.
+  - **s6 scripts:** ShellCheck cannot read `#!/command/with-contenv sh`,
+    so each script that starts with it carries `# shellcheck shell=sh`.
+  - **Disables:** a disable directive gets a comment saying why.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
