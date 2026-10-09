@@ -273,6 +273,7 @@ describe("lint-shell script", () => {
   it.each([
     { label: "unset", xdgCacheHome: undefined },
     { label: "empty", xdgCacheHome: "" },
+    { label: "relative", xdgCacheHome: "relative-cache" },
   ])(
     "looks for the cached ShellCheck under ~/.cache when XDG_CACHE_HOME is $label",
     ({ xdgCacheHome }) => {

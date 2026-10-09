@@ -21,7 +21,7 @@ import {
   rmSync,
 } from "node:fs"
 import { homedir } from "node:os"
-import { join, matchesGlob, relative, resolve } from "node:path"
+import { isAbsolute, join, matchesGlob, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 /** Every shell script in the repo, relative to its root. A new script
@@ -189,8 +189,12 @@ const getShellcheckBinary = (): ShellcheckBinary => {
     return { status: "unavailable", reason: `no ShellCheck build is pinned for ${platform}` }
   }
 
-  // XDG_CACHE_HOME is the standard override; ~/.cache is its documented default.
-  const cacheRoot = process.env.XDG_CACHE_HOME || join(homedir(), ".cache")
+  // XDG_CACHE_HOME is the standard override, and ~/.cache its documented
+  // default. The spec says to ignore a relative value: ShellCheck runs from the
+  // repo root, so a binary found relative to another directory would not start.
+  const xdgCacheHome = process.env.XDG_CACHE_HOME
+  const cacheRoot =
+    xdgCacheHome && isAbsolute(xdgCacheHome) ? xdgCacheHome : join(homedir(), ".cache")
   const cacheDirectory = join(cacheRoot, "vault-cortex", `shellcheck-${SHELLCHECK_VERSION}`)
   const binaryPath = join(cacheDirectory, "shellcheck")
 
