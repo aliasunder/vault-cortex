@@ -510,11 +510,13 @@ describe("foldTag", () => {
   })
 
   it("folds a capital sharp s to the small one, so the pair compares equal", () => {
-    expect(foldTag("ẞ")).toBe(foldTag("ß"))
+    expect(foldTag("ẞ")).toBe("ß")
+    expect(foldTag("ß")).toBe("ß")
   })
 
   it("keeps sharp s apart from double s, which Obsidian lists apart", () => {
-    expect(foldTag("Straße")).not.toBe(foldTag("STRASSE"))
+    expect(foldTag("Straße")).toBe("straße")
+    expect(foldTag("STRASSE")).toBe("strasse")
   })
 })
 
@@ -529,7 +531,9 @@ describe("normalizeTagQuery", () => {
   })
 
   it("throws when nothing is left after the leading #", () => {
-    expect(() => normalizeTagQuery("#")).toThrow('tag must not be empty after its leading "#"')
+    expect(() => normalizeTagQuery("#")).toThrow(
+      new Error('tag must not be empty after its leading "#"'),
+    )
   })
 })
 
@@ -573,7 +577,9 @@ describe("nestedTagLikePattern", () => {
   })
 
   it("throws for an input that is only a #", () => {
-    expect(() => nestedTagLikePattern("#")).toThrow('tag must not be empty after its leading "#"')
+    expect(() => nestedTagLikePattern("#")).toThrow(
+      new Error('tag must not be empty after its leading "#"'),
+    )
   })
 })
 
@@ -626,7 +632,7 @@ describe("noteMatchesSearchFilters", () => {
 
   it("rejects a tag filter that is only a #", () => {
     expect(() => noteMatchesSearchFilters(baseRow, { tags: ["#"] })).toThrow(
-      'tag must not be empty after its leading "#"',
+      new Error('tag must not be empty after its leading "#"'),
     )
   })
 

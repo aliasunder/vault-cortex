@@ -29,9 +29,12 @@ describe("isObsidianTagName", () => {
     { label: "a comma", name: "alpha,beta" },
     { label: "a plus sign", name: "c++" },
     { label: "a colon", name: "a:b" },
-    { label: "a hash inside the name", name: "#x" },
+    { label: "a hash sign", name: "#x" },
+    { label: "a square bracket", name: "a]b" },
     { label: "digits only", name: "1984" },
-    { label: "a zero-width joiner, which sits in the General Punctuation block", name: "a‍b" },
+    // Labels stay within 40 characters, past which vitest cuts the title
+    { label: "a General Punctuation zero-width joiner", name: "a‍b" },
+    { label: "a Supplemental Punctuation character", name: "a⸮b" },
   ])("rejects $label", ({ name }) => {
     expect(isObsidianTagName(name)).toBe(false)
   })
@@ -40,6 +43,10 @@ describe("isObsidianTagName", () => {
 describe("parseFrontmatterTags", () => {
   it("reads a text value as one tag", () => {
     expect(parseFrontmatterTags({ tags: "my-tag" })).toEqual(["my-tag"])
+  })
+
+  it("trims a text value and removes its leading #", () => {
+    expect(parseFrontmatterTags({ tags: " #my-tag " })).toEqual(["my-tag"])
   })
 
   it("reads no tag from a comma-joined text value", () => {

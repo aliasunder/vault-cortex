@@ -620,7 +620,7 @@ describe("listTasks scope filters", () => {
     const index = indexWithBoardAndPlain()
 
     expect(() => index.listTasks({ tag: "#" }, logger)).toThrow(
-      'tag must not be empty after its leading "#"',
+      new Error('tag must not be empty after its leading "#"'),
     )
   })
 
