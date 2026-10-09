@@ -3,9 +3,9 @@
 # - At session start, puts the checkout's Node first on PATH for the session's
 #   later Bash commands.
 # - Installs the checkout's dependencies (npm ci, sst install) when they are
-#   missing, or when package-lock.json or the checkout's Node changed since
-#   the hook's own last install. Fresh cloud clones and fresh git worktrees
-#   start without node_modules.
+#   missing, or when package-lock.json or the checkout's Node ABI changed
+#   since the hook's own last install. Fresh cloud clones and fresh git
+#   worktrees start without node_modules.
 # Registered on SessionStart for startup, resume, and /clear, and on
 # PostToolUse for EnterWorktree.
 set -euo pipefail
@@ -132,9 +132,10 @@ persist_node_on_path
 # predates this hook.
 state_dir="$(git -C "${checkout}" rev-parse --absolute-git-dir)"
 
-# The stamp records which package-lock.json and which Node the hook's own last
-# install used, so a stamped checkout reinstalls after a pull changes the
-# lockfile or the checkout's Node changes. An unstamped checkout (node_modules
+# The stamp records which package-lock.json and which Node ABI the hook's own
+# last install used, so a stamped checkout reinstalls after a pull changes the
+# lockfile or the checkout's Node moves to another ABI (a new major version;
+# a minor or patch release keeps the tree). An unstamped checkout (node_modules
 # installed by the developer, not the hook) is trusted as-is — the hook must
 # never wipe an install it does not own.
 stamp="${state_dir}/install-deps-lockhash"
@@ -184,8 +185,8 @@ dependencies_are_current() {
 }
 
 # Records an install the hook itself ran to completion: stamps the install
-# identity and clears the marker, so a later lockfile or Node change triggers a
-# reinstall.
+# identity and clears the marker, so a later lockfile or Node ABI change
+# triggers a reinstall.
 # The stamp goes first: a hook killed between the two steps then leaves the
 # marker, so the next session re-checks the tree or reinstalls it under the
 # lock. The other order leaves no marker and, on a checkout never stamped
