@@ -58,15 +58,18 @@ flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space
 
 # Two patterns match a test runner.
 # - vitest_runner matches vitest itself, bare or by path
-#   (node_modules/.bin/vitest), after npx and its flags (`npx -y vitest`), or
-#   as `node node_modules/vitest/vitest.mjs`.
-# - npm_runner matches `npm test`, `npm t`, and `npm run` of the scripts test,
-#   test:coverage, test:watch and snapshot:update, each after any npm flags
-#   (`npm -s test`, `npm run --silent test`). It leaves out test:remote-boot
-#   and test:cli-pty, the two suites exempt from this hook because they cannot
-#   run as nobody; the exemptions below give each reason.
-vitest_runner="(npx${flags_with_optional_argument}[[:space:]]+)?([^[:space:]]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs"
-npm_runner="npm${flags_with_optional_argument}[[:space:]]+(test|t|run${flags_with_optional_argument}[[:space:]]+(test|test:coverage|test:watch|snapshot:update))"
+#   (node_modules/.bin/vitest), with or without a version (`vitest@latest`),
+#   after npx and its flags (`npx -y vitest`) or after `npm exec` or `npm x`,
+#   or as `node node_modules/vitest/vitest.mjs`.
+# - npm_runner matches `npm test`, `npm t`, and `npm run` or `npm run-script`
+#   of the scripts test, test:coverage, test:watch and snapshot:update, each
+#   after any npm flags (`npm -s test`, `npm run --silent test`). It leaves
+#   out test:remote-boot and test:cli-pty, the two suites exempt from this
+#   hook because they cannot run as nobody; the exemptions below give each
+#   reason.
+vitest_binary='([^[:space:]]*/)?vitest(@[^[:space:]]*)?'
+vitest_runner="((npx|npm${flags_with_optional_argument}[[:space:]]+(exec|x))${flags_with_optional_argument}[[:space:]]+)?${vitest_binary}|node[[:space:]]+[^[:space:]]*vitest\.mjs"
+npm_runner="npm${flags_with_optional_argument}[[:space:]]+(test|t|run(-script)?${flags_with_optional_argument}[[:space:]]+(test|test:coverage|test:watch|snapshot:update))"
 test_runner="${vitest_runner}|${npm_runner}"
 
 # variable_setting matches a VAR=value setting before the command
@@ -85,10 +88,14 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 # - exec and command, without flags, so `command -v vitest` is not a run.
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
+# - bash, sh and zsh with flags, then the opening quote of the command they
+#   run (`bash -lc 'npm test'`). The quoted text is not split, so only a run
+#   at its start counts.
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
 timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
-wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+"
+shell_wrapper="(bash|sh|zsh)${flags_without_argument}[[:space:]]+[\"']?"
+wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+|${shell_wrapper}"
 
 # shell_keyword matches a shell keyword a command can follow: if
 # (`if npm test`), then, do, else, elif, while, until, ! (`! npm test`) and {
@@ -97,9 +104,9 @@ shell_keyword='(if|then|do|else|elif|while|until|!|\{)[[:space:]]+'
 
 command_prefix="(${wrapper}|${shell_keyword}|${variable_setting})*"
 
-# The runner ends at a space, a ) or the end of its command, so
-# `npm run testx` and `npm run test:cli-pty` are not runs.
-runner_end='([[:space:]]|\)|$)'
+# The runner ends at a space, a ), a closing quote or the end of its command,
+# so `npm run testx` and `npm run test:cli-pty` are not runs.
+runner_end="([[:space:]]|\\)|[\"']|$)"
 
 # A command that runs tests starts with the runner, after any prefix. A
 # mention elsewhere, as in `grep vitest package.json`, is not a run.
@@ -118,23 +125,32 @@ test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
 #   which hands the flag to vitest, and before a second one. npm itself
 #   consumes the flag in `npm test --config x`, and the script runs the main
 #   suite.
+# - later_config_flag matches a config flag in the text after the match.
+#   vitest takes the last config flag, so a later one cancels the exemption.
 exempt_suite_config="(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts${runner_end}"
 arguments_before_double_dash='([[:space:]]+(-|-?[^-[:space:]][^[:space:]]*|--[^[:space:]]+))*'
 vitest_exempt_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
 npm_exempt_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments_before_double_dash}[[:space:]]+--${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
 exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
+later_config_flag='(^|[[:space:]])(-c|--config)(=|[[:space:]]|$)'
 
-# The walk below tells three kinds of cd apart.
-# - cd_to_absolute_path matches a cd to an unquoted path that starts with /.
-# - cd_to_relative_path matches a cd to an unquoted relative path. Its first
+# The walk below tells four kinds of directory change apart. Each starts with
+# cd or pushd, after an optional { (`{ cd /repo; npm test; }`), so the path
+# is the third group of the match.
+# - cd_to_absolute_path matches an unquoted path that starts with /.
+# - cd_to_quoted_absolute_path matches a quoted path that starts with / and
+#   holds no $, backtick or ~, so the shell would use it as written.
+# - cd_to_relative_path matches an unquoted relative path. Its first
 #   character cannot be - (`cd -` or a flag), # (a comment, which leaves a
 #   bare `cd`), or ~, $ or a quote, which only the shell can expand.
-# - any_cd matches any cd. The walk tries it last, so it catches the rest: a
-#   bare `cd`, with or without a comment after it, `cd -`, and a ~, $ or
-#   quoted path.
-cd_to_absolute_path='^[[:space:]]*cd[[:space:]]+(/[^[:space:]]*)'
-cd_to_relative_path="^[[:space:]]*cd[[:space:]]+([^-~#\"'\$[:space:]][^[:space:]]*)"
-any_cd='^[[:space:]]*cd([[:space:]]|$)'
+# - any_cd matches any cd, pushd or popd. The walk tries it last, so it
+#   catches the rest: a bare `cd`, with or without a comment after it,
+#   `cd -`, popd, and a ~, $ or quoted path the others do not take.
+directory_change="^[[:space:]]*(\{[[:space:]]+)?(cd|pushd)[[:space:]]+"
+cd_to_absolute_path="${directory_change}(/[^[:space:]]*)"
+cd_to_quoted_absolute_path="${directory_change}[\"'](/[^\"'\$\`~]*)[\"']"
+cd_to_relative_path="${directory_change}([^-~#\"'\$[:space:]][^[:space:]]*)"
+any_cd='^[[:space:]]*(\{[[:space:]]+)?(cd|pushd|popd)([[:space:]]|$)'
 
 # The command is split into the commands it runs, one per line, and only the
 # cds and test runs the walk below acts on are kept.
@@ -170,12 +186,12 @@ cd_or_test_commands="$(printf '%s\n' "${tool_command}" |
 #   the project root), and `.`. Claude Code runs the hook in the session's
 #   current folder, so `.` and any path built on it resolve against that
 #   folder.
-#   - Each `cd` before the run moves it: to an unquoted absolute path
-#     (`git pull && cd /other/checkout && npm test`), or relative to the
-#     folder so far for an unquoted relative path
-#     (`cd /other/checkout && cd src`). For any other cd, the session's folder
-#     stands in for the target, which the hook does not resolve. A cd after
-#     the run does not count.
+#   - Each `cd` or `pushd` before the run moves it: to an absolute path,
+#     unquoted or quoted as written (`git pull && cd /other/checkout && npm
+#     test`), or relative to the folder so far for an unquoted relative path
+#     (`cd /other/checkout && cd src`). For any other cd, and for popd, the
+#     session's folder stands in for the target, which the hook does not
+#     resolve. A cd after the run does not count.
 #   - npm's --prefix folder is not followed: `npm --prefix /other/checkout
 #     test` counts as `npm test`.
 session_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
@@ -187,11 +203,15 @@ current_dir="${session_dir}"
 root_test_runs=""
 while IFS= read -r split_command; do
   if [[ "${split_command}" =~ ${cd_to_absolute_path} ]]; then
-    current_dir="${BASH_REMATCH[1]}"
+    current_dir="${BASH_REMATCH[3]}"
+    continue
+  fi
+  if [[ "${split_command}" =~ ${cd_to_quoted_absolute_path} ]]; then
+    current_dir="${BASH_REMATCH[3]}"
     continue
   fi
   if [[ "${split_command}" =~ ${cd_to_relative_path} ]]; then
-    current_dir="${current_dir}/${BASH_REMATCH[1]}"
+    current_dir="${current_dir}/${BASH_REMATCH[3]}"
     continue
   fi
   if [[ "${split_command}" =~ ${any_cd} ]]; then
@@ -203,8 +223,12 @@ while IFS= read -r split_command; do
   # passes when grep kept no line.
   [[ "${split_command}" =~ ${test_run} ]] || continue
 
+  # The exemption holds only when no config flag follows the matched one.
   if [[ "${split_command}" =~ ${exempt_suite_run} ]]; then
-    continue
+    arguments_after_exempt_config="${split_command:${#BASH_REMATCH[0]}}"
+    if [[ ! "${arguments_after_exempt_config}" =~ ${later_config_flag} ]]; then
+      continue
+    fi
   fi
 
   if [[ -z "${root_test_runs}" ]]; then

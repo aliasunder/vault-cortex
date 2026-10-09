@@ -340,6 +340,20 @@ describe("require-nonroot-tests hook", () => {
       { label: "a test command after cd and &&", command: "cd / && npm test" },
       { label: "npx vitest", command: "npx vitest run x" },
       { label: "npx with a flag", command: "npx -y vitest run x" },
+      { label: "npx with a versioned vitest", command: "npx vitest@latest run" },
+      { label: "npm exec vitest", command: "npm exec vitest -- run" },
+      { label: "npm x with a flag before vitest", command: "npm x -y vitest run" },
+      { label: "npm run-script test", command: "npm run-script test" },
+      { label: "bash -c with a quoted test run", command: "bash -lc 'npm test'" },
+      { label: "sh -c with a double-quoted vitest run", command: 'sh -c "npx vitest run"' },
+      {
+        label: "vitest with an exempt config followed by the main config",
+        command: "npx vitest run --config vitest.cli-pty.config.ts --config vitest.config.ts",
+      },
+      {
+        label: "npm handing an exempt config and then the main config to vitest",
+        command: "npm test -- --config vitest.cli-pty.config.ts --config vitest.config.ts",
+      },
       // vitest@4 is not a runner on its own, so only reading it as -p's
       // argument reaches the vitest after it.
       { label: "npx with a package flag and its argument", command: "npx -p vitest@4 vitest run" },
@@ -431,6 +445,17 @@ describe("require-nonroot-tests hook", () => {
       { label: "a script whose name only starts with test", command: "npm run testx" },
       { label: "npm run test:remote-boot", command: "npm run test:remote-boot" },
       { label: "npm run test:cli-pty", command: "npm run test:cli-pty" },
+      { label: "npm run-script of another script", command: "npm run-script lint" },
+      { label: "npm exec of another binary", command: "npm exec prettier -- --version" },
+      { label: "bash -c with a quoted non-test command", command: "bash -c 'npm run lint'" },
+      {
+        label: "a versioned vitest with the cli-pty config",
+        command: "npx vitest@4 run --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "vitest with the main config followed by the cli-pty config",
+        command: "npx vitest run --config vitest.config.ts --config vitest.cli-pty.config.ts",
+      },
       {
         label: "vitest with the cli-pty config",
         command: "npx vitest run --config vitest.cli-pty.config.ts",
@@ -721,6 +746,22 @@ describe("require-nonroot-tests hook", () => {
           return `cd ${checkout} && npm test; cd ${outsideDir} && npm test`
         },
       },
+      {
+        label: "in double quotes",
+        command: (checkout: string) => `cd "${checkout}" && npm test`,
+      },
+      {
+        label: "in single quotes after an unresolvable cd",
+        command: (checkout: string) => `cd ~ && cd '${checkout}' && npm test`,
+      },
+      {
+        label: "with pushd",
+        command: (checkout: string) => `pushd ${checkout} && npm test`,
+      },
+      {
+        label: "inside a brace group",
+        command: (checkout: string) => `{ cd ${checkout}; npm test; }`,
+      },
     ])("prepares the checkout an absolute cd names $label", ({ command }) => {
       const fixture = createHookFixture()
 
@@ -803,6 +844,21 @@ describe("require-nonroot-tests hook", () => {
       })
     })
 
+    it("prepares the session's checkout, not npm's --prefix folder", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+
+      const run = runCommandThroughHook(fixture, `npm --prefix ${otherCheckout} test`)
+      // A cd to the other checkout moves the run there, so the fixture can
+      // tell the two checkouts apart.
+      const controlRun = runCommandThroughHook(fixture, `cd ${otherCheckout} && npm test`)
+
+      expect({ run, controlRun }).toEqual({
+        run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+        controlRun: { status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) },
+      })
+    })
+
     it("stops a test run thousands of commands after the cd that names its checkout", () => {
       const fixture = createHookFixture()
       const otherCommands = Array.from({ length: 5000 }, (_, lineIndex) => `echo line ${lineIndex}`)
@@ -823,8 +879,12 @@ describe("require-nonroot-tests hook", () => {
         command: (checkout: string) => `cd ${checkout} && cd .. && npm test`,
       },
       {
-        label: "a quoted cd after an absolute one",
-        command: (checkout: string) => `cd ${checkout} && cd "${checkout}" && npm test`,
+        label: "a quoted cd holding an expansion after an absolute one",
+        command: (checkout: string) => `cd ${checkout} && cd "$PWD" && npm test`,
+      },
+      {
+        label: "a popd after an absolute cd",
+        command: (checkout: string) => `cd ${checkout} && popd && npm test`,
       },
     ])("lets a test run through from a folder in no checkout despite $label", ({ command }) => {
       const fixture = createHookFixture()
