@@ -197,22 +197,28 @@ fi
 #   inherits fd 9, so the lock stays held while an orphaned npm ci outlives a
 #   killed hook, and the kernel releases it once every holder exits. No stale
 #   lock is ever left for a later session to steal.
-# - Perl's flock is the lock call available on both macOS, which lacks
-#   flock(1), and Linux, which lacks lockf(1).
-# - Perl opens this shell's fd 9 in place (">&=" is C's fdopen, not a dup)
-#   and locks the file open on it, so the lock outlives the perl process.
-# - Perl exits 0 with the lock held, 75 (EX_TEMPFAIL from sysexits.h) when
-#   the wait times out, and 2 when it cannot open or lock fd 9.
+# - Either tool locks the file open on this shell's fd 9, so the lock
+#   outlives the tool's own process. Both exit 0 with the lock held and 75
+#   (EX_TEMPFAIL from sysexits.h) when the wait times out.
+# - Perl is tried first: macOS lacks flock(1) but always has perl. Perl opens
+#   fd 9 in place (">&=" is C's fdopen, not a dup) and exits 2 when it cannot
+#   open or lock it.
+# - flock(1) covers Linux images without perl (Alpine, Fedora minimal). It
+#   tries once with -n, which every flock(1) has, and only a busy lock waits
+#   with -w. busybox flock lacks -w, so there a busy lock falls through to
+#   installing without it.
 exec 9>>"${state_dir}/install-deps.lock"
 
 # Well inside the 600s hook timeout in settings.json, so a timed-out wait
 # still exits cleanly.
 lock_wait_seconds=480
 lock_held=false
+# Starting at 0 and assigning only on failure records the lock tool's exit
+# status without set -e ending the hook.
+lock_status=0
+lock_tool=""
 if command -v perl >/dev/null 2>&1; then
-  # Starting at 0 and assigning only on failure records perl's exit status
-  # without set -e ending the hook.
-  lock_status=0
+  lock_tool=perl
   perl -MFcntl=:flock -e '
     my ($checkout, $wait_seconds) = @ARGV;
     open(my $lock, ">&=", 9) or exit 2;
@@ -223,18 +229,23 @@ if command -v perl >/dev/null 2>&1; then
     flock($lock, LOCK_EX) or exit 2;
     exit 0;
   ' "${checkout}" "${lock_wait_seconds}" || lock_status=$?
+elif command -v flock >/dev/null 2>&1; then
+  lock_tool=flock
+  if ! flock -n 9; then
+    log "another session is installing in ${checkout} — waiting for it"
+    flock -w "${lock_wait_seconds}" -E 75 9 || lock_status=$?
+  fi
+fi
 
-  if ((lock_status == 75)); then
-    log "concurrent install still running after ${lock_wait_seconds}s in ${checkout} — skipping"
-    exit 0
-  fi
-  if ((lock_status == 0)); then
-    lock_held=true
-  else
-    log "could not take the install lock in ${checkout} (perl exit ${lock_status}) — installing without it"
-  fi
+if [[ -z "${lock_tool}" ]]; then
+  log "neither perl nor flock found — installing in ${checkout} without the install lock"
+elif ((lock_status == 75)); then
+  log "concurrent install still running after ${lock_wait_seconds}s in ${checkout} — skipping"
+  exit 0
+elif ((lock_status == 0)); then
+  lock_held=true
 else
-  log "perl not found — installing in ${checkout} without the install lock"
+  log "could not take the install lock in ${checkout} (${lock_tool} exit ${lock_status}) — installing without it"
 fi
 
 # Dependencies can be current here for two reasons: they already were and only
