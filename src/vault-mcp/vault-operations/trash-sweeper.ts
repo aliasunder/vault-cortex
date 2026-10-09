@@ -378,6 +378,9 @@ const purgeOrphanedTrashEntries = async (
       //   would never delete it.
       // - The whole row is compared because two records in one second share
       //   a trashedAt.
+      // - A re-read that returns no row counts as changed too. Either the
+      //   row was deleted since the listing, or the read failed and the row
+      //   waits for the next boot.
       const currentEntry = tryGetTrashEntry(
         { trashPath: entry.trashPath, trashEntryStore: params.trashEntryStore },
         logger,
