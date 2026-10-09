@@ -239,8 +239,9 @@ const sweepOneEntry = async (
     return "skipped"
   }
 
-  // The file is gone whether or not the row drop succeeds; a row left behind
-  // is dropped as missing by the next sweep.
+  // The file is gone whether or not the row drop succeeds; the next sweep
+  // drops a row left behind, finding the file gone or a different file in
+  // its place.
   dropTrashEntry({ trashPath, trashEntryStore }, logger)
 
   // The trash move created the file's folder chain, so an unlink can strand
