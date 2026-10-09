@@ -76,7 +76,8 @@ persist_node_on_path() {
   [[ -n "${CLAUDE_ENV_FILE:-}" ]] || return 0
   command -v nvm >/dev/null 2>&1 || return 0
 
-  # - nvm which reads .nvmrc from the current directory, hence the cd.
+  # - nvm which reads the nearest .nvmrc at or above the current directory,
+  #   hence the cd.
   # - set +u: with no .nvmrc, nvm which reads an unset variable, and under
   #   set -u that ends this subshell before the default alias lookup.
   # - --silent keeps its "Found .nvmrc" notice out of the captured path.
@@ -267,13 +268,14 @@ orphaned_install_finished() {
   fi
 
   # - The hook writes the marker immediately before npm ci starts (the install
-  #   step below).
+  #   step below), and writes it again when npm ci fails.
   # - npm ci deletes node_modules/.package-lock.json first and writes a new one
-  #   only once the install finishes, install scripts included.
-  # - So only a finished npm ci leaves it newer than the marker. A tree npm ci
-  #   never touched has an older one, and a tree whose npm ci was killed
-  #   mid-build (SIGKILL skips npm's rollback) has none, yet both can pass
-  #   npm ls.
+  #   once every dependency is installed, their install scripts included. Only
+  #   the project's own lifecycle scripts, such as prepare, run after it.
+  # - So only an npm ci that got that far leaves it newer than the marker. A
+  #   tree npm ci never touched has an older one, and a tree whose npm ci was
+  #   killed mid-build (SIGKILL skips npm's rollback) has none, yet both can
+  #   pass npm ls.
   if [[ ! "${checkout}/node_modules/.package-lock.json" -nt "${marker}" ]]; then
     return 1
   fi
@@ -292,8 +294,8 @@ if orphaned_install_finished; then
   exit 0
 fi
 
-# nvm use below reads .nvmrc from the current directory, and npm ci installs
-# into it.
+# nvm use below reads the nearest .nvmrc at or above the current directory,
+# and npm ci installs into it.
 cd "${checkout}"
 printf '%s\n' "${lockfile_hash}" > "${marker}"
 
@@ -320,6 +322,11 @@ if ONNXRUNTIME_NODE_INSTALL=skip npm ci >&2; then
   log "install complete"
   install_sst_platform_types
 else
+  # npm ci writes node_modules/.package-lock.json before the project's own
+  # lifecycle scripts run, so one of them failing leaves it newer than the
+  # marker. Writing the marker again keeps the recovery step from stamping
+  # that tree next session.
+  printf '%s\n' "${lockfile_hash}" > "${marker}"
   log "npm ci failed — the session continues without dependencies; the marker forces a retry next session"
 fi
 

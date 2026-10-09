@@ -28,12 +28,19 @@ const HOOK_PATH = resolve(import.meta.dirname, "../../.claude/hooks/install-deps
 
 /** Stub `npm`: appends its arguments to STUB_NPM_LOG, one call per line. An
  *  `ls` call exits with STUB_NPM_LS_STATUS and a `ci` call with
- *  STUB_NPM_CI_STATUS; every other call succeeds. */
+ *  STUB_NPM_CI_STATUS; every other call succeeds. A `ci` call writes
+ *  node_modules/.package-lock.json first when STUB_NPM_CI_WRITES_HIDDEN_LOCKFILE
+ *  is 1, as npm does before the project's own lifecycle scripts run. */
 const NPM_STUB = `#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_NPM_LOG"
 case "$*" in
   "ls "*|*" ls "*) exit "\${STUB_NPM_LS_STATUS:-0}" ;;
-  ci) exit "\${STUB_NPM_CI_STATUS:-0}" ;;
+  ci)
+    if [ "\${STUB_NPM_CI_WRITES_HIDDEN_LOCKFILE:-0}" = 1 ]; then
+      printf '{}\\n' > node_modules/.package-lock.json
+    fi
+    exit "\${STUB_NPM_CI_STATUS:-0}"
+    ;;
 esac
 exit 0
 `
@@ -86,6 +93,9 @@ type HookRunOptions = {
   npmLsStatus?: number
   /** What the stub `npm ci` exits with. Defaults to 0, a finished install. */
   npmCiStatus?: number
+  /** Whether the stub `npm ci` writes node_modules/.package-lock.json.
+   *  Defaults to false. */
+  npmCiWritesHiddenLockfile?: boolean
   /** The hook's PATH. Defaults to the stubs ahead of the runner's PATH. */
   path?: string
 }
@@ -211,6 +221,7 @@ const runHook = (options: HookRunOptions): HookRun => {
       STUB_NPM_LOG: fixture.npmLog,
       STUB_NPM_LS_STATUS: String(options.npmLsStatus ?? 0),
       STUB_NPM_CI_STATUS: String(options.npmCiStatus ?? 0),
+      STUB_NPM_CI_WRITES_HIDDEN_LOCKFILE: options.npmCiWritesHiddenLockfile ? "1" : "0",
     },
   })
 
@@ -433,6 +444,32 @@ describe("install-deps hook", () => {
         npmCalls: ["ci"],
         marker: `${fixture.lockfileHash}\n`,
         stamp: `${OLDER_LOCKFILE_HASH}\n`,
+      })
+    })
+
+    // npm ci writes the hidden lockfile before the project's own lifecycle
+    // scripts run, so a failure in one of them leaves a hidden lockfile newer
+    // than the marker the hook wrote before npm ci started.
+    it("reinstalls on the next run, without consulting npm ls, when the failed npm ci wrote a hidden lockfile", () => {
+      const fixture = createHookFixture()
+      leaveOlderStamp(fixture)
+      const failedRun = runHook({ fixture, npmCiStatus: 1, npmCiWritesHiddenLockfile: true })
+
+      const nextRun = runHook({ fixture })
+
+      expect({
+        statuses: [failedRun.status, nextRun.status],
+        hiddenLockfileWritten: existsSync(
+          join(fixture.checkout, "node_modules", ".package-lock.json"),
+        ),
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        statuses: [0, 0],
+        hiddenLockfileWritten: true,
+        npmCalls: ["ci", "ci"],
+        marker: null,
+        stamp: `${fixture.lockfileHash}\n`,
       })
     })
   })
