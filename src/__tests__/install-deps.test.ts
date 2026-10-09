@@ -484,6 +484,27 @@ describe("install-deps hook", () => {
       })
     })
 
+    it("reinstalls a stamped checkout whose node_modules was deleted", () => {
+      const fixture = createHookFixture()
+      stampCurrentLockfile(fixture)
+      rmSync(join(fixture.checkout, "node_modules"), { recursive: true })
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        npmCalls: ["ci"],
+        marker: null,
+        stamp: `${fixture.lockfileHash}\n`,
+      })
+    })
+
     // The fast path needs the SST types too, so the hook takes the lock, finds
     // the dependencies current on the re-check, and installs only the types.
     it("installs only the SST platform types under the lock when they are missing", () => {
