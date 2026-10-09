@@ -91,16 +91,17 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 # - exec and command, without flags, so `command -v vitest` is not a run.
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
-# - bash, sh and zsh with their flags, where only -o and +o take an argument
-#   (`bash -o pipefail -c`), then the opening quote of the command they run
-#   and any spaces after it (`bash -lc 'npm test'`). The split below ignores
+# - bash, sh and zsh with their flags, where a group of one-letter flags that
+#   holds o or O takes an argument (`bash -euo pipefail -c`,
+#   `bash -O extglob -c`), then the opening quote of the command they run and
+#   any spaces after it (`bash -lc 'npm test'`). The split below ignores
 #   quotes, so a run or a cd after ; or && inside the quoted text counts too
 #   (`bash -c 'npm ci && cd /repo && npm test'`), and a mention there
 #   (`bash -c 'echo npm test'`) does not.
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
 timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
-shell_flags='([[:space:]]+([-+][oO][[:space:]]+[^[:space:]]+|[-+][^[:space:]]*))*'
+shell_flags='([[:space:]]+([-+][[:alpha:]]*[oO][[:alpha:]]*[[:space:]]+[^[:space:]]+|[-+][^[:space:]]*))*'
 shell_wrapper="(bash|sh|zsh)${shell_flags}[[:space:]]+([\"'][[:space:]]*)?"
 wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+|${shell_wrapper}"
 
@@ -208,6 +209,8 @@ cd_or_test_commands="$(printf '%s\n' "${tool_command}" |
 #     (`cd /other/checkout && cd src`). For any other cd, and for popd, the
 #     session's folder stands in for the target, which the hook does not
 #     resolve. A cd after the run does not count.
+#   - A cd after env, exec or timeout moves it too, though the shell's folder
+#     stays put: those commands run a program, and cd is a shell builtin.
 #   - npm's --prefix folder is not followed: `npm --prefix /other/checkout
 #     test` counts as `npm test`.
 session_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"

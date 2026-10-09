@@ -358,6 +358,14 @@ describe("require-nonroot-tests hook", () => {
         command: "bash -o pipefail -c 'npm test'",
       },
       {
+        label: "bash with a flag group ending in o and its argument before -c",
+        command: "bash -euo pipefail -c 'npm test'",
+      },
+      {
+        label: "sh with o before c in one flag group and o's argument after it",
+        command: "sh -oc pipefail 'npx vitest run'",
+      },
+      {
         label: "vitest with the main config in quotes",
         command: 'npx vitest run --config "vitest.config.ts"',
       },
@@ -814,6 +822,10 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "inside a bash -c body that opens with a space",
         command: (checkout: string) => `bash -c ' cd ${checkout} && npm test'`,
+      },
+      {
+        label: "inside a bash -c body after a flag group that takes an argument",
+        command: (checkout: string) => `bash -euo pipefail -c 'cd ${checkout} && npm test'`,
       },
     ])("prepares the checkout an absolute cd names $label", ({ command }) => {
       const fixture = createHookFixture()
