@@ -41,6 +41,9 @@ type OutgoingLink = {
 
 /** Formats a single outgoing link as a bullet, flagging broken targets. */
 const formatOutgoingLink = (link: OutgoingLink): string => {
+  // A link to a daily note not created yet is Obsidian's create-on-click
+  // navigation, not a broken link
+  if (link.daily_note_forward_ref) return `- ${link.path} (daily note not created yet)`
   if (!link.exists) return `- ${link.path} (**broken** — target does not exist)`
 
   const titleSuffix = link.title ? ` — ${link.title}` : ""
@@ -162,6 +165,7 @@ export const registerDailyReviewPrompt = ({
             "Could not determine today's date. Pass an explicit date in YYYY-MM-DD format.",
           )
         }
+
         // Tomorrow is the exclusive upper bound: due < tomorrow captures
         // both due-today and overdue tasks in a single query.
         const tomorrow = DateTime.fromISO(resolvedDate).plus({ days: 1 }).toISODate()
