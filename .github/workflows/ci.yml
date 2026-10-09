@@ -58,24 +58,6 @@ jobs:
 
       - run: npm run markdownlint
 
-      # The runner image ships an older ShellCheck, so the pinned release is
-      # installed ahead of it on PATH. The archive's hash is pinned beside the
-      # version: a release asset that changes fails this step.
-      - name: Install ShellCheck
-        env:
-          SHELLCHECK_VERSION: 0.11.0
-          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
-        run: |
-          set -euo pipefail
-          # Download outside the checkout, so the archive can't reach later steps.
-          cd "$RUNNER_TEMP"
-          ASSET="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
-          curl -fsSLO "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${ASSET}"
-          echo "${SHELLCHECK_SHA256}  ${ASSET}" | sha256sum -c -
-          tar -xJf "${ASSET}"
-          sudo install -m 0755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
-          shellcheck --version
-
       - run: npm run lint:shell
 
       - run: npm run knip

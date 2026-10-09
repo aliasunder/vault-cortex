@@ -6,11 +6,10 @@ to get started.
 ## Quick Start
 
 1. **Prerequisites:** Node.js >= 24 (see `.nvmrc`), Docker (optional, for
-   container mode), and [ShellCheck](https://www.shellcheck.net), which
-   `npm run lint:shell` and the pre-commit hook run on shell scripts
-   (`brew bundle` installs it from the repo's Brewfile on macOS, or
-   `apt-get install shellcheck` on Linux; CI pins the version in
-   `.github/workflows/ci.yml`)
+   container mode), and `curl` (preinstalled on macOS and most Linux
+   distributions): the first `npm run lint:shell`, or the first commit that
+   changes a shell script, uses it to download the pinned
+   [ShellCheck](https://www.shellcheck.net) release
 
 2. **Clone and install:**
 

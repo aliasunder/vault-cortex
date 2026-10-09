@@ -5,5 +5,5 @@
     "src/__tests__/docker/fixtures/sync-engine-oracle.ts"
   ],
   "project": ["src/**/*.ts", "cli/src/**/*.ts", "scripts/**/*.ts"],
-  "ignoreBinaries": ["optipng", "perl", "shellcheck"]
+  "ignoreBinaries": ["optipng", "perl"]
 }

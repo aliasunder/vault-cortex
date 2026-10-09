@@ -679,8 +679,12 @@ covers both kinds, with reasons:
   shell scripts: the Claude Code hooks, `.github/scripts/`, the `:remote`
   image's s6 and helper scripts, and the test stubs for `ob` and `docker`.
   `scripts/lint-shell.ts` holds the list; a new script outside those paths
-  is added to its `SHELL_SCRIPT_GLOBS`. The pre-commit hook checks only
-  staged shell scripts, so a commit without one never needs ShellCheck.
+  is added to its `SHELL_SCRIPT_GLOBS`. The script pins the ShellCheck
+  version and each platform's archive SHA-256, so local runs and CI use the
+  same release: the first run that needs it downloads the build into
+  `~/.cache/vault-cortex/` (or `$XDG_CACHE_HOME`). A version bump replaces
+  every hash from the new release's files. The pre-commit hook checks only
+  staged shell scripts, so a commit without one never downloads ShellCheck.
   The s6 scripts start with `#!/command/with-contenv sh`,
   which ShellCheck cannot read, so each carries a `# shellcheck shell=sh`
   line. A disable directive gets a comment saying why.
