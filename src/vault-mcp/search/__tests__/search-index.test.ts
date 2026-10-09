@@ -8430,7 +8430,14 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     expect(trashIndex.listExpiredTrashEntries(farFutureCutoff)).toEqual([])
   })
 
-  it("trash entries survive a vault rebuild", async () => {
+  it("trash entries survive a vault rebuild with their timestamp and identity", async () => {
+    // Only Date is faked, so the rebuild's own timers and file reads run as usual.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const trashTime = DateTime.fromISO("2026-01-01T00:00:00Z")
+    vi.setSystemTime(trashTime.toMillis())
     const trashIndex = createSearchIndex(":memory:")
     trashIndex.recordTrashEntry({
       trashPath: ".trash/survivor.md",
@@ -8441,7 +8448,11 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
 
     await trashIndex.rebuildFromVault({ vaultPath: emptyVault }, logger)
 
-    expect(trashIndex.getTrashEntry(".trash/survivor.md")?.trashPath).toBe(".trash/survivor.md")
+    expect(trashIndex.getTrashEntry(".trash/survivor.md")).toEqual({
+      trashPath: ".trash/survivor.md",
+      trashedAt: trashTime.toUnixInteger(),
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
   })
 })
 
