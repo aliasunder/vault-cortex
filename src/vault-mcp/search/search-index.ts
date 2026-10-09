@@ -2255,8 +2255,8 @@ export const createSearchIndex = (
     })
     const noteContents = noteContentResults.filter((entry) => entry !== null)
 
-    // Notes whose index write throws are skipped with a warning instead of
-    // aborting the rebuild — one note must never prevent the server from
+    // Notes whose Pass 1 index write throws are skipped with a warning instead
+    // of aborting the rebuild — one note must never prevent the server from
     // starting. An unreadable properties block is not such a failure,
     // because parseNoteForIndex reads the body without it.
     const skippedNotePaths = new Set<string>()
