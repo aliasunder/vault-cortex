@@ -675,20 +675,11 @@ covers both kinds, with reasons:
   `--fix` + CI) enforces markdown structure: blank lines around fences,
   a language on every fenced block, no bare URLs. Ignores are documented
   in the config.
-- **ShellCheck** (`npm run lint:shell`, lint-staged + CI) lints the repo's
-  shell scripts through `scripts/lint-shell.ts`:
-  - **Which scripts:** its `SHELL_SCRIPT_GLOBS` covers the Claude Code
-    hooks, `.github/scripts/`, the `:remote` image's s6 and helper
-    scripts, and the `ob` and `docker` test stubs. ShellCheck skips any
-    other file, so a shell script added anywhere else needs its path or a
-    glob for it added to `SHELL_SCRIPT_GLOBS`.
-  - **Which version:** pinned with each platform's archive SHA-256, so
-    local runs and CI match. The first run that needs it downloads it into
-    `$XDG_CACHE_HOME/vault-cortex/` (default `~/.cache`). A version bump
-    replaces every hash from the new release's files.
-  - **s6 scripts:** ShellCheck cannot read `#!/command/with-contenv sh`,
-    so each script that starts with it carries `# shellcheck shell=sh`.
-  - **Disables:** a disable directive gets a comment saying why.
+- **ShellCheck** (`npm run lint:shell`, lint-staged + CI) checks only the
+  scripts `SHELL_SCRIPT_GLOBS` in `scripts/lint-shell.ts` lists, so add a
+  new shell script's path there. ShellCheck cannot read
+  `#!/command/with-contenv sh`, so s6 scripts that start with it carry
+  `# shellcheck shell=sh`. A disable directive gets a comment saying why.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if

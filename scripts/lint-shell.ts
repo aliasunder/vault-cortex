@@ -4,9 +4,9 @@
  * - With file arguments (lint-staged passes every staged file) it checks only
  *   the ones that are shell scripts, so a commit that changes none never
  *   needs ShellCheck.
- * - It runs the ShellCheck release pinned below, so every machine and CI
- *   check with the same version. The first run that needs it downloads the
- *   official build for this machine with curl and verifies its SHA-256.
+ * - It runs the ShellCheck release pinned below, so local runs and CI use
+ *   the same version. The first run that needs it downloads the official
+ *   build for this machine with curl and verifies its SHA-256.
  */
 
 import { spawnSync } from "node:child_process"
