@@ -67,6 +67,10 @@ checkout="$(git -C "${checkout_lookup_dir}" rev-parse --show-toplevel 2>/dev/nul
 # - --silent keeps its "Found .nvmrc" notice out of the captured path.
 # - A hook never downloads a Node, so an .nvmrc version nvm lacks falls back
 #   to the default alias.
+# - nvm is a shell function, defined only when the loop at the top sourced
+#   nvm.sh, so command -v finds it only then.
+# - A failed cd or lookup exits the subshell non-zero; || true keeps set -e
+#   from ending the hook, and checkout_node_path stays empty.
 checkout_node_path=""
 if command -v nvm >/dev/null 2>&1; then
   checkout_node_path="$(
@@ -76,7 +80,10 @@ if command -v nvm >/dev/null 2>&1; then
   )" || true
 fi
 
-# Both lookups failing, or no nvm, leaves the PATH as the session started it.
+# Puts the checkout's Node first on this hook's own PATH, so the node and npm
+# calls below run on it; persist_node_on_path does the same for the session's
+# later commands. Both lookups failing, or no nvm, leaves the PATH as the
+# session started it.
 if [[ -x "${checkout_node_path}" ]]; then
   PATH="$(dirname "${checkout_node_path}"):${PATH}"
 fi
@@ -91,13 +98,17 @@ persist_node_on_path() {
   # Only SessionStart invocations write the PATH line: Claude Code hands them
   # the session's own env file. A worktree entry (PostToolUse) could inherit
   # a CLAUDE_ENV_FILE the user exported, so writing there would append the
-  # PATH line to that file. A worktree whose .nvmrc names another Node than
-  # the first checkout's therefore installs with that Node, while later
-  # commands keep the Node written at session start.
+  # PATH line to that file.
+  # Known limitation: when a worktree's .nvmrc names a different Node than
+  # the checkout the session started in, the hook installs the worktree's
+  # dependencies with the worktree's Node, but the session's later commands
+  # still run on the session-start checkout's Node.
   local hook_event
   hook_event="$(read_payload_field hook_event_name)"
   [[ "${hook_event}" == "SessionStart" ]] || return 0
   [[ -n "${CLAUDE_ENV_FILE:-}" ]] || return 0
+  # A machine without nvm returns here quietly; the log below reports nvm
+  # finding no Node, which would be noise where nvm is not installed.
   command -v nvm >/dev/null 2>&1 || return 0
 
   if [[ ! -x "${checkout_node_path}" ]]; then
@@ -106,11 +117,14 @@ persist_node_on_path() {
   fi
 
   # The line reads export PATH="<nvm Node's bin directory>:$PATH", with $PATH
-  # kept literal so it expands when each command runs. A resumed session runs
-  # this hook again against the same file, which is sourced top to bottom, so
-  # the line is added unless it is already the file's last PATH export: after
-  # the checkout's Node changes and changes back, an older line for this Node
-  # sits above the other Node's line, which would win.
+  # kept literal so it expands when each command runs.
+  # - Claude Code sources the file top to bottom, and each PATH line prepends
+  #   its directory, so the file's last PATH line decides which Node comes
+  #   first.
+  # - A resumed session runs this hook again against the same file. The line
+  #   is appended unless it is already the last PATH line: a copy higher up
+  #   loses to any later line for another Node, which the file holds after
+  #   the checkout's Node changes and then changes back.
   local path_line last_path_line
   path_line="export PATH=\"$(dirname "${checkout_node_path}"):\$PATH\""
   last_path_line="$(grep '^export PATH=' "${CLAUDE_ENV_FILE}" 2>/dev/null | tail -n 1 || true)"
@@ -138,13 +152,17 @@ state_dir="$(git -C "${checkout}" rev-parse --absolute-git-dir)"
 # a minor or patch release keeps the tree). An unstamped checkout (node_modules
 # installed by the developer, not the hook) is trusted as-is — the hook must
 # never wipe an install it does not own.
+# - The filename says lockhash, but the stamp also holds the Node ABI. A new
+#   filename would orphan every existing stamp, and each such checkout would
+#   then read as a developer install, never reinstalled.
+# - A stamp holding only a lockfile hash never matches the install identity
+#   (below), so that checkout reinstalls once.
 stamp="${state_dir}/install-deps-lockhash"
 
 # The marker survives an interrupted npm ci (a hook-timeout kill included), so
 # a partial node_modules is retried instead of trusted. It holds the install
-# identity (below) that install used, so the interrupted-install recovery step
-# further down never stamps a tree built from an older lockfile or another
-# Node.
+# identity (below) that install used, so orphaned_install_finished further
+# down never stamps a tree built from an older lockfile or another Node.
 marker="${state_dir}/install-deps-incomplete"
 
 # - git hash-object hashes the working-tree file, and the hook already needs
@@ -188,10 +206,10 @@ dependencies_are_current() {
 # identity and clears the marker, so a later lockfile or Node ABI change
 # triggers a reinstall.
 # The stamp goes first: a hook killed between the two steps then leaves the
-# marker, so the next session re-checks the tree or reinstalls it under the
-# lock. The other order leaves no marker and, on a checkout never stamped
-# before, no stamp, which reads as a developer-installed tree and turns the
-# lockfile-change check off for this checkout.
+# marker, so the next session re-checks the tree (orphaned_install_finished)
+# or reinstalls it under the lock. The other order leaves no marker and, on a
+# checkout never stamped before, no stamp, which reads as a developer-installed
+# tree and turns the lockfile and Node ABI checks off for this checkout.
 record_finished_install() {
   if [[ -n "${install_identity}" ]]; then
     printf '%s\n' "${install_identity}" > "${stamp}"
@@ -228,14 +246,12 @@ fi
 # - Perl's flock is the one lock call that macOS, Debian, Ubuntu and the
 #   cloud images all have: macOS lacks flock(1), and all of them ship perl.
 #   Minimal images without perl, such as Alpine, skip the install below.
-# - Perl opens this shell's fd 9 in place (">&=" is C's fdopen, not a dup)
-#   and locks the file open on it, so the lock outlives the perl process.
-# - Perl exits 0 with the lock held, 75 (EX_TEMPFAIL from sysexits.h) when
-#   the wait times out, and 2 when it cannot open or lock fd 9.
 exec 9>>"${state_dir}/install-deps.lock"
 
 # Well inside the 600s hook timeout in settings.json, so a timed-out wait
-# still exits cleanly.
+# still exits cleanly. A wait that ends late leaves less time for npm ci, but
+# a session that waited usually finds the other session's install current at
+# the re-check under the lock and skips its own.
 lock_wait_seconds=480
 
 if ! command -v perl >/dev/null 2>&1; then
@@ -243,8 +259,12 @@ if ! command -v perl >/dev/null 2>&1; then
   exit 0
 fi
 
-# Starting at 0 and assigning only on failure records perl's exit status
-# without set -e ending the hook.
+# - Perl opens this shell's fd 9 in place (">&=" is C's fdopen, not a dup)
+#   and locks the file open on it, so the lock outlives the perl process.
+# - Perl exits 0 with the lock held, 75 (EX_TEMPFAIL from sysexits.h) when
+#   the wait times out, and 2 when it cannot open or lock fd 9.
+# - Starting at 0 and assigning only on failure records perl's exit status
+#   without set -e ending the hook.
 lock_status=0
 perl -MFcntl=:flock -e '
   my ($checkout, $wait_seconds) = @ARGV;
@@ -268,7 +288,7 @@ fi
 
 # Dependencies can be current here for two reasons: they already were and only
 # the SST platform types are missing, or the session that held the lock just
-# installed this lockfile.
+# installed this lockfile under this Node.
 if dependencies_are_current; then
   log "node_modules current in ${checkout}"
   install_sst_platform_types
@@ -303,10 +323,11 @@ orphaned_install_finished() {
   # - npm ci deletes node_modules/.package-lock.json first and writes a new one
   #   once every dependency is installed, their install scripts included. Only
   #   the project's own lifecycle scripts, such as prepare, run after it.
-  # - So only an npm ci that got that far leaves it newer than the marker. A
-  #   tree npm ci never touched has an older one, and a tree whose npm ci was
+  # - So the tree is kept only when node_modules/.package-lock.json is newer
+  #   than the marker, which only an npm ci that got that far leaves. A tree
+  #   npm ci never touched has an older one, and a tree whose npm ci was
   #   killed mid-build (SIGKILL skips npm's rollback) has none, yet both can
-  #   pass npm ls.
+  #   pass npm ls. -nt is false for a missing file, so both return here.
   if [[ ! "${checkout}/node_modules/.package-lock.json" -nt "${marker}" ]]; then
     return 1
   fi
@@ -317,8 +338,8 @@ orphaned_install_finished() {
 
 if orphaned_install_finished; then
   # The orphaned install was still the hook's own, so it is stamped like the
-  # normal success path. Leaving it unstamped would disable the
-  # lockfile-change guard for this checkout forever.
+  # normal success path. Leaving it unstamped would disable the lockfile and
+  # Node ABI checks for this checkout forever.
   record_finished_install
   log "marker left by an interrupted hook but the dependency tree in ${checkout} is complete — clearing"
   install_sst_platform_types
@@ -332,7 +353,8 @@ printf '%s\n' "${install_identity}" > "${marker}"
 log "installing dependencies in ${checkout} (node $(node --version 2>/dev/null || echo unknown))"
 
 # - On linux/x64, onnxruntime-node's postinstall downloads GPU binaries and
-#   fails, because package.json's overrides stub out its extractor (adm-zip).
+#   fails, because package.json's overrides stub out its extractor (adm-zip)
+#   to resolve a security advisory, as CONTRIBUTING.md explains.
 #   ONNXRUNTIME_NODE_INSTALL=skip turns that download off. macOS and arm64
 #   Linux skip it on their own, so the variable changes nothing there.
 # - npm's stdout goes to stderr too, because SessionStart hook stdout enters
@@ -343,9 +365,10 @@ if ONNXRUNTIME_NODE_INSTALL=skip npm ci >&2; then
   install_sst_platform_types
 else
   # npm ci writes node_modules/.package-lock.json before the project's own
-  # lifecycle scripts run, so one of them failing leaves it newer than the
-  # marker. Writing the marker again keeps the recovery step from stamping
-  # that tree next session.
+  # lifecycle scripts run, so when one of them fails, that file is newer than
+  # the marker and orphaned_install_finished would stamp the failed tree next
+  # session. Rewriting the marker (same content) makes the marker the newer
+  # file again.
   printf '%s\n' "${install_identity}" > "${marker}"
   log "npm ci failed — the session continues without dependencies; the marker forces a retry next session"
 fi
