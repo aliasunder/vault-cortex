@@ -10,7 +10,7 @@ import type { Logger } from "../../../logger.js"
 import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
-import { describeError, describeErrorRelativeTo } from "../../../utils/describe-error.js"
+import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { isTagsKey } from "../../obsidian-markdown/tags.js"
 import {
   OverwriteBlockedError,
@@ -258,11 +258,7 @@ export const createSafeHandlers = (params: {
     } catch (error) {
       // The log keeps the full message and the cause a wrapped error carries;
       // the vault-relative paths and repair steps are for the client
-      const cause = error instanceof Error ? error.cause : undefined
-      logger.warn("tool_error", {
-        error: describeError(error),
-        ...(cause ? { cause: describeError(cause) } : {}),
-      })
+      logger.warn("tool_error", describeErrorForLog(error))
       return {
         content: [{ type: "text" as const, text: describeToolError(error) }],
         isError: true as const,

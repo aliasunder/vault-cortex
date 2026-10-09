@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { readdir, readFile, rename } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describeError, describeErrorRelativeTo } from "../describe-error.js"
+import { describeError, describeErrorForLog, describeErrorRelativeTo } from "../describe-error.js"
 
 describe("describeError", () => {
   const scenarios = [
@@ -36,6 +36,29 @@ describe("describeError", () => {
 
   it.each(scenarios)("$name", ({ input, expected }) => {
     expect(describeError(input)).toBe(expected)
+  })
+})
+
+describe("describeErrorForLog", () => {
+  it("adds the cause a wrapped error carries", () => {
+    const wrapped = new Error("PDF reader could not start", {
+      cause: new TypeError("Cannot find module 'canvas'"),
+    })
+
+    expect(describeErrorForLog(wrapped)).toEqual({
+      error: "[Error]: PDF reader could not start",
+      cause: "[TypeError]: Cannot find module 'canvas'",
+    })
+  })
+
+  it("leaves out the cause key for an error without one", () => {
+    expect(describeErrorForLog(new RangeError("limit out of range"))).toEqual({
+      error: "[RangeError]: limit out of range",
+    })
+  })
+
+  it("stringifies a thrown value that is not an Error", () => {
+    expect(describeErrorForLog("plain string")).toEqual({ error: "plain string" })
   })
 })
 

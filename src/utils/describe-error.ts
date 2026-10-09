@@ -9,6 +9,17 @@ export const describeError = (error: unknown): string => {
   return error instanceof Error ? `[${error.name}]: ${error.message}` : String(error)
 }
 
+/** Log fields for a caught error: describeError's text, plus the cause a
+ *  wrapped error carries, so a wrapper's plain message never hides the
+ *  original reason from the log. */
+export const describeErrorForLog = (error: unknown): { error: string; cause?: string } => {
+  const cause = error instanceof Error ? error.cause : undefined
+  return {
+    error: describeError(error),
+    ...(cause ? { cause: describeError(cause) } : {}),
+  }
+}
+
 /** describeError's text, for an error message sent to a client.
  *  - A Node error quotes the absolute paths it failed on: each one under
  *    `directory` becomes relative to it, and `directory` itself becomes ".".
