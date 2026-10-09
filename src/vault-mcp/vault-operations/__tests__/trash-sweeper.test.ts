@@ -68,9 +68,13 @@ const recordEntryAt = (
   moment: DateTime,
 ): void => {
   vi.useFakeTimers({ toFake: ["Date"] })
-  vi.setSystemTime(moment.toMillis())
-  index.recordTrashEntry(recordedFile)
-  vi.useRealTimers()
+  // A throwing record would otherwise leave Date frozen for the tests after it.
+  try {
+    vi.setSystemTime(moment.toMillis())
+    index.recordTrashEntry(recordedFile)
+  } finally {
+    vi.useRealTimers()
+  }
 }
 
 /** The trashedAt the index stored for a row the test has just recorded. */
@@ -467,7 +471,7 @@ describe("sweepExpiredTrashEntries", () => {
     expect(index.getTrashEntry(".trash/reused.md")).toBeNull()
   })
 
-  it("keeps a file whose change time runs more than 60 seconds past its row's moment", async () => {
+  it("keeps a file whose change time runs more than 60 seconds past its row's trashedAt", async () => {
     // A row recorded two minutes before the file last changed status stands
     // for a note restored by hand and trashed again a while later: the
     // renames kept its identity and moved only its change time.
@@ -493,11 +497,17 @@ describe("sweepExpiredTrashEntries", () => {
     })
   })
 
-  it("unlinks a file whose change time is exactly 60 seconds past its row's moment", async () => {
+  it("unlinks a file whose change time is exactly 60 seconds past its row's trashedAt", async () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     await writeFile(join(vault, ".trash", "boundary.md"), "expired", "utf8")
-    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/boundary.md"))
+    // Recorded two minutes back, so the file's real change time is past the
+    // limit and only the change time reported below can unlink it.
+    recordEntryAt(
+      index,
+      await recordedTrashFileAt(vault, ".trash/boundary.md"),
+      DateTime.now().minus({ minutes: 2 }),
+    )
     const trashedAt = trashedAtOf(index, ".trash/boundary.md")
     // The sweep's only lstat call is the identity read, here reporting a
     // change time at the very end of the allowance.
@@ -542,6 +552,29 @@ describe("sweepExpiredTrashEntries", () => {
       trashPath: ".trash/boundary.md",
       reason: "changed",
     })
+  })
+
+  it("unlinks a file whose change time comes well before its row's trashedAt", async () => {
+    // Only a change after the row was recorded shows the file was touched
+    // since the server trashed it, so an earlier change time never keeps it.
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "early.md"), "expired", "utf8")
+    // Recorded ten minutes after the file's change time, and still long
+    // enough before the sweep to have expired.
+    recordEntryAt(
+      index,
+      await recordedTrashFileAt(vault, ".trash/early.md"),
+      DateTime.now().plus({ minutes: 10 }),
+    )
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await sweepAfterRetention(vault, index)
+
+    await expect(stat(join(vault, ".trash", "early.md"))).rejects.toThrow(/ENOENT/)
+    expect(index.getTrashEntry(".trash/early.md")).toBeNull()
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 
   it("still unlinks a note restored by hand and trashed again within the 60-second allowance", async () => {
