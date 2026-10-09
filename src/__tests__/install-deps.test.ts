@@ -343,7 +343,7 @@ describe("install-deps hook", () => {
       }).toEqual({
         status: 0,
         stdout: "",
-        stderr: `[install-deps] could not take the install lock in ${fixture.checkout} (perl exit 2) — skipping the install\n`,
+        stderr: `[install-deps] could not take the install lock in ${fixture.checkout} (perl exit 2) — skipping the install; run npm ci and npx sst install yourself\n`,
         npmCalls: [],
         marker: `${fixture.lockfileHash}\n`,
         stamp: null,

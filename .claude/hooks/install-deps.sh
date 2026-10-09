@@ -237,7 +237,7 @@ if ((lock_status == 75)); then
   exit 0
 fi
 if ((lock_status != 0)); then
-  log "could not take the install lock in ${checkout} (perl exit ${lock_status}) — skipping the install"
+  log "could not take the install lock in ${checkout} (perl exit ${lock_status}) — skipping the install; run npm ci and npx sst install yourself"
   exit 0
 fi
 
