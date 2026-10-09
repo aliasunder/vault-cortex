@@ -62,8 +62,8 @@ const NVM_STUB = `# nvm stand-in: defines nothing and leaves PATH as it is
  *  earlier install used. */
 const OLDER_LOCKFILE_HASH = "1111111111111111111111111111111111111111"
 
-/** How the hook names the runner's Node in its stamp and marker. The stub
- *  `node` binaries run the runner's Node, so they report the same ABI. */
+/** How the hook names the runner's Node in its stamp and marker, in runs
+ *  whose PATH puts no stub Node folder (createNodeBinDir) first. */
 const RUNNER_NODE_ABI = `node-abi-${process.versions.modules}`
 
 /** The stamp of an earlier install of another lockfile under the same Node. */
@@ -304,14 +304,29 @@ const writeNvmStandIn = (fixture: HookFixture): void => {
   writeFileSync(join(fixture.outsideDir, ".nvm", "nvm.sh"), NVM_STAND_IN)
 }
 
-/** A Node installation's bin folder, named by version. Its `node` runs the
- *  runner's node (the hook parses its payload with whichever node comes
- *  first), and its `npm` logs each call prefixed with the version, so the
- *  log shows which Node's npm the hook ran. */
-const createNodeBinDir = (fixture: HookFixture, version: string): string => {
+/** The ABI (process.versions.modules) each stub Node reports, as the real
+ *  releases do, so a test can tell which Node's ABI the hook recorded. */
+const STUB_NODE_ABIS = { v20: "115", v22: "127", v24: "137" } as const
+
+/** A Node installation's bin folder, named by version. Its `node` reports the
+ *  version's ABI and otherwise runs the runner's node (the hook parses its
+ *  payload with whichever node comes first), and its `npm` logs each call
+ *  prefixed with the version, so the log shows which Node's npm the hook ran. */
+const createNodeBinDir = (fixture: HookFixture, version: keyof typeof STUB_NODE_ABIS): string => {
   const binDir = join(fixture.outsideDir, "node-versions", version, "bin")
   mkdirSync(binDir, { recursive: true })
-  writeExecutable(join(binDir, "node"), `#!/bin/sh\nexec "${process.execPath}" "$@"\n`)
+  writeExecutable(
+    join(binDir, "node"),
+    [
+      "#!/bin/sh",
+      'if [ "$1" = "-p" ] && [ "$2" = "process.versions.modules" ]; then',
+      `  echo ${STUB_NODE_ABIS[version]}`,
+      "  exit 0",
+      "fi",
+      `exec "${process.execPath}" "$@"`,
+      "",
+    ].join("\n"),
+  )
   writeExecutable(
     join(binDir, "npm"),
     `#!/bin/sh\nprintf '${version} %s\\n' "$*" >> "$STUB_NPM_LOG"\nexit 0\n`,
@@ -768,6 +783,32 @@ describe("install-deps hook", () => {
       })
     })
 
+    it("adds the PATH line again when the session's file ends on another Node's line", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), "24\n")
+      writeNvmStandIn(fixture)
+      const nvmrcBin = createNodeBinDir(fixture, "v24")
+      const otherBin = createNodeBinDir(fixture, "v20")
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+      const earlierLines = `export PATH="${nvmrcBin}:$PATH"\nexport PATH="${otherBin}:$PATH"\n`
+      writeFileSync(claudeEnvFile, earlierLines)
+
+      const run = runHook({
+        fixture,
+        hookEventName: "SessionStart",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: join(nvmrcBin, "node"), defaultNode: join(otherBin, "node") },
+      })
+
+      expect({
+        status: run.status,
+        envFile: readFileIfPresent(claudeEnvFile),
+      }).toEqual({
+        status: 0,
+        envFile: `${earlierLines}export PATH="${nvmrcBin}:$PATH"\n`,
+      })
+    })
+
     // Without an .nvmrc, nvm which reads an unset variable, so this passes only
     // while the hook turns set -u off for the lookup.
     it("writes nvm's default Node into the PATH line when the checkout has no .nvmrc", () => {
@@ -842,10 +883,12 @@ describe("install-deps hook", () => {
         status: run.status,
         npmCalls: recordedNpmCalls(fixture),
         envFile: readFileIfPresent(claudeEnvFile),
+        stamp: installState(fixture).stamp,
       }).toEqual({
         status: 0,
         npmCalls: ["v24 ci"],
         envFile: `export PATH="${nvmrcBin}:$PATH"\n`,
+        stamp: `${fixture.lockfileHash} node-abi-137\n`,
       })
     })
 
@@ -870,10 +913,12 @@ describe("install-deps hook", () => {
         status: run.status,
         npmCalls: recordedNpmCalls(fixture),
         envFile: readFileIfPresent(claudeEnvFile),
+        stamp: installState(fixture).stamp,
       }).toEqual({
         status: 0,
         npmCalls: ["v20 ci"],
         envFile: `export PATH="${defaultBin}:$PATH"\n`,
+        stamp: `${fixture.lockfileHash} node-abi-115\n`,
       })
     })
 
@@ -899,10 +944,12 @@ describe("install-deps hook", () => {
         status: run.status,
         npmCalls: recordedNpmCalls(fixture),
         envFile: readFileIfPresent(claudeEnvFile),
+        stamp: installState(fixture).stamp,
       }).toEqual({
         status: 0,
         npmCalls: ["v24 ci"],
         envFile: null,
+        stamp: `${fixture.lockfileHash} node-abi-137\n`,
       })
     })
   })

@@ -107,11 +107,14 @@ persist_node_on_path() {
 
   # The line reads export PATH="<nvm Node's bin directory>:$PATH", with $PATH
   # kept literal so it expands when each command runs. A resumed session runs
-  # this hook again against the same file, so the line is added only when the
-  # file lacks it.
-  local path_line
+  # this hook again against the same file, which is sourced top to bottom, so
+  # the line is added unless it is already the file's last PATH export: after
+  # the checkout's Node changes and changes back, an older line for this Node
+  # sits above the other Node's line, which would win.
+  local path_line last_path_line
   path_line="export PATH=\"$(dirname "${checkout_node_path}"):\$PATH\""
-  if ! grep -qxF "${path_line}" "${CLAUDE_ENV_FILE}" 2>/dev/null; then
+  last_path_line="$(grep '^export PATH=' "${CLAUDE_ENV_FILE}" 2>/dev/null | tail -n 1 || true)"
+  if [[ "${last_path_line}" != "${path_line}" ]]; then
     # Under set -e a failed write would end the hook before the install below.
     if ! printf '%s\n' "${path_line}" >> "${CLAUDE_ENV_FILE}"; then
       log "could not write ${CLAUDE_ENV_FILE} — later commands keep the session's PATH"
