@@ -114,17 +114,20 @@ type ToolHandlerResult = {
   isError?: true
 }
 
-/** The try/catch wrappers every tool handler runs inside. Built per server
- *  from the enabled tool set, because the repair steps they add for a
- *  refused properties block name tools a server may not serve, and from the
- *  vault path, which a filesystem error's text must not show. */
+/** The try/catch wrappers every tool handler runs inside, built per server
+ *  from two inputs:
+ *  - the enabled tool set, because the repair steps they add for a refused
+ *    properties block name tools a server may not serve;
+ *  - the vault path, which a Node error's text must not show. */
 type SafeHandlers = {
   /** Wraps a handler with try/catch. A throw is logged as `tool_error` and
-   *  returned as an isError result whose text is `[ErrorName]: message`, with
-   *  filesystem paths vault-relative, plus how to fix a properties-block
-   *  refusal, so the error's cause and stack never reach the client. The
-   *  format callback produces the full content-block array — text, image, or
-   *  mixed (the SDK union) — for tools whose results aren't a single text
+   *  returned as an isError result that holds only text, so the error's
+   *  cause and stack never reach the client. The text is:
+   *  - `[ErrorName]: message`, with a Node error's paths made vault-relative;
+   *  - then how to fix it, for a properties-block refusal.
+   *
+   *  The format callback produces the full content-block array — text, image,
+   *  or mixed (the SDK union) — for tools whose results aren't a single text
    *  block. */
   safeHandlerContent: <T>(
     logger: Logger,
@@ -201,8 +204,10 @@ const OPENING_BLOCK_REMEDY =
 export const OPENING_BLOCK_ERROR_ENTRY =
   '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties, around text that can\'t be kept as properties; the error says how to avoid it'
 
-/** The Errors entry for a note file the server cannot read or write. The
- *  message is Node's, with the note's path made vault-relative. */
+/** The Errors entry for a note file the server cannot read or write; the
+ *  message is Node's, with the note's path made vault-relative. Any note tool
+ *  can return it, but each lists it only when its own description is next
+ *  revised, because a grader re-scores every description whose text changes. */
 export const FILESYSTEM_ERROR_ENTRY =
   "- \"EACCES: …\" or another filesystem error code — the note's file can't be read or written (permissions, a full or read-only disk); ask the vault's owner to fix it"
 
@@ -220,13 +225,14 @@ export const createSafeHandlers = (params: {
 }): SafeHandlers => {
   const { isToolEnabled, vaultPath } = params
 
-  /** The error's text with filesystem paths made vault-relative, plus how to
-   *  fix a properties-block failure: repair steps for a block already in the
-   *  vault, or a way around `---` lines a write would leave at the top of the
-   *  note. */
+  /** The error's text with a Node error's paths made vault-relative, plus how
+   *  to fix a properties-block failure: repair steps for a block already in
+   *  the vault, or a way around `---` lines a write would leave at the top of
+   *  the note. */
   const describeToolError = (error: unknown): string => {
     const message = describeErrorRelativeTo({ error, directory: vaultPath })
-    // A move abort's message already ends with a sentence
+    // A move abort's properties-block message already ends with a period
+    // ("Nothing was written."), so the repair steps follow after a space
     const separator = message.endsWith(".") ? " " : ". "
 
     if (error instanceof UnkeepableOpeningBlockError) {

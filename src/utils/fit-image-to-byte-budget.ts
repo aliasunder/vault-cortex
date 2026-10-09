@@ -104,7 +104,7 @@ const readImageMetadata = async (buffer: Buffer): Promise<Metadata> => {
 /**
  * Downscales/recompresses `buffer` until its encoded size is ≤ `budgetBytes`.
  * Returns the fitted image with its final and original dimensions, or throws
- * when the image cannot be fitted within the attempt cap.
+ * when the image cannot be decoded or cannot be fitted within the attempt cap.
  */
 export const fitImageToByteBudget = async (params: {
   buffer: Buffer

@@ -400,9 +400,9 @@ export const registerDailyReviewPrompt = ({
           tasksDailyNote: dailyNoteTasks.total,
         })
         return textResult(dailyReview)
-      } catch (err) {
-        reqLogger.error("prompt_error", { error: describeError(err) })
-        const clientMessage = describeErrorRelativeTo({ error: err, directory: vaultPath })
+      } catch (error) {
+        reqLogger.error("prompt_error", { error: describeError(error) })
+        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const dailyFallbackHint = whenToolEnabledText(
           "vault_get_daily_note",
           " Try vault_get_daily_note to fetch the note directly.",
