@@ -878,6 +878,9 @@ describe("sweepExpiredTrashEntries", () => {
 
     await sweepAfterRetention(vault, storeFailingToDrop(index, ".trash/vanishing.md"))
 
+    // With the drop failing, a file kept as unmatched would leave the same row,
+    // warning, and counts, so only the file's absence proves the unlink ran.
+    await expect(stat(join(vault, ".trash", "vanishing.md"))).rejects.toThrow(/ENOENT/)
     expect(index.getTrashEntry(".trash/vanishing.md")?.trashPath).toBe(".trash/vanishing.md")
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
