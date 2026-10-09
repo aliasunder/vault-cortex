@@ -67,11 +67,13 @@ jobs:
           SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
         run: |
           set -euo pipefail
+          # Download outside the checkout, so the archive can't reach later steps.
+          cd "$RUNNER_TEMP"
           ASSET="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
           curl -fsSLO "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${ASSET}"
           echo "${SHELLCHECK_SHA256}  ${ASSET}" | sha256sum -c -
-          tar -xJf "${ASSET}" -C /tmp
-          sudo install -m 0755 "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          tar -xJf "${ASSET}"
+          sudo install -m 0755 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version
 
       - run: npm run lint:shell

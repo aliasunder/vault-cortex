@@ -67,7 +67,7 @@
     "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
-    "lint:shell": "shellcheck .claude/hooks/*.sh .github/scripts/*.sh rootfs/etc/s6-overlay/scripts/* rootfs/etc/s6-overlay/s6-rc.d/*/run rootfs/etc/s6-overlay/s6-rc.d/*/finish rootfs/usr/local/bin/get-sync-token",
+    "lint:shell": "shellcheck .claude/hooks/*.sh .github/scripts/*.sh rootfs/etc/s6-overlay/scripts/* rootfs/etc/s6-overlay/s6-rc.d/*/run rootfs/etc/s6-overlay/s6-rc.d/*/finish rootfs/usr/local/bin/get-sync-token src/__tests__/docker/fixtures/ob cli/src/__tests__/integration/fixtures/docker",
     "markdownlint": "markdownlint-cli2 \"**/*.md\"",
     "markdownlint:fix": "markdownlint-cli2 --fix \"**/*.md\"",
     "test": "vitest run",
