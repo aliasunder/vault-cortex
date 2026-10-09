@@ -762,8 +762,8 @@ describe("sweepExpiredTrashEntries", () => {
 
   it("warns and moves on to the next row when pruning an unlinked file's folders fails", async () => {
     // A hidden folder segment makes the prune's path check throw. Only a
-    // corrupted or hand-edited row can hold one, and it must not end the
-    // sweep for the rows listed after it.
+    // corrupted or hand-edited row can hold one, and that row must not end
+    // the sweep for the rows listed after it.
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     await mkdir(join(vault, ".trash", ".stuck"), { recursive: true })
@@ -780,6 +780,7 @@ describe("sweepExpiredTrashEntries", () => {
 
     await expect(stat(join(vault, ".trash", ".stuck", "x.md"))).rejects.toThrow(/ENOENT/)
     await expect(stat(join(vault, ".trash", "after.md"))).rejects.toThrow(/ENOENT/)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to prune emptied trash folders", {
       trashPath: ".trash/.stuck/x.md",
       error: '[Error]: hidden path blocked: ".stuck/x.md" targets a hidden file or folder',
