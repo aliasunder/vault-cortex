@@ -193,9 +193,10 @@ const describeOverwriteRepair = (isToolEnabled: (name: ToolName) => boolean): st
   return "To overwrite it, read the note in full with vault_read_note, call vault_update_properties with replace: true and the properties to keep ({} for none), then run this write again."
 }
 
-/** A property makes the server's own block come first, and text above the
- *  `---` lines or their removal stops the note opening with them. The
- *  sentence names no tool, so it needs no gating. */
+/** When a note has properties, the server writes its own properties block at
+ *  the top, so the `---` lines in the body are no longer at the top of the
+ *  note; text above them or their removal has the same effect. The sentence
+ *  names no tool, so it needs no gating. */
 const OPENING_BLOCK_REMEDY =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
 
@@ -238,7 +239,9 @@ export const createSafeHandlers = (params: {
     if (error instanceof UnkeepableOpeningBlockError) {
       return `${message}${separator}${OPENING_BLOCK_REMEDY}`
     }
-    // Checked before its parent class, whose repair steps carry prose over
+    // Checked before its parent class, whose repair steps carry prose over.
+    // OverwriteBlockedError extends UnsupportedPropertiesBlockError, while
+    // UnkeepableOpeningBlockError extends Error directly, so its order is free.
     if (error instanceof OverwriteBlockedError) {
       return `${message}${separator}${describeOverwriteRepair(isToolEnabled)}`
     }

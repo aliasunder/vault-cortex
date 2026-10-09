@@ -3,6 +3,7 @@
 import { z } from "zod"
 import type { VaultConfig } from "../../config.js"
 import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
+import { DEFAULT_DAILY_NOTES_FOLDER } from "../../vault-operations/daily-notes.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
 import { readTrashConfig } from "../../vault-operations/trash-config.js"
@@ -36,14 +37,13 @@ const describeDisplacedLeadingContent = ({
 
 /** Protected-path list for tool descriptions. Descriptions are built once at
  *  registration and the daily notes folder is resolved per call, so the text
- *  names that folder's sources, not its value ("Daily Notes" restates the
- *  fallback in daily-notes.ts). */
+ *  names that folder's sources and its fallback, not its resolved value. */
 const describeProtectedPaths = (config: VaultConfig): string => {
   if (config.protectedPathsOverride) {
     // loadConfig strips trailing slashes from override entries.
     return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ")
   }
-  return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
+  return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to ${DEFAULT_DAILY_NOTES_FOLDER}/)`
 }
 
 /** Sentences that point to other tools, each already "" when its tool is
@@ -177,9 +177,10 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
       }
 
       // The read modes select different content; allowing more than one would
-      // make the result ambiguous, so reject the combination up front. An empty
-      // heading still counts as section mode (heading !== undefined) so it's
-      // rejected here rather than silently falling through to a full read.
+      // make the result ambiguous, so reject the combination up front. A
+      // whitespace-only heading (the schema's min(1) already rejects "") still
+      // counts as section mode (heading !== undefined), so the heading lookup
+      // rejects it rather than the read silently falling through to a full one.
       const selectedModeCount = [
         properties_only === true,
         outline === true,
@@ -751,6 +752,14 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
     ? "use vault_replace_span (one atomic step)"
     : `delete it here${whenToolEnabledText("vault_patch_note", ", then vault_patch_note to add the new content")}`
 
+  const deleteSpanAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_replace_in_note",
+      "Prefer vault_replace_in_note for small in-place edits (this tool only deletes).",
+    ),
+    `To replace a block, ${replaceBlockAdvice}.`,
+  ])
+
   registerTool(
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
@@ -760,8 +769,7 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
 
-When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). ")}To replace a block, ${replaceBlockAdvice}.
+When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${deleteSpanAlternativesLine}
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Omit end_anchor for a single-line delete. The empty lines above and below the removed lines join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
@@ -1151,12 +1159,11 @@ Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any 
               // Only "system" moves are swept later, so only they are recorded;
               // "local" is Obsidian's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
-              // The retention sweep deletes the file at each expired
-              // trash_entries row's path, and a row can outlive its file when
-              // .trash/ is emptied by hand. A move that does not record clears
-              // the row at its landed path, so the sweep cannot remove the new
-              // file, such as a "local" note meant to be kept. A "none" delete
-              // lands nothing in .trash/ and never calls it.
+              // A stale trash_entries row can make the retention sweep delete a
+              // new note at the same path, such as a "local" note meant to be
+              // kept. A row outlives its file when .trash/ is emptied by hand,
+              // so a move that does not record clears the row at its landed
+              // path. A "none" delete lands nothing in .trash/ and never calls it.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,
