@@ -192,8 +192,8 @@ const createHookFixture = (): HookFixture => {
 
 /** A second git checkout with a node_modules folder, beside the fixture's
  *  checkout, so a test can tell which of the two the hook prepares. */
-const createOtherCheckout = (fixture: HookFixture): string => {
-  const otherCheckout = join(dirname(fixture.checkout), "other-checkout")
+const createOtherCheckout = (fixture: HookFixture, folderName = "other-checkout"): string => {
+  const otherCheckout = join(dirname(fixture.checkout), folderName)
 
   execFileSync("git", ["init", "--quiet", otherCheckout], {
     env: { PATH: runnerPath(), HOME: fixture.outsideDir },
@@ -280,14 +280,20 @@ const runCommandThroughHook = (fixture: HookFixture, command: string): HookRun =
 }
 
 /** The hook's reply to a stopped run, test-owned so a change to the prefix
- *  or the wording shows up here. */
-const expectedRefusal = (checkout: string): string => {
+ *  or the wording shows up here. nobodyHomeInPrefix is the HOME path as the
+ *  prefix spells it: the plain path, unless the path needs quoting. */
+const expectedRefusal = (
+  checkout: string,
+  {
+    nobodyHomeInPrefix = `${checkout}/node_modules/.nobody-home`,
+  }: { nobodyHomeInPrefix?: string } = {},
+): string => {
   const { uid, gid } = runnerIds()
 
   return [
     "Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.",
     "Run the same test command as the nobody user, with this prefix in front of the test command itself (after any cd):",
-    `  setpriv --reuid=${uid} --regid=${gid} --clear-groups env HOME=${checkout}/node_modules/.nobody-home`,
+    `  setpriv --reuid=${uid} --regid=${gid} --clear-groups env HOME=${nobodyHomeInPrefix}`,
     `The folders nobody needs to write in ${checkout} are ready.`,
     "",
   ].join("\n")
@@ -385,6 +391,18 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "a vitest run whose test filter names an exempt suite",
         command: "npm run test:remote-boot; npx vitest run -t cli-pty",
+      },
+      {
+        label: "vitest with an exempt suite's config placed after --",
+        command: "npx vitest run -- --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "npm handing an exempt suite's config to vitest after a second --",
+        command: "npm test -- -- --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "vitest with a config whose name only starts with an exempt suite's",
+        command: "npx vitest run --config vitest.cli-pty.config.ts.bak",
       },
       {
         label: "a test run after a command that mentions setpriv",
@@ -528,6 +546,41 @@ describe("require-nonroot-tests hook", () => {
         run: LET_THROUGH,
         foldersMade: [],
         controlStatus: 2,
+      })
+    })
+
+    it("quotes the HOME path in the prefix when the checkout's path holds a space", () => {
+      const fixture = createHookFixture()
+      const spacedCheckout = createOtherCheckout(fixture, "spaced checkout")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: spacedCheckout }),
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: expectedRefusal(spacedCheckout, {
+          nobodyHomeInPrefix: `${spacedCheckout.replaceAll(" ", "\\ ")}/node_modules/.nobody-home`,
+        }),
+      })
+    })
+
+    it("compares the major versions when .nvmrc ends its line with CRLF", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), `${NVMRC_VERSION}\r\n`)
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: "v22.22.0",
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: `${expectedRefusal(fixture.checkout)}nobody's node is v22.22.0, not the 24 that .nvmrc names and CI runs, so a result can differ from CI's.\n`,
       })
     })
 
@@ -731,6 +784,24 @@ describe("require-nonroot-tests hook", () => {
         })
       },
     )
+
+    it("prepares the session's checkout for a cd followed only by a comment, which bash runs as a bare cd", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+      // A folder named #: a hook that read the comment as a relative path
+      // would land in the other checkout.
+      mkdirSync(join(otherCheckout, "#"))
+
+      const run = runCommandThroughHook(fixture, `cd ${otherCheckout}\ncd # back home\nnpm test`)
+      // The first cd alone moves the run to the other checkout, so the run
+      // above reaches the session's checkout through the commented cd.
+      const controlRun = runCommandThroughHook(fixture, `cd ${otherCheckout}\nnpm test`)
+
+      expect({ run, controlRun }).toEqual({
+        run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+        controlRun: { status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) },
+      })
+    })
 
     it("stops a test run thousands of commands after the cd that names its checkout", () => {
       const fixture = createHookFixture()

@@ -106,27 +106,34 @@ runner_end='([[:space:]]|\)|$)'
 test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
 
 # exempt_suite_run matches a run of the remote-boot or cli-pty suite, the two
-# exempt suites, by the config flag that names the suite's config file.
+# exempt suites, by the config flag that names the suite's config file. The
+# file name must end at a space, a ) or the end of the command, so
+# `vitest.cli-pty.config.ts.bak` does not count.
+# - arguments_before_double_dash matches words other than a lone `--`. vitest
+#   reads no flags after a lone `--`, so
+#   `vitest run -- --config vitest.cli-pty.config.ts` runs the main suite.
 # - vitest_exempt_suite_run matches the flag anywhere among vitest's arguments
-#   (`vitest run --config vitest.cli-pty.config.ts`).
-# - npm_exempt_suite_run matches the flag only after a `--` word of its own,
-#   which hands the flag to vitest. npm itself consumes the flag in
-#   `npm test --config x`, and the script runs the main suite.
-exempt_suite_config='(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts'
-arguments='([[:space:]]+[^[:space:]]+)*'
-vitest_exempt_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${arguments}[[:space:]]+${exempt_suite_config}"
-npm_exempt_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments}[[:space:]]+--${arguments}[[:space:]]+${exempt_suite_config}"
+#   before a lone `--` (`vitest run --config vitest.cli-pty.config.ts`).
+# - npm_exempt_suite_run matches the flag only after npm's first lone `--`,
+#   which hands the flag to vitest, and before a second one. npm itself
+#   consumes the flag in `npm test --config x`, and the script runs the main
+#   suite.
+exempt_suite_config="(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts${runner_end}"
+arguments_before_double_dash='([[:space:]]+(-|-?[^-[:space:]][^[:space:]]*|--[^[:space:]]+))*'
+vitest_exempt_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
+npm_exempt_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments_before_double_dash}[[:space:]]+--${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
 exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 
 # The walk below tells three kinds of cd apart.
 # - cd_to_absolute_path matches a cd to an unquoted path that starts with /.
 # - cd_to_relative_path matches a cd to an unquoted relative path. Its first
-#   character cannot be - (`cd -` or a flag), or ~, $ or a quote, which only
-#   the shell can expand.
+#   character cannot be - (`cd -` or a flag), # (a comment, which leaves a
+#   bare `cd`), or ~, $ or a quote, which only the shell can expand.
 # - any_cd matches any cd. The walk tries it last, so it catches the rest: a
-#   bare `cd`, `cd -`, and a ~, $ or quoted path.
+#   bare `cd`, with or without a comment after it, `cd -`, and a ~, $ or
+#   quoted path.
 cd_to_absolute_path='^[[:space:]]*cd[[:space:]]+(/[^[:space:]]*)'
-cd_to_relative_path="^[[:space:]]*cd[[:space:]]+([^-~\"'\$[:space:]][^[:space:]]*)"
+cd_to_relative_path="^[[:space:]]*cd[[:space:]]+([^-~#\"'\$[:space:]][^[:space:]]*)"
 any_cd='^[[:space:]]*cd([[:space:]]|$)'
 
 # The command is split into the commands it runs, one per line, and only the
@@ -265,16 +272,22 @@ fi
 chown -R "${nobody_uid}:${nobody_gid}" "${nobody_writable[@]}"
 chmod -R go-w "${nobody_writable[@]}"
 
+# %q quotes the HOME path for the shell, so the prefix still works when the
+# checkout's path holds a space. A path of plain characters prints unchanged.
+printf -v nobody_home_for_shell '%q' "${checkout}/node_modules/.nobody-home"
+
 cat >&2 <<EOF
 Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.
 Run the same test command as the nobody user, with this prefix in front of the test command itself (after any cd):
-  setpriv --reuid=${nobody_uid} --regid=${nobody_gid} --clear-groups env HOME=${checkout}/node_modules/.nobody-home
+  setpriv --reuid=${nobody_uid} --regid=${nobody_gid} --clear-groups env HOME=${nobody_home_for_shell}
 The folders nobody needs to write in ${checkout} are ready.
 EOF
 
 # The major versions are compared only when .nvmrc names a number (24 or
-# v24.1.0), not an alias such as lts/*.
+# v24.1.0), not an alias such as lts/*. Only the file's first word counts, so
+# a CRLF line end or a comment after the version does not hide it.
 nvmrc_version="$(cat "${checkout}/.nvmrc" 2>/dev/null)" || nvmrc_version=""
+nvmrc_version="${nvmrc_version%%[[:space:]]*}"
 nvmrc_major="${nvmrc_version#v}"
 nvmrc_major="${nvmrc_major%%.*}"
 nobody_node_major="${nobody_node_version#v}"
