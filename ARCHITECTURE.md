@@ -1215,7 +1215,9 @@ Docker hardening, and durability seatbelts above.
     On a case-insensitive mount `.trash/a.md` and `.trash/A.md` are one
     file, so a delete landing at `.trash/A.md` replaces a stale
     `.trash/a.md` row instead of keeping a second row that could expire the
-    file on the old row's date.
+    file on the old row's date. On a case-sensitive mount the two names are
+    two files sharing one row, so the file recorded first loses its row and
+    stays until `.trash/` is emptied by hand.
 - **Recorded trash bookkeeping** (`trash-sweeper.ts`): two row-driven
   operations (neither walks the folder):
   - **Orphan purge** — runs once at boot regardless of
