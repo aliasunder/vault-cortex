@@ -207,9 +207,9 @@ describe("daily-review handler", () => {
       dailyNoteBlock("# 2026-06-16\n\n[[Daily Notes/2026-06-17]]"),
     )
     // The link into the resolved folder is a forward reference, not a broken
-    // link, so no broken-link summary follows the listing.
+    // link: it is not flagged, and no broken-link summary follows the listing.
     expect(reviewSection(text, "Outgoing links")).toBe(
-      "- Daily Notes/2026-06-17 (**broken** — target does not exist)",
+      "- Daily Notes/2026-06-17 (daily note not created yet)",
     )
   })
 
@@ -411,6 +411,25 @@ describe("daily-review handler", () => {
     // An unresolved target keeps the link text as written, with no extension
     expect(reviewSection(text, "Outgoing links")).toBe(
       "- missing-note (**broken** — target does not exist)\n\n1 broken link — the target note does not exist yet.",
+    )
+  })
+
+  it("counts only broken links, not daily notes not created yet, in the plural summary", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      dailyContent: "# 2026-06-16\n\n[[missing-a]] [[missing-b]] [[Daily Notes/2026-06-17]]\n",
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(reviewSection(text, "Outgoing links")).toBe(
+      [
+        "- Daily Notes/2026-06-17 (daily note not created yet)",
+        "- missing-a (**broken** — target does not exist)",
+        "- missing-b (**broken** — target does not exist)",
+        "",
+        "2 broken links — the target notes do not exist yet.",
+      ].join("\n"),
     )
   })
 
