@@ -1246,7 +1246,8 @@ Docker hardening, and durability seatbelts above.
     - a trashed note restored by hand and trashed again more than a minute
       later, on a file system whose renames move the change time (ext4 and
       APFS do; POSIX leaves it optional)
-    - a file whose attributes changed while it sat in `.trash/`
+    - a file whose attributes changed in `.trash/` more than a minute after
+      it was trashed
     - the file of a row recorded before identities were kept
 
   - Both share a serializing lock with the trash move and re-read each

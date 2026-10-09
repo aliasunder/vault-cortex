@@ -90,8 +90,8 @@ const getRecordedFileCheck = async (
 }
 
 /** Drops a finished row and returns whether it was dropped. A failed drop
- *  (a full disk fails a delete but not a read) keeps the row for the next
- *  sweep instead of ending this one, whose later unlinks can free space. */
+ *  (a full disk fails a delete but not a read) is logged and keeps the row
+ *  for the next run instead of ending this one for the rows after it. */
 const dropTrashEntry = (
   params: { trashPath: string; trashEntryStore: TrashEntryStore },
   logger: Logger,
@@ -377,8 +377,10 @@ const purgeOrphanedTrashEntries = async (
         return false
       }
 
-      params.trashEntryStore.deleteTrashEntry(entry.trashPath)
-      return true
+      return dropTrashEntry(
+        { trashPath: entry.trashPath, trashEntryStore: params.trashEntryStore },
+        logger,
+      )
     })
 
     if (wasPurged) purgedCount++

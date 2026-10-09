@@ -1210,6 +1210,36 @@ describe("purgeOrphanedTrashEntries", () => {
     })
   })
 
+  it("keeps an orphan's row and purges the rest when one row drop fails", async () => {
+    // The summary log runs only after the last row, so it proves the failed
+    // drop did not end the purge, whichever row the store lists first.
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(recordedAbsentFile(".trash/stuck.md"))
+    index.recordTrashEntry(recordedAbsentFile(".trash/other.md"))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: storeFailingToDrop(index, ".trash/stuck.md") },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/stuck.md")?.trashPath).toBe(".trash/stuck.md")
+    expect(index.getTrashEntry(".trash/other.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
+      trashPath: ".trash/stuck.md",
+      error: "[Error]: database or disk is full",
+    })
+    expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
+      checked: 2,
+      purged: 1,
+    })
+  })
+
   it("keeps the row and warns when stat fails with a non-ENOENT error", async () => {
     const vault = await createTestVault()
     const lockedDir = join(vault, ".trash", "locked")
