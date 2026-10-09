@@ -221,7 +221,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 `vault_search_by_tag` matches a frontmatter tag and every tag nested under it (`project` matches `project/a/b` but not `projects`), or the tag alone with `exact: true`. It returns the most recently modified notes first, up to `limit` (default 20).
 
-Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tags` filter on `vault_search`) matches nested tags the same way and ignores letter case. Both sides of a comparison are folded with `toLowerCase()`, the rule Obsidian's Tags view groups spellings by. A leading `#` on an input is dropped, and an input that is only `#` is rejected.
+Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tags` filter on `vault_search`) ignores letter case and, unless `exact: true` is set on `vault_search_by_tag`, matches nested tags the same way. Both sides of a comparison are folded with `toLowerCase()`, the rule Obsidian's Tags view groups spellings by. A leading `#` on an input is dropped, and an input that is only `#` is rejected.
 
 `vault_list_tags` merges spellings that differ only in letter case into one entry. The entry shows the spelling with the most occurrences, where a repeat within one note counts again, and its count is the number of notes carrying any of the spellings.
 
