@@ -70,7 +70,7 @@ const compareWithRecordedFile = (
 /** Reads the file now at a trash entry's path and compares it with the row.
  *  A read failure other than a missing file is logged and reported as
  *  "unreadable". */
-const checkRecordedFile = async (
+const getRecordedFileCheck = async (
   params: { fullPath: string; entry: TrashEntry },
   logger: Logger,
 ): Promise<RecordedFileCheck> => {
@@ -180,7 +180,7 @@ const sweepOneEntry = async (
   // row behind, and Obsidian can later trash another note under the same name;
   // deleting that file would destroy a note the server never trashed. A file
   // that fails either check is kept and its row dropped.
-  const recordedFileCheck = await checkRecordedFile(
+  const recordedFileCheck = await getRecordedFileCheck(
     { fullPath: resolvedPath, entry: currentEntry },
     logger,
   )
