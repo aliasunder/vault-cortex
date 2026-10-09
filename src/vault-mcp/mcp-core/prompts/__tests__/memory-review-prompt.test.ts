@@ -236,7 +236,9 @@ describe("memory-review error degradation", () => {
     const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
 
     const text = textOf(await handler({}, fakeExtra))
-    expect(text).toContain("vault_list_memory_files")
+    expect(text).toBe(
+      'Could not load memory for review ([Error]: cannot list memory folder "About Me"). Try vault_list_memory_files or vault_get_memory to inspect the About Me/ layer directly.',
+    )
   })
 
   it("names a file a filesystem error quotes vault-relative in the fallback", async () => {

@@ -78,6 +78,14 @@ describe("describeErrorRelativeTo", () => {
     )
   })
 
+  it("matches a directory given with a trailing separator", async () => {
+    const error = await captureRejection(readFile(join(directory, "Notes/plan.md")))
+
+    expect(describeErrorRelativeTo({ error, directory: `${directory}/` })).toBe(
+      "[Error]: ENOENT: no such file or directory, open 'Notes/plan.md'",
+    )
+  })
+
   it("makes the path in Node's invalid-argument error relative to the directory", async () => {
     const error = await captureRejection(readFile(join(directory, "Bad\u0000Name.md")))
 
@@ -95,12 +103,14 @@ describe("describeErrorRelativeTo", () => {
     )
   })
 
-  it("keeps a folder deeper in the path that repeats the directory's own path", async () => {
-    // join() appends an absolute second part, so this is <directory>/<directory>/note.md
-    const error = await captureRejection(readFile(join(directory, directory, "note.md")))
+  it("keeps a path outside the directory whose deeper folders repeat the directory's path", async () => {
+    // join() appends an absolute second part, so the directory's whole path
+    // starts mid-path here, after a letter rather than a quote or a space
+    const pathOutside = join("/elsewhere", directory, "note.md")
+    const error = await captureRejection(readFile(pathOutside))
 
     expect(describeErrorRelativeTo({ error, directory })).toBe(
-      `[Error]: ENOENT: no such file or directory, open '${join(directory.slice(1), "note.md")}'`,
+      `[Error]: ENOENT: no such file or directory, open '${pathOutside}'`,
     )
   })
 

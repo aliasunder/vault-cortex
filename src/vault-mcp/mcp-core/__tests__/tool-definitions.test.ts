@@ -2452,6 +2452,19 @@ describe("file tool handlers", () => {
     },
   )
 
+  it("matches a file whose own extension is uppercase against a lowercase filter", async () => {
+    const { vault, listAssets } = await setupAssetHarness()
+    await writeFile(join(vault, "Scan.PNG"), "12345", "utf8")
+    await writeFile(join(vault, "b.jpg"), "12", "utf8")
+    const result = await listAssets({ extensions: ["png"] })
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      files: [{ path: "Scan.PNG", extension: ".png", bytes: 5 }],
+      extension_counts: { ".png": 1 },
+      total: 1,
+      truncated: false,
+    })
+  })
+
   it("pages with limit while counts and total cover the full filtered set", async () => {
     const { vault, listAssets } = await setupAssetHarness()
     await writeFile(join(vault, "a.png"), "1", "utf8")
