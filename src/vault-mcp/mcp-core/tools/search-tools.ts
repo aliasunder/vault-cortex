@@ -174,7 +174,7 @@ Errors:
 - "project/" matches neither "project" nor "project/a"; drop the "/".
 - tag must not be empty after its leading "#" — tag is "#" alone; pass the tag name.
 
-Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (the note's frontmatter tags Obsidian accepts, as written), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag Obsidian accepts, in the note's letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
@@ -217,7 +217,7 @@ Returns: JSON array of notes sorted by most recently modified, then by path asce
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted, not inline #tags. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag (e.g. "project/vault-cortex") appears as one full entry, not split into segments. Count is unique notes, not occurrences.
+      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Only frontmatter tags Obsidian accepts are counted, not inline #tags. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
@@ -460,7 +460,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value.
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related).
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
@@ -481,7 +481,7 @@ Errors:
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
 - leading_callout appears only when the note has a leading callout.
-- additional_properties appears only when frontmatter has keys outside title, type, created, related, and the tags key read.`,
+- additional_properties appears only when frontmatter has keys outside title, type, created, related, and the first key spelled tags in any letter case.`,
       inputSchema: {
         key: z.string().min(1).describe('Property key name (e.g. "status", "type", "tags").'),
         value: z.string().min(1).describe('Value to match (e.g. "active", "4", "1e-7").'),

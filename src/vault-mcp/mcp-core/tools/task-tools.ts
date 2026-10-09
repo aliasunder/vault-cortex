@@ -44,7 +44,7 @@ Parameters:
 
 Errors:
 - A malformed or calendar-invalid date filter throws with remediation text ("Use YYYY-MM-DD")
-- path without the ".md" extension is rejected
+- "path must end in .md" — add the ".md" extension
 - tag must not be empty after its leading "#" — tag is "#" alone; pass the tag name
 - No matches returns { total: 0, tasks: [] }, not an error
 
