@@ -768,7 +768,8 @@ export const memoryRecall = async (
 
 // ── Discovery queries ──────────────────────────────────────────
 
-/** Finds notes with a specific tag, ignoring letter case. Supports hierarchical prefix matching. */
+/** Finds notes with a tag, ignoring letter case. Unless `exact` is set, a tag
+ *  nested under it matches too (`project` matches `project/a`, not `projects`). */
 export const searchByTag = (
   context: SearchQueryContext,
   params: {
@@ -780,23 +781,19 @@ export const searchByTag = (
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
-  const condition = params.exact
-    ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE fold_tag(value) = ?)"
-    : `EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${NESTED_TAG_PREDICATE})`
-
-  const queryParams: unknown[] = params.exact
-    ? [normalizeTagQuery(params.tag), limit]
-    : [nestedTagLikePattern(params.tag), limit]
+  const tagMatch = params.exact
+    ? { predicate: "fold_tag(value) = ?", boundValue: normalizeTagQuery(params.tag) }
+    : { predicate: NESTED_TAG_PREDICATE, boundValue: nestedTagLikePattern(params.tag) }
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes n
-    WHERE ${condition}
+    WHERE EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${tagMatch.predicate})
     ORDER BY mtime DESC, path
     LIMIT ?
   `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...queryParams)
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(tagMatch.boundValue, limit)
   const results = rows.map(rowToMetadata)
   logger.info("search by tag", {
     tag: params.tag,
@@ -1040,8 +1037,9 @@ export const listTasks = (
   }
 
   if (params.tag !== undefined) {
-    // Same nested-tag semantics as searchByTag's prefix mode: "project"
-    // matches both #project and #project/vault-cortex, in any letter case.
+    // Same nested-tag semantics as searchByTag without `exact`: "project"
+    // matches the stored task tags project and project/vault-cortex (kept
+    // without "#"), in any letter case.
     conditions.push(`EXISTS (SELECT 1 FROM json_each(t.tags) WHERE ${NESTED_TAG_PREDICATE})`)
     queryParams.push(nestedTagLikePattern(params.tag))
   }
@@ -1134,9 +1132,12 @@ export const listAllTags = (
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
-  // Spellings group by their folded form. A group's count is its distinct
-  // notes, and the spelling shown is the one with the most occurrences across
-  // notes, which is Obsidian's Tags view rule, with ties broken by binary order.
+  // Spellings group by their folded form:
+  // - a group's count is its distinct notes;
+  // - the spelling shown is the one with the most occurrences, a repeat within
+  //   one note counting again, which is Obsidian's Tags view rule;
+  // - a tie goes to the spelling first in SQLite's default BINARY collation
+  //   (byte order).
   const sql = `
     WITH spelling AS (
       SELECT fold_tag(value) AS folded, value AS tag, COUNT(*) AS occurrences

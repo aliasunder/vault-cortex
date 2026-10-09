@@ -82,7 +82,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .string()
           .min(1)
           .optional()
-          .describe("Inline task tag; parent tags match children, letter case ignored"),
+          .describe('Tag on the task line, "#" optional; matches nested tags, any letter case'),
         heading: z
           .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
           .optional()

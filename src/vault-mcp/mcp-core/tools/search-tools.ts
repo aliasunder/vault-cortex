@@ -26,7 +26,7 @@ export const registerSearchTools = ({
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- tags: every listed tag must match, as itself or as a parent of a nested tag, ignoring letter case
+- tags: frontmatter tags, all required, any letter case; "project" also matches "project/a"
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter
 
@@ -49,7 +49,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- tags: every listed tag must match, as itself or as a parent of a nested tag, ignoring letter case
+- tags: frontmatter tags, all required, any letter case; "project" also matches "project/a"
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter
 
@@ -76,7 +76,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             tags: z
               .array(z.string().min(1))
               .optional()
-              .describe('Tags to match (e.g. ["reference"])'),
+              .describe('Tags, "#" optional (e.g. ["reference"])'),
             related: z
               .array(z.string().min(1))
               .optional()
@@ -171,16 +171,16 @@ Behavior: Reads the search index, which picks up a file change within a few seco
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error.
-- "project/" does not match notes tagged "project"; drop the trailing "/".
+- "project/" matches neither "project" nor "project/a"; drop the "/".
 - "tag must not be empty after its leading "#"" — tag is "#" alone; pass the tag name.
 
-Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag, not only the matched one), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (all the note's frontmatter tags, in their own letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
           .min(1)
           .describe(
-            'Tag name (e.g. "project", "session-log"). Hierarchical tags use "/" separators (e.g. "project/vault-cortex").',
+            'Tag, "#" optional (e.g. "project", "session-log"). Nested tags use "/" (e.g. "project/vault-cortex").',
           ),
         exact: z
           .boolean()
@@ -217,7 +217,7 @@ Returns: JSON array of notes sorted by most recently modified, then by path asce
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted, not inline #tags in note bodies. Spellings that differ only in letter case are one tag, shown as its most-used spelling. Each hierarchical tag (e.g. "project/vault-cortex") appears as one full entry, not split into segments. Count is unique notes, not occurrences.
+      description: `List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted, not inline #tags. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag (e.g. "project/vault-cortex") appears as one full entry, not split into segments. Count is unique notes, not occurrences.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 

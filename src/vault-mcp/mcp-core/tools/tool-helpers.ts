@@ -42,8 +42,11 @@ export type ToolRegistrationContext = ToolAvailability &
 // so the response doesn't contain the same data twice.
 const PROMOTED_KEYS = new Set(["title", "tags", "type", "created", "related"])
 
-// The index reads the tags from the first key spelled `tags` in any letter
-// case, as Obsidian does, so a `Tags:` key is promoted too
+// Every key spelled `tags` in any letter case counts as promoted:
+// - the index reads the note's tags from the first such key, as Obsidian does
+//   (TAGS_KEY_RE in obsidian-markdown/tags.ts), and returns them as `tags`;
+// - a second such key, which the index ignores, stays out of
+//   additional_properties too, so the tags are reported once, under `tags`.
 const isPromotedKey = (key: string): boolean => {
   return PROMOTED_KEYS.has(key) || key.toLowerCase() === "tags"
 }

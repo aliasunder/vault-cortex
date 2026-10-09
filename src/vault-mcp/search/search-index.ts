@@ -1463,8 +1463,11 @@ export const createSearchIndex = (
       unreadableBlockError,
     } = parseNoteForIndex(rawContent)
 
+    // Only tags follow Obsidian's Tags view rules (any letter case for the
+    // key, the tag-name test); related keeps every scalar value
     const tags = parseFrontmatterTags(frontmatter)
     const related = coerceToArray(frontmatter.related)
+
     const bodyLines = splitIntoLines(noteBody)
 
     // Store the leading callout (a top-of-file `> [!type]` block — info,

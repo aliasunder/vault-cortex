@@ -21,15 +21,17 @@ const TAGS_KEY_RE = /^tags$/i
 export const isObsidianTagName = (name: string): boolean =>
   TAG_NAME_RE.test(name) && !DIGITS_ONLY_RE.test(name)
 
-/** The raw `tags` value under the first key spelled `tags` in any letter case,
- *  which is the key Obsidian reads, even when its value is empty. */
+/** The raw value under the first key spelled `tags` in any letter case, the
+ *  only key Obsidian reads: a later `Tags` key is ignored even if the first
+ *  one is empty. */
 const findTagsValue = (frontmatter: Record<string, unknown>): unknown => {
   const tagsKey = Object.keys(frontmatter).find((key) => TAGS_KEY_RE.test(key))
   return tagsKey ? frontmatter[tagsKey] : undefined
 }
 
 /** The text entries of a `tags` value, each trimmed: a text value is one
- *  entry, a list keeps its text elements, and any other value has none. */
+ *  entry, a list keeps its text elements, and any other value has none. An
+ *  entry that trims to "" stays here and fails `isObsidianTagName` later. */
 const textEntriesOf = (value: unknown): string[] => {
   if (typeof value === "string") return [value.trim()]
   if (Array.isArray(value)) {
@@ -47,8 +49,9 @@ const tagNameOf = (entry: string): string => {
 
 /**
  * The tags Obsidian's Tags view shows for a note's properties, as bare names
- * in document order, one per occurrence. Reproduces Obsidian 1.14.4's
- * `parseFrontMatterTags` followed by `getTags`'s name test:
+ * in document order. A repeated tag is kept once per occurrence, because
+ * `listAllTags` picks the spelling it shows by occurrence count. Reproduces
+ * Obsidian 1.14.4's `parseFrontMatterTags` followed by `getTags`'s name test:
  * - the first key spelled `tags` in any letter case is read;
  * - a text value is one entry and a list keeps its text elements, trimmed;
  * - one leading `#` and one trailing `/` are removed;
