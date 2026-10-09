@@ -194,6 +194,11 @@ const leaveOlderStamp = (fixture: HookFixture): void => {
   writeFileSync(join(fixture.stateDir, "install-deps-lockhash"), `${OLDER_LOCKFILE_HASH}\n`)
 }
 
+/** Stamps the checkout as the hook's own install of its current lockfile. */
+const stampCurrentLockfile = (fixture: HookFixture): void => {
+  writeFileSync(join(fixture.stateDir, "install-deps-lockhash"), `${fixture.lockfileHash}\n`)
+}
+
 /** Writes the node_modules/.package-lock.json that npm leaves when an install
  *  finishes, dated relative to the marker (negative: before it). */
 const writeHiddenLockfile = (
@@ -345,6 +350,32 @@ describe("install-deps hook", () => {
       })
     })
 
+    it("skips the install, keeping the marker, when the wait for another session's lock times out", () => {
+      const fixture = createHookFixture()
+      leaveMarker(fixture)
+      writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
+      const binDir = createBinDirWithoutPerl(fixture)
+      // Exit 75 is the hook's perl script giving up after the lock wait.
+      writeExecutable(join(binDir, "perl"), "#!/bin/sh\nexit 75\n")
+
+      const run = runHook({ fixture, path: binDir })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        stderr: run.stderr,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        stderr: `[install-deps] concurrent install still running after 480s in ${fixture.checkout} — skipping\n`,
+        npmCalls: [],
+        marker: `${fixture.lockfileHash}\n`,
+        stamp: null,
+      })
+    })
+
     it("reinstalls when a dependency at any depth is missing", () => {
       const fixture = createHookFixture()
       leaveMarker(fixture)
@@ -423,6 +454,60 @@ describe("install-deps hook", () => {
         status: 0,
         stdout: "",
         npmCalls: ["ci"],
+        marker: null,
+        stamp: `${fixture.lockfileHash}\n`,
+      })
+    })
+  })
+
+  describe("with dependencies already current", () => {
+    it.each([
+      { label: "the stamp matches the lockfile", stamp: true },
+      { label: "the developer installed node_modules (no stamp)", stamp: false },
+    ])("does nothing before taking the lock when $label", ({ stamp }) => {
+      const fixture = createHookFixture()
+
+      if (stamp) stampCurrentLockfile(fixture)
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        stderr: run.stderr,
+        npmCalls: recordedNpmCalls(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        stderr: `[install-deps] node_modules current in ${fixture.checkout} — nothing to do\n`,
+        npmCalls: [],
+      })
+    })
+
+    // The fast path needs the SST types too, so the hook takes the lock, finds
+    // the dependencies current on the re-check, and installs only the types.
+    it("installs only the SST platform types under the lock when they are missing", () => {
+      const fixture = createHookFixture()
+      stampCurrentLockfile(fixture)
+      rmSync(join(fixture.checkout, ".sst", "platform", "config.d.ts"))
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        stderr: run.stderr,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        stderr: [
+          `[install-deps] node_modules current in ${fixture.checkout}`,
+          `[install-deps] installing SST platform types in ${fixture.checkout}`,
+          "",
+        ].join("\n"),
+        npmCalls: ["npx sst install"],
         marker: null,
         stamp: `${fixture.lockfileHash}\n`,
       })
