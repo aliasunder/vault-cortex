@@ -29,44 +29,53 @@ import { fileURLToPath } from "node:url"
 const SHELL_SCRIPT_GLOBS = [
   ".claude/hooks/*.sh",
   ".github/scripts/*.sh",
+  // The s6 init scripts, plus print-derived-env, which init-derive-env runs
   "rootfs/etc/s6-overlay/scripts/*",
   "rootfs/etc/s6-overlay/s6-rc.d/*/run",
   "rootfs/etc/s6-overlay/s6-rc.d/*/finish",
   "rootfs/usr/local/bin/get-sync-token",
+  // Stub of the obsidian-headless `ob` CLI for the remote-boot tests
   "src/__tests__/docker/fixtures/ob",
+  // Stub `docker` CLI for the CLI PTY tests
   "cli/src/__tests__/integration/fixtures/docker",
 ]
 
 const SHELLCHECK_VERSION = "0.11.0"
 
+type ShellcheckBuild = {
+  /** The platform as the release's archive names spell it (`linux.aarch64`). */
+  archivePlatform: string
+  sha256: string
+}
+
 /** The release's archive for each supported `${process.platform}-${process.arch}`.
  *  A version bump replaces every hash, computed from the new release's files. */
-const SHELLCHECK_BUILDS = new Map([
+const SHELLCHECK_BUILDS = new Map<string, ShellcheckBuild>([
   [
     "darwin-arm64",
     {
-      target: "darwin.aarch64",
+      archivePlatform: "darwin.aarch64",
       sha256: "56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79",
     },
   ],
   [
     "darwin-x64",
     {
-      target: "darwin.x86_64",
+      archivePlatform: "darwin.x86_64",
       sha256: "3c89db4edcab7cf1c27bff178882e0f6f27f7afdf54e859fa041fca10febe4c6",
     },
   ],
   [
     "linux-arm64",
     {
-      target: "linux.aarch64",
+      archivePlatform: "linux.aarch64",
       sha256: "12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588",
     },
   ],
   [
     "linux-x64",
     {
-      target: "linux.x86_64",
+      archivePlatform: "linux.x86_64",
       sha256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
     },
   ],
@@ -83,6 +92,8 @@ const isShellScript = (repoRelativePath: string): boolean => {
   )
 }
 
+/** Returns repo-relative paths. A requested path may be absolute, as
+ *  lint-staged passes them, or relative to the current directory. */
 const listShellScripts = (requestedPaths: readonly string[]): string[] => {
   if (requestedPaths.length === 0) {
     return globSync(SHELL_SCRIPT_GLOBS, { cwd: repoRoot }).toSorted()
@@ -91,33 +102,44 @@ const listShellScripts = (requestedPaths: readonly string[]): string[] => {
   const repoRelativePaths = requestedPaths.map((requestedPath) => {
     return relative(repoRoot, resolve(requestedPath))
   })
+  // A path no glob matches is skipped: lint-staged passes every staged file,
+  // and a new script is checked only once SHELL_SCRIPT_GLOBS lists it.
   return repoRelativePaths.filter(isShellScript)
 }
 
-/** Unpacks the binary next to its final path, then renames it into place, so
- *  a run interrupted mid-download never leaves a partial binary behind. */
+/**
+ * - Unpacks the binary next to its final path, then renames it into place, so
+ *   a run interrupted mid-download never leaves a partial binary behind.
+ * - A failed command or hash check returns `unavailable`; a filesystem error
+ *   in the cache directory throws Node's own error, which names the path.
+ */
 const downloadShellcheck = ({
   build,
   binaryPath,
   cacheDirectory,
 }: {
-  build: { target: string; sha256: string }
+  build: ShellcheckBuild
   binaryPath: string
   cacheDirectory: string
 }): ShellcheckBinary => {
-  const archiveName = `shellcheck-v${SHELLCHECK_VERSION}.${build.target}.tar.xz`
+  const archiveName = `shellcheck-v${SHELLCHECK_VERSION}.${build.archivePlatform}.tar.xz`
   const archiveUrl = `https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/${archiveName}`
   mkdirSync(cacheDirectory, { recursive: true })
   const downloadDirectory = mkdtempSync(join(cacheDirectory, "download-"))
 
   try {
     const archivePath = join(downloadDirectory, archiveName)
-    console.error(`Downloading ShellCheck ${SHELLCHECK_VERSION} (first run only)`)
+    console.error(`Downloading ShellCheck ${SHELLCHECK_VERSION} into ${cacheDirectory}`)
     const download = spawnSync("curl", ["-fsSL", "--retry", "3", "-o", archivePath, archiveUrl], {
       stdio: ["ignore", "ignore", "inherit"],
     })
 
-    if (download.error || download.status !== 0) {
+    // spawnSync reports a command it could not start in .error.
+    if (download.error) {
+      return { status: "unavailable", reason: `could not run curl: ${download.error.message}` }
+    }
+
+    if (download.status !== 0) {
       return { status: "unavailable", reason: `could not download ${archiveUrl}` }
     }
 
@@ -138,10 +160,15 @@ const downloadShellcheck = ({
       { stdio: ["ignore", "ignore", "inherit"] },
     )
 
-    if (extraction.error || extraction.status !== 0) {
+    if (extraction.error) {
+      return { status: "unavailable", reason: `could not run tar: ${extraction.error.message}` }
+    }
+
+    if (extraction.status !== 0) {
       return { status: "unavailable", reason: `could not unpack ${archiveName}` }
     }
 
+    // The archive holds one folder, shellcheck-v<version>/, with the binary in it.
     renameSync(
       join(downloadDirectory, `shellcheck-v${SHELLCHECK_VERSION}`, "shellcheck"),
       binaryPath,
@@ -159,7 +186,7 @@ const getShellcheckBinary = (): ShellcheckBinary => {
   const build = SHELLCHECK_BUILDS.get(platform)
 
   if (!build) {
-    return { status: "unavailable", reason: `ShellCheck publishes no build for ${platform}` }
+    return { status: "unavailable", reason: `no ShellCheck build is pinned for ${platform}` }
   }
 
   // XDG_CACHE_HOME is the standard override; ~/.cache is its documented default.
@@ -184,6 +211,7 @@ const lintShellScripts = (requestedPaths: readonly string[]): number => {
     return 1
   }
 
+  // The paths are repo-relative, so ShellCheck runs from the repo root.
   const result = spawnSync(shellcheck.binaryPath, shellScripts, { cwd: repoRoot, stdio: "inherit" })
 
   // spawnSync reports a command it could not start in result.error.

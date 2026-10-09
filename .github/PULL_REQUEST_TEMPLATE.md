@@ -15,8 +15,9 @@
 ## Checklist
 
 - [ ] `npm test` passes
-- [ ] `npm run lint` and `npm run lint:shell` pass
+- [ ] `npm run lint`, `npm run markdownlint`, and `npm run lint:shell` pass
 - [ ] `npm run prettier:check` passes
+- [ ] `npm run knip` passes
 - [ ] `npm run build` succeeds
 - [ ] New MCP tools follow the naming and description conventions in AGENTS.md
 - [ ] README or ARCHITECTURE.md updated (if user-facing behavior changed)

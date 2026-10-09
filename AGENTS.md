@@ -681,13 +681,14 @@ covers both kinds, with reasons:
   `scripts/lint-shell.ts` holds the list; a new script outside those paths
   is added to its `SHELL_SCRIPT_GLOBS`. The script pins the ShellCheck
   version and each platform's archive SHA-256, so local runs and CI use the
-  same release: the first run that needs it downloads the build into
-  `~/.cache/vault-cortex/` (or `$XDG_CACHE_HOME`). A version bump replaces
-  every hash from the new release's files. The pre-commit hook checks only
-  staged shell scripts, so a commit without one never downloads ShellCheck.
-  The s6 scripts start with `#!/command/with-contenv sh`,
-  which ShellCheck cannot read, so each carries a `# shellcheck shell=sh`
-  line. A disable directive gets a comment saying why.
+  same release. The first run that needs it downloads the build into
+  `vault-cortex/shellcheck-<version>/` under `$XDG_CACHE_HOME` (default
+  `~/.cache`). A version bump replaces every hash from the new release's
+  files. The pre-commit hook checks only staged shell scripts, so a commit
+  without one never downloads ShellCheck. ShellCheck cannot read the
+  `#!/command/with-contenv sh` shebang, so each s6 script that starts with
+  it carries a `# shellcheck shell=sh` line. A disable directive gets a
+  comment saying why.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if

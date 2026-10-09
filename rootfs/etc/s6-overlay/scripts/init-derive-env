@@ -1,5 +1,5 @@
 #!/command/with-contenv sh
-# shellcheck shell=sh
+# shellcheck shell=sh # ShellCheck cannot read the with-contenv shebang
 # First init step: publish derived env vars to every later s6 stage.
 # s6-overlay reads /run/s6/container_environment/<NAME> at the start of each
 # with-contenv stage, so files written here reach init-setup-user onward and

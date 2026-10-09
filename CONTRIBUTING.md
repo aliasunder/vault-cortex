@@ -6,10 +6,11 @@ to get started.
 ## Quick Start
 
 1. **Prerequisites:** Node.js >= 24 (see `.nvmrc`), Docker (optional, for
-   container mode), and `curl` (preinstalled on macOS and most Linux
-   distributions): the first `npm run lint:shell`, or the first commit that
-   changes a shell script, uses it to download the pinned
-   [ShellCheck](https://www.shellcheck.net) release
+   container mode), `curl`, and `tar` with xz support (both preinstalled on
+   macOS and most Linux distributions). The first `npm run lint:shell`, or
+   the first commit that changes a shell script, uses them to download the
+   [ShellCheck](https://www.shellcheck.net) release the repo pins for macOS
+   and Linux on x86_64 and arm64
 
 2. **Clone and install:**
 
@@ -152,7 +153,7 @@ truth. Key points:
 4. **Fill out the PR template** — the checklist mirrors CI
 5. **Required checks must pass** — the `main` ruleset requires all seven;
    each blocks the merge and the finding details are in its job log:
-   - `checks` — prettier, lint, markdownlint, shellcheck, knip, test, and
+   - `checks` — prettier, lint, markdownlint, lint:shell, knip, test, and
      build
    - `cli-smoke (22)` / `cli-smoke (24)` — builds the
      CLI and runs `init` on the engines floor (22.12) and the newest

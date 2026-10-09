@@ -280,7 +280,7 @@ describe("lint-shell script", () => {
     }).toEqual({
       status: 1,
       stderr:
-        "Downloading ShellCheck 0.11.0 (first run only)\n" +
+        `Downloading ShellCheck 0.11.0 into ${join(emptyCacheHome, CACHED_SHELLCHECK_DIRECTORY)}\n` +
         `✕ Could not get ShellCheck: ${pinnedArchive.name} has SHA-256 ${fakeArchiveSha256}, ` +
         `not the pinned ${pinnedArchive.sha256}\n`,
       cacheContents: [],
@@ -305,7 +305,7 @@ describe("lint-shell script", () => {
     }).toEqual({
       status: 1,
       stderr:
-        "Downloading ShellCheck 0.11.0 (first run only)\n" +
+        `Downloading ShellCheck 0.11.0 into ${join(emptyCacheHome, CACHED_SHELLCHECK_DIRECTORY)}\n` +
         `✕ Could not get ShellCheck: could not download ${RELEASE_URL}/${pinnedArchive.name}\n`,
       requestedUrl: `${RELEASE_URL}/${pinnedArchive.name}`,
     })
