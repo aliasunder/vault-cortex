@@ -29,7 +29,9 @@ import {
   pruneEmptyParents,
   readTrashFileIdentity,
   resolveSafePath,
+  trashDomainLockKey,
 } from "../vault-filesystem.js"
+import { withFileLock } from "../../../utils/file-write-lock.js"
 import {
   OverwriteBlockedError,
   parseNote,
@@ -1728,6 +1730,45 @@ describe("deleteNote — trash behavior", () => {
     expect(await readFile(join(vault, ".trash", "dup.md"), "utf8")).toBe("seed")
     expect(await readFile(join(vault, resultA.trashLocation), "utf8")).toBe("payload-a")
     expect(await readFile(join(vault, resultB.trashLocation), "utf8")).toBe("payload-b")
+  })
+
+  it("creates the trash folder under the trash-domain lock, so a sweep's folder prune cannot fail the move", async () => {
+    await mkdir(join(vault, "Projects"), { recursive: true })
+    await writeFile(join(vault, "Projects", "late.md"), "content", "utf8")
+    // As soon as the move's trash folder exists, queue what the retention
+    // sweep does after unlinking that folder's last expired file: prune it
+    // under the shared trash-domain lock. A folder created before the move
+    // takes the lock is still empty when the queued prune runs, so the prune
+    // removes it and the move's claim fails.
+    const queuedSweepPrunes: Promise<number>[] = []
+    vi.mocked(mkdir).mockImplementationOnce(async () => {
+      await mkdir(join(vault, ".trash", "Projects"), { recursive: true })
+      queuedSweepPrunes.push(
+        withFileLock(trashDomainLockKey(vault), () => {
+          return pruneEmptyParents(
+            { vaultPath: join(vault, ".trash"), path: "Projects/swept.md" },
+            logger,
+          )
+        }),
+      )
+      return undefined
+    })
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "Projects/late.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    // The prune ran after the move, found the trashed note, and removed nothing.
+    expect(await Promise.all(queuedSweepPrunes)).toEqual([0])
+    expect(result.trashLocation).toBe(".trash/Projects/late.md")
+    expect(await readFile(join(vault, ".trash", "Projects", "late.md"), "utf8")).toBe("content")
   })
 
   it("removes its claim placeholder and preserves the source when the rename fails", async () => {

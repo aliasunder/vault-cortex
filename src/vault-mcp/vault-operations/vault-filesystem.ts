@@ -631,8 +631,6 @@ const moveNoteToTrash = async (
     }),
   ]
 
-  await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true })
-
   // Serialized with the retention sweep (trashDomainLockKey; withFileLock is
   // the serializing mode, so concurrent moves and sweep rows queue rather
   // than fail): the sweep re-reads each row and unlinks its file under this
@@ -640,6 +638,11 @@ const moveNoteToTrash = async (
   // row's path between the sweep's re-read and its unlink — losing the
   // just-trashed copy.
   return withFileLock(trashDomainLockKey(params.vaultPath), async () => {
+    // The folder is created under the lock because a sweep row removes the
+    // .trash/ folders its unlink emptied. A folder created before the lock is
+    // taken can be removed again before the claim, which would then fail.
+    await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true })
+
     for (const candidateRelativePath of candidateRelativePaths) {
       const candidateFullPath = join(params.vaultPath, candidateRelativePath)
 
