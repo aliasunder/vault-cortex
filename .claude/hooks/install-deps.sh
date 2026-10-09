@@ -162,11 +162,15 @@ dependencies_are_current() {
 
 # Records an install the hook itself ran to completion: clears the marker and
 # stamps the lockfile hash, so a later lockfile change triggers a reinstall.
+# The stamp goes first: a hook killed between the two steps then leaves the
+# marker, and the next session's recovery step re-checks the tree. The other
+# order leaves neither file, which reads as a developer-installed tree and
+# turns the lockfile-change check off for this checkout.
 record_finished_install() {
-  rm -f "${marker}"
   if [[ -n "${lockfile_hash}" ]]; then
     printf '%s\n' "${lockfile_hash}" > "${stamp}"
   fi
+  rm -f "${marker}"
 }
 
 # A transient sst install failure leaves the types missing, so every session
