@@ -92,14 +92,14 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
 # - bash, sh and zsh with flags, then the opening quote of the command they
-#   run (`bash -lc 'npm test'`). The split below ignores quotes, so a run or
-#   a cd after ; or && inside the quoted text counts too
-#   (`bash -c 'cd /repo && npm test'`), and a mention there
-#   (`bash -c 'echo npm test'`) does not.
+#   run and any spaces after it (`bash -lc 'npm test'`). The split below
+#   ignores quotes, so a run or a cd after ; or && inside the quoted text
+#   counts too (`bash -c 'npm ci && cd /repo && npm test'`), and a mention
+#   there (`bash -c 'echo npm test'`) does not.
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
 timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
-shell_wrapper="(bash|sh|zsh)${flags_without_argument}[[:space:]]+[\"']?"
+shell_wrapper="(bash|sh|zsh)${flags_without_argument}[[:space:]]+([\"'][[:space:]]*)?"
 wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+|${shell_wrapper}"
 
 # shell_keyword matches a shell keyword a command can follow: if
@@ -110,11 +110,11 @@ shell_keyword='(if|then|do|else|elif|while|until|!|\{)[[:space:]]+'
 command_prefix="(${wrapper}|${shell_keyword}|${variable_setting})*"
 
 # The runner ends at a space, a ), the end of its command, or a closing quote
-# that only spaces, a redirection (`bash -c 'npm test' 2>`) or the end
-# follow, so `npm run testx` and `npm run test:cli-pty` are not runs, and
-# neither is the `vitest' src/` that `grep -E 'npm test|vitest' src/` splits
-# into.
-runner_end="([[:space:]]|\\)|[\"'][[:space:]]*([0-9]*[<>]|$)|$)"
+# followed only by spaces and then a redirection (`bash -c 'npm test' 2>`), a
+# ) (`$(bash -c 'npm test')`), a comment or the end. So `npm run testx` and
+# `npm run test:cli-pty` are not runs, and neither is the `vitest' src/` that
+# `grep -E 'npm test|vitest' src/` splits into.
+runner_end="([[:space:]]|\\)|[\"'][[:space:]]*([0-9]*[<>]|\\)|$)|[\"'][[:space:]]+#|$)"
 
 # A command that runs tests starts with the runner, after any prefix. A
 # mention elsewhere, as in `grep vitest package.json`, is not a run.

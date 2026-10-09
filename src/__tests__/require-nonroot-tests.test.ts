@@ -347,6 +347,12 @@ describe("require-nonroot-tests hook", () => {
       { label: "bash -c with a quoted test run", command: "bash -lc 'npm test'" },
       { label: "sh -c with a double-quoted vitest run", command: 'sh -c "npx vitest run"' },
       { label: "bash -c with a redirection after the quote", command: "bash -c 'npm test' 2>&1" },
+      { label: "bash -c inside a command substitution", command: "out=$(bash -c 'npm test')" },
+      {
+        label: "bash -c with a comment after the quote",
+        command: "bash -c 'npm test' # main suite",
+      },
+      { label: "bash -c with a space after the opening quote", command: "bash -c ' npm test'" },
       {
         label: "vitest with the main config in quotes",
         command: 'npx vitest run --config "vitest.config.ts"',
@@ -792,6 +798,10 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "inside a bash -c body",
         command: (checkout: string) => `bash -c 'cd ${checkout} && npm test'`,
+      },
+      {
+        label: "inside a bash -c body that opens with a space",
+        command: (checkout: string) => `bash -c ' cd ${checkout} && npm test'`,
       },
     ])("prepares the checkout an absolute cd names $label", ({ command }) => {
       const fixture = createHookFixture()
