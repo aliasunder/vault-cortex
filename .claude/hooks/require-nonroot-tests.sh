@@ -7,9 +7,11 @@
 #   exits at its first check, so it costs nothing on a developer machine.
 # - Before replying, it makes the folders a test run writes in the checkout
 #   writable for nobody.
-# - Registered on PreToolUse for Bash in .claude/settings.json with a
+# - .claude/settings.json registers the hook on PreToolUse for Bash with a
 #   10-second timeout. Claude Code cancels a slower hook and runs the command
 #   anyway, so the hook must stay fast.
+# - Exit 0 lets the command run. Exit 2 blocks it, and Claude Code passes the
+#   hook's stderr text to the model as the reply.
 set -euo pipefail
 
 if [[ "$(id -u)" != "0" ]]; then
@@ -22,9 +24,10 @@ if ! command -v setpriv >/dev/null 2>&1 || ! id nobody >/dev/null 2>&1; then
   exit 0
 fi
 
-# The payload is JSON on stdin. node prints the command and the session's
-# current folder, each ended by a NUL, the one character a shell command
-# cannot hold.
+# Claude Code sends the PreToolUse payload as JSON on stdin
+# (`{ "tool_input": { "command": ... }, "cwd": ..., ... }`). node prints the
+# payload's command and cwd (the session's current folder), each ended by a
+# NUL, the one character a shell command cannot hold.
 # - Without node, or with a payload node cannot parse, node prints nothing.
 #   Each read then fails and leaves its variable empty (`|| true` keeps set -e
 #   from ending the hook), and an empty command lets the call through.
@@ -35,41 +38,50 @@ fi
   IFS= read -r -d '' payload_cwd || true
 } < <(node -e '
   const chunks = []
-  // Decoded once at the end: a multi-byte character can be split across chunks.
+  // Buffer.concat runs before toString, because a multi-byte character can span two chunks.
   process.stdin.on("data", (chunk) => chunks.push(chunk)).on("end", () => {
     const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"))
     process.stdout.write(`${parsed.tool_input?.command ?? ""}\0${parsed.cwd ?? ""}\0`)
   })
 ' 2>/dev/null)
 
-# Flags between a command and what it runs: flags that take no argument
-# (`env -i`, `time -p`), or flags that may each take one argument
-# (`timeout -k 5`, `npx -p vitest`).
+# Two patterns match the flags between a command and what it runs.
+# - flags_without_argument matches flags that take no argument (`env -i`,
+#   `time -p`).
+# - flags_with_optional_argument matches flags that may each take one argument
+#   (`timeout -k 5`, `npx -p vitest`). A word after such a flag can be read as
+#   its argument or as the next part of the command (`npx -y vitest`,
+#   `timeout -k 5 600`), and the match takes whichever reading lets the rest
+#   of the pattern match.
 flags_without_argument='([[:space:]]+-[^[:space:]]*)*'
 flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
 
-# The two kinds of test runner:
-# - vitest itself: bare or by path (node_modules/.bin/vitest); after npx and
-#   its flags (`npx -y vitest`); or `node node_modules/vitest/vitest.mjs`.
-# - npm running a package.json script, after any npm flags (`npm -s test`,
-#   `npm run --silent test`): `npm test` or `npm t`, and the scripts test,
-#   test:coverage, test:watch and snapshot:update. The scripts
-#   test:remote-boot and test:cli-pty are left out; the exemptions below say
-#   why.
+# Two patterns match a test runner.
+# - vitest_runner matches vitest itself, bare or by path
+#   (node_modules/.bin/vitest), after npx and its flags (`npx -y vitest`), or
+#   as `node node_modules/vitest/vitest.mjs`.
+# - npm_runner matches `npm test`, `npm t`, and `npm run` of the scripts test,
+#   test:coverage, test:watch and snapshot:update, each after any npm flags
+#   (`npm -s test`, `npm run --silent test`). It leaves out test:remote-boot
+#   and test:cli-pty, the two suites exempt from this hook because they cannot
+#   run as nobody; the exemptions below give each reason.
 vitest_runner="(npx${flags_with_optional_argument}[[:space:]]+)?([^[:space:]]*/)?vitest|node[[:space:]]+[^[:space:]]*vitest\.mjs"
 npm_runner="npm${flags_with_optional_argument}[[:space:]]+(test|t|run${flags_with_optional_argument}[[:space:]]+(test|test:coverage|test:watch|snapshot:update))"
 test_runner="${vitest_runner}|${npm_runner}"
 
-# A VAR=value setting before the command (`CI=1 npm test`). The value is
-# double-quoted, single-quoted, or unquoted up to a space or quote.
+# variable_setting matches a VAR=value setting before the command
+# (`CI=1 npm test`), with the value in one of three forms.
+# - double_quoted matches text in double quotes, with no " inside.
+# - single_quoted matches text in single quotes, with no ' inside.
+# - unquoted matches text up to the first space, ' or ".
 double_quoted='"[^"]*"'
 single_quoted="'[^']*'"
 unquoted="[^[:space:]'\"]*"
 variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${unquoted})[[:space:]]+"
 
-# A wrapper that runs the command after it:
-# - env and time, with flags that take no argument. A flag's argument would
-#   look the same as the command it runs.
+# wrapper matches these commands, which run the command after them:
+# - env and time, with flags that take no argument, because a flag's argument
+#   would look the same as the command it runs.
 # - exec and command, without flags, so `command -v vitest` is not a run.
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
@@ -78,33 +90,41 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
 wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+"
 
-# A shell keyword that a command can follow: `if npm test`, then, do, else,
-# elif, while, until, `! npm test`, `{ npm test; }`.
+# shell_keyword matches a shell keyword a command can follow: if
+# (`if npm test`), then, do, else, elif, while, until, ! (`! npm test`) and {
+# (`{ npm test; }`).
 shell_keyword='(if|then|do|else|elif|while|until|!|\{)[[:space:]]+'
 
 command_prefix="(${wrapper}|${shell_keyword}|${variable_setting})*"
 
 # The runner ends at a space, a ) or the end of its command, so
 # `npm run testx` and `npm run test:cli-pty` are not runs.
-runner_end='([[:space:])]|$)'
+runner_end='([[:space:]]|\)|$)'
 
 # A command that runs tests starts with the runner, after any prefix. A
 # mention elsewhere, as in `grep vitest package.json`, is not a run.
 test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
 
-# A run of one of the two suites that stay with root, told by vitest's config
-# flag among the arguments: `vitest run --config vitest.cli-pty.config.ts`.
-# For an npm run the flag counts only after `--`, which hands it to vitest;
-# npm itself consumes `npm test --config x`, and the script runs the main
-# suite. The exemptions below say why the two suites stay with root.
-root_suite_config='(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts'
+# exempt_suite_run matches a run of the remote-boot or cli-pty suite, the two
+# exempt suites, by the config flag that names the suite's config file.
+# - vitest_exempt_suite_run matches the flag anywhere among vitest's arguments
+#   (`vitest run --config vitest.cli-pty.config.ts`).
+# - npm_exempt_suite_run matches the flag only after a `--` word of its own,
+#   which hands the flag to vitest. npm itself consumes the flag in
+#   `npm test --config x`, and the script runs the main suite.
+exempt_suite_config='(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts'
 arguments='([[:space:]]+[^[:space:]]+)*'
-vitest_root_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${arguments}[[:space:]]+${root_suite_config}"
-npm_root_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments}[[:space:]]+--${arguments}[[:space:]]+${root_suite_config}"
-root_suite_run="${vitest_root_suite_run}|${npm_root_suite_run}"
+vitest_exempt_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${arguments}[[:space:]]+${exempt_suite_config}"
+npm_exempt_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments}[[:space:]]+--${arguments}[[:space:]]+${exempt_suite_config}"
+exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 
-# A `cd` to an unquoted absolute path, to an unquoted relative path, and any
-# other cd.
+# The walk below tells three kinds of cd apart.
+# - cd_to_absolute_path matches a cd to an unquoted path that starts with /.
+# - cd_to_relative_path matches a cd to an unquoted relative path. Its first
+#   character cannot be - (`cd -` or a flag), or ~, $ or a quote, which only
+#   the shell can expand.
+# - any_cd matches any cd. The walk tries it last, so it catches the rest: a
+#   bare `cd`, `cd -`, and a ~, $ or quoted path.
 cd_to_absolute_path='^[[:space:]]*cd[[:space:]]+(/[^[:space:]]*)'
 cd_to_relative_path="^[[:space:]]*cd[[:space:]]+([^-~\"'\$[:space:]][^[:space:]]*)"
 any_cd='^[[:space:]]*cd([[:space:]]|$)'
@@ -126,33 +146,37 @@ cd_or_test_commands="$(printf '%s\n' "${tool_command}" |
   grep -E "${any_cd}|${test_run}")" || true
 
 # The walk checks each command on its own, so an exemption covers only its
-# own command, and tracks the folder the first stopped run runs in.
-# - Exemptions:
+# own command, and it tracks the folder the first stopped run runs in.
+# - Two kinds of run are exempt.
 #   - A run through setpriv never matches test_run, because setpriv is not
 #     one of the wrappers above.
 #   - Two suites have no permission tests and cannot run as nobody. Their
-#     npm scripts never match test_run, and root_suite_run drops a run with
+#     npm scripts never match test_run, and exempt_suite_run drops a run with
 #     either suite's config.
 #     - remote-boot needs the Docker socket, which nobody cannot open.
 #     - cli-pty starts the CLI with npx from a temp folder, so npx downloads
 #       tsx into nobody's empty npm cache. Cloud sessions reach the npm
 #       registry through a proxy whose CA bundle sits under /root, where
 #       nobody cannot read it, so that download fails.
-# - The run's folder starts as the session's current folder: the payload's
-#   cwd, or CLAUDE_PROJECT_DIR, which Claude Code sets to the project root,
-#   when the payload has no cwd.
+# - The run's folder starts as the session's folder, the first of these that
+#   is set: the payload's cwd, CLAUDE_PROJECT_DIR (which Claude Code sets to
+#   the project root), and `.`. Claude Code runs the hook in the session's
+#   current folder, so `.` and any path built on it resolve against that
+#   folder.
 #   - Each `cd` before the run moves it: to an unquoted absolute path
-#     (`git pull && cd /other/checkout && npm test`), relative to the folder
-#     so far for an unquoted relative path (`cd /other/checkout && cd src`),
-#     or back to the session's folder for a ~ or quoted path, which only the
-#     shell can resolve. A cd after the run does not count.
+#     (`git pull && cd /other/checkout && npm test`), or relative to the
+#     folder so far for an unquoted relative path
+#     (`cd /other/checkout && cd src`). For any other cd, the session's folder
+#     stands in for the target, which the hook does not resolve. A cd after
+#     the run does not count.
 #   - npm's --prefix folder is not followed: `npm --prefix /other/checkout
 #     test` counts as `npm test`.
-#   - When that folder is in no checkout, the session's folder's checkout
-#     stands in, and the run is still stopped rather than let through as root.
 session_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
 run_dir="${session_dir}"
 current_dir="${session_dir}"
+
+# root_test_runs collects the stopped runs' commands, one per line, so the
+# coverage hint at the end can look for a coverage run among them.
 root_test_runs=""
 while IFS= read -r split_command; do
   if [[ "${split_command}" =~ ${cd_to_absolute_path} ]]; then
@@ -167,20 +191,30 @@ while IFS= read -r split_command; do
     current_dir="${session_dir}"
     continue
   fi
+
+  # Every line left is a test run, except the one empty line the here-string
+  # passes when grep kept no line.
   [[ "${split_command}" =~ ${test_run} ]] || continue
-  [[ "${split_command}" =~ ${root_suite_run} ]] && continue
+
+  if [[ "${split_command}" =~ ${exempt_suite_run} ]]; then
+    continue
+  fi
 
   if [[ -z "${root_test_runs}" ]]; then
     run_dir="${current_dir}"
   fi
   root_test_runs+="${split_command}"$'\n'
 done <<<"${cd_or_test_commands}"
+
 if [[ -z "${root_test_runs}" ]]; then
   exit 0
 fi
 
-# When neither folder is in a checkout, there are no folders to prepare, and
-# the run is let through.
+# The hook prepares the checkout that holds the run's folder.
+# - When the run's folder is in no checkout, the session's folder's checkout
+#   stands in, and the run is still stopped rather than let through as root.
+# - When neither folder is in a checkout, there are no folders to prepare,
+#   and the run is let through.
 checkout="$(git -C "${run_dir}" rev-parse --show-toplevel 2>/dev/null ||
   git -C "${session_dir}" rev-parse --show-toplevel 2>/dev/null)" || exit 0
 
@@ -199,13 +233,14 @@ nobody_gid="$(id -g nobody)"
 # than the .nvmrc one CI runs, or missing. Without one there is no command to
 # offer, so the run goes through, as it does without setpriv or a nobody user.
 nobody_node_version="$(setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups node --version 2>/dev/null)" || nobody_node_version=""
+
 if [[ -z "${nobody_node_version}" ]]; then
   exit 0
 fi
 
-# Folders a test run writes: vitest's caches under node_modules, a fake HOME
-# that keeps npm's cache and logs out of root's home, and coverage/ for
-# test:coverage's report (gitignored).
+# A test run writes in these folders: vitest's caches under node_modules, a
+# fake HOME that keeps npm's cache and logs out of root's home, and coverage/
+# for test:coverage's report (gitignored).
 nobody_writable=(
   "${checkout}/node_modules/.vite-temp"
   "${checkout}/node_modules/.vitest"
@@ -217,14 +252,16 @@ mkdir -p "${nobody_writable[@]}"
 # snapshot:update rewrites the tool-surface baseline in this folder, the only
 # snapshot folder in the repo. git tracks neither owner nor write bits, so the
 # changes below add nothing to a diff.
-snapshots="${checkout}/src/vault-mcp/mcp-core/__tests__/__snapshots__"
-if [[ -d "${snapshots}" ]]; then
-  nobody_writable+=("${snapshots}")
+snapshots_dir="${checkout}/src/vault-mcp/mcp-core/__tests__/__snapshots__"
+
+if [[ -d "${snapshots_dir}" ]]; then
+  nobody_writable+=("${snapshots_dir}")
 fi
 
-# Owned by nobody and closed to other users, because vitest runs code from its
-# caches and checks test output against the snapshots. Recursive, because
-# files a root run left inside would stay root-owned.
+# The folders go to nobody and are not writable by group or other users,
+# because vitest runs code from its caches and checks test output against the
+# snapshots. Both commands recurse, so the files a root run left inside also
+# go to nobody and lose group and other write access.
 chown -R "${nobody_uid}:${nobody_gid}" "${nobody_writable[@]}"
 chmod -R go-w "${nobody_writable[@]}"
 
@@ -242,6 +279,7 @@ nvmrc_major="${nvmrc_version#v}"
 nvmrc_major="${nvmrc_major%%.*}"
 nobody_node_major="${nobody_node_version#v}"
 nobody_node_major="${nobody_node_major%%.*}"
+
 if [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
   echo "nobody's node is ${nobody_node_version}, not the ${nvmrc_version} that .nvmrc names and CI runs, so a result can differ from CI's." >&2
 fi
@@ -251,4 +289,5 @@ fi
 if [[ "${root_test_runs}" == *test:coverage* || "${root_test_runs}" == *--coverage* ]]; then
   echo "For a coverage run, also pass --coverage.clean=false (after -- for npm run): vitest otherwise deletes coverage/ first, which nobody cannot do in a root-owned checkout." >&2
 fi
+
 exit 2
