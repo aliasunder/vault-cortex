@@ -832,9 +832,9 @@ Returns: Confirmation with the number of lines the span covered and a preview of
             },
             reqLogger,
           ),
-        (msg) => {
+        (confirmation) => {
           reqLogger.info("tool_result", { outcome: "span_deleted" })
-          return msg
+          return confirmation
         },
       )
     },

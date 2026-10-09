@@ -95,12 +95,12 @@ export const registerMemoryReviewPrompt = ({
               const names = await memoryStore.listMemoryFileNames({ vaultPath }, sessionLogger)
               const loweredValue = (value ?? "").toLowerCase()
               return names.filter((name) => name.toLowerCase().startsWith(loweredValue))
-            } catch (err) {
+            } catch (error) {
               // Recoverable and high-frequency (fires per keystroke), so warn
               // rather than error — but never swallow it silently.
               sessionLogger.warn("prompt_completion_failed", {
                 prompt: PROMPT_NAMES.MEMORY_REVIEW,
-                error: describeError(err),
+                error: describeError(error),
               })
               return []
             }
@@ -223,9 +223,9 @@ export const registerMemoryReviewPrompt = ({
           truncated,
         })
         return textResult(memoryReview)
-      } catch (err) {
-        reqLogger.error("prompt_error", { error: describeError(err) })
-        const clientMessage = describeErrorRelativeTo({ error: err, directory: vaultPath })
+      } catch (error) {
+        reqLogger.error("prompt_error", { error: describeError(error) })
+        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"])
         const fallbackHint = fallbackTools
           ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`

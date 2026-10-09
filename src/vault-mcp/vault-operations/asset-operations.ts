@@ -19,8 +19,9 @@ import type { Logger } from "../../logger.js"
  *
  * - `readAssetContent` dispatches one file to its most useful representation:
  *   images fitted to a byte budget, canvases linearized (or their raw JSON
- *   source), text formats decoded verbatim — whole, or as a 1-based line
- *   window when paging params are supplied — structured errors for the rest.
+ *   source), PDFs as extracted text (or rendered page images), text formats
+ *   decoded verbatim — whole, or as a 1-based line window when paging params
+ *   are supplied — structured errors for the rest.
  * - `buildAssetListing` browses many: extension-filtered, counted per
  *   extension over the full filtered set, and capped to a statted slice.
  *   There is no pagination — `limit` caps the returned entries, and
@@ -157,9 +158,12 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
 // ── PDF reading ───────────────────────────────────────────────
 
 /** The server's message for pdf.js refusing to open a vault file, worded like
- *  the other read errors; undefined for any other failure. Matched by name,
- *  because importing pdf.js's classes here would load it before pdf-engine
- *  sets the canvas globals pdf.js must find on load. */
+ *  the other read errors; undefined for any other failure. The match is on
+ *  `name`:
+ *  - pdf.js's PasswordException and InvalidPDFException constructors set
+ *    these names.
+ *  - Importing those classes for instanceof would load pdf.js before
+ *    pdf-engine sets the canvas globals pdf.js must find on load. */
 const describePdfOpenFailure = (params: {
   error: unknown
   path: string
@@ -180,8 +184,10 @@ const describePdfOpenFailure = (params: {
 }
 
 /** Awaits a PDF read, rethrowing pdf.js's refusal to open the file as the
- *  server's own message, with pdf.js's error as the cause. */
-const withPdfOpenErrors = async <T>(params: {
+ *  server's own message, with pdf.js's error as the cause. Takes the read's
+ *  promise, so the read must be an async function: a synchronous throw would
+ *  happen before this function runs and skip the rewording. */
+const translatePdfOpenFailures = async <T>(params: {
   pdfRead: Promise<T>
   path: string
   bytes: number
@@ -258,8 +264,9 @@ const renderPdfPages = async (
  * they apply after the rendition is produced (passthrough source, canvas
  * outline or raw JSON, PDF-extracted text), so every path that can hit the
  * text cap can also be paged. Throws structured errors for images with
- * `raw`, non-text reads with paging params, and unsupported types — each
- * stating the file's existence and size.
+ * `raw`, non-text reads with paging params, PDFs that can't be opened or
+ * yield nothing, and unsupported types; the PDF and unsupported-type errors
+ * state the file's existence and size.
  */
 const readAssetContent = async (
   params: {
@@ -326,7 +333,7 @@ const readAssetContent = async (
     )
 
     if (raw) {
-      const proxy = await withPdfOpenErrors({
+      const proxy = await translatePdfOpenFailures({
         pdfRead: createPdfDocumentProxy(pdfData),
         path,
         bytes: asset.bytes,
@@ -366,7 +373,11 @@ const readAssetContent = async (
       }
     }
 
-    const pdfResult = await withPdfOpenErrors({
+    // extractPdfText opens and reads the document in one call, so the whole
+    // extraction is wrapped where the raw branch wraps only the open. Both
+    // scopes reword the same failures, because only pdf.js's open
+    // exceptions match by name and any other failure passes through.
+    const pdfResult = await translatePdfOpenFailures({
       pdfRead: extractPdfText(pdfData),
       path,
       bytes: asset.bytes,
