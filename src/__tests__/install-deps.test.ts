@@ -758,4 +758,65 @@ describe("install-deps hook", () => {
       })
     })
   })
+
+  describe("choosing the Node", () => {
+    // Native modules are built for the Node that installs them, so the
+    // install and the session's later commands must use the same one.
+    it("installs with, and puts on later commands' PATH, the .nvmrc Node rather than the one the launching shell put first", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), "24\n")
+      leaveOlderStamp(fixture)
+      writeNvmStandIn(fixture)
+      const launchingShellBin = createNodeBinDir(fixture, "v22")
+      const nvmrcBin = createNodeBinDir(fixture, "v24")
+      const defaultBin = createNodeBinDir(fixture, "v20")
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+
+      const run = runHook({
+        fixture,
+        path: `${launchingShellBin}:${fixture.stubBinDir}:${runnerPath()}`,
+        hookEventName: "SessionStart",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: join(nvmrcBin, "node"), defaultNode: join(defaultBin, "node") },
+      })
+
+      expect({
+        status: run.status,
+        npmCalls: recordedNpmCalls(fixture),
+        envFile: readFileIfPresent(claudeEnvFile),
+      }).toEqual({
+        status: 0,
+        npmCalls: ["v24 ci"],
+        envFile: `export PATH="${nvmrcBin}:$PATH"\n`,
+      })
+    })
+
+    it("installs with, and puts on later commands' PATH, nvm's default Node when nvm lacks the .nvmrc version", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), "24\n")
+      leaveOlderStamp(fixture)
+      writeNvmStandIn(fixture)
+      const launchingShellBin = createNodeBinDir(fixture, "v22")
+      const defaultBin = createNodeBinDir(fixture, "v20")
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+
+      const run = runHook({
+        fixture,
+        path: `${launchingShellBin}:${fixture.stubBinDir}:${runnerPath()}`,
+        hookEventName: "SessionStart",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: null, defaultNode: join(defaultBin, "node") },
+      })
+
+      expect({
+        status: run.status,
+        npmCalls: recordedNpmCalls(fixture),
+        envFile: readFileIfPresent(claudeEnvFile),
+      }).toEqual({
+        status: 0,
+        npmCalls: ["v20 ci"],
+        envFile: `export PATH="${defaultBin}:$PATH"\n`,
+      })
+    })
+  })
 })

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prepares the current checkout for a Claude Code session:
-# - At session start, puts nvm's Node first on PATH for the session's later
-#   Bash commands.
+# - At session start, puts the checkout's Node first on PATH for the session's
+#   later Bash commands.
 # - Installs the checkout's dependencies (npm ci, sst install) when they are
 #   missing, or when package-lock.json changed since the hook's own last
 #   install. Fresh cloud clones and fresh git worktrees start without
@@ -16,9 +16,8 @@ log() { echo "[install-deps] $*" >&2; }
 # A hook's non-interactive shell never sources .bashrc, so nvm is loaded here.
 # - Without it, npm can resolve to a system Node (cloud images ship Node 22 at
 #   /opt/node22).
-# - Sourcing nvm.sh activates the default alias, unless an nvm Node already
-#   comes first on PATH, which it keeps active instead. The install below
-#   runs on that Node unless the checkout's .nvmrc names an installed version.
+# - Which Node the hook then uses is settled once the checkout is known
+#   (checkout_node_path below).
 # - Cloud setup scripts install nvm with HOME=/root, so nvm can sit under
 #   /root even when this hook runs with a different HOME.
 for dir in "${HOME}/.nvm" /root/.nvm; do
@@ -57,14 +56,37 @@ checkout="$(git -C "${checkout_lookup_dir}" rev-parse --show-toplevel 2>/dev/nul
   exit 0
 }
 
-# Puts nvm's Node first on PATH for the session's later Bash commands.
+# The checkout's Node: the .nvmrc version when nvm has it installed, otherwise
+# nvm's default alias. The install and the session's later commands both run
+# on it, so native modules are built for the Node that loads them; a Node the
+# launching shell happened to put first would not match. Empty without nvm.
+# - nvm which reads the nearest .nvmrc at or above the current directory,
+#   hence the cd.
+# - set +u: with no .nvmrc, nvm which reads an unset variable, and under
+#   set -u that ends this subshell before the default alias lookup.
+# - --silent keeps its "Found .nvmrc" notice out of the captured path.
+# - A hook never downloads a Node, so an .nvmrc version nvm lacks falls back
+#   to the default alias.
+checkout_node_path=""
+if command -v nvm >/dev/null 2>&1; then
+  checkout_node_path="$(
+    cd "${checkout}" || exit
+    set +u
+    nvm which --silent 2>/dev/null || nvm which default 2>/dev/null
+  )" || true
+fi
+
+# Both lookups failing, or no nvm, leaves the PATH as the session started it.
+if [[ -x "${checkout_node_path}" ]]; then
+  PATH="$(dirname "${checkout_node_path}"):${PATH}"
+fi
+
+# Puts the checkout's Node first on PATH for the session's later Bash commands.
 # - Without it, those commands can find another Node first. Cloud images put
 #   /opt/node22 on PATH and do not load nvm.
 # - Claude Code sources CLAUDE_ENV_FILE before each of those commands, so one
 #   PATH line written there covers them all. Local sessions with nvm get the
 #   line too.
-# - nvm's Node is the checkout's .nvmrc version when nvm has it installed,
-#   otherwise nvm's default alias.
 persist_node_on_path() {
   # Only SessionStart invocations write the PATH line: Claude Code hands them
   # the session's own env file. A worktree entry (PostToolUse) could inherit
@@ -76,22 +98,7 @@ persist_node_on_path() {
   [[ -n "${CLAUDE_ENV_FILE:-}" ]] || return 0
   command -v nvm >/dev/null 2>&1 || return 0
 
-  # - nvm which reads the nearest .nvmrc at or above the current directory,
-  #   hence the cd.
-  # - set +u: with no .nvmrc, nvm which reads an unset variable, and under
-  #   set -u that ends this subshell before the default alias lookup.
-  # - --silent keeps its "Found .nvmrc" notice out of the captured path.
-  # - With no .nvmrc, or with its version not installed, nvm which fails and
-  #   the default alias is looked up instead.
-  local node_path
-  node_path="$(
-    cd "${checkout}" || exit
-    set +u
-    nvm which --silent 2>/dev/null || nvm which default 2>/dev/null
-  )" || true
-
-  # Both lookups failing leaves node_path empty.
-  if [[ ! -x "${node_path}" ]]; then
+  if [[ ! -x "${checkout_node_path}" ]]; then
     log "no nvm Node found for ${checkout} — later commands keep the session's PATH"
     return 0
   fi
@@ -101,14 +108,14 @@ persist_node_on_path() {
   # this hook again against the same file, so the line is added only when the
   # file lacks it.
   local path_line
-  path_line="export PATH=\"$(dirname "${node_path}"):\$PATH\""
+  path_line="export PATH=\"$(dirname "${checkout_node_path}"):\$PATH\""
   if ! grep -qxF "${path_line}" "${CLAUDE_ENV_FILE}" 2>/dev/null; then
     # Under set -e a failed write would end the hook before the install below.
     if ! printf '%s\n' "${path_line}" >> "${CLAUDE_ENV_FILE}"; then
       log "could not write ${CLAUDE_ENV_FILE} — later commands keep the session's PATH"
       return 0
     fi
-    log "later commands use $("${node_path}" --version) from ${node_path}"
+    log "later commands use $("${checkout_node_path}" --version) from ${checkout_node_path}"
   fi
 }
 
@@ -299,21 +306,10 @@ if orphaned_install_finished; then
   exit 0
 fi
 
-# nvm use below reads the nearest .nvmrc at or above the current directory,
-# and npm ci installs into it.
+# npm ci installs into the current directory.
 cd "${checkout}"
 printf '%s\n' "${lockfile_hash}" > "${marker}"
 
-# Honor the checkout's .nvmrc when that Node is already installed; otherwise
-# stay on the Node that loading nvm activated — a hook must never download a
-# Node version.
-if command -v nvm >/dev/null 2>&1; then
-  # With no .nvmrc, nvm use reads an unset variable, which under set -u
-  # would end the hook before the install.
-  set +u
-  nvm use >/dev/null 2>&1 || true
-  set -u
-fi
 log "installing dependencies in ${checkout} (node $(node --version 2>/dev/null || echo unknown))"
 
 # - On linux/x64, onnxruntime-node's postinstall downloads GPU binaries and
