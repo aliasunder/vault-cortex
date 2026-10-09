@@ -1450,16 +1450,6 @@ export const createSearchIndex = (
     const skipLinks = params.skipLinks ?? false
     const parsed = parseNoteForIndex(rawContent)
     const { data: frontmatter, unreadableBlockError } = parsed
-
-    // The body is indexed alone; the warning is the one place that names
-    // the note whose block needs repair
-    if (unreadableBlockError) {
-      logger.warn("indexed note without its properties block, which is not readable", {
-        path: filePath,
-        error: describeError(unreadableBlockError),
-      })
-    }
-
     const tags = coerceToArray(frontmatter.tags)
     const related = coerceToArray(frontmatter.related)
     const bodyLines = splitIntoLines(parsed.content)
@@ -1627,6 +1617,15 @@ export const createSearchIndex = (
     cachedCanvasNotePaths = undefined
     const sourceVersion = Symbol()
     sourceVersions.set(filePath, sourceVersion)
+
+    // Only a successful write is reported as indexed. This warning is the one
+    // place that names the note whose block needs repair.
+    if (unreadableBlockError) {
+      logger.warn("indexed note without its properties block, which is not readable", {
+        path: filePath,
+        error: describeError(unreadableBlockError),
+      })
+    }
 
     logger.debug("indexed note", {
       path: note.path,
@@ -2302,7 +2301,7 @@ export const createSearchIndex = (
         // from disk leave orphaned entries the per-file upsert never touches.
         if (selectDistinctMemoryFilesStmt) {
           // Built from the disk listing (markdownFiles) on purpose: a note
-          // that failed to read or parse still exists on disk, and treating
+          // that failed to read or index still exists on disk, and treating
           // it as deleted here would permanently remove its memory_entries
           // rows (the table survives rebuilds on content-hash identity).
           const memoryFilesOnDisk = new Set(
@@ -2426,7 +2425,7 @@ export const createSearchIndex = (
       embedder && selectAllNoteChunkPathsStmt
         ? (async () => {
             /** Keep chunks only for notes read into this rebuild's snapshot.
-             *  Missing and unreadable notes lose their vectors; parse failures retain them. */
+             *  Missing and unreadable notes lose their vectors; index failures retain them. */
             const indexedChunkPaths = selectAllNoteChunkPathsStmt
               .all()
               .map((chunkPath) => chunkPath.note_path)

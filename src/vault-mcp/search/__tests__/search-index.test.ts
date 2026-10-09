@@ -3920,6 +3920,29 @@ describe("rebuildFromVault", () => {
     expect(healthyHits.map((result) => result.path)).toEqual(["About Me/Principles.md"])
   })
 
+  it("does not report a note with an unreadable block as indexed when its index write fails", async () => {
+    const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
+    const poisonedIndex = createSearchIndex(":memory:")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    // The only fixture note with a task, so the poisoned statement fires for it alone
+    await writeFile(
+      join(vaultDir, "tasked.md"),
+      "---\ntitle: [unclosed\n---\ntasked body text\n\n- [ ] A task\n",
+      "utf8",
+    )
+
+    taskInsertPoison.arm()
+    const { count } = await poisonedIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    taskInsertPoison.disarm()
+
+    expect(count).toBe(2)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "skipped note that failed to index during rebuild",
+      { path: "tasked.md", error: `[Error]: ${taskInsertPoison.message}` },
+    )
+  })
+
   it.each([
     { label: "a list", content: "---\n- a\n- b\n---\nquokka body text\n" },
     { label: "a single value", content: "---\nJust a paragraph.\n---\nquokka body text\n" },
