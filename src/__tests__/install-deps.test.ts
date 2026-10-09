@@ -27,11 +27,13 @@ import { describe, expect, it, onTestFinished } from "vitest"
 const HOOK_PATH = resolve(import.meta.dirname, "../../.claude/hooks/install-deps.sh")
 
 /** Stub `npm`: appends its arguments to STUB_NPM_LOG, one call per line. An
- *  `ls` call exits with STUB_NPM_LS_STATUS; every other call succeeds. */
+ *  `ls` call exits with STUB_NPM_LS_STATUS and a `ci` call with
+ *  STUB_NPM_CI_STATUS; every other call succeeds. */
 const NPM_STUB = `#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_NPM_LOG"
 case "$*" in
   "ls "*|*" ls "*) exit "\${STUB_NPM_LS_STATUS:-0}" ;;
+  ci) exit "\${STUB_NPM_CI_STATUS:-0}" ;;
 esac
 exit 0
 `
@@ -41,6 +43,17 @@ const NPX_STUB = `#!/bin/sh
 printf 'npx %s\\n' "$*" >> "$STUB_NPM_LOG"
 exit 0
 `
+
+/** Stub nvm.sh for the fixture's HOME. The hook loads the first non-empty
+ *  nvm.sh among $HOME/.nvm and /root/.nvm, so this file keeps a root run from
+ *  loading the runner's own nvm, which would put a real npm ahead of the
+ *  stubs. It defines no nvm command, so the hook's nvm steps are skipped. */
+const NVM_STUB = `# nvm stand-in: defines nothing and leaves PATH as it is
+`
+
+/** The hash of a package-lock.json other than the fixture's: the lockfile an
+ *  earlier install used. */
+const OLDER_LOCKFILE_HASH = "1111111111111111111111111111111111111111"
 
 /** Every tool the hook runs on the marker-recovery path except perl, which
  *  takes the install lock. */
@@ -52,7 +65,8 @@ type HookFixture = {
   checkout: string
   /** The checkout's git directory, where the hook keeps its marker and stamp. */
   stateDir: string
-  /** A folder in no checkout: the hook's working directory and HOME. */
+  /** A folder in no checkout: the hook's working directory and HOME, with
+   *  the stub nvm.sh in .nvm/. */
   outsideDir: string
   stubBinDir: string
   npmLog: string
@@ -70,6 +84,8 @@ type HookRunOptions = {
   fixture: HookFixture
   /** What the stub `npm ls` exits with. Defaults to 0, a complete tree. */
   npmLsStatus?: number
+  /** What the stub `npm ci` exits with. Defaults to 0, a finished install. */
+  npmCiStatus?: number
   /** The hook's PATH. Defaults to the stubs ahead of the runner's PATH. */
   path?: string
 }
@@ -103,6 +119,8 @@ const createHookFixture = (): HookFixture => {
 
   writeExecutable(join(stubBinDir, "npm"), NPM_STUB)
   writeExecutable(join(stubBinDir, "npx"), NPX_STUB)
+  mkdirSync(join(outsideDir, ".nvm"))
+  writeFileSync(join(outsideDir, ".nvm", "nvm.sh"), NVM_STUB)
 
   const gitEnv = { PATH: runnerPath(), HOME: outsideDir }
   execFileSync("git", ["init", "--quiet", checkout], { env: gitEnv, stdio: "pipe" })
@@ -150,11 +168,20 @@ const createBinDirWithoutPerl = (fixture: HookFixture): string => {
  *  hidden lockfile's age relative to it never depends on the clock. */
 const MARKER_MTIME = 1_700_000_000
 
-/** Leaves the marker an interrupted install of the current lockfile would. */
-const leaveMarker = (fixture: HookFixture): void => {
+/** Leaves the marker an interrupted install would: of the current lockfile
+ *  unless another lockfile hash is given. */
+const leaveMarker = (
+  fixture: HookFixture,
+  { lockfileHash = fixture.lockfileHash }: { lockfileHash?: string } = {},
+): void => {
   const markerPath = join(fixture.stateDir, "install-deps-incomplete")
-  writeFileSync(markerPath, `${fixture.lockfileHash}\n`)
+  writeFileSync(markerPath, `${lockfileHash}\n`)
   utimesSync(markerPath, MARKER_MTIME, MARKER_MTIME)
+}
+
+/** Stamps the checkout as the hook's own install of another lockfile. */
+const leaveOlderStamp = (fixture: HookFixture): void => {
+  writeFileSync(join(fixture.stateDir, "install-deps-lockhash"), `${OLDER_LOCKFILE_HASH}\n`)
 }
 
 /** Writes the node_modules/.package-lock.json that npm leaves when an install
@@ -183,6 +210,7 @@ const runHook = (options: HookRunOptions): HookRun => {
       HOME: fixture.outsideDir,
       STUB_NPM_LOG: fixture.npmLog,
       STUB_NPM_LS_STATUS: String(options.npmLsStatus ?? 0),
+      STUB_NPM_CI_STATUS: String(options.npmCiStatus ?? 0),
     },
   })
 
@@ -195,28 +223,44 @@ const recordedNpmCalls = (fixture: HookFixture): string[] => {
   return readFileSync(fixture.npmLog, "utf8").trimEnd().split("\n")
 }
 
-/** The hook's marker and stamp after a run: whether the marker is still
- *  there, and what the stamp holds (null when unwritten). */
-const installState = (fixture: HookFixture): { markerLeft: boolean; stamp: string | null } => {
-  const stampPath = join(fixture.stateDir, "install-deps-lockhash")
+const readFileIfPresent = (path: string): string | null =>
+  existsSync(path) ? readFileSync(path, "utf8") : null
 
+/** What the hook's marker and stamp hold after a run (null when absent). */
+const installState = (fixture: HookFixture): { marker: string | null; stamp: string | null } => {
   return {
-    markerLeft: existsSync(join(fixture.stateDir, "install-deps-incomplete")),
-    stamp: existsSync(stampPath) ? readFileSync(stampPath, "utf8") : null,
+    marker: readFileIfPresent(join(fixture.stateDir, "install-deps-incomplete")),
+    stamp: readFileIfPresent(join(fixture.stateDir, "install-deps-lockhash")),
   }
 }
 
 describe("install-deps hook", () => {
-  it("resolves npm and npx to the stubs ahead of the real binaries", () => {
+  it("resolves npm and npx to the stubs, with no nvm command, after loading the HOME nvm.sh the way the hook does", () => {
     const fixture = createHookFixture()
+    // The hook's own condition: it loads $HOME/.nvm/nvm.sh only when the file
+    // is non-empty, and otherwise falls through to /root/.nvm.
+    const lookupScript = [
+      'if [[ -s "$HOME/.nvm/nvm.sh" ]]; then . "$HOME/.nvm/nvm.sh"; echo "loaded $HOME/.nvm/nvm.sh"; fi',
+      "command -v npm",
+      "command -v npx",
+      'command -v nvm || echo "no nvm command"',
+    ].join("\n")
 
-    const lookup = spawnSync("bash", ["-c", "command -v npm; command -v npx"], {
+    const lookup = spawnSync("bash", ["-c", lookupScript], {
       cwd: fixture.outsideDir,
       encoding: "utf8",
-      env: { PATH: `${fixture.stubBinDir}:${runnerPath()}` },
+      env: { PATH: `${fixture.stubBinDir}:${runnerPath()}`, HOME: fixture.outsideDir },
     })
 
-    expect(lookup.stdout).toBe(`${fixture.stubBinDir}/npm\n${fixture.stubBinDir}/npx\n`)
+    expect(lookup.stdout).toBe(
+      [
+        `loaded ${fixture.outsideDir}/.nvm/nvm.sh`,
+        `${fixture.stubBinDir}/npm`,
+        `${fixture.stubBinDir}/npx`,
+        "no nvm command",
+        "",
+      ].join("\n"),
+    )
   })
 
   describe("with a marker left by an interrupted install", () => {
@@ -236,7 +280,7 @@ describe("install-deps hook", () => {
         status: 0,
         stdout: "",
         npmCalls: [`--prefix ${fixture.checkout} ls --all`],
-        markerLeft: false,
+        marker: null,
         stamp: `${fixture.lockfileHash}\n`,
       })
     })
@@ -257,7 +301,7 @@ describe("install-deps hook", () => {
         status: 0,
         stdout: "",
         npmCalls: ["ci"],
-        markerLeft: false,
+        marker: null,
         stamp: `${fixture.lockfileHash}\n`,
       })
     })
@@ -278,7 +322,7 @@ describe("install-deps hook", () => {
         status: 0,
         stdout: "",
         npmCalls: [`--prefix ${fixture.checkout} ls --all`, "ci"],
-        markerLeft: false,
+        marker: null,
         stamp: `${fixture.lockfileHash}\n`,
       })
     })
@@ -299,7 +343,7 @@ describe("install-deps hook", () => {
         status: 0,
         stdout: "",
         npmCalls: ["ci"],
-        markerLeft: false,
+        marker: null,
         stamp: `${fixture.lockfileHash}\n`,
       })
     })
@@ -319,8 +363,76 @@ describe("install-deps hook", () => {
         status: 0,
         stdout: "",
         npmCalls: ["ci"],
-        markerLeft: false,
+        marker: null,
         stamp: `${fixture.lockfileHash}\n`,
+      })
+    })
+
+    it("reinstalls without consulting npm ls when the marker names an older lockfile", () => {
+      const fixture = createHookFixture()
+      leaveMarker(fixture, { lockfileHash: OLDER_LOCKFILE_HASH })
+      writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        npmCalls: ["ci"],
+        marker: null,
+        stamp: `${fixture.lockfileHash}\n`,
+      })
+    })
+  })
+
+  describe("with no marker", () => {
+    // Without a package-lock.json the lockfile hash is empty, and so is the
+    // hash read from a missing marker, so only the marker's absence keeps
+    // this tree from being taken for an interrupted install.
+    it("reinstalls without consulting npm ls when a stamped checkout has lost its package-lock.json", () => {
+      const fixture = createHookFixture()
+      rmSync(join(fixture.checkout, "package-lock.json"))
+      leaveOlderStamp(fixture)
+      writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        npmCalls: ["ci"],
+        marker: null,
+        stamp: `${OLDER_LOCKFILE_HASH}\n`,
+      })
+    })
+
+    it("leaves a marker holding the current lockfile's hash, and the old stamp, when npm ci fails", () => {
+      const fixture = createHookFixture()
+      leaveOlderStamp(fixture)
+
+      const run = runHook({ fixture, npmCiStatus: 1 })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        npmCalls: ["ci"],
+        marker: `${fixture.lockfileHash}\n`,
+        stamp: `${OLDER_LOCKFILE_HASH}\n`,
       })
     })
   })
