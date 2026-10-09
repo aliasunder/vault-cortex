@@ -62,6 +62,16 @@ const NVM_STUB = `# nvm stand-in: defines nothing and leaves PATH as it is
  *  earlier install used. */
 const OLDER_LOCKFILE_HASH = "1111111111111111111111111111111111111111"
 
+/** How the hook names the runner's Node in its stamp and marker. The stub
+ *  `node` binaries run the runner's Node, so they report the same ABI. */
+const RUNNER_NODE_ABI = `node-abi-${process.versions.modules}`
+
+/** The stamp of an earlier install of another lockfile under the same Node. */
+const OLDER_INSTALL_IDENTITY = `${OLDER_LOCKFILE_HASH} ${RUNNER_NODE_ABI}`
+
+/** An ABI no Node in use reports: a tree built under another Node. */
+const OTHER_NODE_ABI = "node-abi-1"
+
 /** Every tool the hook runs on the marker-recovery path except perl, which
  *  takes the install lock. */
 const HOOK_TOOLS_BESIDES_PERL = ["bash", "node", "git", "cat", "rm", "npm", "npx"]
@@ -79,6 +89,9 @@ type HookFixture = {
   npmLog: string
   /** The hash of the fixture's package-lock.json, as git reports it. */
   lockfileHash: string
+  /** What the hook's stamp and marker hold for the fixture's lockfile
+   *  installed under the runner's Node. */
+  installIdentity: string
 }
 
 type HookRun = {
@@ -166,6 +179,7 @@ const createHookFixture = (): HookFixture => {
     stubBinDir,
     npmLog: join(tempDir, "npm.log"),
     lockfileHash,
+    installIdentity: `${lockfileHash} ${RUNNER_NODE_ABI}`,
   }
 }
 
@@ -196,21 +210,21 @@ const MARKER_MTIME = 1_700_000_000
  *  unless another lockfile hash is given. */
 const leaveMarker = (
   fixture: HookFixture,
-  { lockfileHash = fixture.lockfileHash }: { lockfileHash?: string } = {},
+  { installIdentity = fixture.installIdentity }: { installIdentity?: string } = {},
 ): void => {
   const markerPath = join(fixture.stateDir, "install-deps-incomplete")
-  writeFileSync(markerPath, `${lockfileHash}\n`)
+  writeFileSync(markerPath, `${installIdentity}\n`)
   utimesSync(markerPath, MARKER_MTIME, MARKER_MTIME)
 }
 
 /** Stamps the checkout as the hook's own install of another lockfile. */
 const leaveOlderStamp = (fixture: HookFixture): void => {
-  writeFileSync(join(fixture.stateDir, "install-deps-lockhash"), `${OLDER_LOCKFILE_HASH}\n`)
+  writeFileSync(join(fixture.stateDir, "install-deps-lockhash"), `${OLDER_INSTALL_IDENTITY}\n`)
 }
 
 /** Stamps the checkout as the hook's own install of its current lockfile. */
 const stampCurrentLockfile = (fixture: HookFixture): void => {
-  writeFileSync(join(fixture.stateDir, "install-deps-lockhash"), `${fixture.lockfileHash}\n`)
+  writeFileSync(join(fixture.stateDir, "install-deps-lockhash"), `${fixture.installIdentity}\n`)
 }
 
 /** Writes the node_modules/.package-lock.json that npm leaves when an install
@@ -352,7 +366,7 @@ describe("install-deps hook", () => {
         stdout: "",
         npmCalls: [`--prefix ${fixture.checkout} ls --all`],
         marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        stamp: `${fixture.installIdentity}\n`,
       })
     })
 
@@ -374,7 +388,7 @@ describe("install-deps hook", () => {
         stdout: "",
         stderr: `[install-deps] perl not found, so the install lock cannot be taken — skipping the install in ${fixture.checkout}; run npm ci and npx sst install yourself\n`,
         npmCalls: [],
-        marker: `${fixture.lockfileHash}\n`,
+        marker: `${fixture.installIdentity}\n`,
         stamp: null,
       })
     })
@@ -400,7 +414,7 @@ describe("install-deps hook", () => {
         stdout: "",
         stderr: `[install-deps] could not take the install lock in ${fixture.checkout} (perl exit 2) — skipping the install; run npm ci and npx sst install yourself\n`,
         npmCalls: [],
-        marker: `${fixture.lockfileHash}\n`,
+        marker: `${fixture.installIdentity}\n`,
         stamp: null,
       })
     })
@@ -426,7 +440,7 @@ describe("install-deps hook", () => {
         stdout: "",
         stderr: `[install-deps] concurrent install still running after 480s in ${fixture.checkout} — skipping\n`,
         npmCalls: [],
-        marker: `${fixture.lockfileHash}\n`,
+        marker: `${fixture.installIdentity}\n`,
         stamp: null,
       })
     })
@@ -448,7 +462,7 @@ describe("install-deps hook", () => {
         stdout: "",
         npmCalls: [`--prefix ${fixture.checkout} ls --all`, "ci"],
         marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        stamp: `${fixture.installIdentity}\n`,
       })
     })
 
@@ -469,7 +483,7 @@ describe("install-deps hook", () => {
         stdout: "",
         npmCalls: ["ci"],
         marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        stamp: `${fixture.installIdentity}\n`,
       })
     })
 
@@ -489,13 +503,13 @@ describe("install-deps hook", () => {
         stdout: "",
         npmCalls: ["ci"],
         marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        stamp: `${fixture.installIdentity}\n`,
       })
     })
 
-    it("reinstalls without consulting npm ls when the marker names an older lockfile", () => {
+    it("reinstalls without consulting npm ls when the marker names another Node", () => {
       const fixture = createHookFixture()
-      leaveMarker(fixture, { lockfileHash: OLDER_LOCKFILE_HASH })
+      leaveMarker(fixture, { installIdentity: `${fixture.lockfileHash} ${OTHER_NODE_ABI}` })
       writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
 
       const run = runHook({ fixture })
@@ -510,7 +524,28 @@ describe("install-deps hook", () => {
         stdout: "",
         npmCalls: ["ci"],
         marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        stamp: `${fixture.installIdentity}\n`,
+      })
+    })
+
+    it("reinstalls without consulting npm ls when the marker names an older lockfile", () => {
+      const fixture = createHookFixture()
+      leaveMarker(fixture, { installIdentity: OLDER_INSTALL_IDENTITY })
+      writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        npmCalls: ["ci"],
+        marker: null,
+        stamp: `${fixture.installIdentity}\n`,
       })
     })
   })
@@ -556,7 +591,30 @@ describe("install-deps hook", () => {
         stdout: "",
         npmCalls: ["ci"],
         marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        stamp: `${fixture.installIdentity}\n`,
+      })
+    })
+
+    it("reinstalls a stamped checkout built under another Node, though its lockfile is unchanged", () => {
+      const fixture = createHookFixture()
+      writeFileSync(
+        join(fixture.stateDir, "install-deps-lockhash"),
+        `${fixture.lockfileHash} ${OTHER_NODE_ABI}\n`,
+      )
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        npmCalls: ["ci"],
+        marker: null,
+        stamp: `${fixture.installIdentity}\n`,
       })
     })
 
@@ -585,7 +643,7 @@ describe("install-deps hook", () => {
         ].join("\n"),
         npmCalls: ["npx sst install"],
         marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        stamp: `${fixture.installIdentity}\n`,
       })
     })
   })
@@ -612,11 +670,11 @@ describe("install-deps hook", () => {
         stdout: "",
         npmCalls: ["ci"],
         marker: null,
-        stamp: `${OLDER_LOCKFILE_HASH}\n`,
+        stamp: `${OLDER_INSTALL_IDENTITY}\n`,
       })
     })
 
-    it("leaves a marker holding the current lockfile's hash, and the old stamp, when npm ci fails", () => {
+    it("leaves a marker naming the current lockfile and Node, and the old stamp, when npm ci fails", () => {
       const fixture = createHookFixture()
       leaveOlderStamp(fixture)
 
@@ -631,8 +689,8 @@ describe("install-deps hook", () => {
         status: 0,
         stdout: "",
         npmCalls: ["ci"],
-        marker: `${fixture.lockfileHash}\n`,
-        stamp: `${OLDER_LOCKFILE_HASH}\n`,
+        marker: `${fixture.installIdentity}\n`,
+        stamp: `${OLDER_INSTALL_IDENTITY}\n`,
       })
     })
 
@@ -658,7 +716,7 @@ describe("install-deps hook", () => {
         hiddenLockfileWritten: true,
         npmCalls: ["ci", "ci"],
         marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        stamp: `${fixture.installIdentity}\n`,
       })
     })
   })

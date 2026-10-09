@@ -3,9 +3,9 @@
 # - At session start, puts the checkout's Node first on PATH for the session's
 #   later Bash commands.
 # - Installs the checkout's dependencies (npm ci, sst install) when they are
-#   missing, or when package-lock.json changed since the hook's own last
-#   install. Fresh cloud clones and fresh git worktrees start without
-#   node_modules.
+#   missing, or when package-lock.json or the checkout's Node changed since
+#   the hook's own last install. Fresh cloud clones and fresh git worktrees
+#   start without node_modules.
 # Registered on SessionStart for startup, resume, and /clear, and on
 # PostToolUse for EnterWorktree.
 set -euo pipefail
@@ -129,16 +129,18 @@ persist_node_on_path
 # predates this hook.
 state_dir="$(git -C "${checkout}" rev-parse --absolute-git-dir)"
 
-# The stamp records which package-lock.json the hook's own last install used,
-# so a stamped checkout reinstalls after a pull changes the lockfile. An
-# unstamped checkout (node_modules installed by the developer, not the hook)
-# is trusted as-is — the hook must never wipe an install it does not own.
+# The stamp records which package-lock.json and which Node the hook's own last
+# install used, so a stamped checkout reinstalls after a pull changes the
+# lockfile or the checkout's Node changes. An unstamped checkout (node_modules
+# installed by the developer, not the hook) is trusted as-is — the hook must
+# never wipe an install it does not own.
 stamp="${state_dir}/install-deps-lockhash"
 
 # The marker survives an interrupted npm ci (a hook-timeout kill included), so
-# a partial node_modules is retried instead of trusted. It holds the hash of
-# the package-lock.json that install used, so the interrupted-install recovery
-# step further down never stamps a tree built from an older lockfile.
+# a partial node_modules is retried instead of trusted. It holds the install
+# identity (below) that install used, so the interrupted-install recovery step
+# further down never stamps a tree built from an older lockfile or another
+# Node.
 marker="${state_dir}/install-deps-incomplete"
 
 # - git hash-object hashes the working-tree file, and the hook already needs
@@ -146,13 +148,22 @@ marker="${state_dir}/install-deps-incomplete"
 # - Empty when the checkout has no package-lock.json; no stamp is written then.
 lockfile_hash="$(git -C "${checkout}" hash-object package-lock.json 2>/dev/null || true)"
 
+# Native modules are built for one Node ABI and fail to load under another, so
+# the stamp and marker hold the lockfile hash plus the ABI of the Node that
+# installs (the checkout's Node, first on PATH by now). Empty without a
+# lockfile, like the hash.
+install_identity=""
+if [[ -n "${lockfile_hash}" ]]; then
+  install_identity="${lockfile_hash} node-abi-$(node -p process.versions.modules 2>/dev/null || echo unknown)"
+fi
+
 # The build:sst npm script typechecks sst.config.ts via tsconfig.sst.json,
 # which references this file. sst install generates it, not npm ci.
 sst_platform_types="${checkout}/.sst/platform/config.d.ts"
 
 # Succeeds when node_modules needs no install: it exists, no interrupted
 # install left the marker, and either the developer installed it (no stamp) or
-# the stamp matches the current lockfile.
+# the stamp matches the current lockfile and Node.
 dependencies_are_current() {
   if [[ ! -d "${checkout}/node_modules" || -f "${marker}" ]]; then
     return 1
@@ -166,19 +177,20 @@ dependencies_are_current() {
     return 0
   fi
 
-  [[ "${stamped}" == "${lockfile_hash}" ]]
+  [[ "${stamped}" == "${install_identity}" ]]
 }
 
-# Records an install the hook itself ran to completion: stamps the lockfile
-# hash and clears the marker, so a later lockfile change triggers a reinstall.
+# Records an install the hook itself ran to completion: stamps the install
+# identity and clears the marker, so a later lockfile or Node change triggers a
+# reinstall.
 # The stamp goes first: a hook killed between the two steps then leaves the
 # marker, so the next session re-checks the tree or reinstalls it under the
 # lock. The other order leaves no marker and, on a checkout never stamped
 # before, no stamp, which reads as a developer-installed tree and turns the
 # lockfile-change check off for this checkout.
 record_finished_install() {
-  if [[ -n "${lockfile_hash}" ]]; then
-    printf '%s\n' "${lockfile_hash}" > "${stamp}"
+  if [[ -n "${install_identity}" ]]; then
+    printf '%s\n' "${install_identity}" > "${stamp}"
   fi
   rm -f "${marker}"
 }
@@ -266,18 +278,19 @@ fi
 # still hold fd 9.
 orphaned_install_finished() {
   # No marker means no install was interrupted: node_modules is missing or
-  # stamped from an older lockfile. The marker hash check below cannot rule
-  # this out alone, because a missing marker reads as "" and so does the hash
-  # of a checkout with no package-lock.json.
+  # stamped from an older install. The marker identity check below cannot rule
+  # this out alone, because a missing marker reads as "" and so does the
+  # install identity of a checkout with no package-lock.json.
   if [[ ! -f "${marker}" ]]; then
     return 1
   fi
 
-  # A tree built from an older lockfile passes npm ls whenever package.json
-  # ranges still hold, and stamping it would hide the lockfile change forever.
-  local marker_lockfile_hash
-  marker_lockfile_hash="$(cat "${marker}" 2>/dev/null || true)"
-  if [[ "${marker_lockfile_hash}" != "${lockfile_hash}" ]]; then
+  # A tree built from an older lockfile or under another Node passes npm ls
+  # whenever package.json ranges still hold, and stamping it would hide the
+  # change forever.
+  local marker_install_identity
+  marker_install_identity="$(cat "${marker}" 2>/dev/null || true)"
+  if [[ "${marker_install_identity}" != "${install_identity}" ]]; then
     return 1
   fi
 
@@ -310,7 +323,7 @@ fi
 
 # npm ci installs into the current directory.
 cd "${checkout}"
-printf '%s\n' "${lockfile_hash}" > "${marker}"
+printf '%s\n' "${install_identity}" > "${marker}"
 
 log "installing dependencies in ${checkout} (node $(node --version 2>/dev/null || echo unknown))"
 
@@ -329,7 +342,7 @@ else
   # lifecycle scripts run, so one of them failing leaves it newer than the
   # marker. Writing the marker again keeps the recovery step from stamping
   # that tree next session.
-  printf '%s\n' "${lockfile_hash}" > "${marker}"
+  printf '%s\n' "${install_identity}" > "${marker}"
   log "npm ci failed — the session continues without dependencies; the marker forces a retry next session"
 fi
 
