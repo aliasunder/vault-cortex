@@ -207,7 +207,7 @@ const createBinDirWithoutPerl = (fixture: HookFixture): string => {
 const MARKER_MTIME = 1_700_000_000
 
 /** Leaves the marker an interrupted install would: of the current lockfile
- *  unless another lockfile hash is given. */
+ *  and Node unless another install identity is given. */
 const leaveMarker = (
   fixture: HookFixture,
   { installIdentity = fixture.installIdentity }: { installIdentity?: string } = {},
@@ -569,12 +569,12 @@ describe("install-deps hook", () => {
 
   describe("with dependencies already current", () => {
     it.each([
-      { label: "the stamp matches the lockfile", stamp: true },
-      { label: "the developer installed node_modules (no stamp)", stamp: false },
-    ])("does nothing before taking the lock when $label", ({ stamp }) => {
+      { label: "the stamp matches the lockfile and Node", stamped: true },
+      { label: "the developer installed node_modules (no stamp)", stamped: false },
+    ])("does nothing before taking the lock when $label", ({ stamped }) => {
       const fixture = createHookFixture()
 
-      if (stamp) stampCurrentLockfile(fixture)
+      if (stamped) stampCurrentLockfile(fixture)
 
       const run = runHook({ fixture })
 
@@ -583,11 +583,13 @@ describe("install-deps hook", () => {
         stdout: run.stdout,
         stderr: run.stderr,
         npmCalls: recordedNpmCalls(fixture),
+        lockFileExists: existsSync(join(fixture.stateDir, "install-deps.lock")),
       }).toEqual({
         status: 0,
         stdout: "",
         stderr: `[install-deps] node_modules current in ${fixture.checkout} — nothing to do\n`,
         npmCalls: [],
+        lockFileExists: false,
       })
     })
 
@@ -666,9 +668,9 @@ describe("install-deps hook", () => {
   })
 
   describe("with no marker", () => {
-    // Without a package-lock.json the lockfile hash is empty, and so is the
-    // hash read from a missing marker, so only the marker's absence keeps
-    // this tree from being taken for an interrupted install.
+    // Without a package-lock.json the install identity is empty, and so is
+    // the identity read from a missing marker, so only the marker's absence
+    // keeps this tree from being taken for an interrupted install.
     it("reinstalls without consulting npm ls when a stamped checkout has lost its package-lock.json", () => {
       const fixture = createHookFixture()
       rmSync(join(fixture.checkout, "package-lock.json"))
