@@ -204,7 +204,7 @@ export const OPENING_BLOCK_ERROR_ENTRY =
 /** The Errors entry for a note file the server cannot read or write. The
  *  message is Node's, with the note's path made vault-relative. */
 export const FILESYSTEM_ERROR_ENTRY =
-  "- \"EACCES: …\" or another filesystem error code — the note's file can't be read or written (permissions, a full or read-only disk); retrying won't help"
+  "- \"EACCES: …\" or another filesystem error code — the note's file can't be read or written (permissions, a full or read-only disk); ask the vault's owner to fix it"
 
 /** The Errors entry of every tool that rewrites a note, led by when the tool
  *  rewrites it for tools that do so only sometimes. The error itself carries

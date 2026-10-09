@@ -694,8 +694,8 @@ describe("path is not a file", () => {
 // ── Filesystem errors ────────────────────────────────────────
 
 describe("filesystem errors name the path vault-relative", () => {
-  const plantNoteWithMode = async (params: { notePath: string; mode: number }): Promise<void> => {
-    const fullPath = join(serverVaultPath, params.notePath)
+  const plantFileWithMode = async (params: { filePath: string; mode: number }): Promise<void> => {
+    const fullPath = join(serverVaultPath, params.filePath)
     await writeFile(fullPath, "line one\n- [ ] a task\n")
     await chmod(fullPath, params.mode)
     onTestFinished(async () => {
@@ -728,11 +728,21 @@ describe("filesystem errors name the path vault-relative", () => {
     { name: "vault_delete_span", args: { start_anchor: "line one" } },
     { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
   ])("$name on a note it cannot open names the note vault-relative", async ({ name, args }) => {
-    await plantNoteWithMode({ notePath: "Locked.md", mode: 0o000 })
+    await plantFileWithMode({ filePath: "Locked.md", mode: 0o000 })
 
     const result = await callTool({ client, name, args: { path: "Locked.md", ...args } })
     expect(result).toEqual({
       content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.md'" }],
+      isError: true,
+    })
+  })
+
+  it("vault_read_file on a file it cannot open names the file vault-relative", async () => {
+    await plantFileWithMode({ filePath: "Locked.png", mode: 0o000 })
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: "Locked.png" } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.png'" }],
       isError: true,
     })
   })
@@ -1724,7 +1734,7 @@ describe("undecodable image", () => {
       content: [
         {
           type: "text",
-          text: "[Error]: could not decode image (the file is empty, damaged, or not an image)",
+          text: "[Error]: could not decode image (the file is empty, damaged, not an image, or over about 268 million pixels)",
         },
       ],
       isError: true,

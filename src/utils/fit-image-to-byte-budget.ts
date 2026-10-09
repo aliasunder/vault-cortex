@@ -94,9 +94,10 @@ const readImageMetadata = async (buffer: Buffer): Promise<Metadata> => {
   try {
     return await sharp(buffer, { failOn: "none" }).metadata()
   } catch (error) {
-    throw new Error("could not decode image (the file is empty, damaged, or not an image)", {
-      cause: error,
-    })
+    throw new Error(
+      "could not decode image (the file is empty, damaged, not an image, or over about 268 million pixels)",
+      { cause: error },
+    )
   }
 }
 
