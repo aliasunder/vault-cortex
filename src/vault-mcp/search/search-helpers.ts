@@ -32,8 +32,8 @@ export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value))
     return value.filter((element) => element != null && typeof element !== "object").map(String)
 
-  // A mapping value (tags: { project: true }) is dropped, as mappings inside a
-  // list are above; String() would index it as the value "[object Object]".
+  // A mapping value (tags: { project: true }) is dropped, as the array branch
+  // above drops mappings in a list; String() would index it as "[object Object]".
   if (typeof value === "object") return []
   return value ? [String(value)] : []
 }
@@ -41,21 +41,26 @@ export const coerceToArray = (value: unknown): string[] => {
 // ── Note parsing for the index ─────────────────────────────────
 
 /**
- * Parses a note as the index reads it. A properties block the YAML parser
- * cannot read is dropped and the note reads as its body with no properties,
- * as Obsidian's metadata cache treats such a note, so the body stays
- * searchable and its tasks and links stay indexed. `unreadableBlockError`
- * carries the parser's refusal for the caller to log; it is null when the
- * block was read.
+ * Parses a note as the index reads it.
+ * - A properties block (the frontmatter) that the YAML parser cannot read is
+ *   dropped, as Obsidian's metadata cache drops it: the note reads as its body
+ *   with no properties, so its text, tasks and links stay indexed.
+ * - `unreadableBlockError` carries the parser's refusal for the caller to log,
+ *   or null when the block was read.
  */
 export const parseNoteForIndex = (
   rawContent: string,
 ): ParsedNote & { unreadableBlockError: UnsupportedPropertiesBlockError | null } => {
   try {
-    return { ...parseNote(rawContent), unreadableBlockError: null }
+    const { data, content } = parseNote(rawContent)
+    return { data, content, unreadableBlockError: null }
   } catch (error) {
+    // parseNote throws this error only for YAML the parser cannot read (kind
+    // `invalid-yaml`); the list, single-value and tag kinds come from parseNoteForRewrite
     if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
 
+    // parseNote split the note at these same boundaries before it read the
+    // block, so the body starts after the block's closing `---` line
     const { body } = splitPropertiesBlock(rawContent)
     return { data: {}, content: body, unreadableBlockError: error }
   }
@@ -382,7 +387,7 @@ export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters):
 
 // ── Snippet builder ────────────────────────────────────────────
 
-/** Truncates chunk text to the first N words for snippet display —
+/** Truncates chunk text to its first `snippetTokens` words for snippet display —
  *  used for vector-only results that have no FTS5 snippet available. */
 export const buildSnippetFromChunkText = (chunkText: string, snippetTokens: number): string => {
   const words = chunkText.split(/\s+/).filter((word) => word.length > 0)

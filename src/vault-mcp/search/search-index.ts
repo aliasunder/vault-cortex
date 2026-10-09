@@ -1436,7 +1436,8 @@ export const createSearchIndex = (
   // FTS rows are managed manually (delete-then-insert) because SQLite triggers
   // combined with INSERT OR REPLACE cause FTS5 corruption.
 
-  /** Indexes a note and returns the source version to pass with the same content to embedNote. */
+  /** Indexes a note and returns its source version, a token embedNote checks so that an embed
+   *  of this content is dropped once a later write replaces it. Pass it with the same content. */
   const upsertNote = (
     params: {
       filePath: string
@@ -1448,11 +1449,15 @@ export const createSearchIndex = (
   ): symbol => {
     const { filePath, rawContent, fileStat } = params
     const skipLinks = params.skipLinks ?? false
-    const parsed = parseNoteForIndex(rawContent)
-    const { data: frontmatter, unreadableBlockError } = parsed
+    const {
+      data: frontmatter,
+      content: noteBody,
+      unreadableBlockError,
+    } = parseNoteForIndex(rawContent)
+
     const tags = coerceToArray(frontmatter.tags)
     const related = coerceToArray(frontmatter.related)
-    const bodyLines = splitIntoLines(parsed.content)
+    const bodyLines = splitIntoLines(noteBody)
 
     // Store the leading callout (a top-of-file `> [!type]` block — info,
     // warning, etc.) as JSON so discovery tools can return it structured;
@@ -1473,7 +1478,7 @@ export const createSearchIndex = (
     const note = {
       path: filePath,
       title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
-      content: parsed.content,
+      content: noteBody,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
       // First path segment only — search filters drill into subfolders
@@ -1494,6 +1499,8 @@ export const createSearchIndex = (
     // needs project-level attribution ("Code Projects/vault-cortex", not
     // "Code Projects").
     const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
+    // Tasks read the whole file, not noteBody, so their line numbers match the
+    // file's lines; extractTasks skips the properties block itself
     const extractedTasks = tasks.extractTasks(rawContent, statusRegistry)
     const memoryFile = memoryFileNameFromPath(filePath)
 
@@ -1560,7 +1567,7 @@ export const createSearchIndex = (
       // Memory files additionally maintain their entry-granular index. Placed
       // before the skipLinks return so rebuild Pass 1 covers it.
       if (memoryFile) {
-        upsertMemoryEntries({ memoryFile, noteBody: parsed.content }, logger)
+        upsertMemoryEntries({ memoryFile, noteBody }, logger)
       }
 
       if (skipLinks) return
@@ -1569,7 +1576,7 @@ export const createSearchIndex = (
       const pathList = allPaths.map((row) => row.path)
 
       deleteLinksStmt.run(note.path)
-      for (const rawTarget of links.extractAll(parsed.content, frontmatter)) {
+      for (const rawTarget of links.extractAll(noteBody, frontmatter)) {
         const resolved = links.resolve({
           target: rawTarget,
           allPaths: pathList,
@@ -1618,8 +1625,7 @@ export const createSearchIndex = (
     const sourceVersion = Symbol()
     sourceVersions.set(filePath, sourceVersion)
 
-    // Only a successful write is reported as indexed. This warning is the one
-    // place that names the note whose block needs repair.
+    // Logged after the index write, so a write that rolls back does not warn
     if (unreadableBlockError) {
       logger.warn("indexed note without its properties block, which is not readable", {
         path: filePath,
@@ -1637,8 +1643,11 @@ export const createSearchIndex = (
 
   // ── Embedding pipeline ─────────────────────────────────────────
 
-  /** The return counts changed chunks committed before completion or obsolescence.
-   *  Zero covers disabled, cached and obsolete calls. */
+  /** Embeds a note's chunks.
+   *  - `rawContent` is the content upsertNote indexed under `sourceVersion`, so upsertNote
+   *    has already warned about an unreadable properties block in it.
+   *  - The return counts changed chunks committed before completion or obsolescence.
+   *    Zero covers disabled, cached and obsolete calls. */
   const embedAndStoreChunks = async (
     params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
@@ -1662,22 +1671,22 @@ export const createSearchIndex = (
     )
       return 0
 
-    // upsertNote already warned about an unreadable block for this content
-    const parsed = parseNoteForIndex(rawContent)
-    const noteTitle =
-      (isString(parsed.data.title) ? parsed.data.title : null) ?? basename(notePath, ".md")
+    // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
+    // error is ignored because upsertNote already logged it
+    const { data: frontmatter, content: noteBody } = parseNoteForIndex(rawContent)
+    const noteTitle = isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.
     const metadataPrefix = options?.ranking?.enrichChunkMetadata
       ? buildChunkMetadataPrefix({
-          type: isString(parsed.data.type) ? parsed.data.type : null,
-          tags: coerceToArray(parsed.data.tags),
+          type: isString(frontmatter.type) ? frontmatter.type : null,
+          tags: coerceToArray(frontmatter.tags),
         })
       : null
     const chunks = chunkContent({
       noteTitle,
-      bodyContent: parsed.content,
+      bodyContent: noteBody,
       metadataPrefix,
       sourcePath: notePath,
     })
@@ -1752,8 +1761,8 @@ export const createSearchIndex = (
     )
       return embeddedCount
 
-    /** chunkContent assigns indices 0 through length - 1, so a shortened note's
-     *  old tail starts at chunks.length; remove its vectors before their parent rows. */
+    // chunkContent assigns indices 0 through length - 1, so a shortened note's
+    // old tail starts at chunks.length; remove its vectors before their parent rows.
     if (deleteStaleVectorsStmt) {
       deleteStaleVectorsStmt.run(notePath, chunks.length)
     }
@@ -1966,8 +1975,8 @@ export const createSearchIndex = (
     )
       return embeddedCount
 
-    /** chunkContent assigns indices 0 through length - 1, so a shortened file's
-     *  old tail starts at chunks.length; remove its vectors before their parent rows. */
+    // chunkContent assigns indices 0 through length - 1, so a shortened file's
+    // old tail starts at chunks.length; remove its vectors before their parent rows.
     if (deleteStaleFileVectorsStmt) {
       deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
     }
@@ -2061,7 +2070,8 @@ export const createSearchIndex = (
     }
     // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
     // gating to skip unchanged chunks, so only new/modified notes re-embed.
-    // Deleted notes are cleaned up in Pass 3 before embedding starts.
+    // Vectors of deleted notes are removed by the background embedding pass
+    // (Pass 3, after the two indexing passes below) before embedding starts.
 
     type RebuildFilePaths = { relativePath: string; absolutePath: string }
     type RebuildFileContent = {
@@ -2258,8 +2268,8 @@ export const createSearchIndex = (
     }> = []
     const fileVersionsForEmbedding = new Map<string, symbol>()
 
-    /** Nested upserts publish versions when their savepoints finish. If the outer
-     *  transaction rolls back, clear those versions so no embed can use reverted source rows. */
+    // If this transaction rolls back, the catch clears the source versions its upserts
+    // recorded, so no embed runs against rows the rollback removed.
     try {
       db.transaction(() => {
         // Index non-markdown files so extensionless wikilinks to .canvas, .base,
@@ -2267,8 +2277,8 @@ export const createSearchIndex = (
         const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
         logger.debug("indexed non-md files", { count: nonMdCount })
 
-        /** Pass 1 indexes note content before links can resolve against the complete path list.
-         *  Queue every successful upsert for embedding, even if its later link pass fails. */
+        // Pass 1 indexes note content before links can resolve against the complete path list.
+        // Queue every successful upsert for embedding, even if its later link pass fails.
         for (const note of noteContents) {
           try {
             const sourceVersion = upsertNote(
@@ -2326,6 +2336,7 @@ export const createSearchIndex = (
         // Pass 2: re-extract links now that all paths are in the notes table,
         // resolving targets that the per-note upsertNote pass may have missed
         // (e.g. Note A links to Note B, but Note B was indexed after Note A).
+        // Each link resolves as in upsertNote's link step.
         const allPaths = selectAllNotePathsStmt.all()
         const pathList = allPaths.map((row) => row.path)
         cachedCanvasNotePaths = pathList
@@ -2334,7 +2345,8 @@ export const createSearchIndex = (
         for (const note of noteContents) {
           if (skippedNotePaths.has(note.relativePath)) continue
           try {
-            // Pass 1 already warned about an unreadable block for this note
+            // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
+            // warned about an unreadable block for this note
             const parsed = parseNoteForIndex(note.content)
             for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
               const resolved = links.resolve({
@@ -2416,6 +2428,7 @@ export const createSearchIndex = (
     }
     const filesForEmbedding =
       selectAllFileContentForEmbeddingStmt?.all().flatMap(withFileSourceVersion) ?? []
+    // Every note read from disk, including notes that failed to index, unlike indexedNotes
     const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
 
     // Pass 3 runs in the background — the server can start accepting requests
@@ -2425,7 +2438,8 @@ export const createSearchIndex = (
       embedder && selectAllNoteChunkPathsStmt
         ? (async () => {
             /** Keep chunks only for notes read into this rebuild's snapshot.
-             *  Missing and unreadable notes lose their vectors; index failures retain them. */
+             *  Notes missing from disk or that failed to read lose their vectors;
+             *  notes that failed to index keep them. */
             const indexedChunkPaths = selectAllNoteChunkPathsStmt
               .all()
               .map((chunkPath) => chunkPath.note_path)

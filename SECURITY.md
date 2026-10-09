@@ -145,8 +145,8 @@ mechanism-level detail.
   prevent concurrent writes from corrupting each other
 - Properties-block guard: every rewrite refuses a note whose properties
   block it cannot keep (invalid YAML, a list, a single value, or a value
-  with a YAML tag), and every write's result is checked before it reaches
-  disk, so no write silently drops a block's properties.
+  with an explicit YAML tag), and every write's result is checked before
+  it reaches disk, so no write silently drops a block's properties.
   `vault_update_properties` with `replace: true` repairs a refused block.
   YAML comments in a block are not kept by any rewrite
 - First-sync gate (remote image): the init chain runs Obsidian Sync to
