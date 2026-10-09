@@ -9,10 +9,12 @@
  *    recorded
  *
  *  The two checks keep Obsidian's own trash entries and hand-placed files out
- *  of reach, even under a name the server once used. The exception is a note
- *  the server trashed that was then restored by hand and trashed again. It
- *  still matches its row when that happens within the minute, or on a file
- *  system whose renames leave the change time alone. */
+ *  of reach, even under a name the server once used. Two cases get through:
+ *  - a note the server trashed that was then restored by hand and trashed
+ *    again within the minute, or on a file system whose renames leave the
+ *    change time alone
+ *  - a file swapped in between the identity read and the unlink, a window of
+ *    one call that Node offers no atomic way to close */
 
 import { unlink } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
@@ -227,8 +229,8 @@ const sweepOneEntry = async (
     logger,
   )
 
-  // Every result but "matches" returns here, so only the file the server
-  // trashed reaches the unlink below.
+  // Every result but "matches" returns here, so the unlink below runs only
+  // after the file at the path matched its row.
   if (recordedFileCheck === "unreadable") return "skipped"
   if (recordedFileCheck === "missing") {
     return tryDropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
@@ -242,9 +244,12 @@ const sweepOneEntry = async (
     return "unmatched"
   }
 
-  // ENOENT here means the file vanished after the gates ran — the host
-  // owns the bind mount and can empty the trash at any moment. Same
-  // outcome as a missing parent: drop the row.
+  // The host owns the bind mount and can change .trash/ at any moment:
+  // - ENOENT means the file vanished after the gates ran. Same outcome as a
+  //   missing parent: drop the row.
+  // - A different file swapped in after the identity read would be unlinked.
+  //   The read is the last call before this one, and Node has no atomic
+  //   check-and-unlink to close the gap.
   try {
     await unlink(resolvedPath)
   } catch (error) {

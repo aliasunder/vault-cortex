@@ -1250,6 +1250,10 @@ Docker hardening, and durability seatbelts above.
       it was trashed
     - the file of a row recorded before identities were kept
 
+    Gates 3 and 4 read the file in the call just before the unlink, so a
+    file the host swaps in between the two is still unlinked. Node has no
+    atomic check-and-unlink to close that gap.
+
   - Both share a serializing lock with the trash move and re-read each
     row under it before acting, so neither operates on a stale snapshot.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
