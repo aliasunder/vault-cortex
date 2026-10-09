@@ -679,8 +679,9 @@ covers both kinds, with reasons:
   shell scripts through `scripts/lint-shell.ts`:
   - **Which scripts:** its `SHELL_SCRIPT_GLOBS` covers the Claude Code
     hooks, `.github/scripts/`, the `:remote` image's s6 and helper
-    scripts, and the `ob` and `docker` test stubs. Add a new script
-    outside those paths there.
+    scripts, and the `ob` and `docker` test stubs. ShellCheck skips any
+    other file, so a shell script added anywhere else needs its path or a
+    glob for it added to `SHELL_SCRIPT_GLOBS`.
   - **Which version:** pinned with each platform's archive SHA-256, so
     local runs and CI match. The first run that needs it downloads it into
     `$XDG_CACHE_HOME/vault-cortex/` (default `~/.cache`). A version bump
