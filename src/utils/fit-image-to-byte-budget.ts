@@ -87,6 +87,10 @@ const encodeAttempt = async (params: {
   return encoded.toBuffer({ resolveWithObject: true })
 }
 
+/** One message for every image sharp cannot read the size and format of. */
+const UNDECODABLE_IMAGE_MESSAGE =
+  "could not decode image (the file is empty, damaged, not an image, or over about 268 million pixels)"
+
 /** The decoder's own message names its internals and can repeat over several
  *  lines, so a failure is rethrown as one sentence, with the decoder's error
  *  as the cause. */
@@ -94,10 +98,7 @@ const readImageMetadata = async (buffer: Buffer): Promise<Metadata> => {
   try {
     return await sharp(buffer, { failOn: "none" }).metadata()
   } catch (error) {
-    throw new Error(
-      "could not decode image (the file is empty, damaged, not an image, or over about 268 million pixels)",
-      { cause: error },
-    )
+    throw new Error(UNDECODABLE_IMAGE_MESSAGE, { cause: error })
   }
 }
 
@@ -114,7 +115,7 @@ export const fitImageToByteBudget = async (params: {
   const { width, height, format } = metadata
 
   if (!width || !height || !format) {
-    throw new Error("could not decode image (no dimensions or format)")
+    throw new Error(UNDECODABLE_IMAGE_MESSAGE)
   }
 
   const longEdge = Math.max(width, height)
