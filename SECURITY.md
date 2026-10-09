@@ -174,9 +174,10 @@ mechanism-level detail.
 - `safeHandler()` catches all exceptions and returns the error's name and
   message, plus how to fix a properties-block refusal — no stack traces
   reach the client
-- An image sharp cannot decode, a password-protected PDF, and a damaged PDF
-  each return the server's own message; the library's error stays in the
-  server log
+- An image sharp cannot decode, a password-protected PDF, a damaged PDF,
+  and a PDF reader that fails to start each return the server's own
+  message; the library's error, which can quote the server's install paths,
+  stays in the server log
 - A Node error's paths (a filesystem failure or an invalid path argument)
   reach the client vault-relative, from tools and from the prompts' fallback
   messages alike, so the container's absolute path stays in the server log

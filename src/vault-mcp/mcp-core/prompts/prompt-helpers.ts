@@ -7,7 +7,7 @@ import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
 import type { ToolAvailability } from "../tool-availability.js"
-import { describeError, describeErrorRelativeTo } from "../../../utils/describe-error.js"
+import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { truncateToCodePointLimit } from "../../../utils/truncate-to-code-point-limit.js"
 
 export type PromptRegistrationContext = ToolAvailability & {
@@ -47,11 +47,7 @@ export const describePromptFailure = ({
   vaultPath: string
   logger: Logger
 }): string => {
-  const cause = error instanceof Error ? error.cause : undefined
-  logger.error("prompt_error", {
-    error: describeError(error),
-    ...(cause ? { cause: describeError(cause) } : {}),
-  })
+  logger.error("prompt_error", describeErrorForLog(error))
   return describeErrorRelativeTo({ error, directory: vaultPath })
 }
 

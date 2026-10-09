@@ -7,7 +7,7 @@ import type { LineWindow } from "../obsidian-markdown/lines.js"
 import { links } from "../obsidian-markdown/links.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
-import { describeError } from "../../utils/describe-error.js"
+import { describeErrorForLog } from "../../utils/describe-error.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
 import type { Logger } from "../../logger.js"
@@ -249,12 +249,7 @@ const renderPdfPages = async (
       results.push({ pageNumber, fitted, originalBytes: pngBuffer.length })
     } catch (error) {
       // A page sharp cannot decode arrives wrapped, and only the cause holds sharp's reason
-      const cause = error instanceof Error ? error.cause : undefined
-      logger.warn("pdf_page_render_failed", {
-        page: pageNumber,
-        error: describeError(error),
-        ...(cause ? { cause: describeError(cause) } : {}),
-      })
+      logger.warn("pdf_page_render_failed", { page: pageNumber, ...describeErrorForLog(error) })
     }
   }
   return results

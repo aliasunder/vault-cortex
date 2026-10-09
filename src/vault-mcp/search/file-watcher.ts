@@ -11,7 +11,7 @@ import { INDEXABLE_TEXT_EXTENSIONS } from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { logger } from "../../logger.js"
-import { describeError } from "../../utils/describe-error.js"
+import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
@@ -159,9 +159,10 @@ export const startFileWatcher = (
                 }
               })
           } catch (error) {
+            // A PDF reader that failed to start arrives wrapped; the cause holds why
             logger.warn("file content indexing failed", {
               path: relativePath,
-              error: describeError(error),
+              ...describeErrorForLog(error),
             })
           }
         }

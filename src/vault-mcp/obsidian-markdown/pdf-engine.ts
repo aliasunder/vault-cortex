@@ -93,10 +93,12 @@ const getPdfEngine = (): Promise<PdfEngine> => {
     // canvas binding hitting a resource limit) must not poison every later
     // PDF read for the process lifetime. The catch drops the memo so the
     // next call retries, then re-throws so every caller sharing this
-    // promise still observes the rejection.
+    // promise still observes the rejection. A module-load error quotes the
+    // server's install paths, which must not reach a client, so the rejection
+    // is the server's own sentence with the original error as its cause.
     pdfEnginePromise = initializePdfEngine().catch((error: unknown) => {
       pdfEnginePromise = undefined
-      throw error
+      throw new Error("PDF reader could not start", { cause: error })
     })
   }
   return pdfEnginePromise

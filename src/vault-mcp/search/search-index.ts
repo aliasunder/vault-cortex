@@ -21,7 +21,7 @@ import type { Reranker } from "./reranker.js"
 import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
-import { describeError } from "../../utils/describe-error.js"
+import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
@@ -2237,9 +2237,10 @@ export const createSearchIndex = (
           sizeBytes: fileStat.size,
         }
       } catch (error) {
+        // A PDF reader that failed to start arrives wrapped; the cause holds why
         logger.warn("skipped unreadable PDF during rebuild", {
           path: file.relativePath,
-          error: describeError(error),
+          ...describeErrorForLog(error),
         })
         return null
       }
