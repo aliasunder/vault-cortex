@@ -685,6 +685,31 @@ describe("install-deps hook", () => {
       })
     })
 
+    it("adds the PATH line only once when a resumed session runs the hook again", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), "24\n")
+      writeNvmStandIn(fixture)
+      const nvmrcBin = createNodeBinDir(fixture, "v24")
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+      const sessionStartRun = {
+        fixture,
+        hookEventName: "SessionStart",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: join(nvmrcBin, "node"), defaultNode: join(nvmrcBin, "node") },
+      } as const
+
+      const firstRun = runHook(sessionStartRun)
+      const resumedRun = runHook(sessionStartRun)
+
+      expect({
+        statuses: [firstRun.status, resumedRun.status],
+        envFile: readFileIfPresent(claudeEnvFile),
+      }).toEqual({
+        statuses: [0, 0],
+        envFile: `export PATH="${nvmrcBin}:$PATH"\n`,
+      })
+    })
+
     // Without an .nvmrc, nvm which reads an unset variable, so this passes only
     // while the hook turns set -u off for the lookup.
     it("writes nvm's default Node into the PATH line when the checkout has no .nvmrc", () => {
