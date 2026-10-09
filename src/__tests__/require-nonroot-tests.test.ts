@@ -346,17 +346,17 @@ describe("require-nonroot-tests hook", () => {
       { label: "npm run-script test", command: "npm run-script test" },
       { label: "bash -c with a quoted test run", command: "bash -lc 'npm test'" },
       { label: "sh -c with a double-quoted vitest run", command: 'sh -c "npx vitest run"' },
+      // npm reads the config flag as its own, so vitest never sees it.
       {
-        label: "vitest with an exempt config followed by the main config",
-        command: "npx vitest run --config vitest.cli-pty.config.ts --config vitest.config.ts",
+        label: "npm exec vitest with the cli-pty config",
+        command: "npm exec vitest run --config vitest.cli-pty.config.ts",
       },
-      {
-        label: "npm handing an exempt config and then the main config to vitest",
-        command: "npm test -- --config vitest.cli-pty.config.ts --config vitest.config.ts",
-      },
-      // vitest@4 is not a runner on its own, so only reading it as -p's
+      // @vitest/ui is not a runner on its own, so only reading it as -p's
       // argument reaches the vitest after it.
-      { label: "npx with a package flag and its argument", command: "npx -p vitest@4 vitest run" },
+      {
+        label: "npx with a package flag and its argument",
+        command: "npx -p @vitest/ui vitest run",
+      },
       {
         label: "npm test with a config flag npm consumes",
         command: "npm test --config vitest.cli-pty.config.ts",
@@ -452,9 +452,15 @@ describe("require-nonroot-tests hook", () => {
         label: "a versioned vitest with the cli-pty config",
         command: "npx vitest@4 run --config vitest.cli-pty.config.ts",
       },
+      // vitest refuses a second config flag and runs nothing.
       {
-        label: "vitest with the main config followed by the cli-pty config",
-        command: "npx vitest run --config vitest.config.ts --config vitest.cli-pty.config.ts",
+        label: "vitest with a second config flag",
+        command: "npx vitest run --config vitest.cli-pty.config.ts --config vitest.config.ts",
+      },
+      // vitest ignores a flag after a lone --, so the cli-pty suite runs.
+      {
+        label: "vitest with a second config after --",
+        command: "npx vitest run --config vitest.cli-pty.config.ts -- --config vitest.config.ts",
       },
       {
         label: "vitest with the cli-pty config",
@@ -761,6 +767,10 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "inside a brace group",
         command: (checkout: string) => `{ cd ${checkout}; npm test; }`,
+      },
+      {
+        label: "inside an if block",
+        command: (checkout: string) => `if true; then cd ${checkout}; fi; npm test`,
       },
     ])("prepares the checkout an absolute cd names $label", ({ command }) => {
       const fixture = createHookFixture()

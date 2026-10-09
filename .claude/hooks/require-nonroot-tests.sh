@@ -56,11 +56,13 @@ fi
 flags_without_argument='([[:space:]]+-[^[:space:]]*)*'
 flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space:]][^[:space:]]*)?)*'
 
-# Two patterns match a test runner.
+# Three patterns match a test runner.
 # - vitest_runner matches vitest itself, bare or by path
 #   (node_modules/.bin/vitest), with or without a version (`vitest@latest`),
-#   after npx and its flags (`npx -y vitest`) or after `npm exec` or `npm x`,
-#   or as `node node_modules/vitest/vitest.mjs`.
+#   after npx and its flags (`npx -y vitest`), or as
+#   `node node_modules/vitest/vitest.mjs`.
+# - npm_exec_runner matches vitest after `npm exec` or `npm x`, each with
+#   npm's flags (`npm x -y vitest`).
 # - npm_runner matches `npm test`, `npm t`, and `npm run` or `npm run-script`
 #   of the scripts test, test:coverage, test:watch and snapshot:update, each
 #   after any npm flags (`npm -s test`, `npm run --silent test`). It leaves
@@ -68,9 +70,10 @@ flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space
 #   hook because they cannot run as nobody; the exemptions below give each
 #   reason.
 vitest_binary='([^[:space:]]*/)?vitest(@[^[:space:]]*)?'
-vitest_runner="((npx|npm${flags_with_optional_argument}[[:space:]]+(exec|x))${flags_with_optional_argument}[[:space:]]+)?${vitest_binary}|node[[:space:]]+[^[:space:]]*vitest\.mjs"
+vitest_runner="(npx${flags_with_optional_argument}[[:space:]]+)?${vitest_binary}|node[[:space:]]+[^[:space:]]*vitest\.mjs"
+npm_exec_runner="npm${flags_with_optional_argument}[[:space:]]+(exec|x)${flags_with_optional_argument}[[:space:]]+${vitest_binary}"
 npm_runner="npm${flags_with_optional_argument}[[:space:]]+(test|t|run(-script)?${flags_with_optional_argument}[[:space:]]+(test|test:coverage|test:watch|snapshot:update))"
-test_runner="${vitest_runner}|${npm_runner}"
+test_runner="${vitest_runner}|${npm_exec_runner}|${npm_runner}"
 
 # variable_setting matches a VAR=value setting before the command
 # (`CI=1 npm test`), with the value in one of three forms.
@@ -89,8 +92,10 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
 # - bash, sh and zsh with flags, then the opening quote of the command they
-#   run (`bash -lc 'npm test'`). The quoted text is not split, so only a run
-#   at its start counts.
+#   run (`bash -lc 'npm test'`). The split below ignores quotes, so a run
+#   after ; or && inside the quoted text counts too
+#   (`bash -c 'npm ci && npm test'`), and a mention there
+#   (`bash -c 'echo npm test'`) does not.
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
 timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
@@ -114,8 +119,8 @@ test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
 
 # exempt_suite_run matches a run of the remote-boot or cli-pty suite, the two
 # exempt suites, by the config flag that names the suite's config file. The
-# file name must end at a space, a ) or the end of the command, so
-# `vitest.cli-pty.config.ts.bak` does not count.
+# file name must end at a space, a ), a closing quote or the end of the
+# command, so `vitest.cli-pty.config.ts.bak` does not count.
 # - arguments_before_double_dash matches words other than a lone `--`. vitest
 #   reads no flags after a lone `--`, so
 #   `vitest run -- --config vitest.cli-pty.config.ts` runs the main suite.
@@ -125,18 +130,20 @@ test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
 #   which hands the flag to vitest, and before a second one. npm itself
 #   consumes the flag in `npm test --config x`, and the script runs the main
 #   suite.
-# - later_config_flag matches a config flag in the text after the match.
-#   vitest takes the last config flag, so a later one cancels the exemption.
+# - Neither matches a run through `npm exec` or `npm x`. npm reads a flag
+#   after the command as its own unless a lone `--` comes first, so vitest
+#   never sees the flag in `npm exec vitest run --config
+#   vitest.cli-pty.config.ts`. The hook stops every such run rather than
+#   track where npm's `--` falls.
 exempt_suite_config="(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts${runner_end}"
 arguments_before_double_dash='([[:space:]]+(-|-?[^-[:space:]][^[:space:]]*|--[^[:space:]]+))*'
 vitest_exempt_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
 npm_exempt_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments_before_double_dash}[[:space:]]+--${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
 exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
-later_config_flag='(^|[[:space:]])(-c|--config)(=|[[:space:]]|$)'
 
-# The walk below tells four kinds of directory change apart. Each starts with
-# cd or pushd, after an optional { (`{ cd /repo; npm test; }`), so the path
-# is the third group of the match.
+# The walk below tells four kinds of directory change apart. The first three
+# start with cd or pushd, after any shell keyword (`{ cd /repo; npm test; }`,
+# `then cd /repo`), so the path is the fourth group of their match.
 # - cd_to_absolute_path matches an unquoted path that starts with /.
 # - cd_to_quoted_absolute_path matches a quoted path that starts with / and
 #   holds no $, backtick or ~, so the shell would use it as written.
@@ -146,11 +153,11 @@ later_config_flag='(^|[[:space:]])(-c|--config)(=|[[:space:]]|$)'
 # - any_cd matches any cd, pushd or popd. The walk tries it last, so it
 #   catches the rest: a bare `cd`, with or without a comment after it,
 #   `cd -`, popd, and a ~, $ or quoted path the others do not take.
-directory_change="^[[:space:]]*(\{[[:space:]]+)?(cd|pushd)[[:space:]]+"
+directory_change="^[[:space:]]*(${shell_keyword})*(cd|pushd)[[:space:]]+"
 cd_to_absolute_path="${directory_change}(/[^[:space:]]*)"
 cd_to_quoted_absolute_path="${directory_change}[\"'](/[^\"'\$\`~]*)[\"']"
 cd_to_relative_path="${directory_change}([^-~#\"'\$[:space:]][^[:space:]]*)"
-any_cd='^[[:space:]]*(\{[[:space:]]+)?(cd|pushd|popd)([[:space:]]|$)'
+any_cd="^[[:space:]]*(${shell_keyword})*(cd|pushd|popd)([[:space:]]|$)"
 
 # The command is split into the commands it runs, one per line, and only the
 # cds and test runs the walk below acts on are kept.
@@ -203,15 +210,15 @@ current_dir="${session_dir}"
 root_test_runs=""
 while IFS= read -r split_command; do
   if [[ "${split_command}" =~ ${cd_to_absolute_path} ]]; then
-    current_dir="${BASH_REMATCH[3]}"
+    current_dir="${BASH_REMATCH[4]}"
     continue
   fi
   if [[ "${split_command}" =~ ${cd_to_quoted_absolute_path} ]]; then
-    current_dir="${BASH_REMATCH[3]}"
+    current_dir="${BASH_REMATCH[4]}"
     continue
   fi
   if [[ "${split_command}" =~ ${cd_to_relative_path} ]]; then
-    current_dir="${current_dir}/${BASH_REMATCH[3]}"
+    current_dir="${current_dir}/${BASH_REMATCH[4]}"
     continue
   fi
   if [[ "${split_command}" =~ ${any_cd} ]]; then
@@ -223,12 +230,8 @@ while IFS= read -r split_command; do
   # passes when grep kept no line.
   [[ "${split_command}" =~ ${test_run} ]] || continue
 
-  # The exemption holds only when no config flag follows the matched one.
   if [[ "${split_command}" =~ ${exempt_suite_run} ]]; then
-    arguments_after_exempt_config="${split_command:${#BASH_REMATCH[0]}}"
-    if [[ ! "${arguments_after_exempt_config}" =~ ${later_config_flag} ]]; then
-      continue
-    fi
+    continue
   fi
 
   if [[ -z "${root_test_runs}" ]]; then
