@@ -154,6 +154,52 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   }
 }
 
+// ── PDF reading ───────────────────────────────────────────────
+
+/** The server's message for pdf.js refusing to open a vault file, worded like
+ *  the other read errors; undefined for any other failure. Matched by name,
+ *  because importing pdf.js's classes here would load it before pdf-engine
+ *  sets the canvas globals pdf.js must find on load. */
+const describePdfOpenFailure = (params: {
+  error: unknown
+  path: string
+  bytes: number
+}): string | undefined => {
+  const { error, path, bytes } = params
+
+  if (!(error instanceof Error)) return undefined
+
+  switch (error.name) {
+    case "PasswordException":
+      return `PDF is password-protected: "${path}" exists (${bytes} bytes) but cannot be opened without its password`
+    case "InvalidPDFException":
+      return `PDF is damaged or not a PDF: "${path}" exists (${bytes} bytes) but cannot be parsed`
+    default:
+      return undefined
+  }
+}
+
+/** Awaits a PDF read, rethrowing pdf.js's refusal to open the file as the
+ *  server's own message, with pdf.js's error as the cause. */
+const withPdfOpenErrors = async <T>(params: {
+  pdfRead: Promise<T>
+  path: string
+  bytes: number
+}): Promise<T> => {
+  try {
+    return await params.pdfRead
+  } catch (error) {
+    const openFailureMessage = describePdfOpenFailure({
+      error,
+      path: params.path,
+      bytes: params.bytes,
+    })
+
+    if (!openFailureMessage) throw error
+    throw new Error(openFailureMessage, { cause: error })
+  }
+}
+
 // ── PDF page rendering ────────────────────────────────────────
 
 /** Render scale for PDF page images — 2.0 produces 1224×1584px for US Letter
@@ -280,7 +326,11 @@ const readAssetContent = async (
     )
 
     if (raw) {
-      const proxy = await createPdfDocumentProxy(pdfData)
+      const proxy = await withPdfOpenErrors({
+        pdfRead: createPdfDocumentProxy(pdfData),
+        path,
+        bytes: asset.bytes,
+      })
       try {
         const meta = await getMeta(proxy)
         const pdfTitle = meta.info?.Title ?? undefined
@@ -316,7 +366,11 @@ const readAssetContent = async (
       }
     }
 
-    const pdfResult = await extractPdfText(pdfData)
+    const pdfResult = await withPdfOpenErrors({
+      pdfRead: extractPdfText(pdfData),
+      path,
+      bytes: asset.bytes,
+    })
 
     if (!pdfResult.text) {
       throw new Error(

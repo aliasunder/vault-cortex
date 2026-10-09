@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest"
 import { extractPdfText } from "../pdf.js"
-import { buildPdf, buildMinimalPdf, buildEmptyStreamPdf, toPdfData } from "./pdf-fixture.js"
+import {
+  buildPdf,
+  buildMinimalPdf,
+  buildEmptyStreamPdf,
+  buildPasswordProtectedPdf,
+  toPdfData,
+} from "./pdf-fixture.js"
 
 const HEADER = "Title: (untitled) | Pages: 1"
 
@@ -13,6 +19,25 @@ describe("extractPdfText", () => {
   it("returns empty text with page count for a PDF with no extractable text", async () => {
     const result = await extractPdfText(toPdfData(buildEmptyStreamPdf()))
     expect(result).toEqual({ text: "", totalPages: 1 })
+  })
+
+  // The file reader turns these two refusals into its own messages by name,
+  // so the names are the contract pinned here; the rest of each error is
+  // pdf.js's own and left unchecked
+  it("rejects a password-protected PDF with pdf.js's PasswordException", async () => {
+    await expect(extractPdfText(toPdfData(buildPasswordProtectedPdf()))).rejects.toMatchObject({
+      name: "PasswordException",
+      message: "No password given",
+    })
+  })
+
+  it("rejects bytes that are not a PDF with pdf.js's InvalidPDFException", async () => {
+    const notAPdf = Buffer.from("plain text, not a PDF")
+
+    await expect(extractPdfText(toPdfData(notAPdf))).rejects.toMatchObject({
+      name: "InvalidPDFException",
+      message: "Invalid PDF structure.",
+    })
   })
 
   describe("heading levels", () => {

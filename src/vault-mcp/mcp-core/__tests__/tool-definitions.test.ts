@@ -2853,6 +2853,47 @@ describe("DISABLED_TOOLS", () => {
     expect(routingLine).toBe(`the last line for end_anchor.\n${expectedLine}`)
   })
 
+  const FENCED_BLOCK_WARNING =
+    "A closing code fence can't be the end anchor: every fragment of it also matches the opening fence. Ending on an inner line instead leaves the rest of the block behind"
+
+  it.each([
+    {
+      label: "vault_delete_span names vault_replace_in_note while it is served",
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      disabledTools: "",
+      expectedSentences: `${FENCED_BLOCK_WARNING}, so remove a fenced block with vault_replace_in_note.`,
+    },
+    {
+      label: "vault_delete_span keeps only the warning when vault_replace_in_note is disabled",
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      disabledTools: "vault_replace_in_note",
+      expectedSentences: `${FENCED_BLOCK_WARNING}.`,
+    },
+    {
+      label: "vault_replace_span names vault_replace_in_note while it is served",
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      disabledTools: "",
+      expectedSentences: `${FENCED_BLOCK_WARNING}, so replace a fenced block with vault_replace_in_note.`,
+    },
+    {
+      label: "vault_replace_span keeps only the warning when vault_replace_in_note is disabled",
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      disabledTools: "vault_replace_in_note",
+      expectedSentences: `${FENCED_BLOCK_WARNING}.`,
+    },
+  ])(
+    "fenced-block end-anchor warning: $label",
+    ({ toolName, disabledTools, expectedSentences }) => {
+      const fencedBlockWarning = extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName,
+        startMarker: "A closing code fence",
+        endMarker: "\n- ",
+      })
+      expect(fencedBlockWarning).toBe(expectedSentences)
+    },
+  )
+
   it("vault_replace_in_note drops the vault_delete_span advice when that tool is disabled", () => {
     const whenToUse = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_delete_span" }),

@@ -536,6 +536,29 @@ describe("daily-review error degradation", () => {
     expect(text).toContain("task index unavailable")
     expect(text).toContain("vault_get_daily_note")
   })
+
+  it("names a file a filesystem error quotes vault-relative in the fallback", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-err-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    const throwingSearch = {
+      modifiedOnDate: () => [],
+      listTasks: () => {
+        throw Object.assign(
+          new Error(`EACCES: permission denied, open '${vault}/Projects/plan.md'`),
+          { code: "EACCES" },
+        )
+      },
+    } as unknown as SearchIndex
+    const calls = registerWithSearch(vault, throwingSearch)
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({}, fakeExtra))
+    expect(text).toBe(
+      "Could not assemble the daily review ([Error]: EACCES: permission denied, open 'Projects/plan.md'). Try vault_get_daily_note to fetch the note directly.",
+    )
+  })
 })
 
 // ── Full output ──────────────────────────────────────────────────

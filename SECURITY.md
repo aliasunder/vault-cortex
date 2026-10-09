@@ -174,8 +174,11 @@ mechanism-level detail.
 - `safeHandler()` catches all exceptions and returns the error's name and
   message, plus how to fix a properties-block refusal — no stack traces
   reach the client
-- In-lock existence checks return vault-relative "not found" instead of
-  ENOENT (whose message leaks the container's absolute path)
+- A filesystem error's paths reach the client vault-relative, from tools and
+  from the prompts' fallback messages alike, so the container's absolute
+  path stays in the server log
+- In-lock existence checks return a vault-relative "not found" instead of
+  Node's ENOENT text
 - Error middleware returns `"internal server error"` to clients;
   request metadata and the error message are logged server-side only
 

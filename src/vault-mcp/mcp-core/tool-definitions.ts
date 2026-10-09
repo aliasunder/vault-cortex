@@ -81,7 +81,10 @@ export const registerTools = (params: {
   const availability = createToolAvailability(enabledToolNames)
   const context: ToolRegistrationContext = {
     ...availability,
-    ...createSafeHandlers(availability.isToolEnabled),
+    ...createSafeHandlers({
+      isToolEnabled: availability.isToolEnabled,
+      vaultPath: params.vaultPath,
+    }),
     registerTool: createGatedRegisterTool(params.server, enabledToolNames),
     vaultPath: params.vaultPath,
     search: params.search,

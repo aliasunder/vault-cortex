@@ -1303,11 +1303,20 @@ Docker hardening, and durability seatbelts above.
 - **`safeHandler()`** (built per server by `createSafeHandlers` in
   `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
   return a structured `isError` response with the error's name and message,
-  plus how to fix a properties-block refusal — no stack traces, no absolute
-  paths. A buggy tool never crashes the server.
+  plus how to fix a properties-block refusal — no stack traces. A buggy tool
+  never crashes the server.
+- **Vault-relative error paths**: `describeErrorRelativeTo`
+  (`src/utils/describe-error.ts`) rewrites the paths in a Node error's
+  message relative to the vault root, for `safeHandler()` and the prompts'
+  fallback messages. Errors the server throws itself keep their text, since
+  they can quote the caller's input. The `tool_error` log keeps the full message
+  and the cause of a wrapped error.
+- **Library errors**: an image sharp cannot decode, a password-protected
+  PDF, and a damaged PDF each return the server's own message, with the
+  library's error kept as the cause.
 - **In-lock existence checks**: `deleteNote` and `moveNote` check file
   existence inside the lock, returning a vault-relative "not found"
-  instead of ENOENT (whose message leaks the absolute container path).
+  instead of Node's ENOENT text.
 - **Graceful shutdown** (`server.ts`): SIGTERM handler drains in-flight
   requests with a 10-second force-exit fallback, so a write is never
   interrupted mid-rename.

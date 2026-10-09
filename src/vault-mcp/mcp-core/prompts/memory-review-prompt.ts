@@ -11,7 +11,7 @@
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js"
 import { z } from "zod"
 import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
-import { describeError } from "../../../utils/describe-error.js"
+import { describeError, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import {
   type PromptRegistrationContext,
   textResult,
@@ -224,13 +224,13 @@ export const registerMemoryReviewPrompt = ({
         })
         return textResult(memoryReview)
       } catch (err) {
-        const message = describeError(err)
-        reqLogger.error("prompt_error", { error: message })
+        reqLogger.error("prompt_error", { error: describeError(err) })
+        const clientMessage = describeErrorRelativeTo({ error: err, directory: vaultPath })
         const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"])
         const fallbackHint = fallbackTools
           ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`
           : ""
-        return textResult(`Could not load memory for review (${message}).${fallbackHint}`)
+        return textResult(`Could not load memory for review (${clientMessage}).${fallbackHint}`)
       }
     },
   )

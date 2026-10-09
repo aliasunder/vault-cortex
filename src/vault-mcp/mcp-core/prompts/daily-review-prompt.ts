@@ -9,7 +9,7 @@
 import { DateTime } from "luxon"
 import { z } from "zod"
 import { getDailyNote, readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { describeError } from "../../../utils/describe-error.js"
+import { describeError, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import type { TaskEntry } from "../../search/search-index.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import {
@@ -401,13 +401,15 @@ export const registerDailyReviewPrompt = ({
         })
         return textResult(dailyReview)
       } catch (err) {
-        const message = describeError(err)
-        reqLogger.error("prompt_error", { error: message })
+        reqLogger.error("prompt_error", { error: describeError(err) })
+        const clientMessage = describeErrorRelativeTo({ error: err, directory: vaultPath })
         const dailyFallbackHint = whenToolEnabledText(
           "vault_get_daily_note",
           " Try vault_get_daily_note to fetch the note directly.",
         )
-        return textResult(`Could not assemble the daily review (${message}).${dailyFallbackHint}`)
+        return textResult(
+          `Could not assemble the daily review (${clientMessage}).${dailyFallbackHint}`,
+        )
       }
     },
   )
