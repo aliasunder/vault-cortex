@@ -86,6 +86,15 @@ describe("describeErrorRelativeTo", () => {
     )
   })
 
+  it("makes the path relative when Node quotes it in backticks", async () => {
+    // A value holding both ' and " is shown in backticks
+    const error = await captureRejection(readFile(join(directory, `It's "Bad"\u0000.md`)))
+
+    expect(describeErrorRelativeTo({ error, directory })).toBe(
+      "[TypeError]: The argument 'path' must be a string, Uint8Array, or URL without null bytes. Received `It's \"Bad\"\\x00.md`",
+    )
+  })
+
   it("keeps a folder deeper in the path that repeats the directory's own path", async () => {
     // join() appends an absolute second part, so this is <directory>/<directory>/note.md
     const error = await captureRejection(readFile(join(directory, directory, "note.md")))

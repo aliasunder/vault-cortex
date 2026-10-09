@@ -169,7 +169,7 @@ A module's folder is decided by **what it depends on**, not just its topic:
   (`createSafeHandlers`, `formatNoteMetadata`, `ToolRegistrationContext`
   type) live in `tool-helpers.ts`. Group modules take `safeHandler` and
   `safeHandlerContent` from the registration context; `createSafeHandlers`
-  builds them per server from the enabled tools.
+  builds them per server from the enabled tools and the vault path.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
   one data-layer call, and content-block/JSON formatting. Multi-step
   composition — filtering, counting, pagination, dispatching across parsers
