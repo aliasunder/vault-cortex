@@ -1,4 +1,5 @@
 #!/command/with-contenv sh
+# shellcheck shell=sh # ShellCheck cannot read the with-contenv shebang
 # Long-running sync service supervised by s6.
 # Drops privileges to the obsidian user before exec-ing the sync process.
 set -e

@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # job only lints, tests, and builds; no git pushes
 
       # The two description guards deliberately measure differently: the MCP
       # Registry counts code points (jq's `length` on a string), while Docker
@@ -57,6 +59,8 @@ jobs:
       - run: npm run lint
 
       - run: npm run markdownlint
+
+      - run: npm run lint:shell
 
       - run: npm run knip
 

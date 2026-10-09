@@ -67,6 +67,7 @@
     "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
+    "lint:shell": "tsx scripts/lint-shell.ts",
     "markdownlint": "markdownlint-cli2 \"**/*.md\"",
     "markdownlint:fix": "markdownlint-cli2 --fix \"**/*.md\"",
     "test": "vitest run",
@@ -80,6 +81,7 @@
     "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts"
   },
   "lint-staged": {
+    "*": "tsx scripts/lint-shell.ts",
     "*.json": "prettier --write",
     "*.md": [
       "markdownlint-cli2 --fix",

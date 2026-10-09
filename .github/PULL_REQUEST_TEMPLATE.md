@@ -14,9 +14,8 @@
 
 ## Checklist
 
+- [ ] The pre-commit hook passed: typecheck, knip, and ESLint, Prettier, markdownlint and ShellCheck on the staged files
 - [ ] `npm test` passes
-- [ ] `npm run lint` passes
-- [ ] `npm run prettier:check` passes
 - [ ] `npm run build` succeeds
 - [ ] New MCP tools follow the naming and description conventions in AGENTS.md
 - [ ] README or ARCHITECTURE.md updated (if user-facing behavior changed)

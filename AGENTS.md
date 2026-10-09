@@ -675,6 +675,11 @@ covers both kinds, with reasons:
   `--fix` + CI) enforces markdown structure: blank lines around fences,
   a language on every fenced block, no bare URLs. Ignores are documented
   in the config.
+- **ShellCheck** (`npm run lint:shell`, lint-staged + CI) checks only the
+  scripts `SHELL_SCRIPT_GLOBS` in `scripts/lint-shell.ts` lists, so add a
+  new shell script's path there. ShellCheck cannot read
+  `#!/command/with-contenv sh`, so s6 scripts that start with it carry
+  `# shellcheck shell=sh`. A disable directive gets a comment saying why.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if

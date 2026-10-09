@@ -6,7 +6,11 @@ to get started.
 ## Quick Start
 
 1. **Prerequisites:** Node.js >= 24 (see `.nvmrc`), Docker (optional, for
-   container mode)
+   container mode), `curl`, and `tar` with xz support (both preinstalled on
+   macOS and most Linux distributions). The first `npm run lint:shell`, or
+   the first commit that changes a shell script, uses them to download the
+   [ShellCheck](https://www.shellcheck.net) release the repo pins for macOS
+   and Linux on x86_64 and arm64
 
 2. **Clone and install:**
 
@@ -140,16 +144,19 @@ truth. Key points:
 1. **Branch from `main`** — use a descriptive prefix (`feat/`, `fix/`, `docs/`,
    `refactor/`, `chore/`)
 2. **Keep PRs focused** — one logical change per PR
-3. **Run the full check suite** before pushing:
+3. **Check before pushing** — every commit runs the pre-commit hook: the
+   typecheck, knip, and ESLint, Prettier, markdownlint and ShellCheck on
+   the staged files. Before pushing, run the two checks it leaves out:
 
    ```bash
-   npm run prettier:check && npm run lint && npm run markdownlint && npm run knip && npm test && npm run build
+   npm test && npm run build
    ```
 
-4. **Fill out the PR template** — the checklist mirrors CI
+4. **Fill out the PR template** — its checklist repeats step 3
 5. **Required checks must pass** — the `main` ruleset requires all seven;
    each blocks the merge and the finding details are in its job log:
-   - `checks` — prettier, lint, markdownlint, knip, test, and build
+   - `checks` — prettier, lint, markdownlint, lint:shell, knip, test, and
+     build
    - `cli-smoke (22)` / `cli-smoke (24)` — builds the
      CLI and runs `init` on the engines floor (22.12) and the newest
      major (24), catching APIs too new for the CLI's `engines` range;

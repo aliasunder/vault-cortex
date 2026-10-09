@@ -1,4 +1,5 @@
 #!/command/with-contenv sh
+# shellcheck shell=sh # ShellCheck cannot read the with-contenv shebang
 # Adjust the obsidian user/group UID/GID to match PUID/PGID env vars.
 set -e
 
