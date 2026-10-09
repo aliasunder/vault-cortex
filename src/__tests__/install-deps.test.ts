@@ -306,17 +306,13 @@ describe("install-deps hook", () => {
       expect({
         status: run.status,
         stdout: run.stdout,
-        loggedSkip: run.stderr
-          .split("\n")
-          .includes(
-            `[install-deps] perl not found, so the install lock cannot be taken — skipping the install in ${fixture.checkout}; run npm ci and npx sst install yourself`,
-          ),
+        stderr: run.stderr,
         npmCalls: recordedNpmCalls(fixture),
         ...installState(fixture),
       }).toEqual({
         status: 0,
         stdout: "",
-        loggedSkip: true,
+        stderr: `[install-deps] perl not found, so the install lock cannot be taken — skipping the install in ${fixture.checkout}; run npm ci and npx sst install yourself\n`,
         npmCalls: [],
         marker: `${fixture.lockfileHash}\n`,
         stamp: null,
@@ -336,17 +332,13 @@ describe("install-deps hook", () => {
       expect({
         status: run.status,
         stdout: run.stdout,
-        loggedSkip: run.stderr
-          .split("\n")
-          .includes(
-            `[install-deps] could not take the install lock in ${fixture.checkout} (perl exit 2) — skipping the install`,
-          ),
+        stderr: run.stderr,
         npmCalls: recordedNpmCalls(fixture),
         ...installState(fixture),
       }).toEqual({
         status: 0,
         stdout: "",
-        loggedSkip: true,
+        stderr: `[install-deps] could not take the install lock in ${fixture.checkout} (perl exit 2) — skipping the install\n`,
         npmCalls: [],
         marker: `${fixture.lockfileHash}\n`,
         stamp: null,

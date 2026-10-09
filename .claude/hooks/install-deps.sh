@@ -200,9 +200,9 @@ fi
 # - The hook never installs or recovers without the lock: an orphaned npm ci
 #   may still be writing, and a half-written tree can pass npm ls. Without
 #   perl, a busy lock past the wait, or a lock error, it skips the install.
-# - Perl's flock is the one lock call every environment that runs this hook
-#   has: macOS lacks flock(1), and macOS, Debian, Ubuntu and the cloud images
-#   all ship perl.
+# - Perl's flock is the one lock call that macOS, Debian, Ubuntu and the
+#   cloud images all have: macOS lacks flock(1), and all of them ship perl.
+#   Minimal images without perl, such as Alpine, skip the install below.
 # - Perl opens this shell's fd 9 in place (">&=" is C's fdopen, not a dup)
 #   and locks the file open on it, so the lock outlives the perl process.
 # - Perl exits 0 with the lock held, 75 (EX_TEMPFAIL from sysexits.h) when
