@@ -92,9 +92,9 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
 # - bash, sh and zsh with flags, then the opening quote of the command they
-#   run (`bash -lc 'npm test'`). The split below ignores quotes, so a run
-#   after ; or && inside the quoted text counts too
-#   (`bash -c 'npm ci && npm test'`), and a mention there
+#   run (`bash -lc 'npm test'`). The split below ignores quotes, so a run or
+#   a cd after ; or && inside the quoted text counts too
+#   (`bash -c 'cd /repo && npm test'`), and a mention there
 #   (`bash -c 'echo npm test'`) does not.
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
@@ -109,18 +109,21 @@ shell_keyword='(if|then|do|else|elif|while|until|!|\{)[[:space:]]+'
 
 command_prefix="(${wrapper}|${shell_keyword}|${variable_setting})*"
 
-# The runner ends at a space, a ), a closing quote or the end of its command,
-# so `npm run testx` and `npm run test:cli-pty` are not runs.
-runner_end="([[:space:]]|\\)|[\"']|$)"
+# The runner ends at a space, a ), the end of its command, or a closing quote
+# that only spaces, a redirection (`bash -c 'npm test' 2>`) or the end
+# follow, so `npm run testx` and `npm run test:cli-pty` are not runs, and
+# neither is the `vitest' src/` that `grep -E 'npm test|vitest' src/` splits
+# into.
+runner_end="([[:space:]]|\\)|[\"'][[:space:]]*([0-9]*[<>]|$)|$)"
 
 # A command that runs tests starts with the runner, after any prefix. A
 # mention elsewhere, as in `grep vitest package.json`, is not a run.
 test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
 
 # exempt_suite_run matches a run of the remote-boot or cli-pty suite, the two
-# exempt suites, by the config flag that names the suite's config file. The
-# file name must end at a space, a ), a closing quote or the end of the
-# command, so `vitest.cli-pty.config.ts.bak` does not count.
+# exempt suites, by the config flag that names the suite's config file, with
+# or without quotes around the name. The file name must end where a runner
+# ends, so `vitest.cli-pty.config.ts.bak` does not count.
 # - arguments_before_double_dash matches words other than a lone `--`. vitest
 #   reads no flags after a lone `--`, so
 #   `vitest run -- --config vitest.cli-pty.config.ts` runs the main suite.
@@ -135,7 +138,7 @@ test_run="^[[:space:]]*${command_prefix}(${test_runner})${runner_end}"
 #   never sees the flag in `npm exec vitest run --config
 #   vitest.cli-pty.config.ts`. The hook stops every such run rather than
 #   track where npm's `--` falls.
-exempt_suite_config="(-c|--config)(=|[[:space:]]+)([^[:space:]]*/)?vitest\.(remote-boot|cli-pty)\.config\.ts${runner_end}"
+exempt_suite_config="(-c|--config)(=|[[:space:]]+)[\"']?([^[:space:]\"']*/)?vitest\.(remote-boot|cli-pty)\.config\.ts[\"']?${runner_end}"
 arguments_before_double_dash='([[:space:]]+(-|-?[^-[:space:]][^[:space:]]*|--[^[:space:]]+))*'
 vitest_exempt_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
 npm_exempt_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments_before_double_dash}[[:space:]]+--${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
@@ -143,7 +146,9 @@ exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 
 # The walk below tells four kinds of directory change apart. The first three
 # start with cd or pushd, after any shell keyword (`{ cd /repo; npm test; }`,
-# `then cd /repo`), so the path is the fourth group of their match.
+# `then cd /repo`), so the path is the fourth group of their match. A shell
+# wrapper before the cd (`bash -c 'cd /repo && npm test'`) is cut off first:
+# shell_wrapper_prefix matches it, and any_cd accepts it for the grep below.
 # - cd_to_absolute_path matches an unquoted path that starts with /.
 # - cd_to_quoted_absolute_path matches a quoted path that starts with / and
 #   holds no $, backtick or ~, so the shell would use it as written.
@@ -157,7 +162,8 @@ directory_change="^[[:space:]]*(${shell_keyword})*(cd|pushd)[[:space:]]+"
 cd_to_absolute_path="${directory_change}(/[^[:space:]]*)"
 cd_to_quoted_absolute_path="${directory_change}[\"'](/[^\"'\$\`~]*)[\"']"
 cd_to_relative_path="${directory_change}([^-~#\"'\$[:space:]][^[:space:]]*)"
-any_cd="^[[:space:]]*(${shell_keyword})*(cd|pushd|popd)([[:space:]]|$)"
+shell_wrapper_prefix="^[[:space:]]*${shell_wrapper}"
+any_cd="^[[:space:]]*(${shell_wrapper})?(${shell_keyword})*(cd|pushd|popd)([[:space:]]|$)"
 
 # The command is split into the commands it runs, one per line, and only the
 # cds and test runs the walk below acts on are kept.
@@ -209,19 +215,23 @@ current_dir="${session_dir}"
 # coverage hint at the end can look for a coverage run among them.
 root_test_runs=""
 while IFS= read -r split_command; do
-  if [[ "${split_command}" =~ ${cd_to_absolute_path} ]]; then
+  cd_candidate="${split_command}"
+  if [[ "${split_command}" =~ ${shell_wrapper_prefix} ]]; then
+    cd_candidate="${split_command:${#BASH_REMATCH[0]}}"
+  fi
+  if [[ "${cd_candidate}" =~ ${cd_to_absolute_path} ]]; then
     current_dir="${BASH_REMATCH[4]}"
     continue
   fi
-  if [[ "${split_command}" =~ ${cd_to_quoted_absolute_path} ]]; then
+  if [[ "${cd_candidate}" =~ ${cd_to_quoted_absolute_path} ]]; then
     current_dir="${BASH_REMATCH[4]}"
     continue
   fi
-  if [[ "${split_command}" =~ ${cd_to_relative_path} ]]; then
+  if [[ "${cd_candidate}" =~ ${cd_to_relative_path} ]]; then
     current_dir="${current_dir}/${BASH_REMATCH[4]}"
     continue
   fi
-  if [[ "${split_command}" =~ ${any_cd} ]]; then
+  if [[ "${cd_candidate}" =~ ${any_cd} ]]; then
     current_dir="${session_dir}"
     continue
   fi

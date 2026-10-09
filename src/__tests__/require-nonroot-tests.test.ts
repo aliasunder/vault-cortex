@@ -346,6 +346,11 @@ describe("require-nonroot-tests hook", () => {
       { label: "npm run-script test", command: "npm run-script test" },
       { label: "bash -c with a quoted test run", command: "bash -lc 'npm test'" },
       { label: "sh -c with a double-quoted vitest run", command: 'sh -c "npx vitest run"' },
+      { label: "bash -c with a redirection after the quote", command: "bash -c 'npm test' 2>&1" },
+      {
+        label: "vitest with the main config in quotes",
+        command: 'npx vitest run --config "vitest.config.ts"',
+      },
       // npm reads the config flag as its own, so vitest never sees it.
       {
         label: "npm exec vitest with the cli-pty config",
@@ -448,6 +453,18 @@ describe("require-nonroot-tests hook", () => {
       { label: "npm run-script of another script", command: "npm run-script lint" },
       { label: "npm exec of another binary", command: "npm exec prettier -- --version" },
       { label: "bash -c with a quoted non-test command", command: "bash -c 'npm run lint'" },
+      {
+        label: "a quoted grep pattern that a | splits after a runner name",
+        command: "grep -E 'npm test|vitest' src/",
+      },
+      {
+        label: "vitest with the cli-pty config in quotes",
+        command: 'npx vitest run --config "vitest.cli-pty.config.ts"',
+      },
+      {
+        label: "vitest with the remote-boot config in quotes after =",
+        command: "npx vitest run --config='vitest.remote-boot.config.ts'",
+      },
       {
         label: "a versioned vitest with the cli-pty config",
         command: "npx vitest@4 run --config vitest.cli-pty.config.ts",
@@ -772,6 +789,10 @@ describe("require-nonroot-tests hook", () => {
         label: "inside an if block",
         command: (checkout: string) => `if true; then cd ${checkout}; fi; npm test`,
       },
+      {
+        label: "inside a bash -c body",
+        command: (checkout: string) => `bash -c 'cd ${checkout} && npm test'`,
+      },
     ])("prepares the checkout an absolute cd names $label", ({ command }) => {
       const fixture = createHookFixture()
 
@@ -852,6 +873,18 @@ describe("require-nonroot-tests hook", () => {
         run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
         controlRun: { status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) },
       })
+    })
+
+    it("prepares the checkout of the first stopped run, not of an exempt run before it", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+
+      const run = runCommandThroughHook(
+        fixture,
+        `npx vitest run --config vitest.cli-pty.config.ts && cd ${otherCheckout} && npm test`,
+      )
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) })
     })
 
     it("prepares the session's checkout, not npm's --prefix folder", () => {
