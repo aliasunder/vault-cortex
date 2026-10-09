@@ -1,4 +1,5 @@
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync, spawn, spawnSync } from "node:child_process"
+import { once } from "node:events"
 import {
   chmodSync,
   existsSync,
@@ -116,6 +117,11 @@ type HookRunOptions = {
   hookEventName?: "SessionStart" | "PostToolUse"
   /** CLAUDE_ENV_FILE for a SessionStart run. Unset by default. */
   claudeEnvFile?: string
+  /** The payload's cwd. Defaults to the fixture's checkout; null leaves the
+   *  field out of the payload. */
+  payloadCwd?: string | null
+  /** CLAUDE_PROJECT_DIR. Unset by default. */
+  claudeProjectDir?: string
   /** What the nvm stand-in from writeNvmStandIn answers. */
   nvmAnswers?: NvmAnswers
 }
@@ -239,31 +245,123 @@ const writeHiddenLockfile = (
   utimesSync(hiddenLockfilePath, hiddenLockfileMtime, hiddenLockfileMtime)
 }
 
-const runHook = (options: HookRunOptions): HookRun => {
+/** The JSON Claude Code sends the hook on stdin. */
+const hookPayload = (options: HookRunOptions): string => {
+  const payloadCwd =
+    options.payloadCwd === undefined ? options.fixture.checkout : options.payloadCwd
+
+  return JSON.stringify({
+    ...(payloadCwd === null ? {} : { cwd: payloadCwd }),
+    hook_event_name: options.hookEventName ?? "PostToolUse",
+  })
+}
+
+/** Built from scratch, so no nvm, CLAUDE_PROJECT_DIR or GIT_DIR from the
+ *  runner's own environment reaches the hook. */
+const hookEnv = (options: HookRunOptions): Record<string, string> => {
   const { fixture } = options
+  return {
+    PATH: options.path ?? `${fixture.stubBinDir}:${runnerPath()}`,
+    HOME: fixture.outsideDir,
+    STUB_NPM_LOG: fixture.npmLog,
+    STUB_NPM_LS_STATUS: String(options.npmLsStatus ?? 0),
+    STUB_NPM_CI_STATUS: String(options.npmCiStatus ?? 0),
+    STUB_NPM_CI_WRITES_HIDDEN_LOCKFILE: options.npmCiWritesHiddenLockfile ? "1" : "0",
+    ...(options.claudeEnvFile ? { CLAUDE_ENV_FILE: options.claudeEnvFile } : {}),
+    ...(options.claudeProjectDir ? { CLAUDE_PROJECT_DIR: options.claudeProjectDir } : {}),
+    STUB_NVM_NVMRC_NODE: options.nvmAnswers?.nvmrcNode ?? "",
+    STUB_NVM_DEFAULT_NODE: options.nvmAnswers?.defaultNode ?? "",
+  }
+}
+
+const runHook = (options: HookRunOptions): HookRun => {
   const result = spawnSync("bash", [HOOK_PATH], {
-    cwd: fixture.outsideDir,
-    input: JSON.stringify({
-      cwd: fixture.checkout,
-      hook_event_name: options.hookEventName ?? "PostToolUse",
-    }),
+    cwd: options.fixture.outsideDir,
+    input: hookPayload(options),
     encoding: "utf8",
-    // Built from scratch, so no nvm, CLAUDE_PROJECT_DIR or GIT_DIR from the
-    // runner's own environment reaches the hook.
-    env: {
-      PATH: options.path ?? `${fixture.stubBinDir}:${runnerPath()}`,
-      HOME: fixture.outsideDir,
-      STUB_NPM_LOG: fixture.npmLog,
-      STUB_NPM_LS_STATUS: String(options.npmLsStatus ?? 0),
-      STUB_NPM_CI_STATUS: String(options.npmCiStatus ?? 0),
-      STUB_NPM_CI_WRITES_HIDDEN_LOCKFILE: options.npmCiWritesHiddenLockfile ? "1" : "0",
-      ...(options.claudeEnvFile ? { CLAUDE_ENV_FILE: options.claudeEnvFile } : {}),
-      STUB_NVM_NVMRC_NODE: options.nvmAnswers?.nvmrcNode ?? "",
-      STUB_NVM_DEFAULT_NODE: options.nvmAnswers?.defaultNode ?? "",
-    },
+    env: hookEnv(options),
   })
 
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
+
+/** A hook run still in progress, for a test that acts while the hook waits. */
+type StartedHook = {
+  /** Resolves once the hook's stderr so far contains the text. */
+  stderrShows: (text: string) => Promise<void>
+  finished: Promise<HookRun>
+}
+
+const startHook = (options: HookRunOptions): StartedHook => {
+  const hook = spawn("bash", [HOOK_PATH], {
+    cwd: options.fixture.outsideDir,
+    env: hookEnv(options),
+  })
+  onTestFinished(() => {
+    hook.kill()
+  })
+  hook.stdin.end(hookPayload(options))
+  hook.stdout.setEncoding("utf8")
+  hook.stderr.setEncoding("utf8")
+
+  // Filled as the output streams in, so a test can read it mid-run. This
+  // listener is added first, so later stderr listeners see each chunk in it.
+  const output = { stdout: "", stderr: "" }
+  hook.stdout.on("data", (chunk: string) => {
+    output.stdout += chunk
+  })
+  hook.stderr.on("data", (chunk: string) => {
+    output.stderr += chunk
+  })
+
+  const stderrShows = (text: string): Promise<void> => {
+    return new Promise((resolveShown) => {
+      const resolveOnceShown = (): void => {
+        if (output.stderr.includes(text)) resolveShown()
+      }
+      hook.stderr.on("data", resolveOnceShown)
+      resolveOnceShown()
+    })
+  }
+
+  const finished = new Promise<HookRun>((resolveFinished) => {
+    hook.on("close", (status) => {
+      resolveFinished({ status, stdout: output.stdout, stderr: output.stderr })
+    })
+  })
+
+  return { stderrShows, finished }
+}
+
+/** Perl script standing in for another session's install: takes the install
+ *  lock on the file named by its argument, prints "locked", and holds the
+ *  lock until its stdin closes. */
+const LOCK_HOLDER_SCRIPT = `
+  open(my $lock, ">>", $ARGV[0]) or exit 2;
+  flock($lock, LOCK_EX) or exit 2;
+  $| = 1;
+  print "locked\n";
+  <STDIN>;
+`
+
+/** Takes the checkout's install lock the way another session's hook would.
+ *  Resolves once the lock is held; release() lets it go. */
+const holdInstallLock = async (fixture: HookFixture): Promise<{ release: () => void }> => {
+  const lockHolder = spawn(
+    "perl",
+    ["-MFcntl=:flock", "-e", LOCK_HOLDER_SCRIPT, join(fixture.stateDir, "install-deps.lock")],
+    { env: { PATH: runnerPath() } },
+  )
+  onTestFinished(() => {
+    lockHolder.kill()
+  })
+  await once(lockHolder.stdout, "data")
+
+  return {
+    release: () => {
+      lockHolder.stdin.end()
+    },
+  }
 }
 
 /** The npm and npx calls the hook made, each as its space-joined arguments. */
@@ -361,6 +459,48 @@ describe("install-deps hook", () => {
         "",
       ].join("\n"),
     )
+  })
+
+  describe("finding the checkout", () => {
+    // A worktree entry's payload cwd names the worktree, while
+    // CLAUDE_PROJECT_DIR stays at the folder the session started in.
+    it("uses the payload's cwd ahead of CLAUDE_PROJECT_DIR", () => {
+      const fixture = createHookFixture()
+
+      const run = runHook({ fixture, claudeProjectDir: fixture.outsideDir })
+
+      expect({ status: run.status, stderr: run.stderr }).toEqual({
+        status: 0,
+        stderr: `[install-deps] node_modules current in ${fixture.checkout} — nothing to do\n`,
+      })
+    })
+
+    it("falls back to CLAUDE_PROJECT_DIR when the payload has no cwd", () => {
+      const fixture = createHookFixture()
+
+      const run = runHook({ fixture, payloadCwd: null, claudeProjectDir: fixture.checkout })
+
+      expect({ status: run.status, stderr: run.stderr }).toEqual({
+        status: 0,
+        stderr: `[install-deps] node_modules current in ${fixture.checkout} — nothing to do\n`,
+      })
+    })
+
+    it("skips, naming the folder it looked in, when that folder is in no git checkout", () => {
+      const fixture = createHookFixture()
+
+      const run = runHook({ fixture, payloadCwd: null, claudeProjectDir: fixture.outsideDir })
+
+      expect({
+        status: run.status,
+        stderr: run.stderr,
+        npmCalls: recordedNpmCalls(fixture),
+      }).toEqual({
+        status: 0,
+        stderr: `[install-deps] no git checkout resolved from '${fixture.outsideDir}' — skipping\n`,
+        npmCalls: [],
+      })
+    })
   })
 
   describe("with a marker left by an interrupted install", () => {
@@ -667,6 +807,41 @@ describe("install-deps hook", () => {
     })
   })
 
+  describe("while another session holds the install lock", () => {
+    it("waits for that session's install, then skips its own when the install left the dependencies current", async () => {
+      const fixture = createHookFixture()
+      leaveOlderStamp(fixture)
+      const otherSession = await holdInstallLock(fixture)
+
+      const hook = startHook({ fixture })
+      // The hook says it is waiting only once its non-blocking lock attempt has
+      // failed, so the other session finishes strictly during the wait.
+      await hook.stderrShows("waiting for it")
+      stampCurrentLockfile(fixture)
+      otherSession.release()
+      const run = await hook.finished
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        stderr: run.stderr,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        stderr: [
+          `[install-deps] another session is installing in ${fixture.checkout} — waiting for it`,
+          `[install-deps] node_modules current in ${fixture.checkout}`,
+          "",
+        ].join("\n"),
+        npmCalls: [],
+        marker: null,
+        stamp: `${fixture.installIdentity}\n`,
+      })
+    })
+  })
+
   describe("with no marker", () => {
     // Without a package-lock.json the install identity is empty, and so is
     // the identity read from a missing marker, so only the marker's absence
@@ -834,6 +1009,43 @@ describe("install-deps hook", () => {
       })
     })
 
+    it("still installs, and says the PATH line was not written, when the session's file cannot be written", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), "24\n")
+      leaveOlderStamp(fixture)
+      writeNvmStandIn(fixture)
+      const nvmrcBin = createNodeBinDir(fixture, "v24")
+      const claudeEnvFile = join(fixture.outsideDir, "missing-folder", "claude-env")
+
+      const run = runHook({
+        fixture,
+        hookEventName: "SessionStart",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: join(nvmrcBin, "node"), defaultNode: join(nvmrcBin, "node") },
+      })
+
+      // bash also reports the failed redirection, naming the hook's line
+      // number, so only the hook's own log lines are compared.
+      const hookLogLines = run.stderr
+        .split("\n")
+        .filter((line) => line.startsWith("[install-deps]"))
+      expect({
+        status: run.status,
+        hookLogLines,
+        npmCalls: recordedNpmCalls(fixture),
+        stamp: installState(fixture).stamp,
+      }).toEqual({
+        status: 0,
+        hookLogLines: [
+          `[install-deps] could not write ${claudeEnvFile} — later commands keep the session's PATH`,
+          `[install-deps] installing dependencies in ${fixture.checkout} (node ${process.version})`,
+          "[install-deps] install complete",
+        ],
+        npmCalls: ["v24 ci"],
+        stamp: `${fixture.lockfileHash} node-abi-137\n`,
+      })
+    })
+
     it("leaves the session's PATH alone, and says so, when nvm finds no Node", () => {
       const fixture = createHookFixture()
       writeNvmStandIn(fixture)
@@ -857,6 +1069,25 @@ describe("install-deps hook", () => {
           `[install-deps] node_modules current in ${fixture.checkout} — nothing to do`,
           "",
         ].join("\n"),
+        envFile: null,
+      })
+    })
+  })
+
+  describe("at session start on a machine without nvm", () => {
+    it("writes no PATH line and logs nothing about the session's Node", () => {
+      const fixture = createHookFixture()
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+
+      const run = runHook({ fixture, hookEventName: "SessionStart", claudeEnvFile })
+
+      expect({
+        status: run.status,
+        stderr: run.stderr,
+        envFile: readFileIfPresent(claudeEnvFile),
+      }).toEqual({
+        status: 0,
+        stderr: `[install-deps] node_modules current in ${fixture.checkout} — nothing to do\n`,
         envFile: null,
       })
     })
