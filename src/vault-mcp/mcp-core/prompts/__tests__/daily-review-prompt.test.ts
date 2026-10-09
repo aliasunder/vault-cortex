@@ -3,11 +3,8 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
-import { registerPrompts } from "../../prompt-definitions.js"
 import { readDailyNotesConfig } from "../../../vault-operations/daily-notes.js"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
-  type RegisterPromptCall,
   fakeExtra,
   recordingLogger,
   type LogCall,
@@ -271,7 +268,7 @@ describe("daily-review handler", () => {
     )
   })
 
-  it("truncates a long daily note with a marker when max_chars is passed", async () => {
+  it("truncates a long daily note inside its data markers when max_chars is passed", async () => {
     const { vault, calls } = await setupVault()
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
     await writeFile(
@@ -301,20 +298,6 @@ describe("daily-review handler", () => {
     expect(result?.data.truncated).toBe(false)
   })
 
-  it("daily-review data markers survive truncation", async () => {
-    const { vault, calls } = await setupVault()
-    await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await writeFile(
-      join(vault, "Daily Notes", "2026-06-16.md"),
-      "# 2026-06-16\n\nA very long journal entry that runs well past the cap.\n",
-      "utf8",
-    )
-    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
-    const text = textOf(await handler({ date: "2026-06-16", max_chars: "30" }, fakeExtra))
-
-    expect(reviewSection(text, "Daily note")).toBe(TRUNCATED_LONG_NOTE_BLOCK)
-  })
-
   it("escapes closing vault-content tags in daily notes to prevent tag-breakout injection", async () => {
     const vault = await mkdtemp(join(tmpdir(), "prompt-daily-inject-"))
     onTestFinished(async () => {
@@ -328,17 +311,7 @@ describe("daily-review handler", () => {
       "utf8",
     )
 
-    const calls: RegisterPromptCall[] = []
-    const server = {
-      registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
-    }
-    registerPrompts({
-      server: server as unknown as McpServer,
-      vaultPath: vault,
-      search,
-      logger,
-      config: loadConfig({}),
-    })
+    const calls = registerWithSearch(vault, search)
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
@@ -984,7 +957,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
     content: "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
   }
 
-  it("names only the surviving reschedule tool when vault_patch_note is disabled", async () => {
+  it("drops the patch-note follow-up and names only the surviving reschedule tool when vault_patch_note is disabled", async () => {
     const { calls } = await setupDailyReviewVault({
       date: "2026-06-16",
       config: loadConfig({ DISABLED_TOOLS: "vault_patch_note" }),
@@ -1045,27 +1018,6 @@ describe("daily-review with DISABLED_TOOLS", () => {
         STEP.followUpsWithPatch,
         STEP.memoryWithTool,
         "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Reschedule by editing the date with vault_patch_note or vault_replace_in_note.",
-        STEP.followLinks,
-        STEP.patterns,
-      ]),
-    )
-  })
-
-  it("drops the patch-note follow-up directive when vault_patch_note is disabled", async () => {
-    const { calls } = await setupDailyReviewVault({
-      date: "2026-06-16",
-      config: loadConfig({ DISABLED_TOOLS: "vault_patch_note" }),
-      extraNotes: [taskNote],
-    })
-    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
-    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
-
-    expect(reviewSection(text, "How to review")).toBe(
-      expectedSteps([
-        STEP.reconcile,
-        STEP.followUpsInConversation,
-        STEP.memoryWithTool,
-        "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Update status or priority with vault_update_task. Reschedule by editing the date with vault_replace_in_note.",
         STEP.followLinks,
         STEP.patterns,
       ]),
