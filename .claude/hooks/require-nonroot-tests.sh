@@ -91,15 +91,17 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 # - exec and command, without flags, so `command -v vitest` is not a run.
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
-# - bash, sh and zsh with flags, then the opening quote of the command they
-#   run and any spaces after it (`bash -lc 'npm test'`). The split below
-#   ignores quotes, so a run or a cd after ; or && inside the quoted text
-#   counts too (`bash -c 'npm ci && cd /repo && npm test'`), and a mention
-#   there (`bash -c 'echo npm test'`) does not.
+# - bash, sh and zsh with their flags, where only -o and +o take an argument
+#   (`bash -o pipefail -c`), then the opening quote of the command they run
+#   and any spaces after it (`bash -lc 'npm test'`). The split below ignores
+#   quotes, so a run or a cd after ; or && inside the quoted text counts too
+#   (`bash -c 'npm ci && cd /repo && npm test'`), and a mention there
+#   (`bash -c 'echo npm test'`) does not.
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
 timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
-shell_wrapper="(bash|sh|zsh)${flags_without_argument}[[:space:]]+([\"'][[:space:]]*)?"
+shell_flags='([[:space:]]+([-+][oO][[:space:]]+[^[:space:]]+|[-+][^[:space:]]*))*'
+shell_wrapper="(bash|sh|zsh)${shell_flags}[[:space:]]+([\"'][[:space:]]*)?"
 wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+|${shell_wrapper}"
 
 # shell_keyword matches a shell keyword a command can follow: if
@@ -144,11 +146,12 @@ vitest_exempt_suite_run="^[[:space:]]*${command_prefix}(${vitest_runner})${argum
 npm_exempt_suite_run="^[[:space:]]*${command_prefix}(${npm_runner})${arguments_before_double_dash}[[:space:]]+--${arguments_before_double_dash}[[:space:]]+${exempt_suite_config}"
 exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 
-# The walk below tells four kinds of directory change apart. The first three
-# start with cd or pushd, after any shell keyword (`{ cd /repo; npm test; }`,
-# `then cd /repo`), so the path is the fourth group of their match. A shell
-# wrapper before the cd (`bash -c 'cd /repo && npm test'`) is cut off first:
-# shell_wrapper_prefix matches it, and any_cd accepts it for the grep below.
+# The walk below tells four kinds of directory change apart. The same prefix
+# a test run may carry (a wrapper, a shell keyword, a VAR=value setting:
+# `{ cd /repo; npm test; }`, `then cd /repo`, `env bash -c 'cd /repo && npm
+# test'`) is cut off first, with leading_command_prefix, so the first three
+# patterns start at cd or pushd and the path is the second group of their
+# match. any_cd accepts that prefix itself for the grep below.
 # - cd_to_absolute_path matches an unquoted path that starts with /.
 # - cd_to_quoted_absolute_path matches a quoted path that starts with / and
 #   holds no $, backtick or ~, so the shell would use it as written.
@@ -158,12 +161,12 @@ exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 # - any_cd matches any cd, pushd or popd. The walk tries it last, so it
 #   catches the rest: a bare `cd`, with or without a comment after it,
 #   `cd -`, popd, and a ~, $ or quoted path the others do not take.
-directory_change="^[[:space:]]*(${shell_keyword})*(cd|pushd)[[:space:]]+"
+directory_change="^[[:space:]]*(cd|pushd)[[:space:]]+"
 cd_to_absolute_path="${directory_change}(/[^[:space:]]*)"
 cd_to_quoted_absolute_path="${directory_change}[\"'](/[^\"'\$\`~]*)[\"']"
 cd_to_relative_path="${directory_change}([^-~#\"'\$[:space:]][^[:space:]]*)"
-shell_wrapper_prefix="^[[:space:]]*${shell_wrapper}"
-any_cd="^[[:space:]]*(${shell_wrapper})?(${shell_keyword})*(cd|pushd|popd)([[:space:]]|$)"
+leading_command_prefix="^[[:space:]]*${command_prefix}"
+any_cd="^[[:space:]]*${command_prefix}(cd|pushd|popd)([[:space:]]|$)"
 
 # The command is split into the commands it runs, one per line, and only the
 # cds and test runs the walk below acts on are kept.
@@ -216,19 +219,19 @@ current_dir="${session_dir}"
 root_test_runs=""
 while IFS= read -r split_command; do
   cd_candidate="${split_command}"
-  if [[ "${split_command}" =~ ${shell_wrapper_prefix} ]]; then
+  if [[ "${split_command}" =~ ${leading_command_prefix} ]]; then
     cd_candidate="${split_command:${#BASH_REMATCH[0]}}"
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_absolute_path} ]]; then
-    current_dir="${BASH_REMATCH[4]}"
+    current_dir="${BASH_REMATCH[2]}"
     continue
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_quoted_absolute_path} ]]; then
-    current_dir="${BASH_REMATCH[4]}"
+    current_dir="${BASH_REMATCH[2]}"
     continue
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_relative_path} ]]; then
-    current_dir="${current_dir}/${BASH_REMATCH[4]}"
+    current_dir="${current_dir}/${BASH_REMATCH[2]}"
     continue
   fi
   if [[ "${cd_candidate}" =~ ${any_cd} ]]; then

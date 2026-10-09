@@ -354,6 +354,10 @@ describe("require-nonroot-tests hook", () => {
       },
       { label: "bash -c with a space after the opening quote", command: "bash -c ' npm test'" },
       {
+        label: "bash with -o and its argument before -c",
+        command: "bash -o pipefail -c 'npm test'",
+      },
+      {
         label: "vitest with the main config in quotes",
         command: 'npx vitest run --config "vitest.config.ts"',
       },
@@ -794,6 +798,14 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "inside an if block",
         command: (checkout: string) => `if true; then cd ${checkout}; fi; npm test`,
+      },
+      {
+        label: "inside a bash -c body run through env",
+        command: (checkout: string) => `env bash -c 'cd ${checkout} && npm test'`,
+      },
+      {
+        label: "after a variable setting",
+        command: (checkout: string) => `CI=1 cd ${checkout} && npm test`,
       },
       {
         label: "inside a bash -c body",
