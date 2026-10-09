@@ -565,12 +565,14 @@ export const trashDomainLockKey = (vaultPath: string): string => {
  *  symlink. The trash move records it and the sweep (trash-sweeper.ts)
  *  compares against it, so both MUST read it here. Throws when nothing is at
  *  the path.
- *  - The device number is left out because a Docker Desktop bind mount gets a
- *    new one each time the container starts, and rows outlive restarts.
+ *  - The device number is left out because, inside a Docker Desktop bind
+ *    mount, it is a number Docker Desktop's VM assigned when it mounted the
+ *    share, which can change when Docker Desktop restarts, and rows outlive
+ *    restarts.
  *  - The inode alone is not enough, because ext4 reuses freed inode numbers. */
 export const readTrashFileIdentity = async (fullPath: string): Promise<string> => {
-  // bigint keeps every digit: a file ID seen through a Windows bind mount can
-  // exceed 2^53, where a number would round two different IDs to one value.
+  // A bigint keeps every digit, because a file ID seen through a Windows bind
+  // mount can exceed 2^53, and a number would round two IDs to one value.
   const fileStats = await lstat(fullPath, { bigint: true })
   return `${fileStats.ino}:${fileStats.size}:${fileStats.mtimeNs}`
 }
