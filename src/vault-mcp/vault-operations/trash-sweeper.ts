@@ -188,9 +188,11 @@ const sweepOneEntry = async (
   // require it inside the real .trash root, because a directory symlink
   // planted inside .trash/ would redirect a lexically-clean path onto live
   // notes. The final component itself is never followed (unlink removes a
-  // symlink, not its target). A missing parent (nothing there, or a file
-  // where a folder should be) means .trash/ was emptied outside the server,
-  // so the row is dropped.
+  // symlink, not its target). A parent that cannot be resolved means .trash/
+  // was emptied outside the server, so the row is dropped here. That covers
+  // a parent that is gone or sits under a folder that is now a file. A
+  // parent that is itself now a file still resolves; the identity read below
+  // then fails with ENOTDIR, which counts as missing and drops the row there.
   try {
     const realTrashRoot = await realpathOrNull(trashRoot)
     const realParent = await realpathOrNull(dirname(resolvedPath))
