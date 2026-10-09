@@ -462,12 +462,15 @@ export const createSearchIndex = (
     -- is the case-folded path (one row per physical file on case-insensitive
     -- mounts, so a fresh delete's upsert replaces a stale case-alias row
     -- instead of leaving it to purge the wrong sibling); trash_path keeps the
-    -- exact spelling for filesystem operations. No index: the table stays
+    -- exact spelling for filesystem operations; file_identity is the landed
+    -- file's identity, which the sweep matches before deleting (NULL on a
+    -- row recorded before the column existed). No index: the table stays
     -- small and the sweep is a daily full scan.
     CREATE TABLE IF NOT EXISTS trash_entries (
-      trash_key   TEXT PRIMARY KEY,
-      trash_path  TEXT NOT NULL,
-      trashed_at  INTEGER NOT NULL
+      trash_key      TEXT PRIMARY KEY,
+      trash_path     TEXT NOT NULL,
+      trashed_at     INTEGER NOT NULL,
+      file_identity  TEXT
     );
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
@@ -621,6 +624,17 @@ export const createSearchIndex = (
 
   if (!nonMdColumns.some((column) => column.name === "bytes")) {
     db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`)
+  }
+
+  // Same idempotent migration for trash_entries.file_identity. Nullable, and
+  // never backfilled: a row recorded without it may already point at a file
+  // that is not the one the server trashed, so the sweep keeps such files.
+  const trashEntryColumns = db
+    .prepare<unknown[], { name: string }>(`PRAGMA table_info(trash_entries)`)
+    .all()
+
+  if (!trashEntryColumns.some((column) => column.name === "file_identity")) {
+    db.exec(`ALTER TABLE trash_entries ADD COLUMN file_identity TEXT`)
   }
 
   // Prepared statements are compiled once here and reused across all calls.
@@ -2615,51 +2629,56 @@ export const createSearchIndex = (
 
   // ── Trash entries (retention-sweep bookkeeping) ──────────────
 
+  type TrashEntryRow = { trash_path: string; trashed_at: number; file_identity: string | null }
+
   const upsertTrashEntryStmt = db.prepare(`
-    INSERT OR REPLACE INTO trash_entries (trash_key, trash_path, trashed_at)
-    VALUES (?, ?, ?)
+    INSERT OR REPLACE INTO trash_entries (trash_key, trash_path, trashed_at, file_identity)
+    VALUES (?, ?, ?, ?)
   `)
-  const selectTrashEntryStmt = db.prepare<[string], { trash_path: string; trashed_at: number }>(
-    `SELECT trash_path, trashed_at FROM trash_entries WHERE trash_key = ?`,
+  const selectTrashEntryStmt = db.prepare<[string], TrashEntryRow>(
+    `SELECT trash_path, trashed_at, file_identity FROM trash_entries WHERE trash_key = ?`,
   )
-  const selectAllTrashEntriesStmt = db.prepare<[], { trash_path: string; trashed_at: number }>(
-    `SELECT trash_path, trashed_at FROM trash_entries`,
+  const selectAllTrashEntriesStmt = db.prepare<[], TrashEntryRow>(
+    `SELECT trash_path, trashed_at, file_identity FROM trash_entries`,
   )
-  const selectExpiredTrashEntriesStmt = db.prepare<
-    [number],
-    { trash_path: string; trashed_at: number }
-  >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trashed_at < ?`)
+  const selectExpiredTrashEntriesStmt = db.prepare<[number], TrashEntryRow>(
+    `SELECT trash_path, trashed_at, file_identity FROM trash_entries WHERE trashed_at < ?`,
+  )
   const deleteTrashEntryStmt = db.prepare(`DELETE FROM trash_entries WHERE trash_key = ?`)
 
+  const toTrashEntry = (row: TrashEntryRow): TrashEntry => {
+    return { trashPath: row.trash_path, trashedAt: row.trashed_at, fileIdentity: row.file_identity }
+  }
+
   /** Records a file this server moved to .trash/ — the retention sweep only
-   *  ever deletes recorded entries. Reusing a path (or a case alias of one,
-   *  via the folded key) replaces the old row, restarting the retention clock
-   *  for the file now at that path. */
-  const recordTrashEntry = (trashPath: string): void => {
-    upsertTrashEntryStmt.run(caseFoldPath(trashPath), trashPath, DateTime.now().toUnixInteger())
+   *  ever deletes recorded entries, and only while the file at the path still
+   *  has the recorded identity. Reusing a path (or a case alias of one, via
+   *  the folded key) replaces the old row, restarting the retention clock for
+   *  the file now at that path. */
+  const recordTrashEntry = (entry: { trashPath: string; fileIdentity: string }): void => {
+    upsertTrashEntryStmt.run(
+      caseFoldPath(entry.trashPath),
+      entry.trashPath,
+      DateTime.now().toUnixInteger(),
+      entry.fileIdentity,
+    )
   }
 
   const getTrashEntry = (trashPath: string): TrashEntry | null => {
     const row = selectTrashEntryStmt.get(caseFoldPath(trashPath))
 
     if (!row) return null
-    return { trashPath: row.trash_path, trashedAt: row.trashed_at }
+    return toTrashEntry(row)
   }
 
   /** Every recorded trash entry — the orphan purge's candidate list. */
   const listAllTrashEntries = (): TrashEntry[] => {
-    return selectAllTrashEntriesStmt.all().map((row) => ({
-      trashPath: row.trash_path,
-      trashedAt: row.trashed_at,
-    }))
+    return selectAllTrashEntriesStmt.all().map(toTrashEntry)
   }
 
   /** Rows recorded strictly before the cutoff — the sweep's candidate list. */
   const listExpiredTrashEntries = (cutoffEpochSeconds: number): TrashEntry[] => {
-    return selectExpiredTrashEntriesStmt.all(cutoffEpochSeconds).map((row) => ({
-      trashPath: row.trash_path,
-      trashedAt: row.trashed_at,
-    }))
+    return selectExpiredTrashEntriesStmt.all(cutoffEpochSeconds).map(toTrashEntry)
   }
 
   const deleteTrashEntry = (trashPath: string): void => {
@@ -2752,6 +2771,9 @@ export type SearchIndex = ReturnType<typeof createSearchIndex>
 export type TrashEntry = {
   trashPath: string
   trashedAt: number
+  /** The recorded file's readTrashFileIdentity; null on a row recorded before
+   *  identities were kept, which the sweep cannot match to any file. */
+  fileIdentity: string | null
 }
 
 /** The slice of the index the trash sweeper needs — injected so

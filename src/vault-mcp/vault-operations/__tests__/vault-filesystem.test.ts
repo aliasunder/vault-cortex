@@ -27,6 +27,7 @@ import {
   atomicWriteFile,
   atomicWriteFileExclusive,
   pruneEmptyParents,
+  readTrashFileIdentity,
   resolveSafePath,
 } from "../vault-filesystem.js"
 import {
@@ -1038,6 +1039,79 @@ describe("deleteNote", () => {
   })
 })
 
+describe("readTrashFileIdentity", () => {
+  /** A whole-second timestamp, so every file set to it has the same mtimeNs. */
+  const FIXED_EPOCH_SECONDS = 1_700_000_000
+
+  it("stays the same when the file is renamed into .trash/", async () => {
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, "moved.md"), "content", "utf8")
+    const identityBeforeMove = await readTrashFileIdentity(join(vault, "moved.md"))
+
+    await rename(join(vault, "moved.md"), join(vault, ".trash", "moved.md"))
+
+    const identityAfterMove = await readTrashFileIdentity(join(vault, ".trash", "moved.md"))
+    expect(identityAfterMove).toBe(identityBeforeMove)
+  })
+
+  it("differs for another file with the same size and modification time", async () => {
+    await writeFile(join(vault, "first.md"), "same", "utf8")
+    await writeFile(join(vault, "second.md"), "same", "utf8")
+    await utimes(join(vault, "first.md"), FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    await utimes(join(vault, "second.md"), FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const firstStats = await lstat(join(vault, "first.md"), { bigint: true })
+    const secondStats = await lstat(join(vault, "second.md"), { bigint: true })
+    // Only the inode number tells the two files apart.
+    expect([secondStats.size, secondStats.mtimeNs]).toEqual([firstStats.size, firstStats.mtimeNs])
+
+    const firstIdentity = await readTrashFileIdentity(join(vault, "first.md"))
+    const secondIdentity = await readTrashFileIdentity(join(vault, "second.md"))
+
+    expect(secondIdentity).not.toBe(firstIdentity)
+  })
+
+  it("differs after the file is rewritten in place at the same size", async () => {
+    const notePath = join(vault, "rewritten.md")
+    await writeFile(notePath, "aaaa", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const originalStats = await lstat(notePath, { bigint: true })
+    const originalIdentity = await readTrashFileIdentity(notePath)
+
+    await writeFile(notePath, "bbbb", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS + 60, FIXED_EPOCH_SECONDS + 60)
+
+    // Only the modification time changed: same inode, same size.
+    const rewrittenStats = await lstat(notePath, { bigint: true })
+    expect([rewrittenStats.ino, rewrittenStats.size]).toEqual([
+      originalStats.ino,
+      originalStats.size,
+    ])
+    expect(await readTrashFileIdentity(notePath)).not.toBe(originalIdentity)
+  })
+
+  it("differs when only the size changes", async () => {
+    const notePath = join(vault, "resized.md")
+    await writeFile(notePath, "short", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const originalStats = await lstat(notePath, { bigint: true })
+    const originalIdentity = await readTrashFileIdentity(notePath)
+
+    await writeFile(notePath, "much longer content", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+
+    const resizedStats = await lstat(notePath, { bigint: true })
+    expect([resizedStats.ino, resizedStats.mtimeNs]).toEqual([
+      originalStats.ino,
+      originalStats.mtimeNs,
+    ])
+    expect(await readTrashFileIdentity(notePath)).not.toBe(originalIdentity)
+  })
+
+  it("rejects when nothing is at the path", async () => {
+    await expect(readTrashFileIdentity(join(vault, "absent.md"))).rejects.toThrow(/ENOENT/)
+  })
+})
+
 describe("deleteNote — trash behavior", () => {
   it('moves the note to .trash/ when trashOption is "local"', async () => {
     await writeFile(join(vault, "trash-me.md"), "content", "utf8")
@@ -1167,10 +1241,11 @@ describe("deleteNote — trash behavior", () => {
     await expect(stat(join(vault, "sys.md"))).rejects.toThrow(/ENOENT/)
   })
 
-  it("reports the landed trash path to recordTrashEntry exactly once, suffixes included", async () => {
+  it("reports the landed trash path and the landed file's identity to recordTrashEntry exactly once, suffixes included", async () => {
     // The recorded path must be where the file actually landed — a collision
     // shifts it to a suffixed name, and recording the original would make the
-    // retention sweep act on someone else's trash copy.
+    // retention sweep act on someone else's trash copy. The identity must
+    // describe that landed file, or the sweep would never match it.
     await mkdir(join(vault, ".trash"), { recursive: true })
     await writeFile(join(vault, ".trash", "rec.md"), "older copy", "utf8")
     await writeFile(join(vault, "rec.md"), "fresh", "utf8")
@@ -1189,8 +1264,51 @@ describe("deleteNote — trash behavior", () => {
     )
 
     expect(result.trashLocation).toBe(".trash/rec 1.md")
+    const landedStats = await lstat(join(vault, ".trash", "rec 1.md"), { bigint: true })
     expect(recordTrashEntry).toHaveBeenCalledTimes(1)
-    expect(recordTrashEntry).toHaveBeenCalledWith(".trash/rec 1.md")
+    expect(recordTrashEntry).toHaveBeenCalledWith({
+      trashPath: ".trash/rec 1.md",
+      fileIdentity: `${landedStats.ino}:${landedStats.size}:${landedStats.mtimeNs}`,
+    })
+  })
+
+  it("contains a failed identity read — warns, clears the stale row, and the delete still succeeds", async () => {
+    // The identity is read after the rename, so its failure must take the same
+    // fail-open path as a failed row write, never the claim cleanup that
+    // would delete the moved note.
+    await writeFile(join(vault, "noident.md"), "survives", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const recordTrashEntry = vi.fn()
+    const clearStaleTrashEntry = vi.fn()
+    // The delete path's only lstat call is the identity read on the landed file.
+    vi.mocked(lstat).mockImplementationOnce(async () => {
+      throw new Error("EIO: injected lstat failure")
+    })
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "noident.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry,
+        clearStaleTrashEntry,
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/noident.md")
+    const trashedContent = await readFile(join(vault, ".trash", "noident.md"), "utf8")
+    expect(trashedContent).toBe("survives")
+    expect(recordTrashEntry).not.toHaveBeenCalled()
+    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1)
+    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/noident.md")
+    expect(warnSpy).toHaveBeenCalledWith("failed to record trash entry", {
+      path: ".trash/noident.md",
+      error: "[Error]: EIO: injected lstat failure",
+    })
   })
 
   it("contains a throwing recordTrashEntry — warns, and the delete still succeeds with the note intact in .trash/", async () => {

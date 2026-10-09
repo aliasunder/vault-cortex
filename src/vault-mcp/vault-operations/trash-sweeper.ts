@@ -1,16 +1,18 @@
 /** Trash bookkeeping — retention sweep (unlink expired files) and orphan
  *  purge (drop rows whose files are gone). Both operate on trash_entries
- *  rows, never walk the .trash/ folder, so Obsidian's own trash entries
- *  and hand-placed files are out of reach. */
+ *  rows and never walk the .trash/ folder, and the sweep unlinks a file only
+ *  while it still has the identity its row recorded, so Obsidian's own trash
+ *  entries and hand-placed files are out of reach, even under a name the
+ *  server once used. */
 
 import { unlink } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { DateTime } from "luxon"
 import { describeError } from "../../utils/describe-error.js"
-import { lstatOrNull, realpathOrNull } from "../../utils/fs.js"
+import { isMissingPathError, lstatOrNull, realpathOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
-import { pruneEmptyParents, trashDomainLockKey } from "./vault-filesystem.js"
+import { pruneEmptyParents, readTrashFileIdentity, trashDomainLockKey } from "./vault-filesystem.js"
 import type { TrashEntryStore } from "../search/search-index.js"
 import type { Logger } from "../../logger.js"
 
@@ -24,12 +26,36 @@ type SweepParams = {
   trashEntryStore: TrashEntryStore
 }
 
-type SweepRowOutcome = "purged" | "missing" | "skipped"
+type SweepRowOutcome = "purged" | "missing" | "unmatched" | "skipped"
 
-/** Processes one expired row: re-validate, contain, unlink, drop the row,
- *  prune the folders the unlink emptied. Runs under the shared trash-domain
- *  lock (the caller holds it), so no trash move can land a fresh file at
- *  this row's path mid-decision. */
+type IdentityCheck = "matches" | "differs" | "missing" | "unreadable"
+
+/** Compares the file now at a trash entry's path with the identity recorded
+ *  when the server trashed it. A row without a recorded identity never
+ *  matches. A read failure other than a missing file is logged and reported
+ *  as "unreadable". */
+const checkRecordedFileIdentity = async (
+  params: { fullPath: string; trashPath: string; recordedIdentity: string | null },
+  logger: Logger,
+): Promise<IdentityCheck> => {
+  try {
+    const currentIdentity = await readTrashFileIdentity(params.fullPath)
+    return currentIdentity === params.recordedIdentity ? "matches" : "differs"
+  } catch (error) {
+    if (isMissingPathError(error)) return "missing"
+    logger.warn("failed to read trash entry identity", {
+      trashPath: params.trashPath,
+      error: describeError(error),
+    })
+    return "unreadable"
+  }
+}
+
+/** Re-validates one expired row, checks that it stays inside .trash/ and
+ *  still holds the recorded file, then unlinks the file, drops the row, and
+ *  prunes the folders the unlink emptied. Runs under the shared trash-domain
+ *  lock (the caller holds it), so no trash move can land a fresh file at this
+ *  row's path mid-decision. */
 const sweepOneEntry = async (
   params: {
     vaultPath: string
@@ -105,6 +131,30 @@ const sweepOneEntry = async (
     return "skipped"
   }
 
+  // Identity gate — the file at the row's path must be the one the server
+  // trashed. Emptying .trash/ by hand leaves the row behind, and Obsidian can
+  // later trash another note under the same name; deleting that file would
+  // destroy a note the server never trashed. A file that differs, or a row
+  // recorded before identities were kept, keeps the file and drops the row,
+  // since the recorded file can no longer be shown to be there.
+  const identityCheck = await checkRecordedFileIdentity(
+    { fullPath: resolvedPath, trashPath, recordedIdentity: currentEntry.fileIdentity },
+    logger,
+  )
+
+  if (identityCheck === "unreadable") return "skipped"
+  if (identityCheck === "missing") {
+    trashEntryStore.deleteTrashEntry(trashPath)
+    return "missing"
+  }
+  if (identityCheck === "differs") {
+    trashEntryStore.deleteTrashEntry(trashPath)
+    logger.warn("trash entry no longer holds the file the server trashed — kept, row dropped", {
+      trashPath,
+    })
+    return "unmatched"
+  }
+
   // ENOENT here means the file vanished after the guards ran — the host
   // owns the bind mount and can empty the trash at any moment. Same
   // outcome as a missing parent: drop the row.
@@ -168,6 +218,7 @@ const sweepExpiredTrashEntries = async (params: SweepParams, logger: Logger): Pr
     expired: expiredEntries.length,
     purged: countOutcome("purged"),
     droppedMissing: countOutcome("missing"),
+    droppedUnmatched: countOutcome("unmatched"),
   })
 }
 
@@ -176,20 +227,20 @@ const sweepExpiredTrashEntries = async (params: SweepParams, logger: Logger): Pr
  *  next one. The timer is unref'd and never holds the process open; a
  *  failed run is logged and the chain continues. */
 const startTrashSweepSchedule = (params: SweepParams, logger: Logger): void => {
-  const runAndReschedule = (): void => {
-    // .finally() re-arms the chain whether the sweep resolved or failed,
-    // without making the caller await it.
-    void sweepExpiredTrashEntries(params, logger)
-      .catch((error: unknown) => {
-        logger.error("trash retention sweep failed", {
-          error: describeError(error),
-        })
+  const runAndReschedule = async (): Promise<void> => {
+    try {
+      await sweepExpiredTrashEntries(params, logger)
+    } catch (error) {
+      logger.error("trash retention sweep failed", {
+        error: describeError(error),
       })
-      .finally(() => {
-        setTimeout(runAndReschedule, SWEEP_INTERVAL_MS).unref()
-      })
+    } finally {
+      // Re-arms the chain whether the sweep resolved or failed.
+      setTimeout(() => void runAndReschedule(), SWEEP_INTERVAL_MS).unref()
+    }
   }
-  runAndReschedule()
+  // Not awaited, so startup never waits on a sweep.
+  void runAndReschedule()
 }
 
 /** Drops trash_entries rows whose .trash/ file no longer exists — runs once
@@ -207,8 +258,8 @@ const purgeOrphanedTrashEntries = async (
   let purgedCount = 0
   for (const entry of allEntries) {
     const wasPurged = await withFileLock(trashDomainLockKey(params.vaultPath), async () => {
-      // Re-read under the lock: a concurrent trash move can replace the
-      // row (INSERT OR REPLACE refreshes trashedAt), meaning a new file
+      // Re-read under the lock, because a concurrent trash move can replace
+      // the row (INSERT OR REPLACE refreshes trashedAt), meaning a new file
       // now lives at this path — dropping the row would orphan it.
       const currentEntry = params.trashEntryStore.getTrashEntry(entry.trashPath)
       const rowWasRefreshed = !currentEntry || currentEntry.trashedAt !== entry.trashedAt

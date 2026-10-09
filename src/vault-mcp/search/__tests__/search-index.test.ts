@@ -8270,10 +8270,16 @@ describe("file content vector embeddings", () => {
 })
 
 describe("trash entries (retention-sweep bookkeeping)", () => {
+  /** A stand-in identity — the store keeps whatever string it is given. */
+  const SAMPLE_FILE_IDENTITY = "4096:12:1791557833301645709"
+
   it("listAllTrashEntries returns every recorded entry", () => {
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/a.md")
-    trashIndex.recordTrashEntry(".trash/sub/b.md")
+    trashIndex.recordTrashEntry({ trashPath: ".trash/a.md", fileIdentity: SAMPLE_FILE_IDENTITY })
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/sub/b.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
 
     const allEntries = trashIndex.listAllTrashEntries()
 
@@ -8287,20 +8293,63 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     expect(trashIndex.listAllTrashEntries()).toEqual([])
   })
 
-  it("round-trips a recorded entry through get and list", () => {
+  it("round-trips a recorded entry, identity included, through get and both lists", () => {
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const trashTime = DateTime.fromISO("2026-01-01T00:00:00Z")
+    vi.setSystemTime(trashTime.toMillis())
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/Notes/gone.md")
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/Notes/gone.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
+    const expectedEntry = {
+      trashPath: ".trash/Notes/gone.md",
+      trashedAt: trashTime.toUnixInteger(),
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    }
 
-    const entry = trashIndex.getTrashEntry(".trash/Notes/gone.md")
-    expect(entry?.trashPath).toBe(".trash/Notes/gone.md")
+    expect(trashIndex.getTrashEntry(".trash/Notes/gone.md")).toEqual(expectedEntry)
+    expect(trashIndex.listAllTrashEntries()).toEqual([expectedEntry])
     // Every recorded entry is "expired" against a cutoff after its stamp.
-    const listed = trashIndex.listExpiredTrashEntries((entry?.trashedAt ?? 0) + 1)
-    expect(listed.map((listedEntry) => listedEntry.trashPath)).toEqual([".trash/Notes/gone.md"])
+    expect(trashIndex.listExpiredTrashEntries(trashTime.toUnixInteger() + 1)).toEqual([
+      expectedEntry,
+    ])
+  })
+
+  it("adds the file_identity column to a pre-existing trash_entries table, leaving old rows without one", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "warm-db-"))
+    onTestFinished(() => rm(dir, { recursive: true }))
+    const dbPath = join(dir, "search.db")
+    // Simulate a database file created before the file_identity column.
+    const legacyDb = new Database(dbPath)
+    legacyDb.exec(`
+      CREATE TABLE trash_entries (
+        trash_key TEXT PRIMARY KEY, trash_path TEXT NOT NULL, trashed_at INTEGER NOT NULL
+      );
+      INSERT INTO trash_entries VALUES ('.trash/old.md', '.trash/Old.md', 1700000000);
+    `)
+    legacyDb.close()
+
+    const warmIndex = createSearchIndex(dbPath)
+    warmIndex.recordTrashEntry({ trashPath: ".trash/new.md", fileIdentity: SAMPLE_FILE_IDENTITY })
+
+    expect(warmIndex.getTrashEntry(".trash/Old.md")).toEqual({
+      trashPath: ".trash/Old.md",
+      trashedAt: 1700000000,
+      fileIdentity: null,
+    })
+    expect(warmIndex.getTrashEntry(".trash/new.md")?.fileIdentity).toBe(SAMPLE_FILE_IDENTITY)
   })
 
   it("treats the cutoff as exclusive — a row stamped exactly at the cutoff is not expired", () => {
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/boundary.md")
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/boundary.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
     const entry = trashIndex.getTrashEntry(".trash/boundary.md")
 
     if (!entry) throw new Error("entry missing after record")
@@ -8313,7 +8362,7 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     ).toEqual([".trash/boundary.md"])
   })
 
-  it("re-recording the same path restarts the retention clock", () => {
+  it("re-recording the same path restarts the retention clock and replaces the identity", () => {
     vi.useFakeTimers()
     onTestFinished(() => {
       vi.useRealTimers()
@@ -8323,15 +8372,23 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     const secondTrashTime = DateTime.fromISO("2026-03-01T00:00:00Z")
 
     vi.setSystemTime(firstTrashTime.toMillis())
-    trashIndex.recordTrashEntry(".trash/reused.md")
+    trashIndex.recordTrashEntry({ trashPath: ".trash/reused.md", fileIdentity: "100:5:1" })
     const firstEntry = trashIndex.getTrashEntry(".trash/reused.md")
 
     vi.setSystemTime(secondTrashTime.toMillis())
-    trashIndex.recordTrashEntry(".trash/reused.md")
+    trashIndex.recordTrashEntry({ trashPath: ".trash/reused.md", fileIdentity: "200:7:2" })
     const refreshedEntry = trashIndex.getTrashEntry(".trash/reused.md")
 
-    expect(firstEntry?.trashedAt).toBe(firstTrashTime.toUnixInteger())
-    expect(refreshedEntry?.trashedAt).toBe(secondTrashTime.toUnixInteger())
+    expect(firstEntry).toEqual({
+      trashPath: ".trash/reused.md",
+      trashedAt: firstTrashTime.toUnixInteger(),
+      fileIdentity: "100:5:1",
+    })
+    expect(refreshedEntry).toEqual({
+      trashPath: ".trash/reused.md",
+      trashedAt: secondTrashTime.toUnixInteger(),
+      fileIdentity: "200:7:2",
+    })
   })
 
   it("a case-alias record replaces the stale row instead of adding a second one", () => {
@@ -8339,8 +8396,8 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     // are one file — two live rows for it would let a stale expired alias
     // purge the fresh copy. The folded primary key collapses them to one.
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/Note.md")
-    trashIndex.recordTrashEntry(".trash/note.md")
+    trashIndex.recordTrashEntry({ trashPath: ".trash/Note.md", fileIdentity: SAMPLE_FILE_IDENTITY })
+    trashIndex.recordTrashEntry({ trashPath: ".trash/note.md", fileIdentity: SAMPLE_FILE_IDENTITY })
 
     const farFutureCutoff = DateTime.now().plus({ days: 1 }).toUnixInteger()
     const listed = trashIndex.listExpiredTrashEntries(farFutureCutoff)
@@ -8351,7 +8408,10 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
 
   it("deleteTrashEntry removes the row under any case alias", () => {
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/ToDelete.md")
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/ToDelete.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
 
     trashIndex.deleteTrashEntry(".trash/todelete.md")
 
@@ -8362,7 +8422,10 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
 
   it("trash entries survive a vault rebuild", async () => {
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/survivor.md")
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/survivor.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
     const emptyVault = await mkdtemp(join(tmpdir(), "trash-rebuild-"))
     onTestFinished(() => rm(emptyVault, { recursive: true, force: true }))
 

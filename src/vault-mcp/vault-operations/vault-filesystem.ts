@@ -1,4 +1,15 @@
-import { writeFile, readdir, mkdir, open, unlink, rename, link, rm, rmdir } from "node:fs/promises"
+import {
+  writeFile,
+  readdir,
+  mkdir,
+  open,
+  unlink,
+  rename,
+  link,
+  lstat,
+  rm,
+  rmdir,
+} from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { join, dirname, relative, resolve, parse, posix, isAbsolute, sep } from "node:path"
 import picomatch from "picomatch"
@@ -549,6 +560,25 @@ export const trashDomainLockKey = (vaultPath: string): string => {
   return join(vaultPath, ".trash")
 }
 
+/** The identity the retention sweep checks before it deletes a trashed file:
+ *  inode number, size, and modification time, read without following a
+ *  symlink. The trash move records it and the sweep (trash-sweeper.ts)
+ *  compares against it, so both MUST read it here. Throws when nothing is at
+ *  the path.
+ *  - The device number is left out because a Docker Desktop bind mount gets a
+ *    new one each time the container starts, and rows outlive restarts.
+ *  - The inode alone is not enough, because ext4 reuses freed inode numbers. */
+export const readTrashFileIdentity = async (fullPath: string): Promise<string> => {
+  // bigint keeps every digit: a file ID seen through a Windows bind mount can
+  // exceed 2^53, where a number would round two different IDs to one value.
+  const fileStats = await lstat(fullPath, { bigint: true })
+  return `${fileStats.ino}:${fileStats.size}:${fileStats.mtimeNs}`
+}
+
+/** Retention-sweep bookkeeping hook for a trash move: the vault-relative
+ *  path the note landed at, and the landed file's readTrashFileIdentity. */
+type RecordTrashEntry = (entry: { trashPath: string; fileIdentity: string }) => void
+
 /** Claims a trash destination with an exclusive create — the empty placeholder
  *  appears atomically, and only when nothing occupies the name. Returns false
  *  when the name is occupied by anything: a regular file, a directory, or a
@@ -573,17 +603,18 @@ const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
  *  trash copy can never be overwritten; a concurrent delete loses the
  *  claim and takes the next suffix instead. The claim itself is the
  *  existence check — no stat-based precheck decides whether a name is
- *  safe. When `recordTrashEntry` is provided, the landed trash path is
- *  reported to it for retention-sweep bookkeeping; a move that does not
- *  record reports the path to `clearStaleTrashEntry` instead, so a stale
- *  row left by an earlier occupant of the name cannot mark the new file
- *  for sweeping. Returns the vault-relative trash path. */
+ *  safe. When `recordTrashEntry` is provided, the landed trash path and the
+ *  landed file's identity are reported to it for retention-sweep
+ *  bookkeeping; a move that does not record reports the path to
+ *  `clearStaleTrashEntry` instead, so a stale row left by an earlier
+ *  occupant of the name cannot mark the new file for sweeping. Returns the
+ *  vault-relative trash path. */
 const moveNoteToTrash = async (
   params: {
     vaultPath: string
     relativePath: string
     fullPath: string
-    recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    recordTrashEntry?: RecordTrashEntry | undefined
     clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
   },
   logger: Logger,
@@ -627,10 +658,12 @@ const moveNoteToTrash = async (
       }
       // The exclusive claim proved nothing occupied the landed path, so any
       // existing row for it belongs to an earlier, separately-removed
-      // occupant. Recording replaces that row; a move that does not record
-      // must clear it, or the next sweep would read the stale row and unlink
-      // this fresh file. Both writes are fail-open: the note has already moved,
-      // so a bookkeeping failure is logged rather than reported as a failed move.
+      // occupant. Recording replaces that row. A move that does not record
+      // must clear it, because a note restored from .trash/ by hand and
+      // trashed again still has the identity its old row recorded, and the
+      // sweep would unlink it. Both are fail-open because the note has
+      // already moved, so a failed identity read or row write is logged
+      // rather than reported as a failed move.
       const tryClearStaleTrashEntry = (): void => {
         if (!params.clearStaleTrashEntry) return
         try {
@@ -645,7 +678,10 @@ const moveNoteToTrash = async (
 
       if (params.recordTrashEntry) {
         try {
-          params.recordTrashEntry(candidateRelativePath)
+          // The sweep compares against whatever is at the landed path, so the
+          // identity is read there, after the rename.
+          const fileIdentity = await readTrashFileIdentity(candidateFullPath)
+          params.recordTrashEntry({ trashPath: candidateRelativePath, fileIdentity })
         } catch (recordError) {
           logger.warn("failed to record trash entry", {
             path: candidateRelativePath,
@@ -679,7 +715,7 @@ const deleteNote = async (
     /** Retention-sweep bookkeeping hook, forwarded to moveNoteToTrash. The
      *  caller decides which trash options are recorded (and therefore
      *  swept); omitted moves are kept in .trash/ forever. */
-    recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    recordTrashEntry?: RecordTrashEntry | undefined
     /** Clears the sweep's row for a landed trash path when the move is not
      *  recorded, so an unrecorded move can never inherit an earlier occupant's
      *  retention clock. Forwarded to moveNoteToTrash. */

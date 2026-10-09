@@ -1203,7 +1203,9 @@ Docker hardening, and durability seatbelts above.
   moves the note into `.trash/`. Each candidate name is claimed with an
   exclusive create, so an existing trash copy is never overwritten.
   `system`-mapped moves are recorded in the index DB's `trash_entries`
-  table. Recording is fail-open — a failed row write logs a warning, the
+  table, together with the landed file's identity (its inode number, size
+  and modification time, read by `readTrashFileIdentity`). Recording is
+  fail-open — a failed identity read or row write logs a warning, the
   delete still succeeds, and an unrecorded entry is never swept. The
   table's primary key is the case-folded path, so a case alias replaces
   its stale row instead of leaving one that could purge the wrong sibling
@@ -1216,10 +1218,17 @@ Docker hardening, and durability seatbelts above.
     manual emptying or `retention=none` never leaves
     unbounded stale rows.
   - **Retention sweep** — runs at startup and daily. Purges recorded
-    entries older than `TRASH_RETENTION_DAYS`. Each unlink is
-    double-guarded: the resolved path and the parent directory's
-    realpath must both sit inside `.trash/`, so a corrupted row or a
-    directory symlink cannot reach live notes.
+    entries older than `TRASH_RETENTION_DAYS`. Each unlink passes three
+    guards:
+    1. The resolved path must sit inside `.trash/`, so a corrupted row
+       cannot reach live notes.
+    2. The parent directory's realpath must sit inside `.trash/`, so a
+       directory symlink cannot redirect the path onto live notes.
+    3. The file at the path must still have the row's recorded identity.
+       Emptying `.trash/` by hand leaves the row behind, and Obsidian can
+       later trash a different note under the same name; that file is
+       kept and the row dropped. A row recorded before identities were
+       kept is treated the same way.
   - Both share a serializing lock with the trash move and re-read each
     row under it before acting, so neither operates on a stale snapshot.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
