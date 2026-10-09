@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Prepares the current checkout for a Claude Code session:
-# - At session start, puts nvm's Node first on PATH for the session's later
-#   Bash commands.
+# - At session start, puts the checkout's Node first on PATH for the session's
+#   later Bash commands.
 # - Installs the checkout's dependencies (npm ci, sst install) when they are
-#   missing, or when package-lock.json changed since the hook's own last
-#   install. Fresh cloud clones and fresh git worktrees start without
-#   node_modules.
+#   missing, or when package-lock.json or the checkout's Node ABI changed
+#   since the hook's own last install. Fresh cloud clones and fresh git
+#   worktrees start without node_modules.
 # Registered on SessionStart for startup, resume, and /clear, and on
 # PostToolUse for EnterWorktree.
 set -euo pipefail
@@ -16,9 +16,8 @@ log() { echo "[install-deps] $*" >&2; }
 # A hook's non-interactive shell never sources .bashrc, so nvm is loaded here.
 # - Without it, npm can resolve to a system Node (cloud images ship Node 22 at
 #   /opt/node22).
-# - Sourcing nvm.sh activates the default alias, unless an nvm Node already
-#   comes first on PATH, which it keeps active instead. The install below
-#   runs on that Node unless the checkout's .nvmrc names an installed version.
+# - Which Node the hook then uses is settled once the checkout is known
+#   (checkout_node_path below).
 # - Cloud setup scripts install nvm with HOME=/root, so nvm can sit under
 #   /root even when this hook runs with a different HOME.
 for dir in "${HOME}/.nvm" /root/.nvm; do
@@ -57,58 +56,85 @@ checkout="$(git -C "${checkout_lookup_dir}" rev-parse --show-toplevel 2>/dev/nul
   exit 0
 }
 
-# Puts nvm's Node first on PATH for the session's later Bash commands.
+# The checkout's Node: the .nvmrc version when nvm has it installed, otherwise
+# nvm's default alias. The install and the session's later commands both run
+# on it, so native modules are built for the Node that loads them; a Node the
+# launching shell happened to put first would not match. Empty without nvm.
+# - nvm which reads the nearest .nvmrc at or above the current directory,
+#   hence the cd.
+# - set +u: with no .nvmrc, nvm which reads an unset variable, and under
+#   set -u that ends this subshell before the default alias lookup.
+# - --silent keeps its "Found .nvmrc" notice out of the captured path.
+# - A hook never downloads a Node, so an .nvmrc version nvm lacks falls back
+#   to the default alias.
+# - nvm is a shell function, defined only when the loop at the top sourced
+#   nvm.sh, so command -v finds it only then.
+# - A failed cd or lookup exits the subshell non-zero; || true keeps set -e
+#   from ending the hook, and checkout_node_path stays empty.
+checkout_node_path=""
+if command -v nvm >/dev/null 2>&1; then
+  checkout_node_path="$(
+    cd "${checkout}" || exit
+    set +u
+    nvm which --silent 2>/dev/null || nvm which default 2>/dev/null
+  )" || true
+fi
+
+# Puts the checkout's Node first on this hook's own PATH, so the node and npm
+# calls below run on it; persist_node_on_path does the same for the session's
+# later commands. Both lookups failing, or no nvm, leaves the PATH as the
+# session started it.
+if [[ -x "${checkout_node_path}" ]]; then
+  PATH="$(dirname "${checkout_node_path}"):${PATH}"
+fi
+
+# Puts the checkout's Node first on PATH for the session's later Bash commands.
 # - Without it, those commands can find another Node first. Cloud images put
 #   /opt/node22 on PATH and do not load nvm.
 # - Claude Code sources CLAUDE_ENV_FILE before each of those commands, so one
 #   PATH line written there covers them all. Local sessions with nvm get the
 #   line too.
-# - nvm's Node is the checkout's .nvmrc version when nvm has it installed,
-#   otherwise nvm's default alias.
 persist_node_on_path() {
   # Only SessionStart invocations write the PATH line: Claude Code hands them
   # the session's own env file. A worktree entry (PostToolUse) could inherit
   # a CLAUDE_ENV_FILE the user exported, so writing there would append the
   # PATH line to that file.
+  # Known limitation: when a worktree's .nvmrc names a different Node than
+  # the checkout the session started in, the hook installs the worktree's
+  # dependencies with the worktree's Node, but the session's later commands
+  # still run on the session-start checkout's Node.
   local hook_event
   hook_event="$(read_payload_field hook_event_name)"
   [[ "${hook_event}" == "SessionStart" ]] || return 0
   [[ -n "${CLAUDE_ENV_FILE:-}" ]] || return 0
+  # A machine without nvm returns here quietly; the log below reports nvm
+  # finding no Node, which would be noise where nvm is not installed.
   command -v nvm >/dev/null 2>&1 || return 0
 
-  # - nvm which reads the nearest .nvmrc at or above the current directory,
-  #   hence the cd.
-  # - set +u: with no .nvmrc, nvm which reads an unset variable, and under
-  #   set -u that ends this subshell before the default alias lookup.
-  # - --silent keeps its "Found .nvmrc" notice out of the captured path.
-  # - With no .nvmrc, or with its version not installed, nvm which fails and
-  #   the default alias is looked up instead.
-  local node_path
-  node_path="$(
-    cd "${checkout}" || exit
-    set +u
-    nvm which --silent 2>/dev/null || nvm which default 2>/dev/null
-  )" || true
-
-  # Both lookups failing leaves node_path empty.
-  if [[ ! -x "${node_path}" ]]; then
+  if [[ ! -x "${checkout_node_path}" ]]; then
     log "no nvm Node found for ${checkout} — later commands keep the session's PATH"
     return 0
   fi
 
   # The line reads export PATH="<nvm Node's bin directory>:$PATH", with $PATH
-  # kept literal so it expands when each command runs. A resumed session runs
-  # this hook again against the same file, so the line is added only when the
-  # file lacks it.
-  local path_line
-  path_line="export PATH=\"$(dirname "${node_path}"):\$PATH\""
-  if ! grep -qxF "${path_line}" "${CLAUDE_ENV_FILE}" 2>/dev/null; then
+  # kept literal so it expands when each command runs.
+  # - Claude Code sources the file top to bottom, and each PATH line prepends
+  #   its directory, so the file's last PATH line decides which Node comes
+  #   first.
+  # - A resumed session runs this hook again against the same file. The line
+  #   is appended unless it is already the last PATH line: a copy higher up
+  #   loses to any later line for another Node, which the file holds after
+  #   the checkout's Node changes and then changes back.
+  local path_line last_path_line
+  path_line="export PATH=\"$(dirname "${checkout_node_path}"):\$PATH\""
+  last_path_line="$(grep '^export PATH=' "${CLAUDE_ENV_FILE}" 2>/dev/null | tail -n 1 || true)"
+  if [[ "${last_path_line}" != "${path_line}" ]]; then
     # Under set -e a failed write would end the hook before the install below.
     if ! printf '%s\n' "${path_line}" >> "${CLAUDE_ENV_FILE}"; then
       log "could not write ${CLAUDE_ENV_FILE} — later commands keep the session's PATH"
       return 0
     fi
-    log "later commands use $("${node_path}" --version) from ${node_path}"
+    log "later commands use $("${checkout_node_path}" --version) from ${checkout_node_path}"
   fi
 }
 
@@ -120,16 +146,23 @@ persist_node_on_path
 # predates this hook.
 state_dir="$(git -C "${checkout}" rev-parse --absolute-git-dir)"
 
-# The stamp records which package-lock.json the hook's own last install used,
-# so a stamped checkout reinstalls after a pull changes the lockfile. An
-# unstamped checkout (node_modules installed by the developer, not the hook)
-# is trusted as-is — the hook must never wipe an install it does not own.
+# The stamp records which package-lock.json and which Node ABI the hook's own
+# last install used, so a stamped checkout reinstalls after a pull changes the
+# lockfile or the checkout's Node moves to another ABI (a new major version;
+# a minor or patch release keeps the tree). An unstamped checkout (node_modules
+# installed by the developer, not the hook) is trusted as-is — the hook must
+# never wipe an install it does not own.
+# - The filename says lockhash, but the stamp also holds the Node ABI. A new
+#   filename would orphan every existing stamp, and each such checkout would
+#   then read as a developer install, never reinstalled.
+# - A stamp holding only a lockfile hash never matches the install identity
+#   (below), so that checkout reinstalls once.
 stamp="${state_dir}/install-deps-lockhash"
 
 # The marker survives an interrupted npm ci (a hook-timeout kill included), so
-# a partial node_modules is retried instead of trusted. It holds the hash of
-# the package-lock.json that install used, so the interrupted-install recovery
-# step further down never stamps a tree built from an older lockfile.
+# a partial node_modules is retried instead of trusted. It holds the install
+# identity (below) that install used, so orphaned_install_finished further
+# down never stamps a tree built from an older lockfile or another Node.
 marker="${state_dir}/install-deps-incomplete"
 
 # - git hash-object hashes the working-tree file, and the hook already needs
@@ -137,13 +170,24 @@ marker="${state_dir}/install-deps-incomplete"
 # - Empty when the checkout has no package-lock.json; no stamp is written then.
 lockfile_hash="$(git -C "${checkout}" hash-object package-lock.json 2>/dev/null || true)"
 
+# Native modules are built for one Node ABI and fail to load under another, so
+# the stamp and marker hold the lockfile hash plus the ABI of the Node that
+# installs (the checkout's Node, first on PATH by now). Empty without a
+# lockfile, like the hash.
+# - The probe runs in the checkout, where npm ci runs: a version manager's
+#   node shim (asdf, mise, volta) picks its Node by the current directory.
+install_identity=""
+if [[ -n "${lockfile_hash}" ]]; then
+  install_identity="${lockfile_hash} node-abi-$(cd "${checkout}" && node -p process.versions.modules 2>/dev/null || echo unknown)"
+fi
+
 # The build:sst npm script typechecks sst.config.ts via tsconfig.sst.json,
 # which references this file. sst install generates it, not npm ci.
 sst_platform_types="${checkout}/.sst/platform/config.d.ts"
 
 # Succeeds when node_modules needs no install: it exists, no interrupted
 # install left the marker, and either the developer installed it (no stamp) or
-# the stamp matches the current lockfile.
+# the stamp matches the current lockfile and Node.
 dependencies_are_current() {
   if [[ ! -d "${checkout}/node_modules" || -f "${marker}" ]]; then
     return 1
@@ -157,19 +201,20 @@ dependencies_are_current() {
     return 0
   fi
 
-  [[ "${stamped}" == "${lockfile_hash}" ]]
+  [[ "${stamped}" == "${install_identity}" ]]
 }
 
-# Records an install the hook itself ran to completion: stamps the lockfile
-# hash and clears the marker, so a later lockfile change triggers a reinstall.
+# Records an install the hook itself ran to completion: stamps the install
+# identity and clears the marker, so a later lockfile or Node ABI change
+# triggers a reinstall.
 # The stamp goes first: a hook killed between the two steps then leaves the
-# marker, so the next session re-checks the tree or reinstalls it under the
-# lock. The other order leaves no marker and, on a checkout never stamped
-# before, no stamp, which reads as a developer-installed tree and turns the
-# lockfile-change check off for this checkout.
+# marker, so the next session re-checks the tree (orphaned_install_finished)
+# or reinstalls it under the lock. The other order leaves no marker and, on a
+# checkout never stamped before, no stamp, which reads as a developer-installed
+# tree and turns the lockfile and Node ABI checks off for this checkout.
 record_finished_install() {
-  if [[ -n "${lockfile_hash}" ]]; then
-    printf '%s\n' "${lockfile_hash}" > "${stamp}"
+  if [[ -n "${install_identity}" ]]; then
+    printf '%s\n' "${install_identity}" > "${stamp}"
   fi
   rm -f "${marker}"
 }
@@ -193,6 +238,8 @@ if dependencies_are_current && [[ -f "${sst_platform_types}" ]]; then
 fi
 
 # A kernel lock serializes installs across sessions.
+# - Perl takes the lock (see the perl call below), so without perl the hook
+#   exits here, before creating the lock file.
 # - The lock belongs to the file opened on fd 9, not to a process. npm ci
 #   inherits fd 9, so the lock stays held while an orphaned npm ci outlives a
 #   killed hook, and the kernel releases it once every holder exits. No stale
@@ -202,24 +249,26 @@ fi
 #   perl, a busy lock past the wait, or a lock error, it skips the install.
 # - Perl's flock is the one lock call that macOS, Debian, Ubuntu and the
 #   cloud images all have: macOS lacks flock(1), and all of them ship perl.
-#   Minimal images without perl, such as Alpine, skip the install below.
-# - Perl opens this shell's fd 9 in place (">&=" is C's fdopen, not a dup)
-#   and locks the file open on it, so the lock outlives the perl process.
-# - Perl exits 0 with the lock held, 75 (EX_TEMPFAIL from sysexits.h) when
-#   the wait times out, and 2 when it cannot open or lock fd 9.
-exec 9>>"${state_dir}/install-deps.lock"
-
-# Well inside the 600s hook timeout in settings.json, so a timed-out wait
-# still exits cleanly.
-lock_wait_seconds=480
-
+#   Minimal images without perl, such as Alpine, skip the install.
 if ! command -v perl >/dev/null 2>&1; then
   log "perl not found, so the install lock cannot be taken — skipping the install in ${checkout}; run npm ci and npx sst install yourself"
   exit 0
 fi
 
-# Starting at 0 and assigning only on failure records perl's exit status
-# without set -e ending the hook.
+exec 9>>"${state_dir}/install-deps.lock"
+
+# Well inside the 600s hook timeout in settings.json, so a timed-out wait
+# still exits cleanly. A wait that ends late leaves less time for npm ci, but
+# a session that waited usually finds the other session's install current at
+# the re-check under the lock and skips its own.
+lock_wait_seconds=480
+
+# - Perl opens this shell's fd 9 in place (">&=" is C's fdopen, not a dup)
+#   and locks the file open on it, so the lock outlives the perl process.
+# - Perl exits 0 with the lock held, 75 (EX_TEMPFAIL from sysexits.h) when
+#   the wait times out, and 2 when it cannot open or lock fd 9.
+# - Starting at 0 and assigning only on failure records perl's exit status
+#   without set -e ending the hook.
 lock_status=0
 perl -MFcntl=:flock -e '
   my ($checkout, $wait_seconds) = @ARGV;
@@ -243,7 +292,7 @@ fi
 
 # Dependencies can be current here for two reasons: they already were and only
 # the SST platform types are missing, or the session that held the lock just
-# installed this lockfile.
+# installed this lockfile under this Node.
 if dependencies_are_current; then
   log "node_modules current in ${checkout}"
   install_sst_platform_types
@@ -257,18 +306,19 @@ fi
 # still hold fd 9.
 orphaned_install_finished() {
   # No marker means no install was interrupted: node_modules is missing or
-  # stamped from an older lockfile. The marker hash check below cannot rule
-  # this out alone, because a missing marker reads as "" and so does the hash
-  # of a checkout with no package-lock.json.
+  # stamped from an older install. The marker identity check below cannot rule
+  # this out alone, because a missing marker reads as "" and so does the
+  # install identity of a checkout with no package-lock.json.
   if [[ ! -f "${marker}" ]]; then
     return 1
   fi
 
-  # A tree built from an older lockfile passes npm ls whenever package.json
-  # ranges still hold, and stamping it would hide the lockfile change forever.
-  local marker_lockfile_hash
-  marker_lockfile_hash="$(cat "${marker}" 2>/dev/null || true)"
-  if [[ "${marker_lockfile_hash}" != "${lockfile_hash}" ]]; then
+  # A tree built from an older lockfile or under another Node passes npm ls
+  # whenever package.json ranges still hold, and stamping it would hide the
+  # change forever.
+  local marker_install_identity
+  marker_install_identity="$(cat "${marker}" 2>/dev/null || true)"
+  if [[ "${marker_install_identity}" != "${install_identity}" ]]; then
     return 1
   fi
 
@@ -277,10 +327,11 @@ orphaned_install_finished() {
   # - npm ci deletes node_modules/.package-lock.json first and writes a new one
   #   once every dependency is installed, their install scripts included. Only
   #   the project's own lifecycle scripts, such as prepare, run after it.
-  # - So only an npm ci that got that far leaves it newer than the marker. A
-  #   tree npm ci never touched has an older one, and a tree whose npm ci was
+  # - So the tree is kept only when node_modules/.package-lock.json is newer
+  #   than the marker, which only an npm ci that got that far leaves. A tree
+  #   npm ci never touched has an older one, and a tree whose npm ci was
   #   killed mid-build (SIGKILL skips npm's rollback) has none, yet both can
-  #   pass npm ls.
+  #   pass npm ls. -nt is false for a missing file, so both return here.
   if [[ ! "${checkout}/node_modules/.package-lock.json" -nt "${marker}" ]]; then
     return 1
   fi
@@ -291,33 +342,23 @@ orphaned_install_finished() {
 
 if orphaned_install_finished; then
   # The orphaned install was still the hook's own, so it is stamped like the
-  # normal success path. Leaving it unstamped would disable the
-  # lockfile-change guard for this checkout forever.
+  # normal success path. Leaving it unstamped would disable the lockfile and
+  # Node ABI checks for this checkout forever.
   record_finished_install
   log "marker left by an interrupted hook but the dependency tree in ${checkout} is complete — clearing"
   install_sst_platform_types
   exit 0
 fi
 
-# nvm use below reads the nearest .nvmrc at or above the current directory,
-# and npm ci installs into it.
+# npm ci installs into the current directory.
 cd "${checkout}"
-printf '%s\n' "${lockfile_hash}" > "${marker}"
+printf '%s\n' "${install_identity}" > "${marker}"
 
-# Honor the checkout's .nvmrc when that Node is already installed; otherwise
-# stay on the Node that loading nvm activated — a hook must never download a
-# Node version.
-if command -v nvm >/dev/null 2>&1; then
-  # With no .nvmrc, nvm use reads an unset variable, which under set -u
-  # would end the hook before the install.
-  set +u
-  nvm use >/dev/null 2>&1 || true
-  set -u
-fi
 log "installing dependencies in ${checkout} (node $(node --version 2>/dev/null || echo unknown))"
 
 # - On linux/x64, onnxruntime-node's postinstall downloads GPU binaries and
-#   fails, because package.json's overrides stub out its extractor (adm-zip).
+#   fails, because package.json's overrides stub out its extractor (adm-zip)
+#   to resolve a security advisory, as CONTRIBUTING.md explains.
 #   ONNXRUNTIME_NODE_INSTALL=skip turns that download off. macOS and arm64
 #   Linux skip it on their own, so the variable changes nothing there.
 # - npm's stdout goes to stderr too, because SessionStart hook stdout enters
@@ -328,10 +369,11 @@ if ONNXRUNTIME_NODE_INSTALL=skip npm ci >&2; then
   install_sst_platform_types
 else
   # npm ci writes node_modules/.package-lock.json before the project's own
-  # lifecycle scripts run, so one of them failing leaves it newer than the
-  # marker. Writing the marker again keeps the recovery step from stamping
-  # that tree next session.
-  printf '%s\n' "${lockfile_hash}" > "${marker}"
+  # lifecycle scripts run, so when one of them fails, that file is newer than
+  # the marker and orphaned_install_finished would stamp the failed tree next
+  # session. Rewriting the marker (same content) makes the marker the newer
+  # file again.
+  printf '%s\n' "${install_identity}" > "${marker}"
   log "npm ci failed — the session continues without dependencies; the marker forces a retry next session"
 fi
 
