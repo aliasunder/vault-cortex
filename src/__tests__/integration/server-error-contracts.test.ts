@@ -755,10 +755,18 @@ describe("filesystem errors name the path vault-relative", () => {
       name: "vault_write_note",
       args: { path: "Sealed/new.md", body: "refused" },
     })
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toMatch(
-      /^\[Error\]: EACCES: permission denied, open 'Sealed\/new\.md\.[0-9a-f-]{36}\.tmp'$/,
-    )
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          // The temp file's name ends in a random UUID
+          text: expect.stringMatching(
+            /^\[Error\]: EACCES: permission denied, open 'Sealed\/new\.md\.[0-9a-f-]{36}\.tmp'$/,
+          ),
+        },
+      ],
+      isError: true,
+    })
   })
 
   it("vault_write_note through a note names the note vault-relative", async () => {

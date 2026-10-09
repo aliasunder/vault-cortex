@@ -2,11 +2,8 @@ import { describe, it, expect, vi, onTestFinished, afterEach } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { registerPrompts } from "../../prompt-definitions.js"
 import { readDailyNotesConfig } from "../../../vault-operations/daily-notes.js"
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
-  type RegisterPromptCall,
   fakeExtra,
   recordingLogger,
   type LogCall,
@@ -17,7 +14,6 @@ import {
   PROMPT_NAMES,
   loadConfig,
   createSearchIndex,
-  type SearchIndex,
   logger,
 } from "./prompt-test-harness.js"
 
@@ -107,6 +103,18 @@ describe("vault-orientation live orphan folders", () => {
       )
     },
   )
+
+  it("counts one broken link and one excluded forward-ref in the singular", async () => {
+    const { readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":"Journal"}',
+      paths: ["source.md", "other.md"],
+      noteContents: { "source.md": "[[Journal/2026-10-06]] [[missing]]" },
+    })
+
+    expect((await readSurveySections()).stats).toBe(
+      "2 notes across 0 folders, 0 tags, 0 property keys. 2 untagged. 2 without properties. 1 broken link (excludes 1 forward-ref in Journal/).",
+    )
+  })
 
   it("keeps ordinary orphans visible behind more than five newer excluded daily candidates", async () => {
     const dailyPaths = Array.from({ length: 7 }, (_, index) => `Journal/nested/day-${index}.md`)
@@ -464,17 +472,38 @@ describe("vault-orientation error degradation", () => {
     onTestFinished(async () => {
       await rm(vault, { recursive: true, force: true })
     })
-    const throwingSearch = {
-      listAllTags: () => {
-        throw new Error("index unavailable")
-      },
-    } as unknown as SearchIndex
+    const throwingSearch = createSearchIndex(":memory:")
+    vi.spyOn(throwingSearch, "listAllTags").mockImplementation(() => {
+      throw new Error("index unavailable")
+    })
     const calls = registerWithSearch(vault, throwingSearch)
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
 
     const text = textOf(await handler(fakeExtra))
-    expect(text).toContain("index unavailable")
-    expect(text).toContain("vault_list_tags")
+    expect(text).toBe(
+      "Could not fully survey the vault ([Error]: index unavailable). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, vault_find_orphans, or vault_list_memory_files.",
+    )
+  })
+
+  it("names a file a filesystem error quotes vault-relative in the fallback", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-err-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    const throwingSearch = createSearchIndex(":memory:")
+    vi.spyOn(throwingSearch, "listAllTags").mockImplementation(() => {
+      throw Object.assign(
+        new Error(`EACCES: permission denied, open '${vault}/Projects/plan.md'`),
+        { code: "EACCES" },
+      )
+    })
+    const calls = registerWithSearch(vault, throwingSearch)
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+
+    const text = textOf(await handler(fakeExtra))
+    expect(text).toBe(
+      "Could not fully survey the vault ([Error]: EACCES: permission denied, open 'Projects/plan.md'). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, vault_find_orphans, or vault_list_memory_files.",
+    )
   })
 })
 
@@ -487,17 +516,21 @@ describe("vault-orientation logging", () => {
     onTestFinished(async () => {
       await rm(vault, { recursive: true, force: true })
     })
-    const throwingSearch = {
-      listAllTags: () => {
-        throw new Error("index unavailable")
-      },
-    } as unknown as SearchIndex
+    const throwingSearch = createSearchIndex(":memory:")
+    vi.spyOn(throwingSearch, "listAllTags").mockImplementation(() => {
+      throw new Error("index unavailable")
+    })
     const calls = registerWithSearch(vault, throwingSearch, recordingLogger(logs))
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
 
     await handler(fakeExtra)
-    const err = logs.find((call) => call.message === "prompt_error")
-    expect(err?.level).toBe("error")
+    expect(logs.filter((call) => call.message === "prompt_error")).toEqual([
+      {
+        level: "error",
+        message: "prompt_error",
+        data: { requestId: "1", prompt: "vault-orientation", error: "[Error]: index unavailable" },
+      },
+    ])
   })
 })
 
@@ -595,58 +628,16 @@ describe("vault-orientation with MEMORY_ENABLED=false", () => {
     onTestFinished(async () => {
       await rm(vault, { recursive: true, force: true })
     })
-    const throwingSearch = {
-      listAllTags: () => {
-        throw new Error("index unavailable")
-      },
-    } as unknown as SearchIndex
-    const calls: RegisterPromptCall[] = []
-    const server = {
-      registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
-    }
-    registerPrompts({
-      server: server as unknown as McpServer,
-      vaultPath: vault,
-      search: throwingSearch,
-      logger,
-      config: disabledConfig,
+    const throwingSearch = createSearchIndex(":memory:")
+    vi.spyOn(throwingSearch, "listAllTags").mockImplementation(() => {
+      throw new Error("index unavailable")
     })
-    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
-    const text = textOf(await handler(fakeExtra))
-
-    expect(text).toContain("Could not fully survey the vault")
-    expect(text).not.toContain("vault_list_memory_files")
-  })
-
-  it("error fallback names a file a filesystem error quotes vault-relative", async () => {
-    const vault = await mkdtemp(join(tmpdir(), "prompt-mem-disabled-"))
-    onTestFinished(async () => {
-      await rm(vault, { recursive: true, force: true })
-    })
-    const throwingSearch = {
-      listAllTags: () => {
-        throw Object.assign(
-          new Error(`EACCES: permission denied, open '${vault}/Projects/plan.md'`),
-          { code: "EACCES" },
-        )
-      },
-    } as unknown as SearchIndex
-    const calls: RegisterPromptCall[] = []
-    const server = {
-      registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
-    }
-    registerPrompts({
-      server: server as unknown as McpServer,
-      vaultPath: vault,
-      search: throwingSearch,
-      logger,
-      config: disabledConfig,
-    })
+    const calls = registerWithSearch(vault, throwingSearch, logger, disabledConfig)
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
     const text = textOf(await handler(fakeExtra))
 
     expect(text).toBe(
-      "Could not fully survey the vault ([Error]: EACCES: permission denied, open 'Projects/plan.md'). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, or vault_find_orphans.",
+      "Could not fully survey the vault ([Error]: index unavailable). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, or vault_find_orphans.",
     )
   })
 })
@@ -703,8 +694,8 @@ describe("vault-orientation genericness", () => {
 
 // ── DISABLED_TOOLS ──────────────────────────────────────────────
 
-// The survey's "go deeper" list is a menu of calls to make, so each line has
-// to track its own tool — not the group flag it used to key on.
+// The survey's "go deeper" list is a menu of calls to make, so each line is
+// gated on its own tool, not on its tool group's flag.
 describe("vault-orientation with DISABLED_TOOLS", () => {
   it("empty-memory fallback omits the suggestion when vault_update_memory is disabled", async () => {
     const config = loadConfig({ DISABLED_TOOLS: "vault_update_memory" })

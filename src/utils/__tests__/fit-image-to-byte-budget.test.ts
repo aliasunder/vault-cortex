@@ -110,7 +110,9 @@ describe("fitImageToByteBudget", () => {
   })
 
   it("shrinks dimensions below 1568 when the quality ladder alone cannot fit", async () => {
-    const original = await noiseImage({ width: 3000, height: 3000 })
+    // Just over 1568px, so the ladder runs at 1568px and any narrower result
+    // proves the dimensions shrank
+    const original = await noiseImage({ width: 1600, height: 1600 })
     // Small enough that no 1568px JPEG of gaussian noise can fit.
     const budgetBytes = 8192
     const fitted = await fitImageToByteBudget({ buffer: original, budgetBytes })
@@ -138,10 +140,19 @@ describe("fitImageToByteBudget", () => {
     expect(fitted.height).toBeGreaterThan(fitted.width)
   })
 
-  it("throws when no attempt can fit the budget", async () => {
-    const original = await noiseImage({ width: 3000, height: 3000 })
+  it("throws after the quality ladder and one attempt at the 64px floor when nothing fits", async () => {
+    // No image encodes into 10 bytes, so a small plain source takes the same
+    // five attempts a large one would, without the large one's encoding time
+    const original = await sharp({
+      create: { width: 200, height: 200, channels: 3, background: { r: 10, g: 200, b: 50 } },
+    })
+      .png()
+      .toBuffer()
+
+    // The last attempt's size depends on the JPEG encoder's build, so only
+    // its digits are matched
     await expect(fitImageToByteBudget({ buffer: original, budgetBytes: 10 })).rejects.toThrow(
-      /^image cannot be fitted into 10 bytes/,
+      /^image cannot be fitted into 10 bytes \(last attempt was \d+ bytes after 5 attempts\)$/,
     )
   })
 

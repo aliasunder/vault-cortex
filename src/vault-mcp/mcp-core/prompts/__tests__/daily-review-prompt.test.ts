@@ -20,7 +20,6 @@ import {
   PROMPT_NAMES,
   loadConfig,
   createSearchIndex,
-  type SearchIndex,
   logger,
 } from "./prompt-test-harness.js"
 
@@ -532,21 +531,18 @@ describe("daily-review error degradation", () => {
     onTestFinished(async () => {
       await rm(vault, { recursive: true, force: true })
     })
-    // Let modifiedOnDate succeed so the error comes from listTasks —
-    // tests that the task-layer failure path is actually caught.
-    const throwingSearch = {
-      modifiedOnDate: () => [],
-      listTasks: () => {
-        throw new Error("task index unavailable")
-      },
-    } as unknown as SearchIndex
+    // Only listTasks fails, so the fallback proves a task-lookup failure is caught
+    const throwingSearch = createSearchIndex(":memory:")
+    vi.spyOn(throwingSearch, "listTasks").mockImplementation(() => {
+      throw new Error("task index unavailable")
+    })
     const calls = registerWithSearch(vault, throwingSearch)
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
 
     const text = textOf(await handler({}, fakeExtra))
-    expect(text).toContain("Could not assemble the daily review")
-    expect(text).toContain("task index unavailable")
-    expect(text).toContain("vault_get_daily_note")
+    expect(text).toBe(
+      "Could not assemble the daily review ([Error]: task index unavailable). Try vault_get_daily_note to fetch the note directly.",
+    )
   })
 
   it("names a file a filesystem error quotes vault-relative in the fallback", async () => {
@@ -554,15 +550,13 @@ describe("daily-review error degradation", () => {
     onTestFinished(async () => {
       await rm(vault, { recursive: true, force: true })
     })
-    const throwingSearch = {
-      modifiedOnDate: () => [],
-      listTasks: () => {
-        throw Object.assign(
-          new Error(`EACCES: permission denied, open '${vault}/Projects/plan.md'`),
-          { code: "EACCES" },
-        )
-      },
-    } as unknown as SearchIndex
+    const throwingSearch = createSearchIndex(":memory:")
+    vi.spyOn(throwingSearch, "listTasks").mockImplementation(() => {
+      throw Object.assign(
+        new Error(`EACCES: permission denied, open '${vault}/Projects/plan.md'`),
+        { code: "EACCES" },
+      )
+    })
     const calls = registerWithSearch(vault, throwingSearch)
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
 
