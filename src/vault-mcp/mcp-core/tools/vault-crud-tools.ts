@@ -14,6 +14,7 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   describePropertiesBlockErrorEntry,
   describeTextWindow,
+  FILESYSTEM_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
 } from "./tool-helpers.js"
 
@@ -670,6 +671,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -733,6 +735,16 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
     },
   )
 
+  /** The span tools' warning about a fenced block, whose closing line no
+   *  anchor can single out; `editVerb` names the edit the tool makes. */
+  const fencedBlockEndAnchorText = (editVerb: "remove" | "replace"): string => {
+    const fallbackAdvice = whenToolEnabledText(
+      "vault_replace_in_note",
+      `, so ${editVerb} a fenced block with vault_replace_in_note`,
+    )
+    return `A closing code fence can't be the end anchor: every fragment of it also matches the opening fence. Ending on an inner line instead leaves the rest of the block behind${fallbackAdvice}.`
+  }
+
   const replaceBlockAdvice = isToolEnabled("vault_replace_span")
     ? "use vault_replace_span (one atomic step)"
     : `delete it here${whenToolEnabledText("vault_patch_note", ", then vault_patch_note to add the new content")}`
@@ -751,7 +763,7 @@ ${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Omit end_anchor for a single-line delete. The empty lines above and below the removed lines join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
-- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted.
+- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
 
 Errors:
@@ -761,6 +773,7 @@ Errors:
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -848,7 +861,7 @@ Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning]
 When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${replaceSpanAlternativesLine}
 
 Parameters:
-- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced.
+- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
 - content: empty lines at its start and end join the empty lines around the replaced lines, and each joined gap keeps the larger of the two counts (only at the end of the note, the count above drops by one). So content can widen a gap but not narrow it: a trailing newline leaves at least one empty line after the new block unless the block ends the note. Content made only of empty lines joins both sides into one gap. Empty lines inside content are written as given, and no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
 - first_match applies to both anchors independently.
 
@@ -860,6 +873,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 

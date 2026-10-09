@@ -4,7 +4,7 @@ import { createMemoryStore, type MemoryFileOutline } from "../../vault-operation
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { resolveEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { describeError } from "../../../utils/describe-error.js"
+import { describeError, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../../utils/compare-utf8-bytes.js"
 import type { ToolName } from "../tool-registry.js"
 import { type PromptRegistrationContext, textResult, formatNoteLine } from "./prompt-helpers.js"
@@ -320,8 +320,8 @@ export const registerVaultOrientationPrompt = ({
         })
         return textResult(orientationSurvey)
       } catch (error) {
-        const message = describeError(error)
-        reqLogger.error("prompt_error", { error: message })
+        reqLogger.error("prompt_error", { error: describeError(error) })
+        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const fallbackTools = formatEnabledToolList([
           "vault_list_tags",
           "vault_list_property_keys",
@@ -331,7 +331,7 @@ export const registerVaultOrientationPrompt = ({
         const fallbackHint = fallbackTools
           ? ` You can still explore it directly with the vault tools — try ${fallbackTools}.`
           : ""
-        return textResult(`Could not fully survey the vault (${message}).${fallbackHint}`)
+        return textResult(`Could not fully survey the vault (${clientMessage}).${fallbackHint}`)
       }
     },
   )

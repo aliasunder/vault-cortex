@@ -353,13 +353,14 @@ describe("readAssetContent — PDF extraction", () => {
     )
   })
 
-  it("propagates getDocumentProxy errors for corrupt PDFs", async () => {
+  it("passes a PDF load failure other than pdf.js refusing the file through unchanged", async () => {
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("not-a-real-pdf"),
       bytes: 14,
       extension: ".pdf",
     })
-    mockCreatePdfDocumentProxy.mockRejectedValue(new Error("Invalid PDF structure"))
+    const loadFailure = new Error("worker terminated")
+    mockCreatePdfDocumentProxy.mockRejectedValue(loadFailure)
     // Restore the default mock regardless of assertion outcome — without
     // this, a failing assertion leaves subsequent tests with a rejecting mock.
     onTestFinished(() => {
@@ -371,8 +372,66 @@ describe("readAssetContent — PDF extraction", () => {
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "corrupt.pdf" }, logger),
-    ).rejects.toThrow("Invalid PDF structure")
+    ).rejects.toBe(loadFailure)
   })
+
+  it.each([
+    {
+      label: "a password-protected PDF read as text",
+      raw: false,
+      pdfjsErrorName: "PasswordException",
+      message:
+        'PDF is password-protected: "papers/locked.pdf" exists (14 bytes) but cannot be opened without its password',
+    },
+    {
+      label: "a password-protected PDF rendered as pages",
+      raw: true,
+      pdfjsErrorName: "PasswordException",
+      message:
+        'PDF is password-protected: "papers/locked.pdf" exists (14 bytes) but cannot be opened without its password',
+    },
+    {
+      label: "a damaged PDF read as text",
+      raw: false,
+      pdfjsErrorName: "InvalidPDFException",
+      message:
+        'PDF is damaged or not a PDF: "papers/locked.pdf" exists (14 bytes) but cannot be parsed',
+    },
+    {
+      label: "a damaged PDF rendered as pages",
+      raw: true,
+      pdfjsErrorName: "InvalidPDFException",
+      message:
+        'PDF is damaged or not a PDF: "papers/locked.pdf" exists (14 bytes) but cannot be parsed',
+    },
+  ])(
+    "rethrows pdf.js refusing $label as the server's message, keeping pdf.js's error as the cause",
+    async ({ raw, pdfjsErrorName, message }) => {
+      mockedReadAsset.mockResolvedValue({
+        buffer: Buffer.from("not-a-real-pdf"),
+        bytes: 14,
+        extension: ".pdf",
+      })
+      // pdf.js marks its refusals by name; the class is not imported here
+      const pdfjsError = Object.assign(new Error("pdf.js refused the file"), {
+        name: pdfjsErrorName,
+      })
+      mockCreatePdfDocumentProxy.mockRejectedValue(pdfjsError)
+      onTestFinished(() => {
+        mockCreatePdfDocumentProxy.mockResolvedValue({
+          loadingTask: { destroy: mockDestroy },
+          numPages: 1,
+        })
+      })
+
+      await expect(
+        assetOperations.readAssetContent(
+          { ...defaultParams, path: "papers/locked.pdf", raw },
+          logger,
+        ),
+      ).rejects.toEqual(new Error(message, { cause: pdfjsError }))
+    },
+  )
 
   it("destroys the document proxy after successful extraction", async () => {
     mockDestroy.mockClear()

@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { registerPrompts } from "../../prompt-definitions.js"
+import { createMemoryStore } from "../../../vault-operations/memory-store.js"
 import { getCompleter } from "@modelcontextprotocol/sdk/server/completable.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
@@ -19,6 +20,8 @@ import {
   type SearchIndex,
   logger,
 } from "./prompt-test-harness.js"
+
+vi.mock("../../../vault-operations/memory-store.js", { spy: true })
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -234,6 +237,34 @@ describe("memory-review error degradation", () => {
 
     const text = textOf(await handler({}, fakeExtra))
     expect(text).toContain("vault_list_memory_files")
+  })
+
+  it("names a file a filesystem error quotes vault-relative in the fallback", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-err-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    // The store wraps its own filesystem failures, so a raw Node error has to
+    // be planted to reach the handler's catch
+    const { createMemoryStore: createRealMemoryStore } = await vi.importActual<
+      typeof import("../../../vault-operations/memory-store.js")
+    >("../../../vault-operations/memory-store.js")
+    vi.mocked(createMemoryStore).mockImplementation((options) => ({
+      ...createRealMemoryStore(options),
+      listMemoryFiles: async () => {
+        throw Object.assign(new Error(`EACCES: permission denied, scandir '${vault}/About Me'`), {
+          code: "EACCES",
+        })
+      },
+    }))
+    onTestFinished(() => vi.mocked(createMemoryStore).mockRestore())
+    const calls = registerWithSearch(vault, {} as SearchIndex)
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    const text = textOf(await handler({}, fakeExtra))
+    expect(text).toBe(
+      "Could not load memory for review ([Error]: EACCES: permission denied, scandir 'About Me'). Try vault_list_memory_files or vault_get_memory to inspect the About Me/ layer directly.",
+    )
   })
 
   it("completion returns [] when listing names fails", async () => {

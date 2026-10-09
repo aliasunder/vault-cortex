@@ -8,14 +8,21 @@ import {
 import type { ToolName } from "../../tool-registry.js"
 import { createSafeHandlers, describeTextWindow, formatNoteMetadata } from "../tool-helpers.js"
 
+const VAULT_PATH = "/srv/vault"
+
+const CAUSE_MESSAGE = "EACCES: permission denied, open '/srv/vault/.obsidian/app.json'"
+
 /** A handler failure whose cause carries detail the client must never see. */
 const failWithCause = async (): Promise<string> => {
-  throw new RangeError("limit out of range", {
-    cause: new Error("EACCES: permission denied, open '/srv/vault/.obsidian/app.json'"),
-  })
+  throw new RangeError("limit out of range", { cause: new Error(CAUSE_MESSAGE) })
 }
 
 const everyToolServed = (): boolean => true
+
+/** The safe handlers of a server serving the given tools from VAULT_PATH. */
+const createHandlersFor = (isToolEnabled: (name: ToolName) => boolean) => {
+  return createSafeHandlers({ isToolEnabled, vaultPath: VAULT_PATH })
+}
 
 const CARRY_TEXT_REPAIR_STEPS =
   "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties (leave out a key to remove it; null keeps it with an empty value); 4. add the copied text back to the body with vault_patch_note, without the --- lines."
@@ -55,7 +62,7 @@ const runFailingCall = async (params: {
   const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
   onTestFinished(() => warnSpy.mockRestore())
 
-  const { safeHandler } = createSafeHandlers(params.isToolEnabled)
+  const { safeHandler } = createHandlersFor(params.isToolEnabled)
   return safeHandler(logger, params.fail, (text) => text)
 }
 
@@ -64,7 +71,7 @@ describe("safeHandlerContent", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
 
-    const { safeHandlerContent } = createSafeHandlers(everyToolServed)
+    const { safeHandlerContent } = createHandlersFor(everyToolServed)
     const result = await safeHandlerContent(logger, failWithCause, (text: string) => [
       { type: "text", text },
     ])
@@ -75,13 +82,13 @@ describe("safeHandlerContent", () => {
     })
   })
 
-  it("logs a throw as tool_error on the caller's logger", async () => {
+  it("logs a throw and its cause as tool_error on the caller's logger", async () => {
     const requestLogger = logger.child({ requestId: "request-1" })
     const requestWarnSpy = vi.spyOn(requestLogger, "warn").mockImplementation(() => {})
     const rootWarnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => rootWarnSpy.mockRestore())
 
-    const { safeHandlerContent } = createSafeHandlers(everyToolServed)
+    const { safeHandlerContent } = createHandlersFor(everyToolServed)
     await safeHandlerContent(requestLogger, failWithCause, (text: string) => [
       { type: "text", text },
     ])
@@ -89,15 +96,63 @@ describe("safeHandlerContent", () => {
     expect(requestWarnSpy).toHaveBeenCalledTimes(1)
     expect(requestWarnSpy).toHaveBeenCalledWith("tool_error", {
       error: "[RangeError]: limit out of range",
+      cause: `[Error]: ${CAUSE_MESSAGE}`,
     })
     expect(rootWarnSpy).not.toHaveBeenCalled()
+  })
+
+  it("returns a filesystem error with its path vault-relative and logs it absolute", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    const failToOpenNote = async (): Promise<string> => {
+      throw Object.assign(new Error("EACCES: permission denied, open '/srv/vault/Locked.md'"), {
+        code: "EACCES",
+      })
+    }
+
+    const { safeHandlerContent } = createHandlersFor(everyToolServed)
+    const result = await safeHandlerContent(logger, failToOpenNote, (text: string) => [
+      { type: "text", text },
+    ])
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.md'" }],
+      isError: true,
+    })
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("tool_error", {
+      error: "[Error]: EACCES: permission denied, open '/srv/vault/Locked.md'",
+    })
+  })
+
+  it("returns the server's own error text unchanged when it quotes a path under the vault", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    const refuseAbsolutePath = async (): Promise<string> => {
+      throw new Error('absolute path blocked: "/srv/vault/Locked.md" must be vault-relative')
+    }
+
+    const { safeHandlerContent } = createHandlersFor(everyToolServed)
+    const result = await safeHandlerContent(logger, refuseAbsolutePath, (text: string) => [
+      { type: "text", text },
+    ])
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: absolute path blocked: "/srv/vault/Locked.md" must be vault-relative',
+        },
+      ],
+      isError: true,
+    })
   })
 
   it("appends the repair steps to an unreadable properties block", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
 
-    const { safeHandlerContent } = createSafeHandlers(everyToolServed)
+    const { safeHandlerContent } = createHandlersFor(everyToolServed)
     const result = await safeHandlerContent(
       logger,
       failWithUnreadableBlock("invalid-yaml", INVALID_YAML_MESSAGE),
@@ -119,7 +174,7 @@ describe("safeHandlerContent", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
 
-    const { safeHandlerContent } = createSafeHandlers(everyToolServed)
+    const { safeHandlerContent } = createHandlersFor(everyToolServed)
     await safeHandlerContent(
       logger,
       failWithUnreadableBlock("invalid-yaml", INVALID_YAML_MESSAGE),

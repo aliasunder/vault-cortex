@@ -117,9 +117,11 @@ Errors:
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
+- "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
+- "PDF is damaged or not a PDF" — the file does not parse as a PDF; replace or re-export it
 - "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
 - "image cannot be fitted" — the image could not be compressed under the image output budget
-- an image that cannot be decoded (corrupt, empty, or not an image despite its extension) fails with the decoder's message, e.g. "Input buffer contains unsupported image format"; replace or re-export the file
+- "could not decode image" — the file is empty, damaged, or not an image despite its extension; replace or re-export it
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
 Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,

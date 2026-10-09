@@ -39,8 +39,8 @@ describe("fitImageToByteBudget", () => {
       buffer: original,
       budgetBytes: 49152,
     })
-    expect(fitted.data.equals(original)).toBe(true)
-    expect(fitted).toMatchObject({
+    expect(fitted).toEqual({
+      data: original,
       mimeType: "image/png",
       width: 100,
       height: 80,
@@ -115,12 +115,22 @@ describe("fitImageToByteBudget", () => {
     )
   })
 
-  it("throws a decode error for a non-image buffer", async () => {
-    await expect(
-      fitImageToByteBudget({
-        buffer: Buffer.from("not an image at all"),
-        budgetBytes: 49152,
-      }),
-    ).rejects.toThrow("Input buffer contains unsupported image format")
-  })
+  it.each([
+    {
+      label: "a non-image buffer",
+      buffer: Buffer.from("not an image at all"),
+      decoderMessage: "Input buffer contains unsupported image format",
+    },
+    { label: "an empty buffer", buffer: Buffer.alloc(0), decoderMessage: "Input Buffer is empty" },
+  ])(
+    "throws its own decode error for $label, with the decoder's as the cause",
+    async ({ buffer, decoderMessage }) => {
+      // toMatchObject, not toEqual: sharp's native addon gives some errors an
+      // enumerable message, which an Error built here never equals
+      await expect(fitImageToByteBudget({ buffer, budgetBytes: 49152 })).rejects.toMatchObject({
+        message: "could not decode image (the file is empty, damaged, or not an image)",
+        cause: { message: decoderMessage },
+      })
+    },
+  )
 })

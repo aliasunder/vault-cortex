@@ -1,5 +1,5 @@
 import sharp from "sharp"
-import type { OutputInfo } from "sharp"
+import type { Metadata, OutputInfo } from "sharp"
 
 /**
  * Fits an image into a byte budget by downscaling and recompressing —
@@ -87,6 +87,19 @@ const encodeAttempt = async (params: {
   return encoded.toBuffer({ resolveWithObject: true })
 }
 
+/** The decoder's own message names its internals and can repeat over several
+ *  lines, so a failure is rethrown as one sentence, with the decoder's error
+ *  as the cause. */
+const readImageMetadata = async (buffer: Buffer): Promise<Metadata> => {
+  try {
+    return await sharp(buffer, { failOn: "none" }).metadata()
+  } catch (error) {
+    throw new Error("could not decode image (the file is empty, damaged, or not an image)", {
+      cause: error,
+    })
+  }
+}
+
 /**
  * Downscales/recompresses `buffer` until its encoded size is ≤ `budgetBytes`.
  * Returns the fitted image with its final and original dimensions, or throws
@@ -96,7 +109,7 @@ export const fitImageToByteBudget = async (params: {
   buffer: Buffer
   budgetBytes: number
 }): Promise<FittedImage> => {
-  const metadata = await sharp(params.buffer, { failOn: "none" }).metadata()
+  const metadata = await readImageMetadata(params.buffer)
   const { width, height, format } = metadata
 
   if (!width || !height || !format) {

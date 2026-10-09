@@ -617,6 +617,38 @@ describe("vault-orientation with MEMORY_ENABLED=false", () => {
     expect(text).toContain("Could not fully survey the vault")
     expect(text).not.toContain("vault_list_memory_files")
   })
+
+  it("error fallback names a file a filesystem error quotes vault-relative", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-mem-disabled-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    const throwingSearch = {
+      listAllTags: () => {
+        throw Object.assign(
+          new Error(`EACCES: permission denied, open '${vault}/Projects/plan.md'`),
+          { code: "EACCES" },
+        )
+      },
+    } as unknown as SearchIndex
+    const calls: RegisterPromptCall[] = []
+    const server = {
+      registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
+    }
+    registerPrompts({
+      server: server as unknown as McpServer,
+      vaultPath: vault,
+      search: throwingSearch,
+      logger,
+      config: disabledConfig,
+    })
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toBe(
+      "Could not fully survey the vault ([Error]: EACCES: permission denied, open 'Projects/plan.md'). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, or vault_find_orphans.",
+    )
+  })
 })
 
 // ── FILE_TOOLS_ENABLED=false ──────────────────────────────────
