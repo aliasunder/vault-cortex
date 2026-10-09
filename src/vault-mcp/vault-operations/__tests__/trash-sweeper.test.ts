@@ -77,12 +77,20 @@ const recordEntryAt = (
   }
 }
 
-/** The trashedAt the index stored for a row the test has just recorded. */
-const trashedAtOf = (index: ReturnType<typeof createSearchIndex>, trashPath: string): number => {
+/** The row the index holds for a path the test has just recorded. */
+const recordedRowOf = (
+  index: ReturnType<typeof createSearchIndex>,
+  trashPath: string,
+): TrashEntry => {
   const recordedEntry = index.getTrashEntry(trashPath)
 
   if (!recordedEntry) throw new Error(`no trash entry recorded for ${trashPath}`)
-  return recordedEntry.trashedAt
+  return recordedEntry
+}
+
+/** The trashedAt the index stored for a row the test has just recorded. */
+const trashedAtOf = (index: ReturnType<typeof createSearchIndex>, trashPath: string): number => {
+  return recordedRowOf(index, trashPath).trashedAt
 }
 
 /** How many days after the real moment the sweeps below run: one more than
@@ -834,12 +842,13 @@ describe("sweepExpiredTrashEntries", () => {
     onTestFinished(() => warnSpy.mockRestore())
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
+    const unreadRow = recordedRowOf(index, ".trash/unread.md")
 
     await sweepAfterRetention(vault, storeFailingToRead(index, ".trash/unread.md"))
 
     const unreadContent = await readFile(join(vault, ".trash", "unread.md"), "utf8")
     expect(unreadContent).toBe("expired")
-    expect(index.getTrashEntry(".trash/unread.md")?.trashPath).toBe(".trash/unread.md")
+    expect(index.getTrashEntry(".trash/unread.md")).toEqual(unreadRow)
     await expect(stat(join(vault, ".trash", "other.md"))).rejects.toThrow(/ENOENT/)
     expect(index.getTrashEntry(".trash/other.md")).toBeNull()
     expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -869,11 +878,12 @@ describe("sweepExpiredTrashEntries", () => {
     onTestFinished(() => warnSpy.mockRestore())
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
+    const stuckRow = recordedRowOf(index, ".trash/stuck.md")
 
     await sweepAfterRetention(vault, storeFailingToDrop(index, ".trash/stuck.md"))
 
     await expect(stat(join(vault, ".trash", "stuck.md"))).rejects.toThrow(/ENOENT/)
-    expect(index.getTrashEntry(".trash/stuck.md")?.trashPath).toBe(".trash/stuck.md")
+    expect(index.getTrashEntry(".trash/stuck.md")).toEqual(stuckRow)
     await expect(stat(join(vault, ".trash", "other.md"))).rejects.toThrow(/ENOENT/)
     expect(index.getTrashEntry(".trash/other.md")).toBeNull()
     expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -903,10 +913,11 @@ describe("sweepExpiredTrashEntries", () => {
       onTestFinished(() => warnSpy.mockRestore())
       const infoSpy = vi.spyOn(logger, "info")
       onTestFinished(() => infoSpy.mockRestore())
+      const keptRow = recordedRowOf(index, trashPath)
 
       await sweepAfterRetention(vault, storeFailingToDrop(index, trashPath))
 
-      expect(index.getTrashEntry(trashPath)?.trashPath).toBe(trashPath)
+      expect(index.getTrashEntry(trashPath)).toEqual(keptRow)
       expect(warnSpy).toHaveBeenCalledTimes(1)
       expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
         trashPath,
@@ -938,13 +949,14 @@ describe("sweepExpiredTrashEntries", () => {
     onTestFinished(() => warnSpy.mockRestore())
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
+    const vanishingRow = recordedRowOf(index, ".trash/vanishing.md")
 
     await sweepAfterRetention(vault, storeFailingToDrop(index, ".trash/vanishing.md"))
 
     // With the drop failing, a file kept as unmatched would leave the same row,
     // warning, and counts, so only the file's absence proves the unlink ran.
     await expect(stat(join(vault, ".trash", "vanishing.md"))).rejects.toThrow(/ENOENT/)
-    expect(index.getTrashEntry(".trash/vanishing.md")?.trashPath).toBe(".trash/vanishing.md")
+    expect(index.getTrashEntry(".trash/vanishing.md")).toEqual(vanishingRow)
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
       trashPath: ".trash/vanishing.md",
@@ -970,12 +982,13 @@ describe("sweepExpiredTrashEntries", () => {
     onTestFinished(() => warnSpy.mockRestore())
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
+    const recycledRow = recordedRowOf(index, ".trash/recycled.md")
 
     await sweepAfterRetention(vault, storeFailingToDrop(index, ".trash/recycled.md"))
 
     const recycledContent = await readFile(join(vault, ".trash", "recycled.md"), "utf8")
     expect(recycledContent).toBe("obsidian trashed this")
-    expect(index.getTrashEntry(".trash/recycled.md")?.trashPath).toBe(".trash/recycled.md")
+    expect(index.getTrashEntry(".trash/recycled.md")).toEqual(recycledRow)
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
       trashPath: ".trash/recycled.md",
@@ -1285,13 +1298,14 @@ describe("purgeOrphanedTrashEntries", () => {
     onTestFinished(() => warnSpy.mockRestore())
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
+    const unreadRow = recordedRowOf(index, ".trash/unread.md")
 
     await trashSweeper.purgeOrphanedTrashEntries(
       { vaultPath: vault, trashEntryStore: storeFailingToRead(index, ".trash/unread.md") },
       logger,
     )
 
-    expect(index.getTrashEntry(".trash/unread.md")?.trashPath).toBe(".trash/unread.md")
+    expect(index.getTrashEntry(".trash/unread.md")).toEqual(unreadRow)
     expect(index.getTrashEntry(".trash/other.md")).toBeNull()
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to read trash entry row", {
@@ -1315,13 +1329,14 @@ describe("purgeOrphanedTrashEntries", () => {
     onTestFinished(() => warnSpy.mockRestore())
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
+    const stuckRow = recordedRowOf(index, ".trash/stuck.md")
 
     await trashSweeper.purgeOrphanedTrashEntries(
       { vaultPath: vault, trashEntryStore: storeFailingToDrop(index, ".trash/stuck.md") },
       logger,
     )
 
-    expect(index.getTrashEntry(".trash/stuck.md")?.trashPath).toBe(".trash/stuck.md")
+    expect(index.getTrashEntry(".trash/stuck.md")).toEqual(stuckRow)
     expect(index.getTrashEntry(".trash/other.md")).toBeNull()
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {

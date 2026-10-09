@@ -8445,6 +8445,9 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     })
     const emptyVault = await mkdtemp(join(tmpdir(), "trash-rebuild-"))
     onTestFinished(() => rm(emptyVault, { recursive: true, force: true }))
+    // A day later, so a rebuild that re-stamped the row from the clock would
+    // change trashedAt.
+    vi.setSystemTime(trashTime.plus({ days: 1 }).toMillis())
 
     await trashIndex.rebuildFromVault({ vaultPath: emptyVault }, logger)
 
