@@ -691,7 +691,8 @@ const moveNoteToTrash = async (
 
       // The exclusive claim proved nothing occupied the landed path, so any
       // existing row for it belongs to an earlier occupant that has since
-      // left .trash/:
+      // left .trash/, or, on a case-sensitive mount, to a sibling whose name
+      // differs only in case (rows are keyed by the case-folded path):
       // - A recorded move replaces that row.
       // - An unrecorded move ("local", Obsidian's keep-forever trash) must
       //   clear it. A rename keeps a file's identity, so a note restored from
