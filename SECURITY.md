@@ -180,8 +180,8 @@ mechanism-level detail.
 - A Node error's paths (a filesystem failure or an invalid path argument)
   reach the client vault-relative, from tools and from the prompts' fallback
   messages alike, so the container's absolute path stays in the server log
-- In-lock existence checks return a vault-relative "not found" instead of
-  Node's ENOENT text
+- In-lock existence checks return the documented "note not found" error
+  instead of Node's ENOENT text
 - Error middleware returns `"internal server error"` to clients;
   request metadata and the error message are logged server-side only
 
