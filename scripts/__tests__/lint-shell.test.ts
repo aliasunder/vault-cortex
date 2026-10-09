@@ -188,7 +188,24 @@ const runLintShell = ({
 /** A PATH that finds the fake `curl` before any real one, so no run reaches
  *  the network. */
 const putFakeCurlFirstOnPath = (fakeCurl: FakeCurl): string => {
-  return `${fakeCurl.binDirectory}:${process.env.PATH ?? ""}`
+  const systemPath = process.env.PATH
+
+  if (!systemPath) throw new Error("PATH is not set")
+  return `${fakeCurl.binDirectory}:${systemPath}`
+}
+
+/** Matches the archive path curl is told to write: inside a `download-*`
+ *  directory, whose name mkdtemp picks, under the cache directory. */
+const archivePathUnder = ({
+  cacheDirectory,
+  archiveName,
+}: {
+  cacheDirectory: string
+  archiveName: string
+}): RegExp => {
+  return new RegExp(
+    `^${RegExp.escape(join(cacheDirectory, "download-"))}[^/]+/${RegExp.escape(archiveName)}$`,
+  )
 }
 
 const readCallLog = (callLog: string): string[] | null => {
@@ -341,6 +358,7 @@ describe("lint-shell script", () => {
   it("exits 1 naming the URL when the download fails", () => {
     const pinnedArchive = getPinnedArchiveForThisMachine()
     const emptyCacheHome = createTempDirectory()
+    const cacheDirectory = join(emptyCacheHome, CACHED_SHELLCHECK_DIRECTORY)
     const fakeCurl = createFakeCurl({ archiveContent: "", exitStatus: 22 })
 
     const run = runLintShell({
@@ -351,13 +369,24 @@ describe("lint-shell script", () => {
     expect({
       status: run.status,
       stderr: run.stderr,
-      requestedUrl: readCallLog(fakeCurl.callLog)?.at(-1),
+      curlCalls: readCallLog(fakeCurl.callLog),
+      cacheContents: readdirSync(cacheDirectory),
     }).toEqual({
       status: 1,
       stderr:
-        `Downloading ShellCheck 0.11.0 into ${join(emptyCacheHome, CACHED_SHELLCHECK_DIRECTORY)}\n` +
+        `Downloading ShellCheck 0.11.0 into ${cacheDirectory}\n` +
         `✕ Could not get ShellCheck: could not download ${RELEASE_URL}/${pinnedArchive.name}\n`,
-      requestedUrl: `${RELEASE_URL}/${pinnedArchive.name}`,
+      curlCalls: [
+        "-fsSL",
+        "--retry",
+        "3",
+        "-o",
+        expect.stringMatching(
+          archivePathUnder({ cacheDirectory, archiveName: pinnedArchive.name }),
+        ),
+        `${RELEASE_URL}/${pinnedArchive.name}`,
+      ],
+      cacheContents: [],
     })
   })
 
