@@ -236,6 +236,8 @@ if dependencies_are_current && [[ -f "${sst_platform_types}" ]]; then
 fi
 
 # A kernel lock serializes installs across sessions.
+# - Perl takes the lock (see the perl call below), so without perl the hook
+#   exits here, before creating the lock file.
 # - The lock belongs to the file opened on fd 9, not to a process. npm ci
 #   inherits fd 9, so the lock stays held while an orphaned npm ci outlives a
 #   killed hook, and the kernel releases it once every holder exits. No stale
@@ -245,7 +247,12 @@ fi
 #   perl, a busy lock past the wait, or a lock error, it skips the install.
 # - Perl's flock is the one lock call that macOS, Debian, Ubuntu and the
 #   cloud images all have: macOS lacks flock(1), and all of them ship perl.
-#   Minimal images without perl, such as Alpine, skip the install below.
+#   Minimal images without perl, such as Alpine, skip the install.
+if ! command -v perl >/dev/null 2>&1; then
+  log "perl not found, so the install lock cannot be taken — skipping the install in ${checkout}; run npm ci and npx sst install yourself"
+  exit 0
+fi
+
 exec 9>>"${state_dir}/install-deps.lock"
 
 # Well inside the 600s hook timeout in settings.json, so a timed-out wait
@@ -253,11 +260,6 @@ exec 9>>"${state_dir}/install-deps.lock"
 # a session that waited usually finds the other session's install current at
 # the re-check under the lock and skips its own.
 lock_wait_seconds=480
-
-if ! command -v perl >/dev/null 2>&1; then
-  log "perl not found, so the install lock cannot be taken — skipping the install in ${checkout}; run npm ci and npx sst install yourself"
-  exit 0
-fi
 
 # - Perl opens this shell's fd 9 in place (">&=" is C's fdopen, not a dup)
 #   and locks the file open on it, so the lock outlives the perl process.

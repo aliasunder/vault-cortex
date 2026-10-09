@@ -385,7 +385,7 @@ describe("install-deps hook", () => {
       })
     })
 
-    it("skips the install, keeping the marker, when perl is missing", () => {
+    it("skips the install, keeping the marker and creating no lock file, when perl is missing", () => {
       const fixture = createHookFixture()
       leaveMarker(fixture)
       writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
@@ -397,12 +397,14 @@ describe("install-deps hook", () => {
         stdout: run.stdout,
         stderr: run.stderr,
         npmCalls: recordedNpmCalls(fixture),
+        lockFileExists: existsSync(join(fixture.stateDir, "install-deps.lock")),
         ...installState(fixture),
       }).toEqual({
         status: 0,
         stdout: "",
         stderr: `[install-deps] perl not found, so the install lock cannot be taken — skipping the install in ${fixture.checkout}; run npm ci and npx sst install yourself\n`,
         npmCalls: [],
+        lockFileExists: false,
         marker: `${fixture.installIdentity}\n`,
         stamp: null,
       })
