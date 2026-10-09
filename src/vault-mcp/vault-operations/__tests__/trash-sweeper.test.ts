@@ -115,6 +115,23 @@ const sweepAfterRetention = async (
 const KEPT_FILE_WARNING =
   "trash entry cannot be matched to the file the server trashed — kept, row dropped"
 
+/** The index as a store whose row delete fails for `failingPath` the way a
+ *  full disk fails it. */
+const storeFailingToDrop = (
+  index: ReturnType<typeof createSearchIndex>,
+  failingPath: string,
+): TrashEntryStore => {
+  return {
+    listAllTrashEntries: index.listAllTrashEntries,
+    listExpiredTrashEntries: index.listExpiredTrashEntries,
+    getTrashEntry: index.getTrashEntry,
+    deleteTrashEntry: (trashPath: string) => {
+      if (trashPath === failingPath) throw new Error("database or disk is full")
+      index.deleteTrashEntry(trashPath)
+    },
+  }
+}
+
 describe("sweepExpiredTrashEntries", () => {
   it("unlinks an expired entry's file and drops its row; a fresh entry and its file survive", async () => {
     const vault = await createTestVault()
@@ -771,6 +788,137 @@ describe("sweepExpiredTrashEntries", () => {
       retentionDays: 30,
       expired: 2,
       purged: 2,
+      droppedMissing: 0,
+      droppedUnmatched: 0,
+    })
+  })
+
+  it("keeps an unlinked file's row and finishes the sweep when the row drop fails", async () => {
+    // The summary log runs only after the last row, so it proves the failed
+    // drop did not end the sweep, whichever row the store lists first.
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "stuck.md"), "expired", "utf8")
+    await writeFile(join(vault, ".trash", "other.md"), "expired too", "utf8")
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/stuck.md"))
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/other.md"))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await sweepAfterRetention(vault, storeFailingToDrop(index, ".trash/stuck.md"))
+
+    await expect(stat(join(vault, ".trash", "stuck.md"))).rejects.toThrow(/ENOENT/)
+    expect(index.getTrashEntry(".trash/stuck.md")?.trashPath).toBe(".trash/stuck.md")
+    await expect(stat(join(vault, ".trash", "other.md"))).rejects.toThrow(/ENOENT/)
+    expect(index.getTrashEntry(".trash/other.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
+      trashPath: ".trash/stuck.md",
+      error: "[Error]: database or disk is full",
+    })
+    expect(infoSpy).toHaveBeenCalledWith("trash retention sweep complete", {
+      retentionDays: 30,
+      expired: 2,
+      purged: 2,
+      droppedMissing: 0,
+      droppedUnmatched: 0,
+    })
+  })
+
+  it.each([
+    { label: "the file", trashPath: ".trash/emptied.md" },
+    { label: "its whole folder", trashPath: ".trash/vanished-folder/x.md" },
+  ])(
+    "keeps the row, counted as skipped, when $label is gone and the row drop fails",
+    async ({ trashPath }) => {
+      const vault = await createTestVault()
+      const index = createSearchIndex(":memory:")
+      index.recordTrashEntry(recordedAbsentFile(trashPath))
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+      const infoSpy = vi.spyOn(logger, "info")
+      onTestFinished(() => infoSpy.mockRestore())
+
+      await sweepAfterRetention(vault, storeFailingToDrop(index, trashPath))
+
+      expect(index.getTrashEntry(trashPath)?.trashPath).toBe(trashPath)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
+        trashPath,
+        error: "[Error]: database or disk is full",
+      })
+      expect(infoSpy).toHaveBeenCalledWith("trash retention sweep complete", {
+        retentionDays: 30,
+        expired: 1,
+        purged: 0,
+        droppedMissing: 0,
+        droppedUnmatched: 0,
+      })
+    },
+  )
+
+  it("keeps the row, counted as skipped, when the file vanishes before the unlink and the row drop fails", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "vanishing.md"), "expired", "utf8")
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/vanishing.md"))
+    vi.mocked(unlink).mockImplementationOnce(async (target) => {
+      await rm(target)
+      return unlink(target)
+    })
+    onTestFinished(() => {
+      vi.mocked(unlink).mockReset()
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await sweepAfterRetention(vault, storeFailingToDrop(index, ".trash/vanishing.md"))
+
+    expect(index.getTrashEntry(".trash/vanishing.md")?.trashPath).toBe(".trash/vanishing.md")
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
+      trashPath: ".trash/vanishing.md",
+      error: "[Error]: database or disk is full",
+    })
+    expect(infoSpy).toHaveBeenCalledWith("trash retention sweep complete", {
+      retentionDays: 30,
+      expired: 1,
+      purged: 0,
+      droppedMissing: 0,
+      droppedUnmatched: 0,
+    })
+  })
+
+  it("keeps an unmatched file and its row, without the row-dropped warning, when the row drop fails", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "recycled.md"), "obsidian trashed this", "utf8")
+    // The recorded identity belongs to no file, so the file at the path is
+    // a different one and fails the identity check.
+    index.recordTrashEntry(recordedAbsentFile(".trash/recycled.md"))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await sweepAfterRetention(vault, storeFailingToDrop(index, ".trash/recycled.md"))
+
+    const recycledContent = await readFile(join(vault, ".trash", "recycled.md"), "utf8")
+    expect(recycledContent).toBe("obsidian trashed this")
+    expect(index.getTrashEntry(".trash/recycled.md")?.trashPath).toBe(".trash/recycled.md")
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to drop trash entry row", {
+      trashPath: ".trash/recycled.md",
+      error: "[Error]: database or disk is full",
+    })
+    expect(infoSpy).toHaveBeenCalledWith("trash retention sweep complete", {
+      retentionDays: 30,
+      expired: 1,
+      purged: 0,
       droppedMissing: 0,
       droppedUnmatched: 0,
     })

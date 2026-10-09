@@ -5,7 +5,9 @@
  *  modification time) and its change time is no later than about a minute
  *  after the row was recorded, so Obsidian's own trash entries and
  *  hand-placed files are out of reach, even under a name the server once
- *  used. */
+ *  used. The exception is a note the server trashed, then restored by hand
+ *  and trashed again: it still matches its row when that happens within the
+ *  minute, or on a file system whose renames leave the change time alone. */
 
 import { unlink } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
@@ -87,6 +89,25 @@ const getRecordedFileCheck = async (
   }
 }
 
+/** Drops a finished row and returns whether it was dropped. A failed drop
+ *  (a full disk fails a delete but not a read) keeps the row for the next
+ *  sweep instead of ending this one, whose later unlinks can free space. */
+const dropTrashEntry = (
+  params: { trashPath: string; trashEntryStore: TrashEntryStore },
+  logger: Logger,
+): boolean => {
+  try {
+    params.trashEntryStore.deleteTrashEntry(params.trashPath)
+    return true
+  } catch (error) {
+    logger.warn("failed to drop trash entry row", {
+      trashPath: params.trashPath,
+      error: describeError(error),
+    })
+    return false
+  }
+}
+
 /** Re-validates one expired row, checks that it stays inside .trash/ and
  *  still holds the recorded file, then unlinks the file, drops the row, and
  *  prunes the folders the unlink emptied. Runs under the shared trash-domain
@@ -150,8 +171,7 @@ const sweepOneEntry = async (
     const realParent = await realpathOrNull(dirname(resolvedPath))
 
     if (!realTrashRoot || !realParent) {
-      trashEntryStore.deleteTrashEntry(trashPath)
-      return "missing"
+      return dropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
     }
 
     // Equal when the file sits directly in .trash/, not in a subfolder.
@@ -165,9 +185,8 @@ const sweepOneEntry = async (
       return "skipped"
     }
   } catch (error) {
-    // A realpath failure other than a missing path (EACCES, EIO), or a failed
-    // row delete in the missing-parent branch, keeps the row so the next
-    // sweep retries; one bad row never aborts the sweep.
+    // A realpath failure other than a missing path (EACCES, EIO) keeps the
+    // row so the next sweep retries; one bad row never aborts the sweep.
     logger.warn("failed to resolve trash entry path", {
       trashPath,
       error: describeError(error),
@@ -189,11 +208,10 @@ const sweepOneEntry = async (
   // trashed reaches the unlink below.
   if (recordedFileCheck === "unreadable") return "skipped"
   if (recordedFileCheck === "missing") {
-    trashEntryStore.deleteTrashEntry(trashPath)
-    return "missing"
+    return dropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
   }
   if (recordedFileCheck !== "matches") {
-    trashEntryStore.deleteTrashEntry(trashPath)
+    if (!dropTrashEntry({ trashPath, trashEntryStore }, logger)) return "skipped"
     logger.warn(
       "trash entry cannot be matched to the file the server trashed — kept, row dropped",
       { trashPath, reason: recordedFileCheck },
@@ -208,8 +226,7 @@ const sweepOneEntry = async (
     await unlink(resolvedPath)
   } catch (error) {
     if (isErrnoException(error, "ENOENT")) {
-      trashEntryStore.deleteTrashEntry(trashPath)
-      return "missing"
+      return dropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
     }
     // Any other failure keeps the row so the next run retries; one bad row
     // never aborts the sweep. That includes permissions, I/O, and ENOTDIR
@@ -222,7 +239,9 @@ const sweepOneEntry = async (
     return "skipped"
   }
 
-  trashEntryStore.deleteTrashEntry(trashPath)
+  // The file is gone whether or not the row drop succeeds; a row left behind
+  // is dropped as missing by the next sweep.
+  dropTrashEntry({ trashPath, trashEntryStore }, logger)
 
   // The trash move created the file's folder chain, so an unlink can strand
   // empty folders. pruneEmptyParents walks up from `path` and stops at
