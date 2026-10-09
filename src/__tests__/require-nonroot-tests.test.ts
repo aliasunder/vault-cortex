@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 
 import { describe, expect, it, onTestFinished } from "vitest"
 
@@ -67,13 +67,15 @@ exec "$@"
 `
 
 /** Stub `chown`: appends its arguments to STUB_CHOWN_LOG, one call per line,
- *  then runs the real chown. */
+ *  then runs the real chown at STUB_REAL_CHOWN. The stub cannot look the
+ *  real one up itself: macOS's /bin/sh is bash 3.2, whose `command -p -v`
+ *  searches the current PATH, where the stub comes first. */
 const CHOWN_STUB = `#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_CHOWN_LOG"
-exec "$(command -p -v chown)" "$@"
+exec "$STUB_REAL_CHOWN" "$@"
 `
 
-/** The node nobody finds: prints STUB_NOBODY_NODE_VERSION. */
+/** The node nobody finds, which prints STUB_NOBODY_NODE_VERSION as its version. */
 const NOBODY_NODE_STUB = `#!/bin/sh
 echo "$STUB_NOBODY_NODE_VERSION"
 `
@@ -128,8 +130,22 @@ const runnerIds = (): { uid: number; gid: number } => {
   const uid = process.geteuid?.()
   const gid = process.getegid?.()
 
+  // Compared to undefined, not checked for truth: 0 is root's valid id.
   if (uid === undefined || gid === undefined) throw new Error("the hook tests need POSIX ids")
   return { uid, gid }
+}
+
+/** The runner's own PATH, which the hook's real tools are found on. */
+const runnerPath = (): string => {
+  const path = process.env.PATH
+
+  if (!path) throw new Error("the hook tests need a PATH")
+  return path
+}
+
+/** The real chown on the runner's PATH, which has no stub on it. */
+const realChownPath = (): string => {
+  return execFileSync("bash", ["-c", "command -v chown"], { encoding: "utf8" }).trimEnd()
 }
 
 /** PATH lookup skips a file without the executable bit, and would run the
@@ -159,7 +175,7 @@ const createHookFixture = (): HookFixture => {
   writeExecutable(join(nobodyBinDir, "node"), NOBODY_NODE_STUB)
 
   execFileSync("git", ["init", "--quiet", checkout], {
-    env: { PATH: process.env.PATH ?? "", HOME: outsideDir },
+    env: { PATH: runnerPath(), HOME: outsideDir },
     stdio: "pipe",
   })
   mkdirSync(join(checkout, "node_modules"))
@@ -172,6 +188,19 @@ const createHookFixture = (): HookFixture => {
     emptyBinDir,
     chownLog: join(tempDir, "chown.log"),
   }
+}
+
+/** A second git checkout with a node_modules folder, beside the fixture's
+ *  checkout, so a test can tell which of the two the hook prepares. */
+const createOtherCheckout = (fixture: HookFixture, folderName = "other-checkout"): string => {
+  const otherCheckout = join(dirname(fixture.checkout), folderName)
+
+  execFileSync("git", ["init", "--quiet", otherCheckout], {
+    env: { PATH: runnerPath(), HOME: fixture.outsideDir },
+    stdio: "pipe",
+  })
+  mkdirSync(join(otherCheckout, "node_modules"))
+  return otherCheckout
 }
 
 /** Every tool the hook runs on a stopped run except setpriv. */
@@ -214,7 +243,7 @@ const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string>
   // Built from scratch, so a CLAUDE_PROJECT_DIR or GIT_DIR in the runner's
   // own environment never reaches the hook.
   return {
-    PATH: options.path ?? `${fixture.stubBinDir}:${process.env.PATH ?? ""}`,
+    PATH: options.path ?? `${fixture.stubBinDir}:${runnerPath()}`,
     HOME: fixture.outsideDir,
     STUB_SESSION_UID: String(options.sessionUid ?? 0),
     STUB_NOBODY_EXISTS: options.nobodyExists === false ? "0" : "1",
@@ -223,6 +252,7 @@ const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string>
     STUB_NOBODY_PATH: options.nobodyHasNode === false ? fixture.emptyBinDir : fixture.nobodyBinDir,
     STUB_NOBODY_NODE_VERSION: options.nobodyNodeVersion ?? MATCHING_NODE_VERSION,
     STUB_CHOWN_LOG: fixture.chownLog,
+    STUB_REAL_CHOWN: realChownPath(),
     ...(options.claudeProjectDir ? { CLAUDE_PROJECT_DIR: options.claudeProjectDir } : {}),
   }
 }
@@ -240,22 +270,30 @@ const runHook = (options: HookRunOptions): HookRun => {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
-const payloadFor = ({ command, cwd }: { command: string; cwd?: string }): string =>
-  JSON.stringify({ tool_input: { command }, ...(cwd ? { cwd } : {}) })
+const payloadFor = ({ command, cwd }: { command: string; cwd?: string }): string => {
+  return JSON.stringify({ tool_input: { command }, ...(cwd ? { cwd } : {}) })
+}
 
 /** Runs the hook on a command issued from the fixture's checkout. */
-const runCommandThroughHook = (fixture: HookFixture, command: string): HookRun =>
-  runHook({ fixture, stdin: payloadFor({ command, cwd: fixture.checkout }) })
+const runCommandThroughHook = (fixture: HookFixture, command: string): HookRun => {
+  return runHook({ fixture, stdin: payloadFor({ command, cwd: fixture.checkout }) })
+}
 
 /** The hook's reply to a stopped run, test-owned so a change to the prefix
- *  or the wording shows up here. */
-const expectedRefusal = (checkout: string): string => {
+ *  or the wording shows up here. nobodyHomeInPrefix is the HOME path as the
+ *  prefix spells it: the plain path, unless the path needs quoting. */
+const expectedRefusal = (
+  checkout: string,
+  {
+    nobodyHomeInPrefix = `${checkout}/node_modules/.nobody-home`,
+  }: { nobodyHomeInPrefix?: string } = {},
+): string => {
   const { uid, gid } = runnerIds()
 
   return [
     "Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.",
     "Run the same test command as the nobody user, with this prefix in front of the test command itself (after any cd):",
-    `  setpriv --reuid=${uid} --regid=${gid} --clear-groups env HOME=${checkout}/node_modules/.nobody-home`,
+    `  setpriv --reuid=${uid} --regid=${gid} --clear-groups env HOME=${nobodyHomeInPrefix}`,
     `The folders nobody needs to write in ${checkout} are ready.`,
     "",
   ].join("\n")
@@ -296,9 +334,69 @@ describe("require-nonroot-tests hook", () => {
   describe("in a root session", () => {
     it.each([
       { label: "npm test", command: "npm test" },
+      { label: "npm t", command: "npm t" },
+      { label: "npm run test:watch", command: "npm run test:watch" },
       { label: "a test command on a second line", command: "git status\nnpm test" },
       { label: "a test command after cd and &&", command: "cd / && npm test" },
       { label: "npx vitest", command: "npx vitest run x" },
+      { label: "npx with a flag", command: "npx -y vitest run x" },
+      { label: "npx with a versioned vitest", command: "npx vitest@latest run" },
+      { label: "npm exec vitest", command: "npm exec vitest -- run" },
+      { label: "npm x with a flag before vitest", command: "npm x -y vitest run" },
+      { label: "npm run-script test", command: "npm run-script test" },
+      { label: "bash -c with a quoted test run", command: "bash -lc 'npm test'" },
+      { label: "sh -c with a double-quoted vitest run", command: 'sh -c "npx vitest run"' },
+      { label: "bash -c with a redirection after the quote", command: "bash -c 'npm test' 2>&1" },
+      { label: "bash -c inside a command substitution", command: "out=$(bash -c 'npm test')" },
+      {
+        label: "bash -c with a comment after the quote",
+        command: "bash -c 'npm test' # main suite",
+      },
+      { label: "bash -c with a space after the opening quote", command: "bash -c ' npm test'" },
+      {
+        label: "bash with -o and its argument before -c",
+        command: "bash -o pipefail -c 'npm test'",
+      },
+      {
+        label: "bash with a flag group ending in o and its argument before -c",
+        command: "bash -euo pipefail -c 'npm test'",
+      },
+      {
+        label: "sh with o before c in one flag group and o's argument after it",
+        command: "sh -oc pipefail 'npx vitest run'",
+      },
+      {
+        label: "vitest with the main config in quotes",
+        command: 'npx vitest run --config "vitest.config.ts"',
+      },
+      // npm reads the config flag as its own, so vitest never sees it.
+      {
+        label: "npm exec vitest with the cli-pty config",
+        command: "npm exec vitest run --config vitest.cli-pty.config.ts",
+      },
+      // @vitest/ui is not a runner on its own, so only reading it as -p's
+      // argument reaches the vitest after it.
+      {
+        label: "npx with a package flag and its argument",
+        command: "npx -p @vitest/ui vitest run",
+      },
+      {
+        label: "npm test with a config flag npm consumes",
+        command: "npm test --config vitest.cli-pty.config.ts",
+      },
+      { label: "npm with a flag before the script", command: "npm -s test" },
+      {
+        label: "npm with a flag and its argument before the script",
+        command: "npm --prefix . test",
+      },
+      {
+        label: "npm run with a flag before the script",
+        command: "npm run --silent snapshot:update",
+      },
+      {
+        label: "npm run with a flag and its argument before the script",
+        command: "npm run --loglevel silent test",
+      },
       {
         label: "vitest by its path under node_modules/.bin",
         command: "node_modules/.bin/vitest run",
@@ -332,6 +430,18 @@ describe("require-nonroot-tests hook", () => {
         command: "npm run test:remote-boot; npx vitest run -t cli-pty",
       },
       {
+        label: "vitest with an exempt suite's config placed after --",
+        command: "npx vitest run -- --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "npm handing an exempt suite's config to vitest after a second --",
+        command: "npm test -- -- --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "vitest with a config whose name only starts with an exempt suite's",
+        command: "npx vitest run --config vitest.cli-pty.config.ts.bak",
+      },
+      {
         label: "a test run after a command that mentions setpriv",
         command: "grep setpriv notes; npm test",
       },
@@ -358,6 +468,35 @@ describe("require-nonroot-tests hook", () => {
       { label: "a script whose name only starts with test", command: "npm run testx" },
       { label: "npm run test:remote-boot", command: "npm run test:remote-boot" },
       { label: "npm run test:cli-pty", command: "npm run test:cli-pty" },
+      { label: "npm run-script of another script", command: "npm run-script lint" },
+      { label: "npm exec of another binary", command: "npm exec prettier -- --version" },
+      { label: "bash -c with a quoted non-test command", command: "bash -c 'npm run lint'" },
+      {
+        label: "a quoted grep pattern that a | splits after a runner name",
+        command: "grep -E 'npm test|vitest' src/",
+      },
+      {
+        label: "vitest with the cli-pty config in quotes",
+        command: 'npx vitest run --config "vitest.cli-pty.config.ts"',
+      },
+      {
+        label: "vitest with the remote-boot config in quotes after =",
+        command: "npx vitest run --config='vitest.remote-boot.config.ts'",
+      },
+      {
+        label: "a versioned vitest with the cli-pty config",
+        command: "npx vitest@4 run --config vitest.cli-pty.config.ts",
+      },
+      // vitest refuses a second config flag and runs nothing.
+      {
+        label: "vitest with a second config flag",
+        command: "npx vitest run --config vitest.cli-pty.config.ts --config vitest.config.ts",
+      },
+      // vitest ignores a flag after a lone --, so the cli-pty suite runs.
+      {
+        label: "vitest with a second config after --",
+        command: "npx vitest run --config vitest.cli-pty.config.ts -- --config vitest.config.ts",
+      },
       {
         label: "vitest with the cli-pty config",
         command: "npx vitest run --config vitest.cli-pty.config.ts",
@@ -365,6 +504,22 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "vitest with the remote-boot config, given with = and a path",
         command: "npx vitest run --config=./vitest.remote-boot.config.ts",
+      },
+      {
+        label: "npx with a flag running vitest with the cli-pty config",
+        command: "npx -y vitest run --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "npm test handing the cli-pty config to vitest after --",
+        command: "npm test -- --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "npm with a flag handing the cli-pty config to vitest after --",
+        command: "npm -s test -- --config vitest.cli-pty.config.ts",
+      },
+      {
+        label: "npm test handing the cli-pty config to vitest among other arguments",
+        command: "npm test --silent -- --reporter=dot --config vitest.cli-pty.config.ts",
       },
       { label: "a variable setting as an argument", command: "echo CI=1 npm test" },
       { label: "a variable setting before another command", command: "FOO=1 echo npm test" },
@@ -457,6 +612,41 @@ describe("require-nonroot-tests hook", () => {
         run: LET_THROUGH,
         foldersMade: [],
         controlStatus: 2,
+      })
+    })
+
+    it("quotes the HOME path in the prefix when the checkout's path holds a space", () => {
+      const fixture = createHookFixture()
+      const spacedCheckout = createOtherCheckout(fixture, "spaced checkout")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: spacedCheckout }),
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: expectedRefusal(spacedCheckout, {
+          nobodyHomeInPrefix: `${spacedCheckout.replaceAll(" ", "\\ ")}/node_modules/.nobody-home`,
+        }),
+      })
+    })
+
+    it("compares the major versions when .nvmrc ends its line with CRLF", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), `${NVMRC_VERSION}\r\n`)
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: "v22.22.0",
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: `${expectedRefusal(fixture.checkout)}nobody's node is v22.22.0, not the 24 that .nvmrc names and CI runs, so a result can differ from CI's.\n`,
       })
     })
 
@@ -573,6 +763,226 @@ describe("require-nonroot-tests hook", () => {
       expect({ run, controlStatus: controlRun.status }).toEqual({
         run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
         controlStatus: 0,
+      })
+    })
+
+    it.each([
+      {
+        label: "after another command",
+        command: (checkout: string) => `git pull && cd ${checkout} && npm test`,
+      },
+      {
+        label: "on an earlier line",
+        command: (checkout: string) => `set -e\ncd ${checkout}\nnpm test`,
+      },
+      {
+        label: "after a cd to a folder in no checkout",
+        command: (checkout: string, outsideDir: string) => {
+          return `cd ${outsideDir} && cd ${checkout} && npm test`
+        },
+      },
+      {
+        label: "before the first of two runs",
+        command: (checkout: string, outsideDir: string) => {
+          return `cd ${checkout} && npm test; cd ${outsideDir} && npm test`
+        },
+      },
+      {
+        label: "in double quotes",
+        command: (checkout: string) => `cd "${checkout}" && npm test`,
+      },
+      {
+        label: "in single quotes after an unresolvable cd",
+        command: (checkout: string) => `cd ~ && cd '${checkout}' && npm test`,
+      },
+      {
+        label: "with pushd",
+        command: (checkout: string) => `pushd ${checkout} && npm test`,
+      },
+      {
+        label: "inside a brace group",
+        command: (checkout: string) => `{ cd ${checkout}; npm test; }`,
+      },
+      {
+        label: "inside an if block",
+        command: (checkout: string) => `if true; then cd ${checkout}; fi; npm test`,
+      },
+      {
+        label: "inside a bash -c body run through env",
+        command: (checkout: string) => `env bash -c 'cd ${checkout} && npm test'`,
+      },
+      {
+        label: "after a variable setting",
+        command: (checkout: string) => `CI=1 cd ${checkout} && npm test`,
+      },
+      {
+        label: "inside a bash -c body",
+        command: (checkout: string) => `bash -c 'cd ${checkout} && npm test'`,
+      },
+      {
+        label: "inside a bash -c body that opens with a space",
+        command: (checkout: string) => `bash -c ' cd ${checkout} && npm test'`,
+      },
+      {
+        label: "inside a bash -c body after a flag group that takes an argument",
+        command: (checkout: string) => `bash -euo pipefail -c 'cd ${checkout} && npm test'`,
+      },
+    ])("prepares the checkout an absolute cd names $label", ({ command }) => {
+      const fixture = createHookFixture()
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({
+          command: command(fixture.checkout, fixture.outsideDir),
+          cwd: fixture.outsideDir,
+        }),
+      })
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
+    })
+
+    it("prepares the checkout a relative cd reaches from the folder an earlier cd names", () => {
+      const fixture = createHookFixture()
+      mkdirSync(join(fixture.checkout, "src"))
+      // The parent folder is in no checkout, so the run reaches the checkout
+      // only when the hook joins the relative path onto the parent.
+      const checkoutParent = dirname(fixture.checkout)
+      const relativeSubfolder = join(basename(fixture.checkout), "src")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({
+          command: `cd ${checkoutParent} && cd ${relativeSubfolder} && npm test`,
+          cwd: fixture.outsideDir,
+        }),
+      })
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
+    })
+
+    it.each([
+      { label: "a ~ path", target: "~" },
+      { label: "a variable", target: "$HOME" },
+      { label: "a double-quoted path", target: '"src"' },
+      { label: "a single-quoted path", target: "'src'" },
+      { label: "the previous folder", target: "-" },
+    ])(
+      "prepares the session's checkout for a cd to $label, which only the shell can resolve",
+      ({ target }) => {
+        const fixture = createHookFixture()
+        const otherCheckout = createOtherCheckout(fixture)
+        // A folder named with the target's literal text: a hook that read the
+        // target as a relative path would land in the other checkout.
+        mkdirSync(join(otherCheckout, target))
+
+        const run = runCommandThroughHook(
+          fixture,
+          `cd ${otherCheckout} && cd ${target} && npm test`,
+        )
+        // The first cd alone moves the run to the other checkout, so the run
+        // above reaches the session's checkout through the second cd, not
+        // through a hook that ignores every cd.
+        const controlRun = runCommandThroughHook(fixture, `cd ${otherCheckout} && npm test`)
+
+        expect({ run, controlRun }).toEqual({
+          run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+          controlRun: { status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) },
+        })
+      },
+    )
+
+    it("prepares the session's checkout for a cd followed only by a comment, which bash runs as a bare cd", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+      // A folder named #: a hook that read the comment as a relative path
+      // would land in the other checkout.
+      mkdirSync(join(otherCheckout, "#"))
+
+      const run = runCommandThroughHook(fixture, `cd ${otherCheckout}\ncd # back home\nnpm test`)
+      // The first cd alone moves the run to the other checkout, so the run
+      // above reaches the session's checkout through the commented cd.
+      const controlRun = runCommandThroughHook(fixture, `cd ${otherCheckout}\nnpm test`)
+
+      expect({ run, controlRun }).toEqual({
+        run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+        controlRun: { status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) },
+      })
+    })
+
+    it("prepares the checkout of the first stopped run, not of an exempt run before it", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+
+      const run = runCommandThroughHook(
+        fixture,
+        `npx vitest run --config vitest.cli-pty.config.ts && cd ${otherCheckout} && npm test`,
+      )
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) })
+    })
+
+    it("prepares the session's checkout, not npm's --prefix folder", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+
+      const run = runCommandThroughHook(fixture, `npm --prefix ${otherCheckout} test`)
+      // A cd to the other checkout moves the run there, so the fixture can
+      // tell the two checkouts apart.
+      const controlRun = runCommandThroughHook(fixture, `cd ${otherCheckout} && npm test`)
+
+      expect({ run, controlRun }).toEqual({
+        run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+        controlRun: { status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) },
+      })
+    })
+
+    it("stops a test run thousands of commands after the cd that names its checkout", () => {
+      const fixture = createHookFixture()
+      const otherCommands = Array.from({ length: 5000 }, (_, lineIndex) => `echo line ${lineIndex}`)
+      const command = [`cd ${fixture.checkout}`, ...otherCommands, "npm test"].join("\n")
+
+      const run = runHook({ fixture, stdin: payloadFor({ command, cwd: fixture.outsideDir }) })
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
+    })
+
+    it.each([
+      {
+        label: "a cd after the test run",
+        command: (checkout: string) => `npm test; cd ${checkout}`,
+      },
+      {
+        label: "a relative cd out of the checkout",
+        command: (checkout: string) => `cd ${checkout} && cd .. && npm test`,
+      },
+      {
+        label: "a quoted cd holding an expansion after an absolute one",
+        command: (checkout: string) => `cd ${checkout} && cd "$PWD" && npm test`,
+      },
+      {
+        label: "a popd after an absolute cd",
+        command: (checkout: string) => `cd ${checkout} && popd && npm test`,
+      },
+    ])("lets a test run through from a folder in no checkout despite $label", ({ command }) => {
+      const fixture = createHookFixture()
+      const stdin = payloadFor({ command: command(fixture.checkout), cwd: fixture.outsideDir })
+
+      const run = runHook({ fixture, stdin })
+      const foldersMade = scratchFolders(fixture.checkout).filter((folder) => existsSync(folder))
+      // The same cd at the start stops the run, so the pass-through comes from
+      // the cd's position or form.
+      const controlRun = runHook({
+        fixture,
+        stdin: payloadFor({
+          command: `cd ${fixture.checkout} && npm test`,
+          cwd: fixture.outsideDir,
+        }),
+      })
+
+      expect({ run, foldersMade, controlStatus: controlRun.status }).toEqual({
+        run: LET_THROUGH,
+        foldersMade: [],
+        controlStatus: 2,
       })
     })
 
