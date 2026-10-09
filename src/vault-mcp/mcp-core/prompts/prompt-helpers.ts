@@ -7,7 +7,6 @@ import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
 import type { ToolAvailability } from "../tool-availability.js"
-import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { truncateToCodePointLimit } from "../../../utils/truncate-to-code-point-limit.js"
 
 export type PromptRegistrationContext = ToolAvailability & {
@@ -34,22 +33,6 @@ export const maxCharsArg = z
   .regex(POSITIVE_INT_REGEX, "must be a positive integer")
   .optional()
   .describe(MAX_CHARS_DESCRIPTION)
-
-/** Logs a prompt handler's caught failure and returns the vault-relative
- *  message for the client. Logged at `error`: bad arguments are handled before
- *  the catch, so anything caught here is a server-side failure. */
-export const describePromptFailure = ({
-  error,
-  vaultPath,
-  logger,
-}: {
-  error: unknown
-  vaultPath: string
-  logger: Logger
-}): string => {
-  logger.error("prompt_error", describeErrorForLog(error))
-  return describeErrorRelativeTo({ error, directory: vaultPath })
-}
 
 /** One bullet line for a note: path, plus title when it adds information. */
 export const formatNoteLine = (note: { path: string; title: string }): string => {

@@ -9,11 +9,11 @@
 import { DateTime } from "luxon"
 import { z } from "zod"
 import { getDailyNote, readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
+import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import type { TaskEntry } from "../../search/search-index.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import {
   type PromptRegistrationContext,
-  describePromptFailure,
   textResult,
   formatNoteLine,
   wrapWithDataMarkers,
@@ -416,7 +416,8 @@ export const registerDailyReviewPrompt = ({
         })
         return textResult(dailyReview)
       } catch (error) {
-        const clientMessage = describePromptFailure({ error, vaultPath, logger: reqLogger })
+        reqLogger.error("prompt_error", describeErrorForLog(error))
+        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const dailyFallbackHint = whenToolEnabledText(
           "vault_get_daily_note",
           " Try vault_get_daily_note to fetch the note directly.",

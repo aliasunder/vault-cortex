@@ -686,6 +686,34 @@ describe("vault-orientation logging", () => {
       },
     ])
   })
+
+  it("logs a wrapped failure's cause with prompt_error", async () => {
+    const logs: LogCall[] = []
+    const vault = await mkdtemp(join(tmpdir(), "prompt-log-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    const throwingSearch = createSearchIndex(":memory:")
+    vi.spyOn(throwingSearch, "listAllTags").mockImplementation(() => {
+      throw new Error("tag listing failed", { cause: new Error("index unavailable") })
+    })
+    const calls = registerWithSearch(vault, throwingSearch, recordingLogger(logs))
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+
+    await handler(fakeExtra)
+    expect(logs.filter((call) => call.message === "prompt_error")).toEqual([
+      {
+        level: "error",
+        message: "prompt_error",
+        data: {
+          requestId: "1",
+          prompt: "vault-orientation",
+          error: "[Error]: tag listing failed",
+          cause: "[Error]: index unavailable",
+        },
+      },
+    ])
+  })
 })
 
 // ── Full output ──────────────────────────────────────────────────
