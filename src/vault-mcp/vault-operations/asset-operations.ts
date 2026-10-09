@@ -248,9 +248,12 @@ const renderPdfPages = async (
       })
       results.push({ pageNumber, fitted, originalBytes: pngBuffer.length })
     } catch (error) {
+      // A page sharp cannot decode arrives wrapped, and only the cause holds sharp's reason
+      const cause = error instanceof Error ? error.cause : undefined
       logger.warn("pdf_page_render_failed", {
         page: pageNumber,
         error: describeError(error),
+        ...(cause ? { cause: describeError(cause) } : {}),
       })
     }
   }

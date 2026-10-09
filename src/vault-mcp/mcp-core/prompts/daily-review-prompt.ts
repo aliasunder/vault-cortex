@@ -217,8 +217,8 @@ export const registerDailyReviewPrompt = ({
           },
           reqLogger,
         )
-        // note_mtime is constant within a single note, so the tiebreaker
-        // the line-number tiebreaker governs — tasks render in document order.
+        // note_mtime is constant within a single note, so the line-number
+        // tiebreaker governs — tasks render in document order.
         const dailyNoteTasks = dailyNote.exists
           ? search.listTasks(
               {

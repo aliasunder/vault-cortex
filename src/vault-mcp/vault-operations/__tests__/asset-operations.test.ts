@@ -710,6 +710,42 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     })
   })
 
+  it("logs a skipped page's wrapped decode failure with the decoder's error as the cause", async () => {
+    setupPdfMocks({ numPages: 2 })
+    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(5_000))
+    const fittedResult = buildFittedImage()
+    mockedFitImage
+      .mockRejectedValueOnce(
+        new Error("could not decode image", {
+          cause: new Error("Input image exceeds pixel limit"),
+        }),
+      )
+      .mockResolvedValueOnce(fittedResult)
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "huge-page.pdf", raw: true, maxPdfRenderPages: 2 },
+      logger,
+    )
+
+    // Page 2 rendering proves the failure was skipped, not fatal
+    expect(result).toEqual({
+      kind: "pages",
+      pages: [{ pageNumber: 2, fitted: fittedResult, originalBytes: 5_000 }],
+      title: undefined,
+      totalPages: 2,
+      pagesRendered: 1,
+      path: "huge-page.pdf",
+    })
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("pdf_page_render_failed", {
+      page: 1,
+      error: "[Error]: could not decode image",
+      cause: "[Error]: Input image exceeds pixel limit",
+    })
+  })
+
   it("throws when all pages fail to render", async () => {
     setupPdfMocks({ numPages: 2 })
     mockRenderPageAsImage.mockRejectedValue(new Error("render failed"))
