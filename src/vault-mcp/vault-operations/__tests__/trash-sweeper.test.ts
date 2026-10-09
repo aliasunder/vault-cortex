@@ -743,6 +743,39 @@ describe("sweepExpiredTrashEntries", () => {
     expect(keptContent).toBe("stays")
   })
 
+  it("warns and moves on to the next row when pruning an unlinked file's folders fails", async () => {
+    // A hidden folder segment makes the prune's path check throw. Only a
+    // corrupted or hand-edited row can hold one, and it must not end the
+    // sweep for the rows listed after it.
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await mkdir(join(vault, ".trash", ".stuck"), { recursive: true })
+    await writeFile(join(vault, ".trash", ".stuck", "x.md"), "expired", "utf8")
+    await writeFile(join(vault, ".trash", "after.md"), "expired too", "utf8")
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/.stuck/x.md"))
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/after.md"))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await sweepAfterRetention(vault, index)
+
+    await expect(stat(join(vault, ".trash", ".stuck", "x.md"))).rejects.toThrow(/ENOENT/)
+    await expect(stat(join(vault, ".trash", "after.md"))).rejects.toThrow(/ENOENT/)
+    expect(warnSpy).toHaveBeenCalledWith("failed to prune emptied trash folders", {
+      trashPath: ".trash/.stuck/x.md",
+      error: '[Error]: hidden path blocked: ".stuck/x.md" targets a hidden file or folder',
+    })
+    expect(infoSpy).toHaveBeenCalledWith("trash retention sweep complete", {
+      retentionDays: 30,
+      expired: 2,
+      purged: 2,
+      droppedMissing: 0,
+      droppedUnmatched: 0,
+    })
+  })
+
   it("never touches a trash file it has no row for, however old", async () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")

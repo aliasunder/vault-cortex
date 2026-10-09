@@ -227,8 +227,20 @@ const sweepOneEntry = async (
   // The trash move created the file's folder chain, so an unlink can strand
   // empty folders. pruneEmptyParents walks up from `path` and stops at
   // `vaultPath`, here .trash/ rather than the vault root, so .trash/ itself
-  // is never removed. It logs a folder it cannot remove instead of throwing.
-  await pruneEmptyParents({ vaultPath: trashRoot, path: relative(trashRoot, resolvedPath) }, logger)
+  // is never removed. It logs a folder it cannot remove, but it throws on a
+  // path with a hidden segment, which only a corrupted or hand-edited row can
+  // hold; the catch keeps such a row from ending the sweep for the rows after it.
+  try {
+    await pruneEmptyParents(
+      { vaultPath: trashRoot, path: relative(trashRoot, resolvedPath) },
+      logger,
+    )
+  } catch (error) {
+    logger.warn("failed to prune emptied trash folders", {
+      trashPath,
+      error: describeError(error),
+    })
+  }
   return "unlinked"
 }
 

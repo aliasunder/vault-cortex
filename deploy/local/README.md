@@ -307,9 +307,11 @@ links):
   set `TRASH_RETENTION_DAYS` in `.env` to change the window, or
   `TRASH_RETENTION_DAYS=none` to keep them forever. Only notes the server
   moved there are cleaned up; anything you or Obsidian put in `.trash` is
-  never touched. To reclaim space sooner, empty the `.trash` folder
-  yourself (it's hidden — press Cmd+Shift+. in Finder, or Ctrl+H in most
-  Linux file managers, to show it).
+  never touched. Notes the server moved there with version 0.54.11 or
+  earlier also stay. To reclaim space sooner, or to clear those older
+  notes, empty the `.trash` folder yourself (it's hidden — press
+  Cmd+Shift+. in Finder, or Ctrl+H in most Linux file managers, to show
+  it).
 - **"Move to Obsidian trash (.trash folder)"** — a deleted note moves to
   the same `.trash` folder and stays there until you empty it, exactly as
   in Obsidian.
