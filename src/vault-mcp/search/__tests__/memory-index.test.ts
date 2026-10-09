@@ -701,7 +701,7 @@ title: Agents
     await secondBuild.embedding
 
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
-      "indexed note without its properties block, which is not readable",
+      "indexed note without its unreadable properties block",
       {
         path: "About Me/Opinions.md",
         error:

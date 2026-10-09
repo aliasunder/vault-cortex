@@ -1070,7 +1070,7 @@ describe("upsertNote", () => {
     )
 
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
-      "indexed note without its properties block, which is not readable",
+      "indexed note without its unreadable properties block",
       {
         path: "Meetings/Q3 plan.md",
         error:
@@ -3882,7 +3882,7 @@ describe("rebuildFromVault", () => {
     expect(count).toBe(3)
     // Pass 2 parses the note again for its links and must not warn a second time
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
-      "indexed note without its properties block, which is not readable",
+      "indexed note without its unreadable properties block",
       {
         path: "broken.md",
         error:

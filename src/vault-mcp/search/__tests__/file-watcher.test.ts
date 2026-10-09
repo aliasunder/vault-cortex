@@ -434,7 +434,7 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
 
     expect(errorSpy).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
-      "indexed note without its properties block, which is not readable",
+      "indexed note without its unreadable properties block",
       {
         path: "note.md",
         error:

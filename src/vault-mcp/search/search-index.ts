@@ -1627,7 +1627,7 @@ export const createSearchIndex = (
 
     // Logged after the index write, so a write that rolls back does not warn
     if (unreadableBlockError) {
-      logger.warn("indexed note without its properties block, which is not readable", {
+      logger.warn("indexed note without its unreadable properties block", {
         path: filePath,
         error: describeError(unreadableBlockError),
       })
