@@ -433,14 +433,18 @@ describe("formatNoteMetadata", () => {
     })
   })
 
-  it("treats a tags key in any letter case as promoted, so a Tags: note reports its tags once", () => {
+  it("drops the tags key the index read, in any letter case, and keeps a later one", () => {
     const formatted = formatNoteMetadata({
       path: "a.md",
       tags: ["x"],
       leading_callout: null,
-      properties: { Tags: ["x"], TAGS: ["y"] },
+      properties: { Tags: ["x"], tags: ["y"] },
     })
 
-    expect(formatted).toEqual({ path: "a.md", tags: ["x"] })
+    expect(formatted).toEqual({
+      path: "a.md",
+      tags: ["x"],
+      additional_properties: { tags: ["y"] },
+    })
   })
 })

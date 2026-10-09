@@ -40,16 +40,15 @@ export type ToolRegistrationContext = ToolAvailability &
 
 // Frontmatter keys that are already top-level fields on NoteMetadata.
 // These are stripped from `properties` before returning to clients
-// so the response doesn't contain the same data twice.
-const PROMOTED_KEYS = new Set(["title", "tags", "type", "created", "related"])
+// so the response doesn't contain the same data twice. The tags key is
+// found per note: the index reads the first key spelled `tags` in any
+// letter case, as Obsidian does, and returns it as `tags`; a second such
+// key, which the index ignores, stays in additional_properties.
+const PROMOTED_KEYS = new Set(["title", "type", "created", "related"])
 
-// Every key spelled `tags` in any letter case counts as promoted:
-// - the index reads the note's tags from the first such key, as Obsidian does,
-//   and returns them as `tags`;
-// - a second such key, which the index ignores, stays out of
-//   additional_properties too, so the tags are reported once, under `tags`.
-const isPromotedKey = (key: string): boolean => {
-  return PROMOTED_KEYS.has(key) || isTagsKey(key)
+const promotedKeysOf = (properties: Record<string, unknown>): ReadonlySet<string> => {
+  const tagsKeyRead = Object.keys(properties).find(isTagsKey)
+  return tagsKeyRead ? new Set([...PROMOTED_KEYS, tagsKeyRead]) : PROMOTED_KEYS
 }
 
 /** Reshapes NoteMetadata for client responses: keeps all top-level fields,
@@ -63,8 +62,9 @@ export const formatNoteMetadata = (meta: {
   // keep it (the { type, title, body } block) when present.
   const { properties, leading_callout: leadingCallout, ...fields } = meta
 
+  const promotedKeys = promotedKeysOf(properties)
   const additional_properties = Object.fromEntries(
-    Object.entries(properties).filter(([key]) => !isPromotedKey(key)),
+    Object.entries(properties).filter(([key]) => !promotedKeys.has(key)),
   )
 
   return {
