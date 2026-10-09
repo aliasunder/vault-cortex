@@ -133,7 +133,9 @@ export const isProtectedPath = (params: {
  *
  * The delete/move that triggered the prune has already succeeded, so a failure
  * to remove a folder (permissions, a race, a vanished dir) is logged and ends
- * the walk rather than thrown — it never fails the tool call.
+ * the walk rather than thrown — it never fails the tool call. An unsafe `path`
+ * throws resolveSafePath's absolute/traversal/hidden error before any folder
+ * is touched.
  * Returns the number of folders removed.
  */
 export const pruneEmptyParents = async (
