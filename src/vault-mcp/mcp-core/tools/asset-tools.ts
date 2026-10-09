@@ -118,10 +118,9 @@ Errors:
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
 - "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
-- "PDF is damaged or not a PDF" — the file does not parse as a PDF; replace or re-export it
-- "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
+- "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; replace or re-export the file
+- "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead
 - "image cannot be fitted" — the image could not be compressed under the image output budget
-- "could not decode image" — the file is empty, damaged, not an image despite its extension, or over about 268 million pixels; replace or re-export it
 - "EACCES: …" or another filesystem error code — the file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
