@@ -150,7 +150,8 @@ truth. Key points:
    npm run prettier:check && npm run lint && npm run markdownlint && npm run lint:shell && npm run knip && npm test && npm run build
    ```
 
-4. **Fill out the PR template** — the checklist mirrors CI
+4. **Fill out the PR template** — the pre-commit hook and the checklist's
+   test and build items together cover what the `checks` job runs
 5. **Required checks must pass** — the `main` ruleset requires all seven;
    each blocks the merge and the finding details are in its job log:
    - `checks` — prettier, lint, markdownlint, lint:shell, knip, test, and
