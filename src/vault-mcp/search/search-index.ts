@@ -464,7 +464,7 @@ export const createSearchIndex = (
     --   file, so a delete landing at .trash/A.md replaces a stale .trash/a.md
     --   row instead of keeping a second row that could expire the file on
     --   the old row's date. On a case-sensitive mount the two names are two
-    --   files sharing one row, so the file recorded first loses its row and
+    --   files sharing one key, so the file recorded first loses its row and
     --   is never swept.
     -- - trash_path keeps the exact spelling for filesystem operations.
     -- - file_identity is the landed file's identity, which the sweep matches

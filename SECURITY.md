@@ -165,7 +165,7 @@ mechanism-level detail.
   modification time recorded when the server trashed it, and its inode
   change time is no later than 60 seconds after that. A different note
   that Obsidian later trashed under a recorded name is kept, and so is a
-  trashed note that was restored and trashed again after that minute on a
+  trashed note that was restored and trashed again after that minute, on a
   file system whose renames move the change time
 - Memory shrink guard: refuses writes that would remove >50% of a file's
   bytes — defense-in-depth against bugs that would silently erase most of

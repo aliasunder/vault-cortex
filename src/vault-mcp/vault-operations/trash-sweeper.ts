@@ -1,13 +1,18 @@
 /** Trash bookkeeping — retention sweep (unlink expired files) and orphan
  *  purge (drop rows whose files are gone). Both operate on trash_entries
- *  rows and never walk the .trash/ folder. The sweep unlinks a file only
- *  while it still has the identity its row recorded (inode number, size, and
- *  modification time) and its change time is no later than about a minute
- *  after the row was recorded, so Obsidian's own trash entries and
- *  hand-placed files are out of reach, even under a name the server once
- *  used. The exception is a note the server trashed, then restored by hand
- *  and trashed again: it still matches its row when that happens within the
- *  minute, or on a file system whose renames leave the change time alone. */
+ *  rows and never walk the .trash/ folder.
+ *
+ *  The sweep unlinks a file only while both of these hold:
+ *  - the file still has the identity its row recorded (inode number, size,
+ *    and modification time)
+ *  - its change time is no later than about a minute after the row was
+ *    recorded
+ *
+ *  The two checks keep Obsidian's own trash entries and hand-placed files out
+ *  of reach, even under a name the server once used. The exception is a note
+ *  the server trashed that was then restored by hand and trashed again. It
+ *  still matches its row when that happens within the minute, or on a file
+ *  system whose renames leave the change time alone. */
 
 import { unlink } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
@@ -89,10 +94,10 @@ const getRecordedFileCheck = async (
   }
 }
 
-/** Drops a finished row and returns whether it was dropped. A failed drop
- *  (a full disk fails a delete but not a read) is logged and keeps the row
- *  for the next run instead of ending this one for the rows after it. */
-const dropTrashEntry = (
+/** Drops a trash entry's row and returns whether the drop succeeded. A failed
+ *  drop (a full disk fails a delete but not a read) is logged and leaves the
+ *  row for the next run, so one bad row never aborts the sweep or the purge. */
+const tryDropTrashEntry = (
   params: { trashPath: string; trashEntryStore: TrashEntryStore },
   logger: Logger,
 ): boolean => {
@@ -171,7 +176,7 @@ const sweepOneEntry = async (
     const realParent = await realpathOrNull(dirname(resolvedPath))
 
     if (!realTrashRoot || !realParent) {
-      return dropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
+      return tryDropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
     }
 
     // Equal when the file sits directly in .trash/, not in a subfolder.
@@ -208,10 +213,10 @@ const sweepOneEntry = async (
   // trashed reaches the unlink below.
   if (recordedFileCheck === "unreadable") return "skipped"
   if (recordedFileCheck === "missing") {
-    return dropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
+    return tryDropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
   }
   if (recordedFileCheck !== "matches") {
-    if (!dropTrashEntry({ trashPath, trashEntryStore }, logger)) return "skipped"
+    if (!tryDropTrashEntry({ trashPath, trashEntryStore }, logger)) return "skipped"
     logger.warn(
       "trash entry cannot be matched to the file the server trashed — kept, row dropped",
       { trashPath, reason: recordedFileCheck },
@@ -226,7 +231,7 @@ const sweepOneEntry = async (
     await unlink(resolvedPath)
   } catch (error) {
     if (isErrnoException(error, "ENOENT")) {
-      return dropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
+      return tryDropTrashEntry({ trashPath, trashEntryStore }, logger) ? "missing" : "skipped"
     }
     // Any other failure keeps the row so the next run retries; one bad row
     // never aborts the sweep. That includes permissions, I/O, and ENOTDIR
@@ -242,14 +247,15 @@ const sweepOneEntry = async (
   // The file is gone whether or not the row drop succeeds; the next sweep
   // drops a row left behind, finding the file gone or a different file in
   // its place.
-  dropTrashEntry({ trashPath, trashEntryStore }, logger)
+  tryDropTrashEntry({ trashPath, trashEntryStore }, logger)
 
   // The trash move created the file's folder chain, so an unlink can strand
-  // empty folders. pruneEmptyParents walks up from `path` and stops at
-  // `vaultPath`, here .trash/ rather than the vault root, so .trash/ itself
-  // is never removed. It logs a folder it cannot remove, but it throws on a
-  // path with a hidden segment, which only a corrupted or hand-edited row can
-  // hold; the catch keeps such a row from ending the sweep for the rows after it.
+  // empty folders.
+  // - pruneEmptyParents walks up from `path` and stops at `vaultPath`, here
+  //   .trash/ rather than the vault root, so .trash/ itself is never removed.
+  // - It logs a folder it cannot remove, but throws on a path with a hidden
+  //   segment, which only a corrupted or hand-edited row can hold. The catch
+  //   logs that throw, so one bad row never aborts the sweep.
   try {
     await pruneEmptyParents(
       { vaultPath: trashRoot, path: relative(trashRoot, resolvedPath) },
@@ -378,7 +384,7 @@ const purgeOrphanedTrashEntries = async (
         return false
       }
 
-      return dropTrashEntry(
+      return tryDropTrashEntry(
         { trashPath: entry.trashPath, trashEntryStore: params.trashEntryStore },
         logger,
       )
