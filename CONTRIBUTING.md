@@ -144,14 +144,15 @@ truth. Key points:
 1. **Branch from `main`** — use a descriptive prefix (`feat/`, `fix/`, `docs/`,
    `refactor/`, `chore/`)
 2. **Keep PRs focused** — one logical change per PR
-3. **Run the full check suite** before pushing:
+3. **Check before pushing** — every commit runs the pre-commit hook: the
+   typecheck, knip, and ESLint, Prettier, markdownlint and ShellCheck on
+   the staged files. Before pushing, run the two checks it leaves out:
 
    ```bash
-   npm run prettier:check && npm run lint && npm run markdownlint && npm run lint:shell && npm run knip && npm test && npm run build
+   npm test && npm run build
    ```
 
-4. **Fill out the PR template** — the pre-commit hook and the checklist's
-   test and build items together cover what the `checks` job runs
+4. **Fill out the PR template** — its checklist repeats step 3
 5. **Required checks must pass** — the `main` ruleset requires all seven;
    each blocks the merge and the finding details are in its job log:
    - `checks` — prettier, lint, markdownlint, lint:shell, knip, test, and
