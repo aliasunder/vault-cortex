@@ -1052,6 +1052,73 @@ describe("upsertNote", () => {
     expect(results[0]?.title).toBe("random")
   })
 
+  it("indexes a note whose block is not valid YAML from its body, with no properties, and warns", () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    // The block carries a tag and a frontmatter link; neither may reach the
+    // index, since Obsidian reads no properties from such a block. The body
+    // links to a different note, so a body link can never cover the
+    // frontmatter one.
+    index.upsertNote(
+      {
+        filePath: "Meetings/Q3 plan.md",
+        rawContent:
+          '---\ntitle: Meeting: Q3 plan\ntags: [meeting]\nrelated: ["[[Roadmap]]"]\n---\nAgenda for the quokka launch.\n\n- [ ] Book the room\n\nSee [[Budget]].\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "indexed note without its properties block, which is not readable",
+      {
+        path: "Meetings/Q3 plan.md",
+        error:
+          "[Error]: properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+      },
+    )
+    const bodyHits = index.fullTextSearch({ query: "quokka" }, logger)
+    expect(bodyHits.map((result) => [result.path, result.title, result.tags])).toEqual([
+      ["Meetings/Q3 plan.md", "Q3 plan", []],
+    ])
+    expect(index.searchByTag({ tag: "meeting" }, logger)).toEqual([])
+    expect(
+      index.listTasks({ status: "all" }, logger).tasks.map((task) => [task.path, task.description]),
+    ).toEqual([["Meetings/Q3 plan.md", "Book the room"]])
+    expect(
+      index.getOutgoingLinks({ path: "Meetings/Q3 plan.md" }, logger).map((link) => link.path),
+    ).toEqual(["Budget"])
+  })
+
+  it("replaces every row of a note whose block became unreadable with the new body", () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    index.upsertNote(
+      {
+        filePath: "plan.md",
+        rawContent: "---\ntitle: Plan\ntags: [plan]\n---\nolder amber text\n\n- [ ] Old task\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    index.upsertNote(
+      {
+        filePath: "plan.md",
+        rawContent: "---\ntitle: Meeting: Q3 plan\n---\nnewer opal text\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    expect(index.fullTextSearch({ query: "amber" }, logger)).toEqual([])
+    expect(index.fullTextSearch({ query: "opal" }, logger).map((result) => result.path)).toEqual([
+      "plan.md",
+    ])
+    expect(index.searchByTag({ tag: "plan" }, logger)).toEqual([])
+    expect(index.listTasks({ status: "all" }, logger)).toEqual({ total: 0, tasks: [] })
+  })
+
   it("stores folder as first path segment", () => {
     // Nested two levels deep, so the first segment differs from the parent folder.
     index.upsertNote(
@@ -3800,25 +3867,57 @@ describe("rebuildFromVault", () => {
     expect(results[0]?.path).toBe("About Me/Principles.md")
   })
 
-  it("skips a note whose frontmatter fails to parse, warns, and indexes the rest", async () => {
+  it("indexes a note whose block is not valid YAML from its body, counts it, and warns once", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
     await writeFile(
       join(vaultDir, "broken.md"),
-      "---\ntitle: [unclosed\n---\nbroken body text\n",
+      "---\ntitle: [unclosed\n---\nbroken body text, see [[root]]\n",
       "utf8",
     )
+
     const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
-    expect(count).toBe(2)
-    expect(warnSpy).toHaveBeenCalledWith(
-      "skipped malformed note during rebuild",
-      expect.objectContaining({ path: "broken.md" }),
+
+    // Two fixture notes from beforeEach plus this one: a skipped note would leave 2
+    expect(count).toBe(3)
+    // Pass 2 parses the note again for its links and must not warn a second time
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "indexed note without its properties block, which is not readable",
+      {
+        path: "broken.md",
+        error:
+          "[Error]: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]",
+      },
     )
-    const healthyPaths = index
-      .fullTextSearch({ query: "burnout" }, logger)
-      .map((result) => result.path)
-    expect(healthyPaths).toEqual(["About Me/Principles.md"])
-    expect(index.fullTextSearch({ query: "broken" }, logger)).toHaveLength(0)
+    const brokenHits = index.fullTextSearch({ query: "broken" }, logger)
+    expect(brokenHits.map((result) => [result.path, result.title])).toEqual([
+      ["broken.md", "broken"],
+    ])
+    expect(
+      index.getBacklinks({ path: "root.md" }, logger).map((backlink) => backlink.path),
+    ).toEqual(["broken.md"])
+  })
+
+  it("skips a note whose index write fails, warns, and indexes the rest", async () => {
+    const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
+    const poisonedIndex = createSearchIndex(":memory:")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    // The only fixture note with a task, so the poisoned statement fires for it alone
+    await writeFile(join(vaultDir, "tasked.md"), "tasked body text\n\n- [ ] A task\n", "utf8")
+
+    taskInsertPoison.arm()
+    const { count } = await poisonedIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    taskInsertPoison.disarm()
+
+    expect(count).toBe(2)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "skipped note that failed to index during rebuild",
+      { path: "tasked.md", error: `[Error]: ${taskInsertPoison.message}` },
+    )
+    expect(poisonedIndex.fullTextSearch({ query: "tasked" }, logger)).toEqual([])
+    const healthyHits = poisonedIndex.fullTextSearch({ query: "burnout" }, logger)
+    expect(healthyHits.map((result) => result.path)).toEqual(["About Me/Principles.md"])
   })
 
   it.each([
@@ -3857,25 +3956,22 @@ describe("rebuildFromVault", () => {
     expect(propertyHits).toHaveLength(0)
   })
 
-  it("stores a link into a skipped note as its raw target", async () => {
+  it("resolves a link into a note whose block is not valid YAML", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
-    await writeFile(
-      join(vaultDir, "broken.md"),
-      "---\ntitle: [unclosed\n---\nbroken body text\n",
-      "utf8",
-    )
+    const brokenContent = "---\ntitle: [unclosed\n---\nbroken body text\n"
+    await writeFile(join(vaultDir, "broken.md"), brokenContent, "utf8")
     await writeFile(join(vaultDir, "linker.md"), "# Linker\n\nSee [[broken]].\n", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
-    // exists: false proves the skip happened — an indexed broken.md
-    // would have resolved the link to "broken.md"
+    // The note is in the notes table, so the link resolves to it; the title
+    // is the file name because the block's title was not read
     expect(index.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([
       {
-        path: "broken",
-        title: null,
-        exists: false,
+        path: "broken.md",
+        title: "broken",
+        exists: true,
         kind: "note",
-        bytes: null,
+        bytes: Buffer.byteLength(brokenContent),
         daily_note_forward_ref: false,
       },
     ])
@@ -7290,20 +7386,24 @@ describe("committed embedding source versions", () => {
     },
   )
 
-  it("preserves the committed note version when replacement frontmatter cannot parse", async () => {
+  it("embeds a replacement whose block cannot be read from its body, under the file name", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
     const fixture = await createEmbeddingRaceIndex("note")
-    const content = "Original retained source."
-    const sourceVersion = fixture.upsert(content)
-    expect(() => fixture.upsert("---\ntitle: [unclosed\n---\nReplacement.")).toThrow(
-      "Flow sequence in block collection must be sufficiently indented and end with a ]",
-    )
+    const originalContent = "---\ntitle: Old\n---\nOriginal replaced source."
+    const originalVersion = fixture.upsert(originalContent)
+    const replacementContent = "---\ntitle: [unclosed\n---\nReplacement."
+    const replacementVersion = fixture.upsert(replacementContent)
 
-    await fixture.embed(content, sourceVersion)
+    // The original's job is obsolete: the replacement committed, block or no block
+    await fixture.embed(originalContent, originalVersion)
+    expect(fixture.chunks()).toEqual([])
+    await fixture.embed(replacementContent, replacementVersion)
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
-    expect(fixture.chunks()).toEqual([
-      { chunk_index: 0, chunk_text: "reuse\n\nOriginal retained source." },
+    expect(fixture.chunks()).toEqual([{ chunk_index: 0, chunk_text: "reuse\n\nReplacement." }])
+    expect(fixture.inspect.prepare("SELECT title, content FROM notes").all()).toEqual([
+      { title: "reuse", content: "Replacement." },
     ])
-    expect(fixture.inspect.prepare("SELECT content FROM notes").all()).toEqual([{ content }])
   })
 
   it("skips deleted and same-mtime superseded rebuild snapshots before later model work", async () => {

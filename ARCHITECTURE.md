@@ -174,6 +174,7 @@ The three anchor tools share one resolution rule: a short, case-sensitive substr
 Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
 
 - **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
+- **The index** reads a note whose block is not valid YAML as its body with no properties, as Obsidian's metadata cache does, so the note stays in search, tasks and the link graph under its file name. Its tags and frontmatter links are not indexed, and a warning in the server log names the note.
 - **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in every backlink source it reads to plan its rewrites, even one whose link needs no change, and a list, a single value or a tag only in a note where it must rewrite a link.
 - **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit that removes the text above such lines, or a call that removes every property.
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:

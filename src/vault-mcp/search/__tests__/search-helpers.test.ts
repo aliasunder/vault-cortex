@@ -15,8 +15,10 @@ import {
   stripTrailingSlashes,
   pathIsInFolder,
   dayToEpochMsRange,
+  parseNoteForIndex,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
+import { UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
 
 // ── isString ──────────────────────────────────────────────────
 
@@ -67,6 +69,46 @@ describe("coerceToArray", () => {
 
   it("returns empty array for empty string", () => {
     expect(coerceToArray("")).toEqual([])
+  })
+})
+
+// ── parseNoteForIndex ─────────────────────────────────────────
+
+describe("parseNoteForIndex", () => {
+  it("reads a note whose block is readable with its properties and body", () => {
+    expect(parseNoteForIndex("---\ntitle: Plan\ntags: [plan]\n---\nBody line\n")).toEqual({
+      data: { title: "Plan", tags: ["plan"] },
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
+  it("drops a block that is not valid YAML and reads the body with no properties", () => {
+    const parsed = parseNoteForIndex("---\ntitle: Meeting: Q3 plan\n---\nBody line\n")
+
+    expect(parsed.data).toEqual({})
+    expect(parsed.content).toBe("Body line\n")
+    expect(parsed.unreadableBlockError).toBeInstanceOf(UnsupportedPropertiesBlockError)
+    expect(parsed.unreadableBlockError?.kind).toBe("invalid-yaml")
+    expect(parsed.unreadableBlockError?.message).toBe(
+      "properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+    )
+  })
+
+  it("reads a list block as no properties without reporting it", () => {
+    expect(parseNoteForIndex("---\n- a\n- b\n---\nBody line\n")).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
+  it("reads a note without a block as its whole content", () => {
+    expect(parseNoteForIndex("Body line\n")).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
   })
 })
 

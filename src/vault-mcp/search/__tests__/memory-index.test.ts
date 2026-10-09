@@ -685,38 +685,36 @@ title: Agents
     expect(countVectors(inspect)).toBe(3)
   })
 
-  it("keeps a skipped memory note's entries when its parse fails during rebuild", async () => {
+  it("re-indexes a memory note's entries from its body when its block is not valid YAML", async () => {
     const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
     const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
     await firstBuild.embedding
-    const rowsAfterFirstBuild = selectEntryRows(inspect)
-    expect(rowsAfterFirstBuild).toHaveLength(4)
-    const chunksAfterFirstBuild = inspect
-      .prepare("SELECT id, note_path, chunk_text, content_hash FROM note_chunks ORDER BY id")
-      .all()
-    expect(chunksAfterFirstBuild).toHaveLength(2)
+    expect(selectEntryRows(inspect)).toHaveLength(4)
 
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
-    await writeFile(join(memoryDirPath, "Opinions.md"), "---\ntitle: [unclosed\n---\n# Opinions\n")
+    await writeFile(
+      join(memoryDirPath, "Opinions.md"),
+      "---\ntitle: [unclosed\n---\n# Opinions\n\n## Code patterns (newest first)\n\n- **2026-08-01**: Named over positional.\n",
+    )
     const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
     await secondBuild.embedding
 
-    // The skip actually happened: warned, and the note left the index
-    expect(warnSpy).toHaveBeenCalledWith(
-      "skipped malformed note during rebuild",
-      expect.objectContaining({ path: "About Me/Opinions.md" }),
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "indexed note without its properties block, which is not readable",
+      {
+        path: "About Me/Opinions.md",
+        error:
+          "[Error]: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]",
+      },
     )
+    // The index follows the file: the old entries are gone, the body's entry is in
     expect(index.fullTextSearch({ query: "Immutable" }, logger)).toHaveLength(0)
-    // A still-on-disk memory note must not be treated as deleted — its
-    // entry rows survive until a rebuild parses it successfully again
-    expect(selectEntryRows(inspect)).toEqual(rowsAfterFirstBuild)
-    expect(
-      inspect
-        .prepare("SELECT id, note_path, chunk_text, content_hash FROM note_chunks ORDER BY id")
-        .all(),
-    ).toEqual(chunksAfterFirstBuild)
-    expect(countVectors(inspect)).toBe(4)
+    expect(selectEntryRows(inspect).map((row) => [row.file, row.entry_date])).toEqual([
+      ["Agents", "2026-07-09"],
+      ["Opinions", "2026-08-01"],
+    ])
+    expect(countVectors(inspect)).toBe(2)
   })
 
   it("embeds zero entries on a second rebuild with unchanged files", async () => {

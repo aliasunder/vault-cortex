@@ -4,6 +4,12 @@ import { posix } from "node:path"
 import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
+import {
+  parseNote,
+  splitPropertiesBlock,
+  UnsupportedPropertiesBlockError,
+  type ParsedNote,
+} from "../obsidian-markdown/frontmatter.js"
 import { foldAsciiCase } from "../obsidian-markdown/links.js"
 import { isRecord } from "../../utils/is-record.js"
 import type {
@@ -30,6 +36,29 @@ export const coerceToArray = (value: unknown): string[] => {
   // list are above; String() would index it as the value "[object Object]".
   if (typeof value === "object") return []
   return value ? [String(value)] : []
+}
+
+// ── Note parsing for the index ─────────────────────────────────
+
+/**
+ * Parses a note as the index reads it. A properties block the YAML parser
+ * cannot read is dropped and the note reads as its body with no properties,
+ * as Obsidian's metadata cache treats such a note, so the body stays
+ * searchable and its tasks and links stay indexed. `unreadableBlockError`
+ * carries the parser's refusal for the caller to log; it is null when the
+ * block was read.
+ */
+export const parseNoteForIndex = (
+  rawContent: string,
+): ParsedNote & { unreadableBlockError: UnsupportedPropertiesBlockError | null } => {
+  try {
+    return { ...parseNote(rawContent), unreadableBlockError: null }
+  } catch (error) {
+    if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
+
+    const { body } = splitPropertiesBlock(rawContent)
+    return { data: {}, content: body, unreadableBlockError: error }
+  }
 }
 
 // ── JSON column parsers (private) ──────────────────────────────

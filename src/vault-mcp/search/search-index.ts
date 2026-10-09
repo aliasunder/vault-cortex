@@ -6,7 +6,6 @@ import type { Dirent } from "node:fs"
 import { join, basename, posix, relative, resolve } from "node:path"
 import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import type { Logger } from "../../logger.js"
-import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/canvas.js"
@@ -31,6 +30,7 @@ import {
   coerceToArray,
   buildFtsMetadataText,
   escapeLikeWildcards,
+  parseNoteForIndex,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
 import { hybridSearch } from "./hybrid-search.js"
@@ -1448,8 +1448,17 @@ export const createSearchIndex = (
   ): symbol => {
     const { filePath, rawContent, fileStat } = params
     const skipLinks = params.skipLinks ?? false
-    const parsed = parseNote(rawContent)
-    const { data: frontmatter } = parsed
+    const parsed = parseNoteForIndex(rawContent)
+    const { data: frontmatter, unreadableBlockError } = parsed
+
+    // The body is indexed alone; the warning is the one place that names
+    // the note whose block needs repair
+    if (unreadableBlockError) {
+      logger.warn("indexed note without its properties block, which is not readable", {
+        path: filePath,
+        error: describeError(unreadableBlockError),
+      })
+    }
 
     const tags = coerceToArray(frontmatter.tags)
     const related = coerceToArray(frontmatter.related)
@@ -1654,7 +1663,8 @@ export const createSearchIndex = (
     )
       return 0
 
-    const parsed = parseNote(rawContent)
+    // upsertNote already warned about an unreadable block for this content
+    const parsed = parseNoteForIndex(rawContent)
     const noteTitle =
       (isString(parsed.data.title) ? parsed.data.title : null) ?? basename(notePath, ".md")
     // Metadata enrichment changes chunk text, so every note re-embeds once
@@ -2236,9 +2246,10 @@ export const createSearchIndex = (
     })
     const noteContents = noteContentResults.filter((entry) => entry !== null)
 
-    // Notes whose parse or index write throws are skipped with a warning
-    // instead of aborting the rebuild — one malformed note must never
-    // prevent the server from starting.
+    // Notes whose index write throws are skipped with a warning instead of
+    // aborting the rebuild — one note must never prevent the server from
+    // starting. An unreadable properties block is not such a failure,
+    // because parseNoteForIndex reads the body without it.
     const skippedNotePaths = new Set<string>()
 
     const notesForEmbedding: Array<{
@@ -2278,7 +2289,7 @@ export const createSearchIndex = (
             })
           } catch (error) {
             skippedNotePaths.add(note.relativePath)
-            logger.warn("skipped malformed note during rebuild", {
+            logger.warn("skipped note that failed to index during rebuild", {
               path: note.relativePath,
               error: describeError(error),
             })
@@ -2324,7 +2335,8 @@ export const createSearchIndex = (
         for (const note of noteContents) {
           if (skippedNotePaths.has(note.relativePath)) continue
           try {
-            const parsed = parseNote(note.content)
+            // Pass 1 already warned about an unreadable block for this note
+            const parsed = parseNoteForIndex(note.content)
             for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
               const resolved = links.resolve({
                 target: rawTarget,
@@ -2345,7 +2357,7 @@ export const createSearchIndex = (
             }
           } catch (error) {
             skippedNotePaths.add(note.relativePath)
-            logger.warn("skipped malformed note during rebuild", {
+            logger.warn("skipped note that failed to index during rebuild", {
               path: note.relativePath,
               error: describeError(error),
             })
