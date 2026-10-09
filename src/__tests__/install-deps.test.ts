@@ -1,4 +1,4 @@
-import { execFileSync, spawn, spawnSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import {
   chmodSync,
   existsSync,
@@ -62,8 +62,8 @@ const NVM_STUB = `# nvm stand-in: defines nothing and leaves PATH as it is
  *  earlier install used. */
 const OLDER_LOCKFILE_HASH = "1111111111111111111111111111111111111111"
 
-/** Every tool the hook runs on the marker-recovery path except the two that
- *  take the install lock, perl and flock. */
+/** Every tool the hook runs on the marker-recovery path except perl, which
+ *  takes the install lock. */
 const HOOK_TOOLS_BESIDES_PERL = ["bash", "node", "git", "cat", "rm", "npm", "npx"]
 
 type HookFixture = {
@@ -107,38 +107,6 @@ const runnerPath = (): string => {
   if (!path) throw new Error("the hook tests need a PATH")
   return path
 }
-
-/** Has another process hold the install lock for a few seconds, the way a
- *  concurrent session's install would, and returns once it holds it. */
-const holdInstallLock = (fixture: HookFixture, { seconds }: { seconds: number }): void => {
-  const lockPath = join(fixture.stateDir, "install-deps.lock")
-  // flock FILE COMMAND holds the lock while the command runs, with no shell.
-  const holder = spawn("flock", [lockPath, "sleep", String(seconds)], {
-    env: { PATH: runnerPath() },
-    stdio: "ignore",
-  })
-  onTestFinished(() => {
-    holder.kill()
-  })
-
-  // A synchronous wait: runHook blocks the event loop, so the holder must
-  // hold the lock before the hook starts. flock -n exits 1 once it does.
-  const lockIsHeld = (): boolean =>
-    spawnSync("flock", ["-n", lockPath, "true"], { env: { PATH: runnerPath() } }).status === 1
-  const pause = new Int32Array(new SharedArrayBuffer(4))
-  for (let attempt = 0; attempt < 250 && !lockIsHeld(); attempt++) {
-    Atomics.wait(pause, 0, 0, 20)
-  }
-  if (!lockIsHeld()) throw new Error("the lock holder never took the lock")
-}
-
-const flockCommandAvailable = (): boolean =>
-  spawnSync("bash", ["-c", "command -v flock"], { env: { PATH: runnerPath() } }).status === 0
-
-/** busybox flock rejects -w and -E, so with it the hook never waits. */
-const flockCanWait = (): boolean =>
-  spawnSync("bash", ["-c", "flock -w 1 -E 75 /dev/null true"], { env: { PATH: runnerPath() } })
-    .status === 0
 
 /** PATH lookup skips a file without the executable bit, and would run the
  *  real binary instead. */
@@ -187,18 +155,15 @@ const createHookFixture = (): HookFixture => {
   }
 }
 
-/** A PATH folder linking the stubs and the real tools, without perl, plus
- *  any extra tools named. With the other tools present, only the lock tools
- *  on it decide whether the hook can take the install lock. */
-const createBinDirWithoutPerl = (
-  fixture: HookFixture,
-  { extraTools = [] }: { extraTools?: ReadonlyArray<string> } = {},
-): string => {
+/** A PATH folder linking the stubs and the real tools, without perl. With
+ *  the tools present, only the missing perl changes the hook's path: it
+ *  cannot take the install lock. */
+const createBinDirWithoutPerl = (fixture: HookFixture): string => {
   const binDir = join(fixture.outsideDir, "bin-without-perl")
   mkdirSync(binDir)
   const toolPaths = execFileSync(
     "bash",
-    ["-c", 'command -v "$@"', "bash", ...HOOK_TOOLS_BESIDES_PERL, ...extraTools],
+    ["-c", 'command -v "$@"', "bash", ...HOOK_TOOLS_BESIDES_PERL],
     { encoding: "utf8", env: { PATH: `${fixture.stubBinDir}:${runnerPath()}` } },
   )
     .trimEnd()
@@ -331,7 +296,7 @@ describe("install-deps hook", () => {
       })
     })
 
-    it("skips the install, keeping the marker, when neither perl nor flock can take the lock", () => {
+    it("skips the install, keeping the marker, when perl is missing", () => {
       const fixture = createHookFixture()
       leaveMarker(fixture)
       writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
@@ -351,66 +316,6 @@ describe("install-deps hook", () => {
         stamp: null,
       })
     })
-
-    // flock(1) ships with util-linux on Linux and is missing on stock macOS.
-    it.skipIf(!flockCommandAvailable())(
-      "takes the lock with the flock command when perl is missing, so it recovers the tree",
-      () => {
-        const fixture = createHookFixture()
-        leaveMarker(fixture)
-        writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
-
-        const run = runHook({
-          fixture,
-          path: createBinDirWithoutPerl(fixture, { extraTools: ["flock"] }),
-        })
-
-        expect({
-          status: run.status,
-          stdout: run.stdout,
-          npmCalls: recordedNpmCalls(fixture),
-          ...installState(fixture),
-        }).toEqual({
-          status: 0,
-          stdout: "",
-          npmCalls: [`--prefix ${fixture.checkout} ls --all`],
-          marker: null,
-          stamp: `${fixture.lockfileHash}\n`,
-        })
-      },
-    )
-
-    it.skipIf(!flockCanWait())(
-      "waits with the flock command while another session holds the lock, then recovers the tree",
-      () => {
-        const fixture = createHookFixture()
-        leaveMarker(fixture)
-        writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
-        holdInstallLock(fixture, { seconds: 2 })
-
-        const run = runHook({
-          fixture,
-          path: createBinDirWithoutPerl(fixture, { extraTools: ["flock"] }),
-        })
-
-        expect({
-          status: run.status,
-          waited: run.stderr
-            .split("\n")
-            .includes(
-              `[install-deps] another session is installing in ${fixture.checkout} — waiting for it`,
-            ),
-          npmCalls: recordedNpmCalls(fixture),
-          ...installState(fixture),
-        }).toEqual({
-          status: 0,
-          waited: true,
-          npmCalls: [`--prefix ${fixture.checkout} ls --all`],
-          marker: null,
-          stamp: `${fixture.lockfileHash}\n`,
-        })
-      },
-    )
 
     it("reinstalls when a dependency at any depth is missing", () => {
       const fixture = createHookFixture()

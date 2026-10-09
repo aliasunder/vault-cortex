@@ -163,7 +163,7 @@ dependencies_are_current() {
 # Records an install the hook itself ran to completion: stamps the lockfile
 # hash and clears the marker, so a later lockfile change triggers a reinstall.
 # The stamp goes first: a hook killed between the two steps then leaves the
-# marker, so the next session re-checks the tree, or reinstalls it without the
+# marker, so the next session re-checks the tree or reinstalls it under the
 # lock. The other order leaves no marker and, on a checkout never stamped
 # before, no stamp, which reads as a developer-installed tree and turns the
 # lockfile-change check off for this checkout.
@@ -198,56 +198,46 @@ fi
 #   killed hook, and the kernel releases it once every holder exits. No stale
 #   lock is ever left for a later session to steal.
 # - The hook never installs or recovers without the lock: an orphaned npm ci
-#   may still be writing, and a half-written tree can pass npm ls. With no
-#   lock tool, a busy lock past the wait, or a lock error, it skips the install.
-# - Either tool locks the file open on this shell's fd 9, so the lock
-#   outlives the tool's own process. Both exit 0 with the lock held and 75
-#   (EX_TEMPFAIL from sysexits.h) when the wait times out.
-# - Perl is tried first: macOS lacks flock(1) but always has perl. Perl opens
-#   fd 9 in place (">&=" is C's fdopen, not a dup) and exits 2 when it cannot
-#   open or lock it.
-# - flock(1) covers Linux images without perl (Alpine, Fedora minimal). It
-#   tries once with -n, which every flock(1) has, and only a busy lock waits
-#   with -w. busybox flock lacks -w, so there a busy lock skips the install.
+#   may still be writing, and a half-written tree can pass npm ls. Without
+#   perl, a busy lock past the wait, or a lock error, it skips the install.
+# - Perl's flock is the one lock call every environment that runs this hook
+#   has: macOS lacks flock(1), and macOS, Debian, Ubuntu and the cloud images
+#   all ship perl.
+# - Perl opens this shell's fd 9 in place (">&=" is C's fdopen, not a dup)
+#   and locks the file open on it, so the lock outlives the perl process.
+# - Perl exits 0 with the lock held, 75 (EX_TEMPFAIL from sysexits.h) when
+#   the wait times out, and 2 when it cannot open or lock fd 9.
 exec 9>>"${state_dir}/install-deps.lock"
 
 # Well inside the 600s hook timeout in settings.json, so a timed-out wait
 # still exits cleanly.
 lock_wait_seconds=480
-# Starting at 0 and assigning only on failure records the lock tool's exit
-# status without set -e ending the hook.
-lock_status=0
-lock_tool=""
-if command -v perl >/dev/null 2>&1; then
-  lock_tool=perl
-  perl -MFcntl=:flock -e '
-    my ($checkout, $wait_seconds) = @ARGV;
-    open(my $lock, ">&=", 9) or exit 2;
-    exit 0 if flock($lock, LOCK_EX | LOCK_NB);
-    print STDERR "[install-deps] another session is installing in $checkout — waiting for it\n";
-    $SIG{ALRM} = sub { exit 75 };
-    alarm $wait_seconds;
-    flock($lock, LOCK_EX) or exit 2;
-    exit 0;
-  ' "${checkout}" "${lock_wait_seconds}" || lock_status=$?
-elif command -v flock >/dev/null 2>&1; then
-  lock_tool=flock
-  if ! flock -n 9; then
-    log "another session is installing in ${checkout} — waiting for it"
-    flock -w "${lock_wait_seconds}" -E 75 9 || lock_status=$?
-  fi
-fi
 
-if [[ -z "${lock_tool}" ]]; then
-  log "neither perl nor flock found — skipping the install in ${checkout}; install perl, or run npm ci yourself"
+if ! command -v perl >/dev/null 2>&1; then
+  log "perl not found, so the install lock cannot be taken — skipping the install in ${checkout}; run npm ci and npx sst install yourself"
   exit 0
 fi
+
+# Starting at 0 and assigning only on failure records perl's exit status
+# without set -e ending the hook.
+lock_status=0
+perl -MFcntl=:flock -e '
+  my ($checkout, $wait_seconds) = @ARGV;
+  open(my $lock, ">&=", 9) or exit 2;
+  exit 0 if flock($lock, LOCK_EX | LOCK_NB);
+  print STDERR "[install-deps] another session is installing in $checkout — waiting for it\n";
+  $SIG{ALRM} = sub { exit 75 };
+  alarm $wait_seconds;
+  flock($lock, LOCK_EX) or exit 2;
+  exit 0;
+' "${checkout}" "${lock_wait_seconds}" || lock_status=$?
+
 if ((lock_status == 75)); then
   log "concurrent install still running after ${lock_wait_seconds}s in ${checkout} — skipping"
   exit 0
 fi
 if ((lock_status != 0)); then
-  log "could not take the install lock in ${checkout} (${lock_tool} exit ${lock_status}) — skipping the install"
+  log "could not take the install lock in ${checkout} (perl exit ${lock_status}) — skipping the install"
   exit 0
 fi
 
