@@ -363,6 +363,7 @@ describe("sweepExpiredTrashEntries", () => {
     const escapeContent = await readFile(join(base, "escape.md"), "utf8")
     expect(escapeContent).toBe("outside the vault")
     expect(index.getTrashEntry(".trash/../../escape.md")?.trashPath).toBe(".trash/../../escape.md")
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("trash entry resolves outside .trash — skipped", {
       trashPath: ".trash/../../escape.md",
     })
@@ -383,6 +384,7 @@ describe("sweepExpiredTrashEntries", () => {
 
     const liveContent = await readFile(join(vault, "Live", "x.md"), "utf8")
     expect(liveContent).toBe("live note")
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("trash entry resolves outside .trash — skipped", {
       trashPath: ".trash/../Live/x.md",
     })
@@ -404,6 +406,7 @@ describe("sweepExpiredTrashEntries", () => {
 
     const liveContent = await readFile(join(vault, "RealNotes", "live.md"), "utf8")
     expect(liveContent).toBe("live note")
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("trash entry parent escapes .trash — skipped", {
       trashPath: ".trash/linkdir/live.md",
     })
@@ -427,6 +430,7 @@ describe("sweepExpiredTrashEntries", () => {
     expect(index.getTrashEntry(".trash/noaccess/stuck.md")?.trashPath).toBe(
       ".trash/noaccess/stuck.md",
     )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to resolve trash entry path", {
       trashPath: ".trash/noaccess/stuck.md",
       error: `[Error]: EACCES: permission denied, realpath '${lockedDir}'`,
@@ -453,6 +457,7 @@ describe("sweepExpiredTrashEntries", () => {
     expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(".trash/locked/stuck.md")
     const content = await readFile(join(lockedDir, "stuck.md"), "utf8")
     expect(content).toBe("perm error")
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to remove expired trash entry", {
       trashPath: ".trash/locked/stuck.md",
       error: `[Error]: EACCES: permission denied, unlink '${join(lockedDir, "stuck.md")}'`,
@@ -508,6 +513,7 @@ describe("sweepExpiredTrashEntries", () => {
     const restoredContent = await readFile(join(vault, ".trash", "restored.md"), "utf8")
     expect(restoredContent).toBe("deleted twice")
     expect(index.getTrashEntry(".trash/restored.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith(KEPT_FILE_WARNING, {
       trashPath: ".trash/restored.md",
       reason: "changed",
@@ -565,6 +571,7 @@ describe("sweepExpiredTrashEntries", () => {
     const keptContent = await readFile(join(vault, ".trash", "boundary.md"), "utf8")
     expect(keptContent).toBe("expired")
     expect(index.getTrashEntry(".trash/boundary.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith(KEPT_FILE_WARNING, {
       trashPath: ".trash/boundary.md",
       reason: "changed",
@@ -655,6 +662,7 @@ describe("sweepExpiredTrashEntries", () => {
     const obsidianCopy = await readFile(join(vault, ".trash", "recycled.md"), "utf8")
     expect(obsidianCopy).toBe("obsidian trashed this")
     expect(index.getTrashEntry(".trash/recycled.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith(KEPT_FILE_WARNING, {
       trashPath: ".trash/recycled.md",
       reason: "replaced",
@@ -696,6 +704,7 @@ describe("sweepExpiredTrashEntries", () => {
     const legacyContent = await readFile(join(vault, ".trash", "legacy.md"), "utf8")
     expect(legacyContent).toBe("recorded long ago")
     expect(index.getTrashEntry(".trash/legacy.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith(KEPT_FILE_WARNING, {
       trashPath: ".trash/legacy.md",
       reason: "unrecorded",
@@ -721,6 +730,7 @@ describe("sweepExpiredTrashEntries", () => {
     expect(index.getTrashEntry(".trash/nosearch/stuck.md")?.trashPath).toBe(
       ".trash/nosearch/stuck.md",
     )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to read trash entry identity", {
       trashPath: ".trash/nosearch/stuck.md",
       error: `[Error]: EACCES: permission denied, lstat '${join(lockedDir, "stuck.md")}'`,
@@ -1263,6 +1273,7 @@ describe("purgeOrphanedTrashEntries", () => {
     )
 
     expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(".trash/locked/stuck.md")
+    expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to stat trash entry", {
       trashPath: ".trash/locked/stuck.md",
       error: `[Error]: EACCES: permission denied, lstat '${join(lockedDir, "stuck.md")}'`,
