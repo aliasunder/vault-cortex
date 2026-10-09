@@ -1,4 +1,5 @@
 #!/command/with-contenv sh
+# shellcheck shell=sh
 # Set up the vault and apply optional sync configuration.
 # All ob commands run as the obsidian user via s6-setuidgid.
 set -e

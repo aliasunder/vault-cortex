@@ -1,4 +1,5 @@
 #!/command/with-contenv sh
+# shellcheck shell=sh
 # MCP server longrun supervised by s6.
 # The dependency on svc-obsidian-sync gates STARTUP ORDER only — s6-rc does
 # not restart-couple longruns and does not wait for sync health. The

@@ -6,7 +6,9 @@ to get started.
 ## Quick Start
 
 1. **Prerequisites:** Node.js >= 24 (see `.nvmrc`), Docker (optional, for
-   container mode)
+   container mode), and [ShellCheck](https://www.shellcheck.net) for
+   `npm run lint:shell` (`brew install shellcheck` or your system's package
+   manager; CI pins the version in `.github/workflows/ci.yml`)
 
 2. **Clone and install:**
 
@@ -143,13 +145,14 @@ truth. Key points:
 3. **Run the full check suite** before pushing:
 
    ```bash
-   npm run prettier:check && npm run lint && npm run markdownlint && npm run knip && npm test && npm run build
+   npm run prettier:check && npm run lint && npm run markdownlint && npm run lint:shell && npm run knip && npm test && npm run build
    ```
 
 4. **Fill out the PR template** — the checklist mirrors CI
 5. **Required checks must pass** — the `main` ruleset requires all seven;
    each blocks the merge and the finding details are in its job log:
-   - `checks` — prettier, lint, markdownlint, knip, test, and build
+   - `checks` — prettier, lint, markdownlint, shellcheck, knip, test, and
+     build
    - `cli-smoke (22)` / `cli-smoke (24)` — builds the
      CLI and runs `init` on the engines floor (22.12) and the newest
      major (24), catching APIs too new for the CLI's `engines` range;

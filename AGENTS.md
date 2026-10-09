@@ -675,6 +675,13 @@ covers both kinds, with reasons:
   `--fix` + CI) enforces markdown structure: blank lines around fences,
   a language on every fenced block, no bare URLs. Ignores are documented
   in the config.
+- **ShellCheck** (`npm run lint:shell`, CI) lints the repo's shell
+  scripts: the Claude Code hooks, `.github/scripts/`, and the `:remote`
+  image's s6 and helper scripts. A new script outside those paths is added
+  to the `lint:shell` list in `package.json`. The s6 scripts start with
+  `#!/command/with-contenv sh`, which ShellCheck cannot read, so each
+  carries a `# shellcheck shell=sh` line. A disable directive gets a
+  comment saying why.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if

@@ -1,4 +1,5 @@
 #!/command/with-contenv sh
+# shellcheck shell=sh
 # Init-chain step: log obsidian-headless in to the Obsidian account with the
 # token init-check-auth accepted — the OBSIDIAN_AUTH_TOKEN env var, or the
 # token file on the config volume (the client reads them in that order).

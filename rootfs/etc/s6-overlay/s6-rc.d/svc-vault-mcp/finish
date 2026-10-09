@@ -1,4 +1,5 @@
 #!/command/with-contenv sh
+# shellcheck shell=sh
 # Runs as root whenever svc-vault-mcp exits ($1 is its exit code). Its one
 # job: turn a completed /setup sign-in into a normal boot.
 #
