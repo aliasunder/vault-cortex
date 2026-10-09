@@ -525,6 +525,34 @@ describe("daily-review handler", () => {
 
 // ── Error degradation ────────────────────────────────────────────
 
+describe("daily-review date argument", () => {
+  it("rejects a well-formed date that is not on the calendar and logs it as bad input", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-date-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    const logCalls: LogCall[] = []
+    const search = createSearchIndex(":memory:")
+    const calls = registerWithSearch(vault, search, recordingLogger(logCalls))
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({ date: "2026-02-30" }, fakeExtra))
+    expect(text).toBe('"2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.')
+    expect(logCalls.filter((logCall) => logCall.level === "warn")).toEqual([
+      {
+        level: "warn",
+        message: "prompt_bad_argument",
+        data: {
+          requestId: fakeExtra.requestId,
+          prompt: PROMPT_NAMES.DAILY_REVIEW,
+          argument: "date",
+          value: "2026-02-30",
+        },
+      },
+    ])
+  })
+})
+
 describe("daily-review error degradation", () => {
   it("returns a fallback (no throw) when a task lookup fails", async () => {
     const vault = await mkdtemp(join(tmpdir(), "prompt-err-"))

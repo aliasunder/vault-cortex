@@ -2867,7 +2867,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FENCED_BLOCK_WARNING =
-    "A span that starts at a code block's opening fence can't end at a plain closing fence (```): every fragment of the closing fence also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
+    "A span that includes a code block's opening fence can't end at a plain closing fence (```): every fragment of the closing fence also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
 
   it.each([
     {
@@ -2900,7 +2900,7 @@ describe("DISABLED_TOOLS", () => {
       const fencedBlockWarning = extractDescriptionSection({
         registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName,
-        startMarker: "A span that starts at a code block",
+        startMarker: "A span that includes a code block",
         endMarker: "\n- ",
       })
       expect(fencedBlockWarning).toBe(expectedSentences)
