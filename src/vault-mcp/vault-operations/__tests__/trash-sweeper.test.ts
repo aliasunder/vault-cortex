@@ -115,6 +115,23 @@ const sweepAfterRetention = async (
 const KEPT_FILE_WARNING =
   "trash entry cannot be matched to the file the server trashed — kept, row dropped"
 
+/** The index as a store whose row re-read fails for `failingPath`, as an I/O
+ *  error on the index database would. */
+const storeFailingToRead = (
+  index: ReturnType<typeof createSearchIndex>,
+  failingPath: string,
+): TrashEntryStore => {
+  return {
+    listAllTrashEntries: index.listAllTrashEntries,
+    listExpiredTrashEntries: index.listExpiredTrashEntries,
+    getTrashEntry: (trashPath: string) => {
+      if (trashPath === failingPath) throw new Error("disk I/O error")
+      return index.getTrashEntry(trashPath)
+    },
+    deleteTrashEntry: index.deleteTrashEntry,
+  }
+}
+
 /** The index as a store whose row delete fails for `failingPath` the way a
  *  full disk fails it. */
 const storeFailingToDrop = (
@@ -804,6 +821,41 @@ describe("sweepExpiredTrashEntries", () => {
     })
   })
 
+  it("leaves a row whose re-read fails and sweeps the rest", async () => {
+    // The summary log runs only after the last row, so it proves the failed
+    // read did not end the sweep, whichever row the store lists first.
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "unread.md"), "expired", "utf8")
+    await writeFile(join(vault, ".trash", "other.md"), "expired too", "utf8")
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/unread.md"))
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/other.md"))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await sweepAfterRetention(vault, storeFailingToRead(index, ".trash/unread.md"))
+
+    const unreadContent = await readFile(join(vault, ".trash", "unread.md"), "utf8")
+    expect(unreadContent).toBe("expired")
+    expect(index.getTrashEntry(".trash/unread.md")?.trashPath).toBe(".trash/unread.md")
+    await expect(stat(join(vault, ".trash", "other.md"))).rejects.toThrow(/ENOENT/)
+    expect(index.getTrashEntry(".trash/other.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to read trash entry row", {
+      trashPath: ".trash/unread.md",
+      error: "[Error]: disk I/O error",
+    })
+    expect(infoSpy).toHaveBeenCalledWith("trash retention sweep complete", {
+      retentionDays: 30,
+      expired: 2,
+      purged: 1,
+      droppedMissing: 0,
+      droppedUnmatched: 0,
+    })
+  })
+
   it("keeps an unlinked file's row and finishes the sweep when the row drop fails", async () => {
     // The summary log runs only after the last row, so it proves the failed
     // drop did not end the sweep, whichever row the store lists first.
@@ -1221,6 +1273,34 @@ describe("purgeOrphanedTrashEntries", () => {
     expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
       checked: 3,
       purged: 3,
+    })
+  })
+
+  it("keeps an orphan's row and purges the rest when one row re-read fails", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(recordedAbsentFile(".trash/unread.md"))
+    index.recordTrashEntry(recordedAbsentFile(".trash/other.md"))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: storeFailingToRead(index, ".trash/unread.md") },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/unread.md")?.trashPath).toBe(".trash/unread.md")
+    expect(index.getTrashEntry(".trash/other.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to read trash entry row", {
+      trashPath: ".trash/unread.md",
+      error: "[Error]: disk I/O error",
+    })
+    expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
+      checked: 2,
+      purged: 1,
     })
   })
 

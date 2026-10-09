@@ -94,9 +94,27 @@ const getRecordedFileCheck = async (
   }
 }
 
+/** Re-reads a trash entry's row under the trash lock. A failed read is logged
+ *  and returns null, which both callers treat as "leave this row for the next
+ *  run", so one bad row never aborts the sweep or the purge. */
+const tryGetTrashEntry = (
+  params: { trashPath: string; trashEntryStore: TrashEntryStore },
+  logger: Logger,
+): TrashEntry | null => {
+  try {
+    return params.trashEntryStore.getTrashEntry(params.trashPath)
+  } catch (error) {
+    logger.warn("failed to read trash entry row", {
+      trashPath: params.trashPath,
+      error: describeError(error),
+    })
+    return null
+  }
+}
+
 /** Drops a trash entry's row and returns whether the drop succeeded. A failed
- *  drop (a full disk fails a delete but not a read) is logged and leaves the
- *  row for the next run, so one bad row never aborts the sweep or the purge. */
+ *  drop is logged and leaves the row for the next run, so one bad row never
+ *  aborts the sweep or the purge. */
 const tryDropTrashEntry = (
   params: { trashPath: string; trashEntryStore: TrashEntryStore },
   logger: Logger,
@@ -136,7 +154,7 @@ const sweepOneEntry = async (
   // from before any lock was taken, and a delete can refresh a listed row (the
   // same path re-trashed) before this row's turn — its file is then fresh,
   // and unlinking it would destroy the copy retention exists to keep.
-  const currentEntry = trashEntryStore.getTrashEntry(trashPath)
+  const currentEntry = tryGetTrashEntry({ trashPath, trashEntryStore }, logger)
 
   if (!currentEntry) return "skipped"
 
@@ -360,7 +378,10 @@ const purgeOrphanedTrashEntries = async (
       //   would never delete it.
       // - The whole row is compared because two records in one second share
       //   a trashedAt.
-      const currentEntry = params.trashEntryStore.getTrashEntry(entry.trashPath)
+      const currentEntry = tryGetTrashEntry(
+        { trashPath: entry.trashPath, trashEntryStore: params.trashEntryStore },
+        logger,
+      )
       const rowChanged =
         !currentEntry ||
         currentEntry.trashPath !== entry.trashPath ||
