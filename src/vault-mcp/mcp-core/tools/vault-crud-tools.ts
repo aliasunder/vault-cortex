@@ -15,7 +15,7 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   describePropertiesBlockErrorEntry,
   describeTextWindow,
-  FILESYSTEM_ERROR_ENTRY,
+  FILESYSTEM_ERROR_ENTRIES,
   OPENING_BLOCK_ERROR_ENTRY,
 } from "./tool-helpers.js"
 
@@ -672,7 +672,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
-${FILESYSTEM_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -783,7 +783,7 @@ Errors:
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-${FILESYSTEM_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -883,7 +883,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
-${FILESYSTEM_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 

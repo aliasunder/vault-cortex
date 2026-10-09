@@ -168,8 +168,10 @@ export const getDailyNotePath = async (
 
   const dateTime = date ? DateTime.fromISO(date) : DateTime.now()
 
+  // The shape check above passed, so Luxon rejects only a day the calendar
+  // lacks, such as February 30; a format hint would get the same date back
   if (!dateTime.isValid) {
-    throw new Error(`invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`)
+    throw new Error(`"${date}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`)
   }
 
   const filename = dateTime.toFormat(luxonFormat)

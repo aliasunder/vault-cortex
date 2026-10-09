@@ -396,6 +396,16 @@ describe("getDailyNotePath", () => {
     ).rejects.toThrow("invalid date")
   })
 
+  it("rejects a well-formed date that is not on the calendar as such", async () => {
+    const vaultDir = await createVault()
+
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026-02-30" }, logger),
+    ).rejects.toThrow(
+      new Error('"2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.'),
+    )
+  })
+
   it("rejects partial ISO dates (year only)", async () => {
     const vaultDir = await createVault()
 

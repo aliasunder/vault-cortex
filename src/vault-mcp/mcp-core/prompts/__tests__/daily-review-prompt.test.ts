@@ -540,6 +540,71 @@ describe("daily-review handler", () => {
     expect(reviewSection(text, "Notes modified on 2026-06-16")).toBe("- same-day.md — Same Day")
   })
 
+  /** Notes titled "Note 01" onward, modified on 2026-06-16 one millisecond
+   *  apart and after the daily note, so the review lists the highest number
+   *  first and the daily note last. */
+  const notesModifiedAfterDailyNote = (count: number) => {
+    return Array.from({ length: count }, (_, index) => {
+      const noteNumber = String(index + 1).padStart(2, "0")
+      return {
+        path: `note-${noteNumber}.md`,
+        content: `---\ntitle: Note ${noteNumber}\n---\n`,
+        mtimeMs: JUNE_16_MIDDAY_MS + index + 1,
+      }
+    })
+  }
+
+  it("says more notes changed that day when the modified list is cut at 10", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      extraNotes: notesModifiedAfterDailyNote(10),
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    // Eleven notes changed that day; the daily note, the oldest, is cut
+    expect(reviewSection(text, "Notes modified on 2026-06-16")).toBe(
+      [
+        "- note-10.md — Note 10",
+        "- note-09.md — Note 09",
+        "- note-08.md — Note 08",
+        "- note-07.md — Note 07",
+        "- note-06.md — Note 06",
+        "- note-05.md — Note 05",
+        "- note-04.md — Note 04",
+        "- note-03.md — Note 03",
+        "- note-02.md — Note 02",
+        "- note-01.md — Note 01",
+        "",
+        "_Showing the 10 most recently modified; more notes changed on 2026-06-16._",
+      ].join("\n"),
+    )
+  })
+
+  it("adds no cut notice when exactly 10 notes changed that day", async () => {
+    const { calls } = await setupDailyReviewVault({
+      date: "2026-06-16",
+      extraNotes: notesModifiedAfterDailyNote(9),
+    })
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect(reviewSection(text, "Notes modified on 2026-06-16")).toBe(
+      [
+        "- note-09.md — Note 09",
+        "- note-08.md — Note 08",
+        "- note-07.md — Note 07",
+        "- note-06.md — Note 06",
+        "- note-05.md — Note 05",
+        "- note-04.md — Note 04",
+        "- note-03.md — Note 03",
+        "- note-02.md — Note 02",
+        "- note-01.md — Note 01",
+        "- Daily Notes/2026-06-16.md — 2026-06-16",
+      ].join("\n"),
+    )
+  })
+
   it("includes task extraction and pattern recognition in review steps", async () => {
     const { vault, calls } = await setupVault()
     await mkdir(join(vault, "Daily Notes"), { recursive: true })

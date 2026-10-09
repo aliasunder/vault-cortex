@@ -194,8 +194,10 @@ export const registerDailyReviewPrompt = ({
           { vaultPath, date: resolvedDate, envSettings: dailyNotesConfig },
           reqLogger,
         )
+        // One note past the cap tells the review whether it lists every note
+        // modified that day
         const modifiedOnDate = search.modifiedOnDate(
-          { date: resolvedDate, limit: DAILY_RECENT_LIMIT },
+          { date: resolvedDate, limit: DAILY_RECENT_LIMIT + 1 },
           reqLogger,
         )
         const outgoingLinks = dailyNote.exists
@@ -276,9 +278,14 @@ export const registerDailyReviewPrompt = ({
           brokenLinks,
         )
         const backlinksSection = formatBacklinksSection(dailyNote.exists, backlinks)
+        const modifiedNotesShown = modifiedOnDate.slice(0, DAILY_RECENT_LIMIT)
+        const moreModifiedNotesHint =
+          modifiedOnDate.length > DAILY_RECENT_LIMIT
+            ? `\n\n_Showing the ${DAILY_RECENT_LIMIT} most recently modified; more notes changed on ${resolvedDate}._`
+            : ""
         const modifiedSection =
-          modifiedOnDate.length > 0
-            ? modifiedOnDate.map(formatNoteLine).join("\n")
+          modifiedNotesShown.length > 0
+            ? `${modifiedNotesShown.map(formatNoteLine).join("\n")}${moreModifiedNotesHint}`
             : `No notes were modified on ${resolvedDate}.`
 
         const taskOverflowHint = whenToolEnabledText(

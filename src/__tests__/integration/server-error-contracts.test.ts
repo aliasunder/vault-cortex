@@ -747,6 +747,56 @@ describe("filesystem errors name the path vault-relative", () => {
     })
   })
 
+  it("vault_get_daily_note on a daily note it cannot open names the note vault-relative", async () => {
+    await plantFileWithMode({ filePath: "Daily Notes/2026-03-01.md", mode: 0o000 })
+
+    const result = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "2026-03-01" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: EACCES: permission denied, open 'Daily Notes/2026-03-01.md'",
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  // A name of 233 bytes reads, but the temp file a save writes beside it
+  // adds 41 bytes and passes the filesystem's 255-byte limit
+  it.each([
+    { name: "vault_replace_in_note", args: { old_text: "line one", new_text: "line 1" } },
+    { name: "vault_delete_span", args: { start_anchor: "line one" } },
+    { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
+  ])("$name on a note whose name is too long to save beside", async ({ name, args }) => {
+    const longNoteName = `${"b".repeat(230)}.md`
+    await plantFileWithMode({ filePath: longNoteName, mode: 0o644 })
+
+    const result = await callTool({ client, name, args: { path: longNoteName, ...args } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          // The temp file's name ends in a random UUID
+          text: expect.stringMatching(
+            new RegExp(
+              `^\\[Error\\]: ENAMETOOLONG: name too long, open '${longNoteName.replace(".", "\\.")}\\.[0-9a-f-]{36}\\.tmp'$`,
+            ),
+          ),
+        },
+      ],
+      isError: true,
+    })
+    // The note was read, so the failure came from the save
+    await expect(readFile(join(serverVaultPath, longNoteName), "utf8")).resolves.toBe(
+      "line one\n- [ ] a task\n",
+    )
+  })
+
   it("vault_write_note into a read-only folder names the temp file vault-relative", async () => {
     await plantFolderWithMode({ folderPath: "Sealed", mode: 0o555 })
 
@@ -829,11 +879,26 @@ describe("filesystem errors name the path vault-relative", () => {
     { name: "vault_read_note", args: {} },
     { name: "vault_patch_note", args: { operation: "append", content: "added" } },
     { name: "vault_update_task", args: { line: 1, status: "done" } },
+    { name: "vault_replace_in_note", args: { old_text: "old", new_text: "new" } },
+    { name: "vault_delete_span", args: { start_anchor: "old" } },
+    { name: "vault_replace_span", args: { start_anchor: "old", content: "new" } },
   ])("$name on a note name too long for the filesystem", async ({ name, args }) => {
     const result = await callTool({ client, name, args: { path: longNoteName, ...args } })
     expect(result).toEqual({
       content: [
         { type: "text", text: `[Error]: ENAMETOOLONG: name too long, open '${longNoteName}'` },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_read_file on a file name too long for the filesystem", async () => {
+    const longFileName = `${"a".repeat(300)}.png`
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: longFileName } })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: `[Error]: ENAMETOOLONG: name too long, stat '${longFileName}'` },
       ],
       isError: true,
     })
@@ -1629,6 +1694,23 @@ describe("parameter combinations", () => {
       args: { path: "Projects/alpha.md", operation: "append", heading: "   ", content: "refused" },
     })
     expectToolError(result, "heading cannot be empty")
+  })
+
+  it("vault_get_daily_note with a date the calendar lacks", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "2026-02-30" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
+      isError: true,
+    })
   })
 
   it("vault_move_note onto its own path", async () => {
