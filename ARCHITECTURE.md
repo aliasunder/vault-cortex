@@ -182,7 +182,7 @@ Every tool handles a note's properties block by the same rules, so a write never
   - For a write that would open the note with a block the server could not read or keep, the ways around it: give the note a property, put text above the `---` lines, or remove them.
 - **YAML comments** are not kept. A rewrite writes the block from its parsed properties, so it drops any comments, and a block holding only comments reads as no properties and is written back as none.
 
-Unlike a read, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
+Unlike a read that parses the block, such as `vault_read_note` with `properties_only`, `outline` or `heading`, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 

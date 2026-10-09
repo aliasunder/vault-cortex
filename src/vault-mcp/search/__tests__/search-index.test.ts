@@ -3943,6 +3943,31 @@ describe("rebuildFromVault", () => {
     )
   })
 
+  it("keeps none of the links of a note whose link pass fails partway", async () => {
+    const dbDir = await mkdtemp(join(tmpdir(), "rebuild-partial-links-"))
+    onTestFinished(() => rm(dbDir, { recursive: true, force: true }))
+    const dbPath = join(dbDir, "index.db")
+    const linkFailureIndex = createSearchIndex(dbPath)
+    // The trigger fails the second link only, after the first one is inserted
+    const schemaWriter = new Database(dbPath)
+    schemaWriter.exec(
+      "CREATE TRIGGER fail_beta_link BEFORE INSERT ON links WHEN NEW.target = 'beta' BEGIN SELECT RAISE(ABORT, 'injected link failure'); END",
+    )
+    schemaWriter.close()
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(join(vaultDir, "linker.md"), "See [[alpha]], then [[beta]].\n", "utf8")
+
+    const { count } = await linkFailureIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+
+    expect(count).toBe(2)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "skipped note that failed to index during rebuild",
+      { path: "linker.md", error: "[SqliteError]: injected link failure" },
+    )
+    expect(linkFailureIndex.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([])
+  })
+
   it("keeps the memory entries and vectors of a note that fails to index but is still on disk", async () => {
     const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
     const dbDir = await mkdtemp(join(tmpdir(), "rebuild-keep-failed-"))

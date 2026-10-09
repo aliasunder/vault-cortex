@@ -2345,27 +2345,31 @@ export const createSearchIndex = (
         for (const note of noteContents) {
           if (skippedNotePaths.has(note.relativePath)) continue
           try {
-            // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
-            // warned about an unreadable block for this note
-            const parsed = parseNoteForIndex(note.content)
-            for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
-              const resolved = links.resolve({
-                target: rawTarget,
-                allPaths: pathList,
-                sourcePath: note.relativePath,
-              })
+            // Each note gets its own savepoint, so a note counted as skipped
+            // after its links fail partway keeps none of the links it inserted
+            db.transaction(() => {
+              // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
+              // warned about an unreadable block for this note
+              const parsed = parseNoteForIndex(note.content)
+              for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
+                const resolved = links.resolve({
+                  target: rawTarget,
+                  allPaths: pathList,
+                  sourcePath: note.relativePath,
+                })
 
-              if (resolved !== null) {
-                insertLinkStmt.run(note.relativePath, resolved)
-                continue
+                if (resolved !== null) {
+                  insertLinkStmt.run(note.relativePath, resolved)
+                  continue
+                }
+
+                const resolvedNonMdPath = resolveNonMarkdownFile({
+                  target: rawTarget,
+                  sourcePath: note.relativePath,
+                })
+                insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget)
               }
-
-              const resolvedNonMdPath = resolveNonMarkdownFile({
-                target: rawTarget,
-                sourcePath: note.relativePath,
-              })
-              insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget)
-            }
+            })()
           } catch (error) {
             skippedNotePaths.add(note.relativePath)
             logger.warn("skipped note that failed to index during rebuild", {
