@@ -40,10 +40,12 @@ type OutgoingLink = {
 }
 
 /** Formats a single outgoing link as a bullet, flagging broken targets. */
-const formatOutgoingLink = (link: OutgoingLink): string =>
-  link.exists
-    ? `- ${link.path}${link.title ? ` — ${link.title}` : ""}`
-    : `- ${link.path} (**broken** — target does not exist)`
+const formatOutgoingLink = (link: OutgoingLink): string => {
+  if (!link.exists) return `- ${link.path} (**broken** — target does not exist)`
+
+  const titleSuffix = link.title ? ` — ${link.title}` : ""
+  return `- ${link.path}${titleSuffix}`
+}
 
 /** Assembles the outgoing links section with a broken-link summary. */
 const formatOutgoingLinksSection = (
@@ -59,7 +61,10 @@ const formatOutgoingLinksSection = (
   if (brokenLinks.length === 0) return linkLines
 
   const brokenCount = brokenLinks.length
-  const brokenSummary = `${brokenCount} broken link${brokenCount === 1 ? "" : "s"} — the target note${brokenCount === 1 ? " does" : "s do"} not exist yet.`
+  const brokenSummary =
+    brokenCount === 1
+      ? "1 broken link — the target note does not exist yet."
+      : `${brokenCount} broken links — the target notes do not exist yet.`
   return `${linkLines}\n\n${brokenSummary}`
 }
 
@@ -161,9 +166,13 @@ export const registerDailyReviewPrompt = ({
         // both due-today and overdue tasks in a single query.
         const tomorrow = DateTime.fromISO(resolvedDate).plus({ days: 1 }).toISODate()
 
+        // The argument's regex admits a well-formed day that does not exist,
+        // such as a February 30, which Luxon reads as invalid. Bad client
+        // input → warn.
         if (!tomorrow) {
+          reqLogger.warn("prompt_bad_argument", { argument: "date", value: resolvedDate })
           return textResult(
-            "Could not compute the next day. Pass an explicit date in YYYY-MM-DD format.",
+            `"${resolvedDate}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`,
           )
         }
 
@@ -247,8 +256,9 @@ export const registerDailyReviewPrompt = ({
         })
         const describeDailySection = (): string => {
           if (!dailyNote.exists) return `_No daily note exists at \`${dailyNote.path}\` yet._`
-          if (trimmedDaily.length === 0)
+          if (trimmedDaily.length === 0) {
             return `_The daily note at \`${dailyNote.path}\` is empty._`
+          }
           return cappedDailyContent
         }
         const dailySection = describeDailySection()
