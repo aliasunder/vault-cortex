@@ -306,11 +306,47 @@ describe("install-deps hook", () => {
       expect({
         status: run.status,
         stdout: run.stdout,
+        loggedSkip: run.stderr
+          .split("\n")
+          .includes(
+            `[install-deps] perl not found, so the install lock cannot be taken — skipping the install in ${fixture.checkout}; run npm ci and npx sst install yourself`,
+          ),
         npmCalls: recordedNpmCalls(fixture),
         ...installState(fixture),
       }).toEqual({
         status: 0,
         stdout: "",
+        loggedSkip: true,
+        npmCalls: [],
+        marker: `${fixture.lockfileHash}\n`,
+        stamp: null,
+      })
+    })
+
+    it("skips the install, keeping the marker, when perl cannot take the lock", () => {
+      const fixture = createHookFixture()
+      leaveMarker(fixture)
+      writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
+      const binDir = createBinDirWithoutPerl(fixture)
+      // Exit 2 is the hook's perl script failing to open or lock fd 9.
+      writeExecutable(join(binDir, "perl"), "#!/bin/sh\nexit 2\n")
+
+      const run = runHook({ fixture, path: binDir })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        loggedSkip: run.stderr
+          .split("\n")
+          .includes(
+            `[install-deps] could not take the install lock in ${fixture.checkout} (perl exit 2) — skipping the install`,
+          ),
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        loggedSkip: true,
         npmCalls: [],
         marker: `${fixture.lockfileHash}\n`,
         stamp: null,
