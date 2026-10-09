@@ -1,9 +1,10 @@
 /** Trash bookkeeping — retention sweep (unlink expired files) and orphan
  *  purge (drop rows whose files are gone). Both operate on trash_entries
  *  rows and never walk the .trash/ folder. The sweep unlinks a file only
- *  while it still has the identity its row recorded (inode number, size,
- *  modification time, and inode change time), so Obsidian's own trash entries
- *  and hand-placed files are out of reach, even under a name the server once
+ *  while it still has the identity its row recorded (inode number, size, and
+ *  modification time) and its change time is no later than about a minute
+ *  after the row was recorded, so Obsidian's own trash entries and
+ *  hand-placed files are out of reach, even under a name the server once
  *  used. */
 
 import { unlink } from "node:fs/promises"
@@ -13,8 +14,9 @@ import { describeError } from "../../utils/describe-error.js"
 import { isMissingPathError, lstatOrNull, realpathOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
-import { pruneEmptyParents, readTrashFileIdentity, trashDomainLockKey } from "./vault-filesystem.js"
-import type { TrashEntryStore } from "../search/search-index.js"
+import { pruneEmptyParents, readTrashFileState, trashDomainLockKey } from "./vault-filesystem.js"
+import type { TrashFileState } from "./vault-filesystem.js"
+import type { TrashEntry, TrashEntryStore } from "../search/search-index.js"
 import type { Logger } from "../../logger.js"
 
 /** Sweep cadence. An expired file can outlive TRASH_RETENTION_DAYS by up to
@@ -27,26 +29,55 @@ type SweepParams = {
   trashEntryStore: TrashEntryStore
 }
 
+/** How far a trashed file's change time may run past the moment its row was
+ *  recorded before the sweep keeps the file. The server's own rename sets the
+ *  change time just before the row is written; the margin covers the row's
+ *  whole-second rounding and, on Docker Desktop, a host clock (which stamps
+ *  the change time) running a little ahead of the VM clock (which stamps the
+ *  row). A note restored by hand and trashed again within this window still
+ *  matches. */
+const CHANGE_TIME_ALLOWANCE_SECONDS = 60
+
+const NANOSECONDS_PER_SECOND = 1_000_000_000n
+
 type SweepRowOutcome = "unlinked" | "missing" | "unmatched" | "skipped"
 
-type IdentityCheck = "matches" | "differs" | "missing" | "unreadable"
+/** Why a trashed file was kept: its row predates recorded identities, a
+ *  different file now stands at the path, or the file changed status after
+ *  the server trashed it (renamed, or its attributes written). */
+type MismatchReason = "unrecorded" | "replaced" | "changed"
 
-/** Compares the file now at a trash entry's path with the identity recorded
- *  when the server trashed it. A row without a recorded identity never
- *  matches. A read failure other than a missing file is logged and reported
- *  as "unreadable". */
+type IdentityCheck = "matches" | MismatchReason | "missing" | "unreadable"
+
+/** Decides whether a trashed file is still, unchanged, the one its row
+ *  recorded. */
+const compareWithRecordedFile = (
+  fileState: TrashFileState,
+  entry: TrashEntry,
+): "matches" | MismatchReason => {
+  if (!entry.fileIdentity) return "unrecorded"
+  if (fileState.identity !== entry.fileIdentity) return "replaced"
+
+  const changeTimeLimitNs =
+    BigInt(entry.trashedAt + CHANGE_TIME_ALLOWANCE_SECONDS) * NANOSECONDS_PER_SECOND
+
+  if (fileState.changeTimeNs > changeTimeLimitNs) return "changed"
+  return "matches"
+}
+
+/** Reads the file now at a trash entry's path and compares it with the row.
+ *  A read failure other than a missing file is logged and reported as
+ *  "unreadable". */
 const checkRecordedFileIdentity = async (
-  params: { fullPath: string; trashPath: string; recordedIdentity: string | null },
+  params: { fullPath: string; entry: TrashEntry },
   logger: Logger,
 ): Promise<IdentityCheck> => {
   try {
-    const currentIdentity = await readTrashFileIdentity(params.fullPath)
-    // A null recordedIdentity never equals a read identity, so it "differs".
-    return currentIdentity === params.recordedIdentity ? "matches" : "differs"
+    return compareWithRecordedFile(await readTrashFileState(params.fullPath), params.entry)
   } catch (error) {
     if (isMissingPathError(error)) return "missing"
     logger.warn("failed to read trash entry identity", {
-      trashPath: params.trashPath,
+      trashPath: params.entry.trashPath,
       error: describeError(error),
     })
     return "unreadable"
@@ -142,13 +173,12 @@ const sweepOneEntry = async (
   }
 
   // Identity gate — the file at the row's path must be the one the server
-  // trashed. Emptying .trash/ by hand leaves the row behind, and Obsidian can
-  // later trash another note under the same name; deleting that file would
-  // destroy a note the server never trashed. A file that differs, or a row
-  // recorded before identities were kept, keeps the file and drops the row,
-  // since the recorded file can no longer be shown to be there.
+  // trashed, unchanged since. Emptying .trash/ by hand leaves the row behind,
+  // and Obsidian can later trash another note under the same name; deleting
+  // that file would destroy a note the server never trashed. Any file that
+  // cannot be shown to be the recorded one is kept and its row dropped.
   const identityCheck = await checkRecordedFileIdentity(
-    { fullPath: resolvedPath, trashPath, recordedIdentity: currentEntry.fileIdentity },
+    { fullPath: resolvedPath, entry: currentEntry },
     logger,
   )
 
@@ -159,11 +189,11 @@ const sweepOneEntry = async (
     trashEntryStore.deleteTrashEntry(trashPath)
     return "missing"
   }
-  if (identityCheck === "differs") {
+  if (identityCheck !== "matches") {
     trashEntryStore.deleteTrashEntry(trashPath)
     logger.warn(
       "trash entry cannot be matched to the file the server trashed — kept, row dropped",
-      { trashPath },
+      { trashPath, reason: identityCheck },
     )
     return "unmatched"
   }

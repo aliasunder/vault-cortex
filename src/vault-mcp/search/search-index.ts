@@ -2775,7 +2775,7 @@ export type SearchIndex = ReturnType<typeof createSearchIndex>
 export type TrashEntry = {
   trashPath: string
   trashedAt: number
-  /** The recorded file's readTrashFileIdentity; null on a row recorded before
+  /** The recorded file's TrashFileState identity; null on a row recorded before
    *  identities were kept, which the sweep cannot match to any file. */
   fileIdentity: string | null
 }

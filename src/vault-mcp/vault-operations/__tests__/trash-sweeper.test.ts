@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import {
   chmod,
+  lstat,
   mkdtemp,
   mkdir,
   readFile,
@@ -19,7 +20,7 @@ import { DateTime } from "luxon"
 // make the host remove a file at the exact moment the sweep unlinks it.
 vi.mock("node:fs/promises", { spy: true })
 import { trashSweeper } from "../trash-sweeper.js"
-import { readTrashFileIdentity, vaultFs } from "../vault-filesystem.js"
+import { readTrashFileState, vaultFs } from "../vault-filesystem.js"
 import { createSearchIndex } from "../../search/search-index.js"
 import type { TrashEntry, TrashEntryStore } from "../../search/search-index.js"
 import { logger } from "../../../logger.js"
@@ -36,7 +37,7 @@ type RecordedTrashFile = { trashPath: string; fileIdentity: string }
 
 /** An identity no real file has (no file is ever given inode 0), for a row
  *  whose file is absent or never compared. */
-const ABSENT_FILE_IDENTITY = "0:0:0:0"
+const ABSENT_FILE_IDENTITY = "0:0:0"
 
 /** Linux stamps inode times from a clock that advances once per scheduler
  *  tick (up to 10 ms), so two changes inside one tick share a change time.
@@ -51,7 +52,8 @@ const recordedTrashFileAt = async (
   vault: string,
   trashPath: string,
 ): Promise<RecordedTrashFile> => {
-  return { trashPath, fileIdentity: await readTrashFileIdentity(join(vault, trashPath)) }
+  const { identity } = await readTrashFileState(join(vault, trashPath))
+  return { trashPath, fileIdentity: identity }
 }
 
 /** A row for a trash path with no file behind it. */
@@ -59,18 +61,55 @@ const recordedAbsentFile = (trashPath: string): RecordedTrashFile => {
   return { trashPath, fileIdentity: ABSENT_FILE_IDENTITY }
 }
 
-/** Records an entry stamped `daysAgo` in the past — the sweeper reads real
- *  time, so back-dating the record is how a test makes an entry expired. */
-const recordEntryDaysAgo = (
+/** Records an entry stamped at `moment` instead of now. */
+const recordEntryAt = (
   index: ReturnType<typeof createSearchIndex>,
   recordedFile: RecordedTrashFile,
-  daysAgo: number,
+  moment: DateTime,
 ): void => {
-  vi.useFakeTimers()
-  vi.setSystemTime(DateTime.now().minus({ days: daysAgo }).toMillis())
+  vi.useFakeTimers({ toFake: ["Date"] })
+  vi.setSystemTime(moment.toMillis())
   index.recordTrashEntry(recordedFile)
   vi.useRealTimers()
 }
+
+/** The trashedAt the index stored for a row the test has just recorded. */
+const trashedAtOf = (index: ReturnType<typeof createSearchIndex>, trashPath: string): number => {
+  const recordedEntry = index.getTrashEntry(trashPath)
+
+  if (!recordedEntry) throw new Error(`no trash entry recorded for ${trashPath}`)
+  return recordedEntry.trashedAt
+}
+
+/** How many days after the real moment the sweeps below run: one more than
+ *  their 30-day retention, so entries recorded now have expired. */
+const SWEEP_DAYS_LATER = 31
+
+/** Runs a 30-day-retention sweep as if SWEEP_DAYS_LATER days had passed.
+ *  Only Date is faked, so the kernel still stamps each file's change time at
+ *  the real moment, as it does for the server's own trash move, and a row
+ *  recorded now passes the sweep's change-time limit. */
+const sweepAfterRetention = async (
+  vault: string,
+  trashEntryStore: TrashEntryStore,
+): Promise<void> => {
+  vi.useFakeTimers({ toFake: ["Date"] })
+  onTestFinished(() => {
+    vi.useRealTimers()
+  })
+  vi.setSystemTime(DateTime.now().plus({ days: SWEEP_DAYS_LATER }).toMillis())
+
+  await trashSweeper.sweepExpiredTrashEntries(
+    { vaultPath: vault, retentionDays: 30, trashEntryStore },
+    logger,
+  )
+
+  vi.useRealTimers()
+}
+
+/** The warning the sweep logs for every file it keeps. */
+const KEPT_FILE_WARNING =
+  "trash entry cannot be matched to the file the server trashed — kept, row dropped"
 
 describe("sweepExpiredTrashEntries", () => {
   it("unlinks an expired entry's file and drops its row; a fresh entry and its file survive", async () => {
@@ -78,15 +117,17 @@ describe("sweepExpiredTrashEntries", () => {
     const index = createSearchIndex(":memory:")
     await writeFile(join(vault, ".trash", "old.md"), "expired", "utf8")
     await writeFile(join(vault, ".trash", "new.md"), "fresh", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/old.md"), 31)
-    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/new.md"))
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/old.md"))
+    // Recorded a day before the sweep runs, so still inside the retention.
+    recordEntryAt(
+      index,
+      await recordedTrashFileAt(vault, ".trash/new.md"),
+      DateTime.now().plus({ days: SWEEP_DAYS_LATER - 1 }),
+    )
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     await expect(stat(join(vault, ".trash", "old.md"))).rejects.toThrow(/ENOENT/)
     expect(index.getTrashEntry(".trash/old.md")).toBeNull()
@@ -105,16 +146,13 @@ describe("sweepExpiredTrashEntries", () => {
   it("drops the row and counts it as missing, without a warning, when the expired file is already gone", async () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
-    recordEntryDaysAgo(index, recordedAbsentFile(".trash/emptied.md"), 31)
+    index.recordTrashEntry(recordedAbsentFile(".trash/emptied.md"))
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     expect(index.getTrashEntry(".trash/emptied.md")).toBeNull()
     expect(warnSpy).not.toHaveBeenCalled()
@@ -131,12 +169,9 @@ describe("sweepExpiredTrashEntries", () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     // The recorded subfolder never exists — realpath on the parent ENOENTs.
-    recordEntryDaysAgo(index, recordedAbsentFile(".trash/vanished-folder/x.md"), 31)
+    index.recordTrashEntry(recordedAbsentFile(".trash/vanished-folder/x.md"))
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     expect(index.getTrashEntry(".trash/vanished-folder/x.md")).toBeNull()
   })
@@ -146,7 +181,7 @@ describe("sweepExpiredTrashEntries", () => {
     const index = createSearchIndex(":memory:")
     await mkdir(join(vault, ".trash", "replaced"))
     await writeFile(join(vault, ".trash", "replaced", "x.md"), "expired", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/replaced/x.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/replaced/x.md"))
     // The file now at .trash/replaced still resolves inside .trash/, so the
     // containment gates pass and the identity read fails with ENOTDIR.
     await rm(join(vault, ".trash", "replaced"), { recursive: true })
@@ -156,10 +191,7 @@ describe("sweepExpiredTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     expect(index.getTrashEntry(".trash/replaced/x.md")).toBeNull()
     const replacementContent = await readFile(join(vault, ".trash", "replaced"), "utf8")
@@ -180,7 +212,7 @@ describe("sweepExpiredTrashEntries", () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     await writeFile(join(vault, ".trash", "vanishing.md"), "expired", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/vanishing.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/vanishing.md"))
     // The sweep's only unlink call is this file's. The host removes the file
     // first, so the sweep's own unlink then fails with ENOENT.
     vi.mocked(unlink).mockImplementationOnce(async (target) => {
@@ -195,10 +227,7 @@ describe("sweepExpiredTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     await expect(stat(join(vault, ".trash", "vanishing.md"))).rejects.toThrow(/ENOENT/)
     expect(index.getTrashEntry(".trash/vanishing.md")).toBeNull()
@@ -224,7 +253,7 @@ describe("sweepExpiredTrashEntries", () => {
     // The row holds the file's real identity, so only the in-lock re-read can
     // keep this file.
     const racedFile = await recordedTrashFileAt(vault, ".trash/raced.md")
-    recordEntryDaysAgo(index, racedFile, 31)
+    index.recordTrashEntry(racedFile)
     const getTrashEntry = vi.fn(index.getTrashEntry)
     const racingStore: TrashEntryStore = {
       listAllTrashEntries: index.listAllTrashEntries,
@@ -241,10 +270,7 @@ describe("sweepExpiredTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: racingStore },
-      logger,
-    )
+    await sweepAfterRetention(vault, racingStore)
 
     const racedContent = await readFile(join(vault, ".trash", "raced.md"), "utf8")
     expect(racedContent).toBe("fresh copy")
@@ -267,7 +293,7 @@ describe("sweepExpiredTrashEntries", () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     await writeFile(join(vault, ".trash", "cleared.md"), "keep forever", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/cleared.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/cleared.md"))
     const getTrashEntry = vi.fn(index.getTrashEntry)
     const racingStore: TrashEntryStore = {
       listAllTrashEntries: index.listAllTrashEntries,
@@ -282,10 +308,7 @@ describe("sweepExpiredTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: racingStore },
-      logger,
-    )
+    await sweepAfterRetention(vault, racingStore)
 
     const clearedContent = await readFile(join(vault, ".trash", "cleared.md"), "utf8")
     expect(clearedContent).toBe("keep forever")
@@ -310,14 +333,11 @@ describe("sweepExpiredTrashEntries", () => {
     const index = createSearchIndex(":memory:")
     // The row holds the escape target's real identity, so only the
     // containment gate can keep it.
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/../../escape.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/../../escape.md"))
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     const escapeContent = await readFile(join(base, "escape.md"), "utf8")
     expect(escapeContent).toBe("outside the vault")
@@ -334,14 +354,11 @@ describe("sweepExpiredTrashEntries", () => {
     await mkdir(join(vault, "Live"), { recursive: true })
     await writeFile(join(vault, "Live", "x.md"), "live note", "utf8")
     const index = createSearchIndex(":memory:")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/../Live/x.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/../Live/x.md"))
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     const liveContent = await readFile(join(vault, "Live", "x.md"), "utf8")
     expect(liveContent).toBe("live note")
@@ -358,14 +375,11 @@ describe("sweepExpiredTrashEntries", () => {
     await writeFile(join(vault, "RealNotes", "live.md"), "live note", "utf8")
     await symlink(join(vault, "RealNotes"), join(vault, ".trash", "linkdir"))
     const index = createSearchIndex(":memory:")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/linkdir/live.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/linkdir/live.md"))
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     const liveContent = await readFile(join(vault, "RealNotes", "live.md"), "utf8")
     expect(liveContent).toBe("live note")
@@ -380,17 +394,14 @@ describe("sweepExpiredTrashEntries", () => {
     await mkdir(lockedDir, { recursive: true })
     await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
     const index = createSearchIndex(":memory:")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/noaccess/stuck.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/noaccess/stuck.md"))
     // Remove all permissions from .trash/ so realpath on the parent fails.
     await chmod(join(vault, ".trash"), 0o000)
     onTestFinished(() => chmod(join(vault, ".trash"), 0o755))
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     expect(index.getTrashEntry(".trash/noaccess/stuck.md")?.trashPath).toBe(
       ".trash/noaccess/stuck.md",
@@ -409,17 +420,14 @@ describe("sweepExpiredTrashEntries", () => {
     await mkdir(lockedDir, { recursive: true })
     await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
     const index = createSearchIndex(":memory:")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/locked/stuck.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/locked/stuck.md"))
     // Remove write permission from the parent so unlink fails with EACCES.
     await chmod(lockedDir, 0o555)
     onTestFinished(() => chmod(lockedDir, 0o755))
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(".trash/locked/stuck.md")
     const content = await readFile(join(lockedDir, "stuck.md"), "utf8")
@@ -436,7 +444,7 @@ describe("sweepExpiredTrashEntries", () => {
     // has to tell the new file apart from the one the row recorded.
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
-    recordEntryDaysAgo(index, recordedAbsentFile(".trash/reused.md"), 31)
+    index.recordTrashEntry(recordedAbsentFile(".trash/reused.md"))
     await writeFile(join(vault, "reused.md"), "keep forever", "utf8")
     const deleteResult = await vaultFs.deleteNote(
       {
@@ -452,17 +460,94 @@ describe("sweepExpiredTrashEntries", () => {
     expect(deleteResult.trashLocation).toBe(".trash/reused.md")
     expect(index.getTrashEntry(".trash/reused.md")).toBeNull()
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     const keptContent = await readFile(join(vault, ".trash", "reused.md"), "utf8")
     expect(keptContent).toBe("keep forever")
     expect(index.getTrashEntry(".trash/reused.md")).toBeNull()
   })
 
-  it("keeps a server-trashed note that was restored by hand and trashed again", async () => {
+  it("keeps a file whose change time runs more than 60 seconds past its row's moment", async () => {
+    // A row recorded two minutes before the file last changed status stands
+    // for a note restored by hand and trashed again a while later: the
+    // renames kept its identity and moved only its change time.
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "restored.md"), "deleted twice", "utf8")
+    recordEntryAt(
+      index,
+      await recordedTrashFileAt(vault, ".trash/restored.md"),
+      DateTime.now().minus({ minutes: 2 }),
+    )
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await sweepAfterRetention(vault, index)
+
+    const restoredContent = await readFile(join(vault, ".trash", "restored.md"), "utf8")
+    expect(restoredContent).toBe("deleted twice")
+    expect(index.getTrashEntry(".trash/restored.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledWith(KEPT_FILE_WARNING, {
+      trashPath: ".trash/restored.md",
+      reason: "changed",
+    })
+  })
+
+  it("unlinks a file whose change time is exactly 60 seconds past its row's moment", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "boundary.md"), "expired", "utf8")
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/boundary.md"))
+    const trashedAt = trashedAtOf(index, ".trash/boundary.md")
+    // The sweep's only lstat call is the identity read, here reporting a
+    // change time at the very end of the allowance.
+    vi.mocked(lstat).mockImplementationOnce(async (target) => {
+      const fileStats = await lstat(target, { bigint: true })
+      return Object.assign(fileStats, { ctimeNs: BigInt(trashedAt + 60) * 1_000_000_000n })
+    })
+    onTestFinished(() => {
+      vi.mocked(lstat).mockReset()
+    })
+
+    await sweepAfterRetention(vault, index)
+
+    await expect(stat(join(vault, ".trash", "boundary.md"))).rejects.toThrow(/ENOENT/)
+    expect(index.getTrashEntry(".trash/boundary.md")).toBeNull()
+  })
+
+  it("keeps a file whose change time is one nanosecond past the 60-second allowance", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "boundary.md"), "expired", "utf8")
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/boundary.md"))
+    const trashedAt = trashedAtOf(index, ".trash/boundary.md")
+    // The sweep's only lstat call is the identity read, here reporting a
+    // change time just past the end of the allowance.
+    vi.mocked(lstat).mockImplementationOnce(async (target) => {
+      const fileStats = await lstat(target, { bigint: true })
+      return Object.assign(fileStats, { ctimeNs: BigInt(trashedAt + 60) * 1_000_000_000n + 1n })
+    })
+    onTestFinished(() => {
+      vi.mocked(lstat).mockReset()
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await sweepAfterRetention(vault, index)
+
+    const keptContent = await readFile(join(vault, ".trash", "boundary.md"), "utf8")
+    expect(keptContent).toBe("expired")
+    expect(index.getTrashEntry(".trash/boundary.md")).toBeNull()
+    expect(warnSpy).toHaveBeenCalledWith(KEPT_FILE_WARNING, {
+      trashPath: ".trash/boundary.md",
+      reason: "changed",
+    })
+  })
+
+  it("still unlinks a note restored by hand and trashed again within the 60-second allowance", async () => {
+    // The allowance covers the gap between the server's rename and its row,
+    // so a restore and re-trash inside it cannot be told apart from the
+    // server's own move.
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     await writeFile(join(vault, "restored.md"), "deleted twice", "utf8")
@@ -473,30 +558,21 @@ describe("sweepExpiredTrashEntries", () => {
         protectedPaths: [],
         pruneEmptyFolders: false,
         trashOption: "system",
-        recordTrashEntry: (recordedFile) => recordEntryDaysAgo(index, recordedFile, 31),
+        recordTrashEntry: index.recordTrashEntry,
       },
       logger,
     )
     await waitPastTimestampTick()
-    // Restored by hand, then trashed again by Obsidian. Both renames keep
-    // the inode, size and modification time the row recorded.
     await rename(join(vault, ".trash", "restored.md"), join(vault, "restored.md"))
     await rename(join(vault, "restored.md"), join(vault, ".trash", "restored.md"))
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
-    const retrashedContent = await readFile(join(vault, ".trash", "restored.md"), "utf8")
-    expect(retrashedContent).toBe("deleted twice")
+    await expect(stat(join(vault, ".trash", "restored.md"))).rejects.toThrow(/ENOENT/)
     expect(index.getTrashEntry(".trash/restored.md")).toBeNull()
-    expect(warnSpy).toHaveBeenCalledWith(
-      "trash entry cannot be matched to the file the server trashed — kept, row dropped",
-      { trashPath: ".trash/restored.md" },
-    )
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 
   it("keeps a note Obsidian trashed under a recycled name after .trash/ was emptied by hand", async () => {
@@ -510,7 +586,7 @@ describe("sweepExpiredTrashEntries", () => {
         protectedPaths: [],
         pruneEmptyFolders: false,
         trashOption: "system",
-        recordTrashEntry: (recordedFile) => recordEntryDaysAgo(index, recordedFile, 31),
+        recordTrashEntry: index.recordTrashEntry,
       },
       logger,
     )
@@ -524,18 +600,15 @@ describe("sweepExpiredTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     const obsidianCopy = await readFile(join(vault, ".trash", "recycled.md"), "utf8")
     expect(obsidianCopy).toBe("obsidian trashed this")
     expect(index.getTrashEntry(".trash/recycled.md")).toBeNull()
-    expect(warnSpy).toHaveBeenCalledWith(
-      "trash entry cannot be matched to the file the server trashed — kept, row dropped",
-      { trashPath: ".trash/recycled.md" },
-    )
+    expect(warnSpy).toHaveBeenCalledWith(KEPT_FILE_WARNING, {
+      trashPath: ".trash/recycled.md",
+      reason: "replaced",
+    })
     expect(infoSpy).toHaveBeenCalledWith("trash retention sweep complete", {
       retentionDays: 30,
       expired: 1,
@@ -552,7 +625,7 @@ describe("sweepExpiredTrashEntries", () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     await writeFile(join(vault, ".trash", "legacy.md"), "recorded long ago", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/legacy.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/legacy.md"))
     const withoutIdentity = (entry: TrashEntry): TrashEntry => ({ ...entry, fileIdentity: null })
     const legacyStore: TrashEntryStore = {
       listAllTrashEntries: index.listAllTrashEntries,
@@ -568,18 +641,15 @@ describe("sweepExpiredTrashEntries", () => {
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: legacyStore },
-      logger,
-    )
+    await sweepAfterRetention(vault, legacyStore)
 
     const legacyContent = await readFile(join(vault, ".trash", "legacy.md"), "utf8")
     expect(legacyContent).toBe("recorded long ago")
     expect(index.getTrashEntry(".trash/legacy.md")).toBeNull()
-    expect(warnSpy).toHaveBeenCalledWith(
-      "trash entry cannot be matched to the file the server trashed — kept, row dropped",
-      { trashPath: ".trash/legacy.md" },
-    )
+    expect(warnSpy).toHaveBeenCalledWith(KEPT_FILE_WARNING, {
+      trashPath: ".trash/legacy.md",
+      reason: "unrecorded",
+    })
   })
 
   it("keeps the row and warns when the identity read fails with a non-ENOENT error", async () => {
@@ -588,7 +658,7 @@ describe("sweepExpiredTrashEntries", () => {
     const lockedDir = join(vault, ".trash", "nosearch")
     await mkdir(lockedDir)
     await writeFile(join(lockedDir, "stuck.md"), "stays", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/nosearch/stuck.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/nosearch/stuck.md"))
     // Without search permission the folder itself still resolves, so the
     // containment gate passes, but no entry inside it can be looked up.
     await chmod(lockedDir, 0o600)
@@ -596,10 +666,7 @@ describe("sweepExpiredTrashEntries", () => {
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     expect(index.getTrashEntry(".trash/nosearch/stuck.md")?.trashPath).toBe(
       ".trash/nosearch/stuck.md",
@@ -618,12 +685,9 @@ describe("sweepExpiredTrashEntries", () => {
     const index = createSearchIndex(":memory:")
     await mkdir(join(vault, ".trash", "sub", "deep"), { recursive: true })
     await writeFile(join(vault, ".trash", "sub", "deep", "old.md"), "expired", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/sub/deep/old.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/sub/deep/old.md"))
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     await expect(stat(join(vault, ".trash", "sub", "deep", "old.md"))).rejects.toThrow(/ENOENT/)
     await expect(stat(join(vault, ".trash", "sub"))).rejects.toThrow(/ENOENT/)
@@ -637,12 +701,9 @@ describe("sweepExpiredTrashEntries", () => {
     await mkdir(join(vault, ".trash", "shared"), { recursive: true })
     await writeFile(join(vault, ".trash", "shared", "old.md"), "expired", "utf8")
     await writeFile(join(vault, ".trash", "shared", "kept.md"), "stays", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/shared/old.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/shared/old.md"))
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     await expect(stat(join(vault, ".trash", "shared", "old.md"))).rejects.toThrow(/ENOENT/)
     const keptContent = await readFile(join(vault, ".trash", "shared", "kept.md"), "utf8")
@@ -656,12 +717,9 @@ describe("sweepExpiredTrashEntries", () => {
     // recorded expired file so a passing test proves the sweep actually ran.
     await writeFile(join(vault, ".trash", "obsidian-own.md"), "obsidian trashed this", "utf8")
     await writeFile(join(vault, ".trash", "recorded.md"), "ours", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/recorded.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/recorded.md"))
 
-    await trashSweeper.sweepExpiredTrashEntries(
-      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
-      logger,
-    )
+    await sweepAfterRetention(vault, index)
 
     await expect(stat(join(vault, ".trash", "recorded.md"))).rejects.toThrow(/ENOENT/)
     const obsidianOwnContent = await readFile(join(vault, ".trash", "obsidian-own.md"), "utf8")
@@ -674,7 +732,14 @@ describe("startTrashSweepSchedule", () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     await writeFile(join(vault, ".trash", "startup.md"), "expired", "utf8")
-    recordEntryDaysAgo(index, await recordedTrashFileAt(vault, ".trash/startup.md"), 31)
+    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/startup.md"))
+    // Only Date moves forward, as in sweepAfterRetention, so the row has
+    // expired while the file's change time still meets the limit.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    vi.setSystemTime(DateTime.now().plus({ days: SWEEP_DAYS_LATER }).toMillis())
 
     trashSweeper.startTrashSweepSchedule(
       { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
@@ -795,7 +860,7 @@ describe("purgeOrphanedTrashEntries", () => {
     const index = createSearchIndex(":memory:")
     // Back-date the original so the refresh (recorded at "now") gets a
     // different trashedAt — both within the same second would match.
-    recordEntryDaysAgo(index, recordedAbsentFile(".trash/raced.md"), 1)
+    recordEntryAt(index, recordedAbsentFile(".trash/raced.md"), DateTime.now().minus({ days: 1 }))
     // A control orphan, dropped whenever the purge runs, proves it ran.
     index.recordTrashEntry(recordedAbsentFile(".trash/control-orphan.md"))
     const racingStore: TrashEntryStore = {

@@ -161,11 +161,11 @@ mechanism-level detail.
   preventing the sync engine from interpreting the empty vault as mass
   local deletions
 - Trash sweep identity gate: the retention sweep deletes a recorded
-  `.trash/` file only while it still has the inode number, size,
-  modification time, and inode change time recorded when the server
-  trashed it, so a different note that Obsidian later trashed under a
-  recorded name is kept, and so is a trashed note that was restored and
-  trashed again
+  `.trash/` file only while it still has the inode number, size, and
+  modification time recorded when the server trashed it, and its inode
+  change time is no later than 60 seconds after that. A different note
+  that Obsidian later trashed under a recorded name is kept, and so is a
+  trashed note that was restored and trashed again after that minute
 - Memory shrink guard: refuses writes that would remove >50% of a file's
   bytes — defense-in-depth against bugs that would silently erase most of
   a memory file

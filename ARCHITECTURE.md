@@ -1204,9 +1204,9 @@ Docker hardening, and durability seatbelts above.
   exclusive create, so an existing trash copy is never overwritten.
   - **Recording** — moves made under the `system` setting are recorded in
     the index DB's `trash_entries` table, together with the landed file's
-    identity (its inode number, size, modification time and inode change
-    time, read by `readTrashFileIdentity`). Recording is fail-open — a failed identity
-    read or row write logs a warning, the delete still succeeds, and an
+    identity (its inode number, size and modification time, read by
+    `readTrashFileState`). Recording is fail-open — a failed identity read
+    or row write logs a warning, the delete still succeeds, and an
     unrecorded entry is never swept.
   - **Stale rows** — a move that is not recorded (`local`, or a failed
     record) drops any earlier row at its landed path, so the sweep never
@@ -1225,20 +1225,26 @@ Docker hardening, and durability seatbelts above.
     unbounded stale rows.
   - **Retention sweep** — runs at startup and daily. Deletes the files
     of recorded entries older than `TRASH_RETENTION_DAYS`. Each unlink
-    passes three gates:
+    passes four gates:
     1. The resolved path must sit inside `.trash/`, so a corrupted row
        cannot reach live notes.
     2. The parent directory's realpath must sit inside `.trash/`, so a
        directory symlink cannot redirect the path onto live notes.
     3. The file at the path must still have the row's recorded identity.
-       Otherwise the file is kept, the row dropped, and a warning logged.
-       This keeps:
-       - a different note that Obsidian trashed under the same name after
-         `.trash/` was emptied by hand, which leaves the row behind
-       - a trashed note restored by hand and trashed again, because each
-         rename moves its inode change time
-       - a file whose attributes changed while it sat in `.trash/`
-       - the file of a row recorded before identities were kept
+    4. The file's inode change time must be no later than 60 seconds after
+       the row was recorded. The change time is not stored in the row,
+       because a Docker Desktop container keeps reporting a file's old
+       change time after its own rename while the host's value moves.
+
+    A file that fails gate 3 or 4 is kept, its row dropped, and a warning
+    logged with the reason. This keeps:
+    - a different note that Obsidian trashed under the same name after
+      `.trash/` was emptied by hand, which leaves the row behind
+    - a trashed note restored by hand and trashed again more than a minute
+      later, because each rename moves its change time
+    - a file whose attributes changed while it sat in `.trash/`
+    - the file of a row recorded before identities were kept
+
   - Both share a serializing lock with the trash move and re-read each
     row under it before acting, so neither operates on a stale snapshot.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
