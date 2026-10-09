@@ -212,8 +212,13 @@ fi
 # - The marker's lockfile hash must match the current one. A tree built from
 #   an older lockfile passes npm ls whenever package.json ranges still hold,
 #   and stamping it would hide the lockfile change forever.
+# - npm writes node_modules/.package-lock.json only once an install finishes,
+#   install scripts included, and npm ci deletes the old one first. It must be
+#   newer than the marker: a tree that npm ci never touched has an older one,
+#   and a tree whose npm ci was killed mid-build (SIGKILL skips npm's
+#   rollback) has none, yet both can pass npm ls.
 marker_lockfile_hash="$(cat "${marker}" 2>/dev/null || true)"
-if [[ "${lock_held}" == true && -d "${checkout}/node_modules" && -f "${marker}" && "${marker_lockfile_hash}" == "${lockfile_hash}" ]]; then
+if [[ "${lock_held}" == true && -f "${marker}" && "${marker_lockfile_hash}" == "${lockfile_hash}" && "${checkout}/node_modules/.package-lock.json" -nt "${marker}" ]]; then
   if npm --prefix "${checkout}" ls --all >/dev/null 2>&1; then
     rm -f "${marker}"
 

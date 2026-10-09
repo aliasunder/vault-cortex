@@ -8,6 +8,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -145,9 +146,27 @@ const createBinDirWithoutPerl = (fixture: HookFixture): string => {
   return binDir
 }
 
+/** The marker's modification time, in seconds since the epoch. Fixed, so the
+ *  hidden lockfile's age relative to it never depends on the clock. */
+const MARKER_MTIME = 1_700_000_000
+
 /** Leaves the marker an interrupted install of the current lockfile would. */
 const leaveMarker = (fixture: HookFixture): void => {
-  writeFileSync(join(fixture.stateDir, "install-deps-incomplete"), `${fixture.lockfileHash}\n`)
+  const markerPath = join(fixture.stateDir, "install-deps-incomplete")
+  writeFileSync(markerPath, `${fixture.lockfileHash}\n`)
+  utimesSync(markerPath, MARKER_MTIME, MARKER_MTIME)
+}
+
+/** Writes the node_modules/.package-lock.json that npm leaves when an install
+ *  finishes, dated relative to the marker (negative: before it). */
+const writeHiddenLockfile = (
+  fixture: HookFixture,
+  { secondsAfterMarker }: { secondsAfterMarker: number },
+): void => {
+  const hiddenLockfilePath = join(fixture.checkout, "node_modules", ".package-lock.json")
+  writeFileSync(hiddenLockfilePath, '{"name":"fixture","lockfileVersion":3}\n')
+  const hiddenLockfileMtime = MARKER_MTIME + secondsAfterMarker
+  utimesSync(hiddenLockfilePath, hiddenLockfileMtime, hiddenLockfileMtime)
 }
 
 const runHook = (options: HookRunOptions): HookRun => {
@@ -201,9 +220,10 @@ describe("install-deps hook", () => {
   })
 
   describe("with a marker left by an interrupted install", () => {
-    it("clears the marker and stamps the tree when it holds the lock and every depth of the tree resolves", () => {
+    it("clears the marker and stamps the tree when it holds the lock, the install finished after the marker, and every depth of the tree resolves", () => {
       const fixture = createHookFixture()
       leaveMarker(fixture)
+      writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
 
       const run = runHook({ fixture })
 
@@ -224,6 +244,7 @@ describe("install-deps hook", () => {
     it("reinstalls instead of trusting the tree when it could not take the lock", () => {
       const fixture = createHookFixture()
       leaveMarker(fixture)
+      writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
 
       const run = runHook({ fixture, path: createBinDirWithoutPerl(fixture) })
 
@@ -244,6 +265,7 @@ describe("install-deps hook", () => {
     it("reinstalls when a dependency at any depth is missing", () => {
       const fixture = createHookFixture()
       leaveMarker(fixture)
+      writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
 
       const run = runHook({ fixture, npmLsStatus: 1 })
 
@@ -256,6 +278,47 @@ describe("install-deps hook", () => {
         status: 0,
         stdout: "",
         npmCalls: [`--prefix ${fixture.checkout} ls --all`, "ci"],
+        markerLeft: false,
+        stamp: `${fixture.lockfileHash}\n`,
+      })
+    })
+
+    it("reinstalls without consulting npm ls when the tree's hidden lockfile predates the marker", () => {
+      const fixture = createHookFixture()
+      leaveMarker(fixture)
+      writeHiddenLockfile(fixture, { secondsAfterMarker: -60 })
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        npmCalls: ["ci"],
+        markerLeft: false,
+        stamp: `${fixture.lockfileHash}\n`,
+      })
+    })
+
+    it("reinstalls without consulting npm ls when the tree has no hidden lockfile", () => {
+      const fixture = createHookFixture()
+      leaveMarker(fixture)
+
+      const run = runHook({ fixture })
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: "",
+        npmCalls: ["ci"],
         markerLeft: false,
         stamp: `${fixture.lockfileHash}\n`,
       })
