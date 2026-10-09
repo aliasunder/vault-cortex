@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { DateTime, Settings } from "luxon"
 import { mtimeToIso } from "../../../utils/mtime-to-iso.js"
 import {
@@ -15,8 +15,12 @@ import {
   stripTrailingSlashes,
   pathIsInFolder,
   dayToEpochMsRange,
+  parseNoteForIndex,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
+import { parseNote, UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
+
+vi.mock("../../obsidian-markdown/frontmatter.js", { spy: true })
 
 // ── isString ──────────────────────────────────────────────────
 
@@ -67,6 +71,58 @@ describe("coerceToArray", () => {
 
   it("returns empty array for empty string", () => {
     expect(coerceToArray("")).toEqual([])
+  })
+})
+
+// ── parseNoteForIndex ─────────────────────────────────────────
+
+describe("parseNoteForIndex", () => {
+  it("reads a note whose block is readable with its properties and body", () => {
+    expect(parseNoteForIndex("---\ntitle: Plan\ntags: [plan]\n---\nBody line\n")).toEqual({
+      data: { title: "Plan", tags: ["plan"] },
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
+  it("drops a block that is not valid YAML and reads the body with no properties", () => {
+    const parsed = parseNoteForIndex("---\ntitle: Meeting: Q3 plan\n---\nBody line\n")
+
+    expect(parsed).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: expect.any(UnsupportedPropertiesBlockError),
+    })
+    expect(parsed.unreadableBlockError).toMatchObject({
+      kind: "invalid-yaml",
+      message:
+        "properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+    })
+  })
+
+  it("rethrows a parser failure that is not an unreadable block", () => {
+    const parserFailure = new Error("unexpected parser failure")
+    vi.mocked(parseNote).mockImplementationOnce(() => {
+      throw parserFailure
+    })
+
+    expect(() => parseNoteForIndex("---\ntitle: Plan\n---\nBody line\n")).toThrow(parserFailure)
+  })
+
+  it("reads a list block as no properties without reporting it", () => {
+    expect(parseNoteForIndex("---\n- a\n- b\n---\nBody line\n")).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
+  it("reads a note without a block as its whole content", () => {
+    expect(parseNoteForIndex("Body line\n")).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
   })
 })
 

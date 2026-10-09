@@ -412,6 +412,42 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     return { testVault, search, database, fire }
   }
 
+  it("re-indexes a changed note whose block is not valid YAML from its body, with no error", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    await writeFile(join(testVault, "note.md"), "---\ntags: [plan]\n---\nolder amber text\n")
+    await fire("add", "note.md")
+    expect(search.fullTextSearch({ query: "amber" }, logger).map((hit) => hit.path)).toEqual([
+      "note.md",
+    ])
+    const errorSpy = vi.spyOn(logger, "error")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => {
+      errorSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+
+    await writeFile(
+      join(testVault, "note.md"),
+      "---\ntitle: Meeting: Q3 plan\n---\nnewer opal text\n",
+    )
+    await fire("change", "note.md")
+
+    expect(errorSpy).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "indexed note without its unreadable properties block",
+      {
+        path: "note.md",
+        error:
+          "[Error]: properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+      },
+    )
+    expect(search.fullTextSearch({ query: "amber" }, logger)).toEqual([])
+    expect(search.fullTextSearch({ query: "opal" }, logger).map((hit) => hit.path)).toEqual([
+      "note.md",
+    ])
+    expect(search.searchByTag({ tag: "plan" }, logger)).toEqual([])
+  })
+
   it.each([{ event: "add" }, { event: "change" }] as const)(
     "contains a non-markdown stat failure during $event and recovers",
     async ({ event }) => {
