@@ -140,6 +140,11 @@ const holdInstallLock = (fixture: HookFixture, { seconds }: { seconds: number })
 const flockCommandAvailable = (): boolean =>
   spawnSync("bash", ["-c", "command -v flock"], { env: { PATH: runnerPath() } }).status === 0
 
+/** busybox flock rejects -w and -E, so with it the hook never waits. */
+const flockCanWait = (): boolean =>
+  spawnSync("bash", ["-c", "flock -w 1 -E 75 /dev/null true"], { env: { PATH: runnerPath() } })
+    .status === 0
+
 /** PATH lookup skips a file without the executable bit, and would run the
  *  real binary instead. */
 const writeExecutable = (path: string, script: string): void => {
@@ -380,7 +385,7 @@ describe("install-deps hook", () => {
       },
     )
 
-    it.skipIf(!flockCommandAvailable())(
+    it.skipIf(!flockCanWait())(
       "waits with the flock command while another session holds the lock, then recovers the tree",
       () => {
         const fixture = createHookFixture()
