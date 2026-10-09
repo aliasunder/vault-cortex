@@ -230,8 +230,9 @@ const sweepOneEntry = async (
 }
 
 /** Removes every recorded trash entry older than `retentionDays` whose file
- *  still has its recorded identity, and drops the rows of entries whose files
- *  are gone or no longer match. Each row is processed under the shared
+ *  still has its recorded identity and meets the change-time limit, and drops
+ *  the rows of entries whose files are gone or fail either check. Each row is
+ *  processed under the shared
  *  trash-domain lock (per row, so a long sweep never starves deletes), with
  *  an in-lock re-read deciding whether the row is still expired. */
 const sweepExpiredTrashEntries = async (params: SweepParams, logger: Logger): Promise<void> => {
