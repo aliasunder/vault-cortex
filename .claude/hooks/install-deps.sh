@@ -174,9 +174,11 @@ lockfile_hash="$(git -C "${checkout}" hash-object package-lock.json 2>/dev/null 
 # the stamp and marker hold the lockfile hash plus the ABI of the Node that
 # installs (the checkout's Node, first on PATH by now). Empty without a
 # lockfile, like the hash.
+# - The probe runs in the checkout, where npm ci runs: a version manager's
+#   node shim (asdf, mise, volta) picks its Node by the current directory.
 install_identity=""
 if [[ -n "${lockfile_hash}" ]]; then
-  install_identity="${lockfile_hash} node-abi-$(node -p process.versions.modules 2>/dev/null || echo unknown)"
+  install_identity="${lockfile_hash} node-abi-$(cd "${checkout}" && node -p process.versions.modules 2>/dev/null || echo unknown)"
 fi
 
 # The build:sst npm script typechecks sst.config.ts via tsconfig.sst.json,

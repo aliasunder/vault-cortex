@@ -19,10 +19,12 @@ import { describe, expect, it, onTestFinished } from "vitest"
 
 /**
  * Behavioral spec for the dependency installer hook
- * (.claude/hooks/install-deps.sh): what it does with the marker an
- * interrupted install leaves behind. The real hook runs under `bash` with
- * real node, git and perl, and with stub `npm` and `npx` executables first on
- * PATH, so no install ever runs.
+ * (.claude/hooks/install-deps.sh): how it finds the checkout and its Node,
+ * writes the session's PATH line, and decides, under the install lock,
+ * whether to install or to keep a tree an interrupted install left behind.
+ * The real hook runs under `bash` with real git, and with stub `npm` and
+ * `npx` executables first on PATH, so no install ever runs. Node and perl
+ * are real unless a test puts a stand-in first on PATH.
  */
 
 const HOOK_PATH = resolve(import.meta.dirname, "../../.claude/hooks/install-deps.sh")
@@ -1154,6 +1156,40 @@ describe("install-deps hook", () => {
         npmCalls: ["v20 ci"],
         envFile: `export PATH="${defaultBin}:$PATH"\n`,
         stamp: `${fixture.lockfileHash} node-abi-115\n`,
+      })
+    })
+
+    // A version manager's node shim (asdf, mise, volta) picks its Node by the
+    // current directory, and npm ci runs in the checkout, not in the hook's
+    // working folder.
+    it("records the ABI of the Node a directory-keyed shim picks in the checkout, where npm ci runs", () => {
+      const fixture = createHookFixture()
+      leaveOlderStamp(fixture)
+      const shimBin = join(fixture.outsideDir, "shims")
+      mkdirSync(shimBin)
+      writeExecutable(
+        join(shimBin, "node"),
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "-p" ] && [ "$2" = "process.versions.modules" ]; then',
+          `  if [ "$PWD" = "${fixture.checkout}" ]; then echo ${STUB_NODE_ABIS.v24}; else echo ${STUB_NODE_ABIS.v20}; fi`,
+          "  exit 0",
+          "fi",
+          `exec "${process.execPath}" "$@"`,
+          "",
+        ].join("\n"),
+      )
+
+      const run = runHook({ fixture, path: `${shimBin}:${fixture.stubBinDir}:${runnerPath()}` })
+
+      expect({
+        status: run.status,
+        npmCalls: recordedNpmCalls(fixture),
+        stamp: installState(fixture).stamp,
+      }).toEqual({
+        status: 0,
+        npmCalls: ["ci"],
+        stamp: `${fixture.lockfileHash} node-abi-${STUB_NODE_ABIS.v24}\n`,
       })
     })
 
