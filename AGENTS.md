@@ -935,9 +935,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`, which covers the derivation that
   `init-derive-env` publishes), and the hook tests in `src/__tests__/`
-  (`install-deps.test.ts`, `require-nonroot-tests.test.ts`). These script tests run the real
-  script under its own shell (`sh` for the init scripts, `bash` for the
-  hooks) with stub binaries on `PATH`, and name the script they cover —
+  (`install-deps.test.ts`, `require-nonroot-tests.test.ts`). These script
+  tests run the real script under its own shell (`sh` for the init
+  scripts, `bash` for the hooks) with stub binaries on `PATH`, and name
+  the script they cover —
   don't move them next to the scripts or widen vitest's include for
   them. Whole-image behaviour (the init chain's ordering,
   the `container_environment` files the chain publishes, the volume
