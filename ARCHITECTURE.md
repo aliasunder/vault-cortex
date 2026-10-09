@@ -1232,17 +1232,18 @@ Docker hardening, and durability seatbelts above.
        directory symlink cannot redirect the path onto live notes.
     3. The file at the path must still have the row's recorded identity.
     4. The file's inode change time must be no later than 60 seconds after
-       the row was recorded. The change time is not stored in the row:
-       after a Docker Desktop container renames a file, it keeps reporting
-       the file's old change time while the host's value moves, so a stored
-       value stops matching once the container restarts.
+       the row was recorded. The change time is not stored in the row,
+       because after a Docker Desktop container renames a file it keeps
+       reporting the file's old change time while the host's value moves,
+       so a stored value would stop matching once the container restarts.
 
     A file that fails gate 3 or 4 is kept, its row dropped, and a warning
     logged with the reason. This keeps:
     - a different note that Obsidian trashed under the same name after
       `.trash/` was emptied by hand, which leaves the row behind
     - a trashed note restored by hand and trashed again more than a minute
-      later, because each rename moves its change time
+      later, on a file system whose renames move the change time (ext4 and
+      APFS do; POSIX leaves it optional)
     - a file whose attributes changed while it sat in `.trash/`
     - the file of a row recorded before identities were kept
 
