@@ -458,14 +458,16 @@ export const createSearchIndex = (
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due);
 
-    -- Files this server moved to .trash/, for the retention sweep. trash_key
-    -- is the case-folded path (one row per physical file on case-insensitive
-    -- mounts, so a fresh delete's upsert replaces a stale case-alias row
-    -- instead of leaving it to purge the wrong sibling); trash_path keeps the
-    -- exact spelling for filesystem operations; file_identity is the landed
-    -- file's identity, which the sweep matches before deleting (NULL on a
-    -- row recorded before the column existed). No index: the table stays
-    -- small and the sweep is a daily full scan.
+    -- Files this server moved to .trash/, for the retention sweep:
+    -- - trash_key is the case-folded path, one row per physical file on
+    --   case-insensitive mounts. On those, .trash/a.md and .trash/A.md are one
+    --   file, so a delete landing at .trash/A.md replaces a stale .trash/a.md
+    --   row instead of keeping a second row that could expire the file on
+    --   the old row's date.
+    -- - trash_path keeps the exact spelling for filesystem operations.
+    -- - file_identity is the landed file's identity, which the sweep matches
+    --   before deleting; NULL on a row recorded before the column existed.
+    -- No index: the table stays small and the sweep is a daily full scan.
     CREATE TABLE IF NOT EXISTS trash_entries (
       trash_key      TEXT PRIMARY KEY,
       trash_path     TEXT NOT NULL,
@@ -2664,6 +2666,8 @@ export const createSearchIndex = (
     )
   }
 
+  /** Looks the row up by the case-folded key, so the returned trashPath is
+   *  the spelling recorded last, which can be a case alias of the argument. */
   const getTrashEntry = (trashPath: string): TrashEntry | null => {
     const row = selectTrashEntryStmt.get(caseFoldPath(trashPath))
 

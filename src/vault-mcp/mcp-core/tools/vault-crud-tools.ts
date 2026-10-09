@@ -1135,13 +1135,11 @@ Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any 
               // Only "system" moves are swept later, so only they are recorded;
               // "local" is Obsidian's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
-              // The retention sweep deletes the file at an expired
-              // trash_entries row's path while it still has the identity the
-              // row recorded, and a row can outlive its time in .trash/ when a
-              // note is restored by hand. A move that does not record clears
-              // the row at its landed path, so the sweep cannot remove such a
-              // note trashed again, for example a "local" note meant to be
-              // kept. A "none" delete lands nothing in .trash/ and never calls it.
+              // Passed for every option because moveNoteToTrash calls it only
+              // for a move it does not record ("local", or a "system" move
+              // whose record failed), to drop an earlier row at the landed
+              // path; moveNoteToTrash says why that row must go. A "none"
+              // delete lands nothing in .trash/ and never calls it.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,

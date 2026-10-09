@@ -1202,24 +1202,30 @@ Docker hardening, and durability seatbelts above.
   delete under Obsidian's `system` (default) or `local` trash setting
   moves the note into `.trash/`. Each candidate name is claimed with an
   exclusive create, so an existing trash copy is never overwritten.
-  `system`-mapped moves are recorded in the index DB's `trash_entries`
-  table, together with the landed file's identity (its inode number, size
-  and modification time, read by `readTrashFileIdentity`). Recording is
-  fail-open — a failed identity read or row write logs a warning, the
-  delete still succeeds, and an unrecorded entry is never swept. The
-  table's primary key is the case-folded path, so a case alias replaces
-  its stale row instead of leaving one that could purge the wrong sibling
-  on a case-insensitive mount.
+  - **Recording** — moves made under the `system` setting are recorded in
+    the index DB's `trash_entries` table, together with the landed file's
+    identity (its inode number, size and modification time, read by
+    `readTrashFileIdentity`). Recording is fail-open — a failed identity
+    read or row write logs a warning, the delete still succeeds, and an
+    unrecorded entry is never swept.
+  - **Stale rows** — a move that is not recorded (`local`, or a failed
+    record) drops any earlier row at its landed path, so the sweep never
+    deletes the newly trashed note.
+  - **Case-folded key** — the table's primary key is the case-folded path.
+    On a case-insensitive mount `.trash/a.md` and `.trash/A.md` are one
+    file, so a delete landing at `.trash/A.md` replaces a stale
+    `.trash/a.md` row instead of keeping a second row that could expire the
+    file on the old row's date.
 - **Recorded trash bookkeeping** (`trash-sweeper.ts`): two row-driven
   operations (neither walks the folder):
   - **Orphan purge** — runs once at boot regardless of
     `TRASH_RETENTION_DAYS`. Drops rows whose `.trash/` entry no longer
-    exists on disk (uses lstat, so dangling symlinks are kept), so
-    manual emptying or `retention=none` never leaves
+    exists on disk (uses lstat, so a dangling symlink's row is kept), so
+    manual emptying or `TRASH_RETENTION_DAYS=none` never leaves
     unbounded stale rows.
-  - **Retention sweep** — runs at startup and daily. Purges recorded
-    entries older than `TRASH_RETENTION_DAYS`. Each unlink passes three
-    guards:
+  - **Retention sweep** — runs at startup and daily. Deletes the files
+    of recorded entries older than `TRASH_RETENTION_DAYS`. Each unlink
+    passes three gates:
     1. The resolved path must sit inside `.trash/`, so a corrupted row
        cannot reach live notes.
     2. The parent directory's realpath must sit inside `.trash/`, so a
