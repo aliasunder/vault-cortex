@@ -818,5 +818,34 @@ describe("install-deps hook", () => {
         envFile: `export PATH="${defaultBin}:$PATH"\n`,
       })
     })
+
+    it("installs with the .nvmrc Node on a worktree entry too, without writing a PATH line", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), "24\n")
+      leaveOlderStamp(fixture)
+      writeNvmStandIn(fixture)
+      const launchingShellBin = createNodeBinDir(fixture, "v22")
+      const nvmrcBin = createNodeBinDir(fixture, "v24")
+      const defaultBin = createNodeBinDir(fixture, "v20")
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+
+      const run = runHook({
+        fixture,
+        path: `${launchingShellBin}:${fixture.stubBinDir}:${runnerPath()}`,
+        hookEventName: "PostToolUse",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: join(nvmrcBin, "node"), defaultNode: join(defaultBin, "node") },
+      })
+
+      expect({
+        status: run.status,
+        npmCalls: recordedNpmCalls(fixture),
+        envFile: readFileIfPresent(claudeEnvFile),
+      }).toEqual({
+        status: 0,
+        npmCalls: ["v24 ci"],
+        envFile: null,
+      })
+    })
   })
 })

@@ -91,7 +91,9 @@ persist_node_on_path() {
   # Only SessionStart invocations write the PATH line: Claude Code hands them
   # the session's own env file. A worktree entry (PostToolUse) could inherit
   # a CLAUDE_ENV_FILE the user exported, so writing there would append the
-  # PATH line to that file.
+  # PATH line to that file. A worktree whose .nvmrc names another Node than
+  # the first checkout's therefore installs with that Node, while later
+  # commands keep the Node written at session start.
   local hook_event
   hook_event="$(read_payload_field hook_event_name)"
   [[ "${hook_event}" == "SessionStart" ]] || return 0
