@@ -3960,11 +3960,15 @@ describe("rebuildFromVault", () => {
 
     const { count } = await linkFailureIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
-    expect(count).toBe(2)
+    // The note's Pass 1 rows are committed, so it counts as indexed and stays searchable
+    expect(count).toBe(3)
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
-      "skipped note that failed to index during rebuild",
+      "skipped the links of a note whose link pass failed during rebuild",
       { path: "linker.md", error: "[SqliteError]: injected link failure" },
     )
+    expect(
+      linkFailureIndex.fullTextSearch({ query: "alpha" }, logger).map((result) => result.path),
+    ).toEqual(["linker.md"])
     expect(linkFailureIndex.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([])
   })
 

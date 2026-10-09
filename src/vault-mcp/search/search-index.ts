@@ -2345,8 +2345,9 @@ export const createSearchIndex = (
         for (const note of noteContents) {
           if (skippedNotePaths.has(note.relativePath)) continue
           try {
-            // Each note gets its own savepoint, so a note counted as skipped
-            // after its links fail partway keeps none of the links it inserted
+            // Each note gets its own savepoint, so a note whose links fail
+            // partway keeps none of the links it inserted. Its Pass 1 rows
+            // stay committed, so it is still counted as indexed.
             db.transaction(() => {
               // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
               // warned about an unreadable block for this note
@@ -2371,8 +2372,7 @@ export const createSearchIndex = (
               }
             })()
           } catch (error) {
-            skippedNotePaths.add(note.relativePath)
-            logger.warn("skipped note that failed to index during rebuild", {
+            logger.warn("skipped the links of a note whose link pass failed during rebuild", {
               path: note.relativePath,
               error: describeError(error),
             })
@@ -2411,7 +2411,7 @@ export const createSearchIndex = (
       throw error
     }
 
-    /** The rebuild count excludes failures in either indexing pass; embedding uses Pass 1 successes. */
+    /** The rebuild count excludes notes whose Pass 1 index write failed; embedding uses the same set. */
     const indexedNotes = noteContents.filter((note) => !skippedNotePaths.has(note.relativePath))
     const totalBytes = indexedNotes.reduce((sum, note) => sum + note.sizeBytes, 0)
     logger.info("rebuilt index", {

@@ -719,6 +719,20 @@ title: Agents
       ["Opinions", "Code patterns (newest first)", "- **2026-08-01**: Named over positional."],
     ])
     expect(countVectors(inspect)).toBe(2)
+    // The note's chunks follow the file too: one chunk per note, built from the
+    // new body as plain text under the file-name title
+    const chunkRows = inspect
+      .prepare<[], { note_path: string; chunk_text: string }>(
+        "SELECT note_path, chunk_text FROM note_chunks ORDER BY note_path, chunk_index",
+      )
+      .all()
+    expect(chunkRows.map((row) => row.note_path)).toEqual([
+      "About Me/Agents.md",
+      "About Me/Opinions.md",
+    ])
+    expect(chunkRows[1]?.chunk_text).toBe(
+      "Opinions\n\nOpinions\n\nCode patterns (newest first)\n\n- 2026-08-01: Named over positional.",
+    )
   })
 
   it("embeds zero entries on a second rebuild with unchanged files", async () => {
