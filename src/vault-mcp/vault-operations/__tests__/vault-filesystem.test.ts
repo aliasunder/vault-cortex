@@ -1052,6 +1052,14 @@ describe("readTrashFileIdentity", () => {
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
 
+  /** The identity minus its last field, the change time (the first test below
+   *  pins the field order). A write or a utimes call also moves the change
+   *  time, so comparing what is left shows the field a test names is enough
+   *  on its own to tell two files apart. */
+  const identityWithoutChangeTime = (identity: string): string => {
+    return identity.slice(0, identity.lastIndexOf(":"))
+  }
+
   it("joins the link's own inode number, size, modification time and change time", async () => {
     await writeFile(join(vault, "target.md"), "a longer target body", "utf8")
     await symlink(join(vault, "target.md"), join(vault, "link.md"))
@@ -1120,23 +1128,26 @@ describe("readTrashFileIdentity", () => {
     expect(await readTrashFileIdentity(notePath)).not.toBe(originalIdentity)
   })
 
-  it("differs for another file with the same size and modification time", async () => {
+  it("differs by inode number for another file with the same size and modification time", async () => {
     await writeFile(join(vault, "first.md"), "same", "utf8")
     await writeFile(join(vault, "second.md"), "same", "utf8")
     await utimes(join(vault, "first.md"), FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
     await utimes(join(vault, "second.md"), FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
     const firstStats = await lstat(join(vault, "first.md"), { bigint: true })
     const secondStats = await lstat(join(vault, "second.md"), { bigint: true })
-    // Only the inode number tells the two files apart.
+    // Same size and modification time, so the inode number is the only field
+    // left to tell the two files apart.
     expect([secondStats.size, secondStats.mtimeNs]).toEqual([firstStats.size, firstStats.mtimeNs])
 
     const firstIdentity = await readTrashFileIdentity(join(vault, "first.md"))
     const secondIdentity = await readTrashFileIdentity(join(vault, "second.md"))
 
-    expect(secondIdentity).not.toBe(firstIdentity)
+    expect(identityWithoutChangeTime(secondIdentity)).not.toBe(
+      identityWithoutChangeTime(firstIdentity),
+    )
   })
 
-  it("differs after the file is rewritten in place at the same size", async () => {
+  it("differs by modification time after the file is rewritten in place at the same size", async () => {
     const notePath = join(vault, "rewritten.md")
     await writeFile(notePath, "aaaa", "utf8")
     await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
@@ -1152,10 +1163,13 @@ describe("readTrashFileIdentity", () => {
       originalStats.ino,
       originalStats.size,
     ])
-    expect(await readTrashFileIdentity(notePath)).not.toBe(originalIdentity)
+    const rewrittenIdentity = await readTrashFileIdentity(notePath)
+    expect(identityWithoutChangeTime(rewrittenIdentity)).not.toBe(
+      identityWithoutChangeTime(originalIdentity),
+    )
   })
 
-  it("differs after the file grows, even with its modification time restored", async () => {
+  it("differs by size after the file grows, even with its modification time restored", async () => {
     const notePath = join(vault, "resized.md")
     await writeFile(notePath, "short", "utf8")
     await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
@@ -1170,11 +1184,23 @@ describe("readTrashFileIdentity", () => {
       originalStats.ino,
       originalStats.mtimeNs,
     ])
-    expect(await readTrashFileIdentity(notePath)).not.toBe(originalIdentity)
+    const resizedIdentity = await readTrashFileIdentity(notePath)
+    expect(identityWithoutChangeTime(resizedIdentity)).not.toBe(
+      identityWithoutChangeTime(originalIdentity),
+    )
   })
 
-  it("rejects when nothing is at the path", async () => {
-    await expect(readTrashFileIdentity(join(vault, "absent.md"))).rejects.toThrow(/ENOENT/)
+  it("rejects with lstat's ENOENT when nothing is at the path", async () => {
+    // The sweep reads the error code to tell a missing file from a failed
+    // read. A partial match, because the error also carries a stack trace.
+    const absentPath = join(vault, "absent.md")
+
+    await expect(readTrashFileIdentity(absentPath)).rejects.toMatchObject({
+      message: `ENOENT: no such file or directory, lstat '${absentPath}'`,
+      code: "ENOENT",
+      syscall: "lstat",
+      path: absentPath,
+    })
   })
 })
 
@@ -1378,9 +1404,9 @@ describe("deleteNote — trash behavior", () => {
   })
 
   it("contains a throwing recordTrashEntry — warns, and the delete still succeeds with the note intact in .trash/", async () => {
-    // Recording is fail-open: the rename has already happened, so a throw
-    // must not reach the claim-cleanup path, which would delete the moved
-    // note itself. An unrecorded entry is simply never swept.
+    // The rename has already happened when recording runs, so a throw must
+    // not reach the claim cleanup, which would delete the moved note itself.
+    // An unrecorded entry is never swept.
     await writeFile(join(vault, "unrec.md"), "survives", "utf8")
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())

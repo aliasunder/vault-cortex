@@ -8322,6 +8322,12 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
   it("adds the file_identity column to a pre-existing trash_entries table, leaving old rows without one", async () => {
     const dir = await mkdtemp(join(tmpdir(), "warm-db-"))
     onTestFinished(() => rm(dir, { recursive: true }))
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const trashTime = DateTime.fromISO("2026-01-01T00:00:00Z")
+    vi.setSystemTime(trashTime.toMillis())
     const dbPath = join(dir, "search.db")
     // Simulate a database file created before the file_identity column.
     const legacyDb = new Database(dbPath)
@@ -8341,7 +8347,11 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
       trashedAt: 1700000000,
       fileIdentity: null,
     })
-    expect(warmIndex.getTrashEntry(".trash/new.md")?.fileIdentity).toBe(SAMPLE_FILE_IDENTITY)
+    expect(warmIndex.getTrashEntry(".trash/new.md")).toEqual({
+      trashPath: ".trash/new.md",
+      trashedAt: trashTime.toUnixInteger(),
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
   })
 
   it("treats the cutoff as exclusive — a row stamped exactly at the cutoff is not expired", () => {
