@@ -210,12 +210,13 @@ export const OPENING_BLOCK_ERROR_ENTRY =
  *  vault-relative.
  *  - A too-long name gets its own entry because the caller fixes it, not the
  *    vault's owner. A save first writes a temp file named after the note
- *    plus a UUID, so a note can read fine and still fail to save.
+ *    plus ".<UUID>.tmp", 41 bytes longer, so a note can read fine and still
+ *    fail to save; a rename writes the same temp file beside its new name.
  *  - Every such tool can return these, but each lists them only when its own
  *    description is next revised, because a grader re-scores every
  *    description whose text changes. */
 export const FILESYSTEM_ERROR_ENTRIES = [
-  '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path. If the quoted name ends in ".tmp", the note exists but its name is too long to save; rename it shorter',
+  '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path. If the quoted name ends in ".tmp", the note exists but its name is too long to save; rename it at least 41 bytes shorter',
   "- \"EACCES: …\" or another filesystem error code — the note's file can't be read or written (permissions, a full or read-only disk); ask the vault's owner to fix it",
 ].join("\n")
 

@@ -108,7 +108,7 @@ When to use: whenever a note references a file you need to actually see or read 
 
 Errors:
 - "not a file" — the path ends in .md; read notes with vault_read_note
-- "file not found" / "ENAMETOOLONG: …" — nothing exists at that path, or a name in it is longer than the filesystem allows; discover valid paths via vault_list_files
+- "file not found" / "ENAMETOOLONG: …" — nothing exists at that path, or the path (or a name in it) is longer than the filesystem allows; discover valid paths via vault_list_files
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable, matching Obsidian)
 - "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB)
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
