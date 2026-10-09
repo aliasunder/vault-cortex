@@ -98,6 +98,20 @@ type HookRunOptions = {
   npmCiWritesHiddenLockfile?: boolean
   /** The hook's PATH. Defaults to the stubs ahead of the runner's PATH. */
   path?: string
+  /** The session event the hook runs for. Defaults to a worktree entry
+   *  (PostToolUse), which never touches CLAUDE_ENV_FILE. */
+  hookEventName?: "SessionStart" | "PostToolUse"
+  /** CLAUDE_ENV_FILE for a SessionStart run. Unset by default. */
+  claudeEnvFile?: string
+  /** What the nvm stand-in from writeNvmStandIn answers. */
+  nvmAnswers?: NvmAnswers
+}
+
+/** The node paths the nvm stand-in prints: for `nvm which --silent` (the
+ *  .nvmrc version; null when nvm lacks it) and for `nvm which default`. */
+type NvmAnswers = {
+  nvmrcNode: string | null
+  defaultNode: string
 }
 
 /** The runner's own PATH, which the hook's real tools are found on. */
@@ -215,8 +229,10 @@ const runHook = (options: HookRunOptions): HookRun => {
   const { fixture } = options
   const result = spawnSync("bash", [HOOK_PATH], {
     cwd: fixture.outsideDir,
-    // A worktree entry: the hook then never touches CLAUDE_ENV_FILE.
-    input: JSON.stringify({ cwd: fixture.checkout, hook_event_name: "PostToolUse" }),
+    input: JSON.stringify({
+      cwd: fixture.checkout,
+      hook_event_name: options.hookEventName ?? "PostToolUse",
+    }),
     encoding: "utf8",
     // Built from scratch, so no nvm, CLAUDE_PROJECT_DIR or GIT_DIR from the
     // runner's own environment reaches the hook.
@@ -227,6 +243,9 @@ const runHook = (options: HookRunOptions): HookRun => {
       STUB_NPM_LS_STATUS: String(options.npmLsStatus ?? 0),
       STUB_NPM_CI_STATUS: String(options.npmCiStatus ?? 0),
       STUB_NPM_CI_WRITES_HIDDEN_LOCKFILE: options.npmCiWritesHiddenLockfile ? "1" : "0",
+      ...(options.claudeEnvFile ? { CLAUDE_ENV_FILE: options.claudeEnvFile } : {}),
+      STUB_NVM_NVMRC_NODE: options.nvmAnswers?.nvmrcNode ?? "",
+      STUB_NVM_DEFAULT_NODE: options.nvmAnswers?.defaultNode ?? "",
     },
   })
 
@@ -248,6 +267,42 @@ const installState = (fixture: HookFixture): { marker: string | null; stamp: str
     marker: readFileIfPresent(join(fixture.stateDir, "install-deps-incomplete")),
     stamp: readFileIfPresent(join(fixture.stateDir, "install-deps-lockhash")),
   }
+}
+
+/** nvm.sh stand-in defining an `nvm` command that answers the two lookups the
+ *  hook makes. Like nvm, `nvm which --silent` reads .nvmrc from the current
+ *  directory, so it fails unless the hook ran it inside the checkout, and
+ *  without an .nvmrc it reads the unset VERSION, which ends a set -u shell. */
+const NVM_STAND_IN = `nvm() {
+  case "$*" in
+    "which --silent")
+      [ -f .nvmrc ] || { : "$VERSION"; return 1; }
+      [ -n "$STUB_NVM_NVMRC_NODE" ] || return 1
+      echo "$STUB_NVM_NVMRC_NODE"
+      ;;
+    "which default") echo "$STUB_NVM_DEFAULT_NODE" ;;
+    *) return 1 ;;
+  esac
+}
+`
+
+const writeNvmStandIn = (fixture: HookFixture): void => {
+  writeFileSync(join(fixture.outsideDir, ".nvm", "nvm.sh"), NVM_STAND_IN)
+}
+
+/** A Node installation's bin folder, named by version. Its `node` runs the
+ *  runner's node (the hook parses its payload with whichever node comes
+ *  first), and its `npm` logs each call prefixed with the version, so the
+ *  log shows which Node's npm the hook ran. */
+const createNodeBinDir = (fixture: HookFixture, version: string): string => {
+  const binDir = join(fixture.outsideDir, "node-versions", version, "bin")
+  mkdirSync(binDir, { recursive: true })
+  writeExecutable(join(binDir, "node"), `#!/bin/sh\nexec "${process.execPath}" "$@"\n`)
+  writeExecutable(
+    join(binDir, "npm"),
+    `#!/bin/sh\nprintf '${version} %s\\n' "$*" >> "$STUB_NPM_LOG"\nexit 0\n`,
+  )
+  return binDir
 }
 
 describe("install-deps hook", () => {
@@ -604,6 +659,77 @@ describe("install-deps hook", () => {
         npmCalls: ["ci", "ci"],
         marker: null,
         stamp: `${fixture.lockfileHash}\n`,
+      })
+    })
+  })
+
+  describe("at session start", () => {
+    it("writes the .nvmrc Node's folder into the session's PATH line", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), "24\n")
+      writeNvmStandIn(fixture)
+      const nvmrcBin = createNodeBinDir(fixture, "v24")
+      const defaultBin = createNodeBinDir(fixture, "v20")
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+
+      const run = runHook({
+        fixture,
+        hookEventName: "SessionStart",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: join(nvmrcBin, "node"), defaultNode: join(defaultBin, "node") },
+      })
+
+      expect({ status: run.status, envFile: readFileIfPresent(claudeEnvFile) }).toEqual({
+        status: 0,
+        envFile: `export PATH="${nvmrcBin}:$PATH"\n`,
+      })
+    })
+
+    // Without an .nvmrc, nvm which reads an unset variable, so this passes only
+    // while the hook turns set -u off for the lookup.
+    it("writes nvm's default Node into the PATH line when the checkout has no .nvmrc", () => {
+      const fixture = createHookFixture()
+      writeNvmStandIn(fixture)
+      const defaultBin = createNodeBinDir(fixture, "v20")
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+
+      const run = runHook({
+        fixture,
+        hookEventName: "SessionStart",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: null, defaultNode: join(defaultBin, "node") },
+      })
+
+      expect({ status: run.status, envFile: readFileIfPresent(claudeEnvFile) }).toEqual({
+        status: 0,
+        envFile: `export PATH="${defaultBin}:$PATH"\n`,
+      })
+    })
+
+    it("leaves the session's PATH alone, and says so, when nvm finds no Node", () => {
+      const fixture = createHookFixture()
+      writeNvmStandIn(fixture)
+      const claudeEnvFile = join(fixture.outsideDir, "claude-env")
+
+      const run = runHook({
+        fixture,
+        hookEventName: "SessionStart",
+        claudeEnvFile,
+        nvmAnswers: { nvmrcNode: null, defaultNode: "" },
+      })
+
+      expect({
+        status: run.status,
+        stderr: run.stderr,
+        envFile: readFileIfPresent(claudeEnvFile),
+      }).toEqual({
+        status: 0,
+        stderr: [
+          `[install-deps] no nvm Node found for ${fixture.checkout} — later commands keep the session's PATH`,
+          `[install-deps] node_modules current in ${fixture.checkout} — nothing to do`,
+          "",
+        ].join("\n"),
+        envFile: null,
       })
     })
   })
