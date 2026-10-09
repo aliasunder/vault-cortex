@@ -111,30 +111,25 @@ const runnerPath = (): string => {
 /** Has another process hold the install lock for a few seconds, the way a
  *  concurrent session's install would, and returns once it holds it. */
 const holdInstallLock = (fixture: HookFixture, { seconds }: { seconds: number }): void => {
-  const readyFile = join(fixture.outsideDir, "lock-held")
-  const holder = spawn(
-    "bash",
-    [
-      "-c",
-      'exec 9>>"$1"; flock 9; : > "$2"; sleep "$3"',
-      "bash",
-      join(fixture.stateDir, "install-deps.lock"),
-      readyFile,
-      String(seconds),
-    ],
-    { env: { PATH: runnerPath() }, stdio: "ignore" },
-  )
+  const lockPath = join(fixture.stateDir, "install-deps.lock")
+  // flock FILE COMMAND holds the lock while the command runs, with no shell.
+  const holder = spawn("flock", [lockPath, "sleep", String(seconds)], {
+    env: { PATH: runnerPath() },
+    stdio: "ignore",
+  })
   onTestFinished(() => {
     holder.kill()
   })
 
   // A synchronous wait: runHook blocks the event loop, so the holder must
-  // hold the lock before the hook starts.
+  // hold the lock before the hook starts. flock -n exits 1 once it does.
+  const lockIsHeld = (): boolean =>
+    spawnSync("flock", ["-n", lockPath, "true"], { env: { PATH: runnerPath() } }).status === 1
   const pause = new Int32Array(new SharedArrayBuffer(4))
-  for (let attempt = 0; attempt < 250 && !existsSync(readyFile); attempt++) {
+  for (let attempt = 0; attempt < 250 && !lockIsHeld(); attempt++) {
     Atomics.wait(pause, 0, 0, 20)
   }
-  if (!existsSync(readyFile)) throw new Error("the lock holder never took the lock")
+  if (!lockIsHeld()) throw new Error("the lock holder never took the lock")
 }
 
 const flockCommandAvailable = (): boolean =>
@@ -336,7 +331,7 @@ describe("install-deps hook", () => {
       })
     })
 
-    it("reinstalls instead of trusting the tree when neither perl nor flock can take the lock", () => {
+    it("skips the install, keeping the marker, when neither perl nor flock can take the lock", () => {
       const fixture = createHookFixture()
       leaveMarker(fixture)
       writeHiddenLockfile(fixture, { secondsAfterMarker: 60 })
@@ -351,9 +346,9 @@ describe("install-deps hook", () => {
       }).toEqual({
         status: 0,
         stdout: "",
-        npmCalls: ["ci"],
-        marker: null,
-        stamp: `${fixture.lockfileHash}\n`,
+        npmCalls: [],
+        marker: `${fixture.lockfileHash}\n`,
+        stamp: null,
       })
     })
 

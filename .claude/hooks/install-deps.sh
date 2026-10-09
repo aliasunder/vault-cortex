@@ -197,6 +197,9 @@ fi
 #   inherits fd 9, so the lock stays held while an orphaned npm ci outlives a
 #   killed hook, and the kernel releases it once every holder exits. No stale
 #   lock is ever left for a later session to steal.
+# - The hook never installs or recovers without the lock: an orphaned npm ci
+#   may still be writing, and a half-written tree can pass npm ls. With no
+#   lock tool, a busy lock past the wait, or a lock error, it skips the install.
 # - Either tool locks the file open on this shell's fd 9, so the lock
 #   outlives the tool's own process. Both exit 0 with the lock held and 75
 #   (EX_TEMPFAIL from sysexits.h) when the wait times out.
@@ -205,14 +208,12 @@ fi
 #   open or lock it.
 # - flock(1) covers Linux images without perl (Alpine, Fedora minimal). It
 #   tries once with -n, which every flock(1) has, and only a busy lock waits
-#   with -w. busybox flock lacks -w, so there a busy lock falls through to
-#   installing without it.
+#   with -w. busybox flock lacks -w, so there a busy lock skips the install.
 exec 9>>"${state_dir}/install-deps.lock"
 
 # Well inside the 600s hook timeout in settings.json, so a timed-out wait
 # still exits cleanly.
 lock_wait_seconds=480
-lock_held=false
 # Starting at 0 and assigning only on failure records the lock tool's exit
 # status without set -e ending the hook.
 lock_status=0
@@ -238,14 +239,16 @@ elif command -v flock >/dev/null 2>&1; then
 fi
 
 if [[ -z "${lock_tool}" ]]; then
-  log "neither perl nor flock found — installing in ${checkout} without the install lock"
-elif ((lock_status == 75)); then
+  log "neither perl nor flock found — skipping the install in ${checkout}; install perl, or run npm ci yourself"
+  exit 0
+fi
+if ((lock_status == 75)); then
   log "concurrent install still running after ${lock_wait_seconds}s in ${checkout} — skipping"
   exit 0
-elif ((lock_status == 0)); then
-  lock_held=true
-else
-  log "could not take the install lock in ${checkout} (${lock_tool} exit ${lock_status}) — installing without it"
+fi
+if ((lock_status != 0)); then
+  log "could not take the install lock in ${checkout} (${lock_tool} exit ${lock_status}) — skipping the install"
+  exit 0
 fi
 
 # Dependencies can be current here for two reasons: they already were and only
@@ -259,14 +262,10 @@ fi
 
 # Succeeds when an interrupted hook's orphaned npm ci finished the install
 # anyway, so the tree can be kept instead of rebuilt. A hook killed by timeout
-# leaves the marker behind even when that npm ci later completes.
+# leaves the marker behind even when that npm ci later completes. The hook
+# holds the lock by now, so no orphaned npm ci is still writing: it would
+# still hold fd 9.
 orphaned_install_finished() {
-  # Without the lock, an orphaned npm ci may still be writing (it would still
-  # hold fd 9), and a half-written tree can pass npm ls.
-  if [[ "${lock_held}" != true ]]; then
-    return 1
-  fi
-
   # No marker means no install was interrupted: node_modules is missing or
   # stamped from an older lockfile. The marker hash check below cannot rule
   # this out alone, because a missing marker reads as "" and so does the hash
