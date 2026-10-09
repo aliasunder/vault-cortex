@@ -709,10 +709,14 @@ title: Agents
       },
     )
     // The index follows the file: the old entries are gone, the body's entry is in
-    expect(index.fullTextSearch({ query: "Immutable" }, logger)).toHaveLength(0)
-    expect(selectEntryRows(inspect).map((row) => [row.file, row.entry_date])).toEqual([
-      ["Agents", "2026-07-09"],
-      ["Opinions", "2026-08-01"],
+    expect(index.fullTextSearch({ query: "Immutable" }, logger)).toEqual([])
+    expect(selectEntryRows(inspect).map((row) => [row.file, row.section, row.entry_text])).toEqual([
+      [
+        "Agents",
+        "Communication (newest first)",
+        "- **2026-07-09**: Answer every question explicitly.",
+      ],
+      ["Opinions", "Code patterns (newest first)", "- **2026-08-01**: Named over positional."],
     ])
     expect(countVectors(inspect)).toBe(2)
   })

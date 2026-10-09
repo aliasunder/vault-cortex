@@ -1112,9 +1112,9 @@ describe("upsertNote", () => {
     )
 
     expect(index.fullTextSearch({ query: "amber" }, logger)).toEqual([])
-    expect(index.fullTextSearch({ query: "opal" }, logger).map((result) => result.path)).toEqual([
-      "plan.md",
-    ])
+    // The old block's title gives way to the file name
+    const opalHits = index.fullTextSearch({ query: "opal" }, logger)
+    expect(opalHits.map((result) => [result.path, result.title])).toEqual([["plan.md", "plan"]])
     expect(index.searchByTag({ tag: "plan" }, logger)).toEqual([])
     expect(index.listTasks({ status: "all" }, logger)).toEqual({ total: 0, tasks: [] })
   })
@@ -3941,6 +3941,81 @@ describe("rebuildFromVault", () => {
       "skipped note that failed to index during rebuild",
       { path: "tasked.md", error: `[Error]: ${taskInsertPoison.message}` },
     )
+  })
+
+  it("keeps the memory entries and vectors of a note that fails to index but is still on disk", async () => {
+    const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
+    const dbDir = await mkdtemp(join(tmpdir(), "rebuild-keep-failed-"))
+    onTestFinished(() => rm(dbDir, { recursive: true, force: true }))
+    const dbPath = join(dbDir, "index.db")
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+      embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+        return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+      }),
+    }
+    const memoryIndex = createSearchIndex(dbPath, embedder, undefined, { memoryDir: "About Me" })
+    const inspect = new Database(dbPath, { readonly: true })
+    sqliteVec.load(inspect)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const selectStoredRows = () => ({
+      entries: inspect.prepare("SELECT file, entry_date, entry_text FROM memory_entries").all(),
+      noteChunks: inspect
+        .prepare<[], { note_path: string; chunk_index: number; chunk_text: string }>(
+          "SELECT note_path, chunk_index, chunk_text FROM note_chunks ORDER BY note_path",
+        )
+        .all(),
+      noteVectors: countRow(inspect.prepare("SELECT COUNT(*) AS count FROM note_vectors").get())
+        .count,
+      entryVectors: countRow(
+        inspect.prepare("SELECT COUNT(*) AS count FROM memory_entry_vectors").get(),
+      ).count,
+    })
+    // The only fixture note with a task, so the poisoned statement fires for it alone
+    await writeFile(
+      join(vaultDir, "About Me/Opinions.md"),
+      "# Opinions\n\n## Code patterns (newest first)\n\n- **2026-08-01**: Named over positional.\n\n## Follow-ups\n\n- [ ] Revisit naming\n",
+      "utf8",
+    )
+    const firstBuild = await memoryIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await firstBuild.embedding
+    const rowsAfterFirstBuild = selectStoredRows()
+    // The first build stored rows for the note, so keeping them below is not vacuous.
+    // Chunks are checked by path only, because their text is the chunker's concern.
+    expect(rowsAfterFirstBuild).toMatchObject({
+      entries: [
+        {
+          file: "Opinions",
+          entry_date: "2026-08-01",
+          entry_text: "- **2026-08-01**: Named over positional.",
+        },
+      ],
+      noteVectors: 3,
+      entryVectors: 1,
+    })
+    expect(rowsAfterFirstBuild.noteChunks.map((chunk) => chunk.note_path)).toEqual([
+      "About Me/Opinions.md",
+      "About Me/Principles.md",
+      "root.md",
+    ])
+
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    taskInsertPoison.arm()
+    const secondBuild = await memoryIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    taskInsertPoison.disarm()
+    await secondBuild.embedding
+
+    // The warning and the empty search prove the second build skipped the note
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "skipped note that failed to index during rebuild",
+      { path: "About Me/Opinions.md", error: `[Error]: ${taskInsertPoison.message}` },
+    )
+    expect(memoryIndex.fullTextSearch({ query: "positional" }, logger)).toEqual([])
+    // A note still on disk is not treated as deleted; its rows wait for the next good index
+    expect(selectStoredRows()).toEqual(rowsAfterFirstBuild)
   })
 
   it.each([

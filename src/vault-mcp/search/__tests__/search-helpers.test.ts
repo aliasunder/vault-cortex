@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import { DateTime, Settings } from "luxon"
 import { mtimeToIso } from "../../../utils/mtime-to-iso.js"
 import {
@@ -18,7 +18,9 @@ import {
   parseNoteForIndex,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
-import { UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
+import { parseNote, UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
+
+vi.mock("../../obsidian-markdown/frontmatter.js", { spy: true })
 
 // ── isString ──────────────────────────────────────────────────
 
@@ -86,13 +88,25 @@ describe("parseNoteForIndex", () => {
   it("drops a block that is not valid YAML and reads the body with no properties", () => {
     const parsed = parseNoteForIndex("---\ntitle: Meeting: Q3 plan\n---\nBody line\n")
 
-    expect(parsed.data).toEqual({})
-    expect(parsed.content).toBe("Body line\n")
-    expect(parsed.unreadableBlockError).toBeInstanceOf(UnsupportedPropertiesBlockError)
-    expect(parsed.unreadableBlockError?.kind).toBe("invalid-yaml")
-    expect(parsed.unreadableBlockError?.message).toBe(
-      "properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
-    )
+    expect(parsed).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: expect.any(UnsupportedPropertiesBlockError),
+    })
+    expect(parsed.unreadableBlockError).toMatchObject({
+      kind: "invalid-yaml",
+      message:
+        "properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+    })
+  })
+
+  it("rethrows a parser failure that is not an unreadable block", () => {
+    const parserFailure = new Error("unexpected parser failure")
+    vi.mocked(parseNote).mockImplementationOnce(() => {
+      throw parserFailure
+    })
+
+    expect(() => parseNoteForIndex("---\ntitle: Plan\n---\nBody line\n")).toThrow(parserFailure)
   })
 
   it("reads a list block as no properties without reporting it", () => {
