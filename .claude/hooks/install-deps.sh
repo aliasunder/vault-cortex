@@ -160,12 +160,13 @@ dependencies_are_current() {
   [[ "${stamped}" == "${lockfile_hash}" ]]
 }
 
-# Records an install the hook itself ran to completion: clears the marker and
-# stamps the lockfile hash, so a later lockfile change triggers a reinstall.
+# Records an install the hook itself ran to completion: stamps the lockfile
+# hash and clears the marker, so a later lockfile change triggers a reinstall.
 # The stamp goes first: a hook killed between the two steps then leaves the
-# marker, and the next session's recovery step re-checks the tree. The other
-# order leaves neither file, which reads as a developer-installed tree and
-# turns the lockfile-change check off for this checkout.
+# marker, so the next session re-checks the tree, or reinstalls it without the
+# lock. The other order leaves no marker and, on a checkout never stamped
+# before, no stamp, which reads as a developer-installed tree and turns the
+# lockfile-change check off for this checkout.
 record_finished_install() {
   if [[ -n "${lockfile_hash}" ]]; then
     printf '%s\n' "${lockfile_hash}" > "${stamp}"
