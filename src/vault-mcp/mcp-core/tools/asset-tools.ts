@@ -121,7 +121,8 @@ Errors:
 - "PDF is damaged or not a PDF" — the file does not parse as a PDF; replace or re-export it
 - "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
 - "image cannot be fitted" — the image could not be compressed under the image output budget
-- "could not decode image" — the file is empty, damaged, or not an image despite its extension; replace or re-export it
+- "could not decode image" — the file is empty, damaged, not an image despite its extension, or over about 268 million pixels; replace or re-export it
+- "EACCES: …" or another filesystem error code — the file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
 Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,

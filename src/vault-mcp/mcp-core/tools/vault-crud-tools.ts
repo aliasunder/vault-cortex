@@ -735,14 +735,16 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
     },
   )
 
-  /** The span tools' warning about a fenced block, whose closing line no
-   *  anchor can single out; `editVerb` names the edit the tool makes. */
-  const fencedBlockEndAnchorText = (editVerb: "remove" | "replace"): string => {
+  /** The span tools' warning about a fenced code block: an end anchor on its
+   *  closing fence also matches the opening fence, where the span starts.
+   *  `blockEdit` names the vault_replace_in_note call that edits such a block. */
+  const fencedBlockEndAnchorText = (blockEdit: "remove" | "replace"): string => {
+    const newTextArgument = blockEdit === "remove" ? ' with new_text: ""' : ""
     const fallbackAdvice = whenToolEnabledText(
       "vault_replace_in_note",
-      `, so ${editVerb} a fenced block with vault_replace_in_note`,
+      `; to ${blockEdit} such a block, use vault_replace_in_note${newTextArgument}`,
     )
-    return `A closing code fence can't be the end anchor: every fragment of it also matches the opening fence. Ending on an inner line instead leaves the rest of the block behind${fallbackAdvice}.`
+    return `A span that starts at a code block's opening fence can't end at a plain closing fence (\`\`\`): every fragment of it also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence${fallbackAdvice}.`
   }
 
   const replaceBlockAdvice = isToolEnabled("vault_replace_span")

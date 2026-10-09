@@ -2854,14 +2854,14 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FENCED_BLOCK_WARNING =
-    "A closing code fence can't be the end anchor: every fragment of it also matches the opening fence. Ending on an inner line instead leaves the rest of the block behind"
+    "A span that starts at a code block's opening fence can't end at a plain closing fence (```): every fragment of it also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
 
   it.each([
     {
       label: "vault_delete_span names vault_replace_in_note while it is served",
       toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
       disabledTools: "",
-      expectedSentences: `${FENCED_BLOCK_WARNING}, so remove a fenced block with vault_replace_in_note.`,
+      expectedSentences: `${FENCED_BLOCK_WARNING}; to remove such a block, use vault_replace_in_note with new_text: "".`,
     },
     {
       label: "vault_delete_span keeps only the warning when vault_replace_in_note is disabled",
@@ -2873,7 +2873,7 @@ describe("DISABLED_TOOLS", () => {
       label: "vault_replace_span names vault_replace_in_note while it is served",
       toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
       disabledTools: "",
-      expectedSentences: `${FENCED_BLOCK_WARNING}, so replace a fenced block with vault_replace_in_note.`,
+      expectedSentences: `${FENCED_BLOCK_WARNING}; to replace such a block, use vault_replace_in_note.`,
     },
     {
       label: "vault_replace_span keeps only the warning when vault_replace_in_note is disabled",
@@ -2887,7 +2887,7 @@ describe("DISABLED_TOOLS", () => {
       const fencedBlockWarning = extractDescriptionSection({
         registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName,
-        startMarker: "A closing code fence",
+        startMarker: "A span that starts at a code block",
         endMarker: "\n- ",
       })
       expect(fencedBlockWarning).toBe(expectedSentences)
