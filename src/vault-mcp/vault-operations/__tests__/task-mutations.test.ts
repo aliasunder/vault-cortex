@@ -1282,6 +1282,41 @@ kanban-plugin: board
       )
     })
 
+    it.each([
+      {
+        field: "scheduled",
+        dateParams: { scheduled: "2026-02-30" },
+        expectedMessage:
+          'invalid date: scheduled "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+      },
+      {
+        field: "start",
+        dateParams: { start: "2026-04-31" },
+        expectedMessage:
+          'invalid date: start "2026-04-31" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+      },
+    ])(
+      "errors on a $field date the calendar lacks, naming the field",
+      async ({ dateParams, expectedMessage }) => {
+        const vault = await createVault()
+        await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+        await expect(
+          taskMutations.createTask(
+            {
+              statusRegistry: DEFAULT_STATUS_REGISTRY,
+              vaultPath: vault,
+              path: "tasks.md",
+              description: "Bad date",
+              blockId: "bad-date",
+              ...dateParams,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(new Error(expectedMessage))
+      },
+    )
+
     it("errors when parent not found", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -2269,6 +2304,40 @@ kanban-plugin: board
         ),
       )
     })
+
+    it.each([
+      {
+        field: "scheduled",
+        dateParams: { scheduled: "2026-02-30" },
+        expectedMessage:
+          'invalid date: scheduled "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+      },
+      {
+        field: "start",
+        dateParams: { start: "2026-04-31" },
+        expectedMessage:
+          'invalid date: start "2026-04-31" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+      },
+    ])(
+      "errors on a $field date the calendar lacks in update, naming the field",
+      async ({ dateParams, expectedMessage }) => {
+        const vault = await createVault()
+        await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              statusRegistry: DEFAULT_STATUS_REGISTRY,
+              vaultPath: vault,
+              path: "tasks.md",
+              blockId: "walk-dog",
+              ...dateParams,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(new Error(expectedMessage))
+      },
+    )
 
     it("errors on empty description in update", async () => {
       const vault = await createVault()
