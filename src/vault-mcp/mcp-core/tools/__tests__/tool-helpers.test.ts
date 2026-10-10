@@ -6,7 +6,7 @@ import {
   UnsupportedPropertiesBlockError,
 } from "../../../obsidian-markdown/frontmatter.js"
 import type { ToolName } from "../../tool-registry.js"
-import { createSafeHandlers, describeTextWindow } from "../tool-helpers.js"
+import { createSafeHandlers, describeTextWindow, formatNoteMetadata } from "../tool-helpers.js"
 
 /** A handler failure whose cause carries detail the client must never see. */
 const failWithCause = async (): Promise<string> => {
@@ -405,5 +405,46 @@ describe("describeTextWindow", () => {
         totalLines: 1,
       }),
     ).toBe("full.md — lines 1–1 of 1 (end of file)")
+  })
+})
+
+describe("formatNoteMetadata", () => {
+  it("keeps only unpromoted keys under additional_properties", () => {
+    const formatted = formatNoteMetadata({
+      path: "a.md",
+      title: "A",
+      tags: ["x"],
+      leading_callout: null,
+      properties: {
+        title: "A",
+        tags: ["x"],
+        type: "note",
+        created: "2026-01-01",
+        related: [],
+        topic: "tags",
+      },
+    })
+
+    expect(formatted).toEqual({
+      path: "a.md",
+      title: "A",
+      tags: ["x"],
+      additional_properties: { topic: "tags" },
+    })
+  })
+
+  it("drops the tags key the index read, in any letter case, and keeps a later one", () => {
+    const formatted = formatNoteMetadata({
+      path: "a.md",
+      tags: ["x"],
+      leading_callout: null,
+      properties: { Tags: ["x"], tags: ["y"] },
+    })
+
+    expect(formatted).toEqual({
+      path: "a.md",
+      tags: ["x"],
+      additional_properties: { tags: ["y"] },
+    })
   })
 })

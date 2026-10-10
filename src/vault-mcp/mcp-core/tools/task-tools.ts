@@ -44,7 +44,8 @@ Parameters:
 
 Errors:
 - A malformed or calendar-invalid date filter throws with remediation text ("Use YYYY-MM-DD")
-- path without the ".md" extension is rejected
+- "path must end in .md" — add the ".md" extension
+- tag must not be empty after its leading "#" — tag is "#" alone; pass the tag name
 - No matches returns { total: 0, tasks: [] }, not an error
 
 Returns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist; done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
@@ -81,7 +82,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .string()
           .min(1)
           .optional()
-          .describe('Inline task tag, bare name without "#"; parent tags match children'),
+          .describe('Tag on the task line, "#" optional; matches nested tags, any letter case'),
         heading: z
           .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
           .optional()

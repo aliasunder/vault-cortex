@@ -2501,3 +2501,37 @@ describe("cannot read daily notes config", () => {
     })
   }, 30_000)
 })
+
+// ── Empty tag inputs ─────────────────────────────────────────
+
+describe("tag must not be empty", () => {
+  const EMPTY_TAG_MESSAGE = '[Error]: tag must not be empty after its leading "#"'
+
+  it("vault_search_by_tag rejects a tag that is only a #", async () => {
+    const result = await callTool({ client, name: "vault_search_by_tag", args: { tag: "#" } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: EMPTY_TAG_MESSAGE }],
+      isError: true,
+    })
+  })
+
+  it("vault_search rejects a tags filter entry that is only a #", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "note", filters: { tags: ["#"] } },
+    })
+    expect(result).toEqual({
+      content: [{ type: "text", text: EMPTY_TAG_MESSAGE }],
+      isError: true,
+    })
+  })
+
+  it("vault_list_tasks rejects a tag that is only a #", async () => {
+    const result = await callTool({ client, name: "vault_list_tasks", args: { tag: "#" } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: EMPTY_TAG_MESSAGE }],
+      isError: true,
+    })
+  })
+})

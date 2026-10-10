@@ -11,6 +11,7 @@ import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { describeError } from "../../../utils/describe-error.js"
+import { isTagsKey } from "../../obsidian-markdown/tags.js"
 import {
   OverwriteBlockedError,
   UnkeepableOpeningBlockError,
@@ -37,10 +38,21 @@ export type ToolRegistrationContext = ToolAvailability &
     config: VaultConfig
   }
 
-// Frontmatter keys that are already top-level fields on NoteMetadata.
-// These are stripped from `properties` before returning to clients
-// so the response doesn't contain the same data twice.
-const PROMOTED_KEYS = new Set(["title", "tags", "type", "created", "related"])
+// Five frontmatter keys are promoted to top-level fields on NoteMetadata and
+// so are stripped from additional_properties, which would otherwise repeat
+// them. Four have one fixed spelling. The fifth, `tags`, is spelled per note:
+// the index reads the first key spelled `tags` in any letter case (`tags`,
+// `Tags`, `TAGS`), as Obsidian does, so that key is the one stripped, and a
+// later tags-spelled key, which the index ignores, stays in
+// additional_properties.
+const FIXED_PROMOTED_KEYS = new Set(["title", "type", "created", "related"])
+
+/** The promoted keys of one note: the fixed four plus the tags key its
+ *  frontmatter spells, when it has one. */
+const promotedKeysOfNote = (properties: Record<string, unknown>): ReadonlySet<string> => {
+  const noteTagsKey = Object.keys(properties).find(isTagsKey)
+  return noteTagsKey ? new Set([...FIXED_PROMOTED_KEYS, noteTagsKey]) : FIXED_PROMOTED_KEYS
+}
 
 /** Reshapes NoteMetadata for client responses: keeps all top-level fields,
  *  replaces `properties` (full frontmatter, mostly duplicated) with
@@ -53,8 +65,9 @@ export const formatNoteMetadata = (meta: {
   // keep it (the { type, title, body } block) when present.
   const { properties, leading_callout: leadingCallout, ...fields } = meta
 
+  const promotedKeys = promotedKeysOfNote(properties)
   const additional_properties = Object.fromEntries(
-    Object.entries(properties).filter(([key]) => !PROMOTED_KEYS.has(key)),
+    Object.entries(properties).filter(([key]) => !promotedKeys.has(key)),
   )
 
   return {

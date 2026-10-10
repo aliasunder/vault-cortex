@@ -438,6 +438,40 @@ Content about deployment costs and infrastructure.
       expect(paths).toEqual(["c.md"])
     })
 
+    it("applies the tag filter to vector-only results ignoring letter case and nesting", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+      const taggedNote = "---\ntags: [Work/standups]\n---\n\nStandup notes.\n"
+
+      const noteASourceVersion = hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      const taggedSourceVersion = hybridIndex.upsertNote(
+        { filePath: "tagged.md", rawContent: taggedNote, fileStat: testStat(1000) },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: noteASourceVersion, notePath: "a.md", rawContent: NOTE_A },
+        logger,
+      )
+      await hybridIndex.embedNote(
+        { sourceVersion: taggedSourceVersion, notePath: "tagged.md", rawContent: taggedNote },
+        logger,
+      )
+
+      // The query matches no indexed word, so only the vector leg can return
+      // the note and only the JavaScript mirror of the filter can keep it
+      const query = "zzqxv"
+      expect(hybridIndex.fullTextSearch({ query, filters: { tags: ["WORK"] } }, logger)).toEqual([])
+
+      const { results } = await hybridIndex.hybridSearch(
+        { query, filters: { tags: ["WORK"] } },
+        logger,
+      )
+      expect(results.map((result) => result.path)).toEqual(["tagged.md"])
+    })
+
     it("applies type filter to vector-only results", async () => {
       const mockEmbedder = createHybridMockEmbedder()
       const hybridIndex = createSearchIndex(":memory:", mockEmbedder)

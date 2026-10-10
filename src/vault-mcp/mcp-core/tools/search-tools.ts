@@ -26,6 +26,7 @@ export const registerSearchTools = ({
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
+- tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter
 
@@ -41,12 +42,14 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
+- tag must not be empty after its leading "#" — a tags entry is only "#"; pass the tag name
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
         : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
+- tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter
 
@@ -62,6 +65,7 @@ Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
+- tag must not be empty after its leading "#" — a tags entry is only "#"; pass the tag name
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
@@ -72,7 +76,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             tags: z
               .array(z.string().min(1))
               .optional()
-              .describe("Require all listed tags (AND — every tag must be present)"),
+              .describe('Tags, "#" optional (e.g. ["reference"])'),
             related: z
               .array(z.string().min(1))
               .optional()
@@ -153,12 +157,12 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes by frontmatter tag; inline #tags in note bodies are not searched. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project/vault-cortex" and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
+      description: `Find notes by frontmatter tag, ignoring letter case; inline #tags in note bodies are not searched. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project/vault-cortex" and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
 
 Example: vault_search_by_tag({ tag: "project" })
 Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — notes tagged "project" itself, up to 50
 
-When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.${whenToolEnabledText("vault_list_tags", " Use vault_list_tags first to discover available tags.")}${whenToolEnabledText("vault_search", "\nPrefer vault_search when you also need text-based relevance ranking; its tags filter matches the exact tag only, without nested tags.")}
+When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.${whenToolEnabledText("vault_list_tags", " Use vault_list_tags first to discover available tags.")}${whenToolEnabledText("vault_search", "\nPrefer vault_search when you need text-based relevance ranking.")}
 
 Parameters:
 - limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: a result count equal to limit may mean more exist, so raise limit to check.
@@ -167,15 +171,16 @@ Behavior: Reads the search index, which picks up a file change within a few seco
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error.
-- "#project", "project/", and "Project" do not match notes tagged "project"; drop the "#" and the trailing "/", and use the tag's letter case.
+- "project/" matches neither "project" nor "project/a"; drop the "/".
+- tag must not be empty after its leading "#" — tag is "#" alone; pass the tag name.
 
-Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag, not only the matched one), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag Obsidian accepts, in the note's letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
           .min(1)
           .describe(
-            'Tag name without "#" prefix (e.g. "project", "session-log"). Hierarchical tags use "/" separators (e.g. "project/vault-cortex").',
+            'Tag, "#" optional (e.g. "project", "session-log"). Nested tags use "/" (e.g. "project/vault-cortex").',
           ),
         exact: z
           .boolean()
@@ -212,7 +217,7 @@ Returns: JSON array of notes sorted by most recently modified, then by path asce
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted (inline #tags in note bodies are not indexed). Each hierarchical tag (e.g. "project/vault-cortex") appears as one full entry, not split into segments. Count is unique notes, not occurrences.
+      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Only frontmatter tags Obsidian accepts are counted, not inline #tags. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
@@ -455,7 +460,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value.
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related).
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
@@ -476,7 +481,7 @@ Errors:
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
 - leading_callout appears only when the note has a leading callout.
-- additional_properties appears only when frontmatter has keys outside title, tags, type, created, and related.`,
+- additional_properties appears only when frontmatter has keys outside title, type, created, related, and the first key spelled tags in any letter case.`,
       inputSchema: {
         key: z.string().min(1).describe('Property key name (e.g. "status", "type", "tags").'),
         value: z.string().min(1).describe('Value to match (e.g. "active", "4", "1e-7").'),

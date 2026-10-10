@@ -32,10 +32,55 @@ export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value))
     return value.filter((element) => element != null && typeof element !== "object").map(String)
 
-  // A mapping value (tags: { project: true }) is dropped, as the array branch
+  // A mapping value (related: { note: true }) is dropped, as the array branch
   // above drops mappings in a list; String() would index it as "[object Object]".
   if (typeof value === "object") return []
   return value ? [String(value)] : []
+}
+
+// ── Tag comparison ─────────────────────────────────────────────
+
+/** Folds a tag for comparison with `toLowerCase()`, the rule Obsidian's Tags
+ *  view groups spellings by. Shared by the `fold_tag` SQL function (registered
+ *  in search-index.ts) and the JavaScript mirror of the SQL tag filters, so
+ *  both compare by one rule. */
+export const foldTag = (tag: string): string => tag.toLowerCase()
+
+/**
+ * Folds a tag input the way the index compares it: one leading `#` removed,
+ * then `foldTag`. Throws when nothing is left, because an empty name is not a
+ * tag and a clear error beats a silently empty result. Tool schemas reject an
+ * empty string first (`.min(1)`), so the input that reaches the throw is "#".
+ */
+export const normalizeTagQuery = (input: string): string => {
+  const tagName = input.startsWith("#") ? input.slice(1) : input
+
+  if (tagName === "") throw new Error('tag must not be empty after its leading "#"')
+  return foldTag(tagName)
+}
+
+/** True when a stored tag is the folded query or nested under it. The
+ *  JavaScript side of NESTED_TAG_PREDICATE. */
+export const tagMatchesQuery = (params: { storedTag: string; foldedQuery: string }): boolean => {
+  const foldedStoredTag = foldTag(params.storedTag)
+  return (
+    foldedStoredTag === params.foldedQuery || foldedStoredTag.startsWith(`${params.foldedQuery}/`)
+  )
+}
+
+/**
+ * SQL predicate over a `json_each` `value` that matches the query tag itself
+ * or any tag nested under it, folding each stored value once; bound to
+ * `nestedTagLikePattern(input)`. Appending `/` to the stored value turns
+ * "equal or nested" into one LIKE (`||` binds tighter than LIKE), so
+ * `project/%` matches `project` and `project/x` but not `projects`.
+ */
+export const NESTED_TAG_PREDICATE = "fold_tag(value) || '/' LIKE ? ESCAPE '\\'"
+
+/** The pattern NESTED_TAG_PREDICATE binds for a tag input: normalized, its
+ *  LIKE wildcards escaped, then `/%`. Throws like normalizeTagQuery. */
+export const nestedTagLikePattern = (input: string): string => {
+  return `${escapeLikeWildcards(normalizeTagQuery(input))}/%`
 }
 
 // ── Note parsing for the index ─────────────────────────────────
@@ -309,14 +354,19 @@ const propertyValueMatches = (params: {
 }
 
 /** Mirrors fullTextSearch's SQL filters for vector-only results. Date filter
- * values are pre-validated by fullTextSearch, which hybridSearch runs first. */
+ * values and tag inputs are pre-validated by fullTextSearch, which
+ * hybridSearch runs first, so their throws never fire here. */
 export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters): boolean => {
   if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
 
   if (filters.tags) {
     const noteTags = parseStringArray(note.tags)
+    const foldedQueries = filters.tags.map(normalizeTagQuery)
+    const everyQueryMatches = foldedQueries.every((foldedQuery) => {
+      return noteTags.some((storedTag) => tagMatchesQuery({ storedTag, foldedQuery }))
+    })
 
-    if (!filters.tags.every((tag) => noteTags.includes(tag))) return false
+    if (!everyQueryMatches) return false
   }
 
   if (filters.type && note.type !== filters.type) return false

@@ -595,6 +595,35 @@ describe("listTasks scope filters", () => {
     ])
   })
 
+  it("matches the tag filter ignoring letter case and a leading #, not a longer tag", () => {
+    const index = indexWithBoardAndPlain()
+    index.upsertNote(
+      {
+        filePath: "decoys.md",
+        rawContent: ["- [ ] Longer tag task #errands", "- [ ] Suffix tag task #my-errand"].join(
+          "\n",
+        ),
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+
+    expect(
+      index.listTasks({ tag: "ERRAND" }, logger).tasks.map((entry) => entry.description),
+    ).toEqual(["Standalone task #errand"])
+    expect(
+      index.listTasks({ tag: "#errand" }, logger).tasks.map((entry) => entry.description),
+    ).toEqual(["Standalone task #errand"])
+  })
+
+  it("rejects a tag filter that is only a #", () => {
+    const index = indexWithBoardAndPlain()
+
+    expect(() => index.listTasks({ tag: "#" }, logger)).toThrow(
+      new Error('tag must not be empty after its leading "#"'),
+    )
+  })
+
   it("treats LIKE wildcards in the tag as literal characters when matching children", () => {
     const index = createTestIndex()
     index.upsertNote(
