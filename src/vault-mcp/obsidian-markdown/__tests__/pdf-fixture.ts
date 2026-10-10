@@ -133,6 +133,14 @@ export const buildEmptyStreamPdf = (): Buffer => {
   ])
 }
 
+/** Builds a PDF whose page tree is empty: it opens, but has no page to render. */
+export const buildZeroPagePdf = (): Buffer => {
+  return assemblePdf([
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+    "2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj",
+  ])
+}
+
 /** Builds a PDF that needs a user password to open. Its standard security
  *  handler (RC4, revision 2) holds password hashes that no password matches,
  *  so pdf.js asks for one even with the empty password tried first. The
