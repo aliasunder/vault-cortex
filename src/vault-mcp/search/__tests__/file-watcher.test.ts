@@ -737,9 +737,14 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     async ({ event }) => {
       const { testVault, search, database, fire } = await createControlledWatcher()
       await writeFile(join(testVault, "doc.pdf"), "controlled PDF bytes")
+      // A wrapped error, so the log must carry the cause as well as the wrapper
       const extractSpy = vi
         .mocked(extractPdfText)
-        .mockRejectedValueOnce(new Error("controlled PDF extraction failure"))
+        .mockRejectedValueOnce(
+          new Error("PDF reader could not start", {
+            cause: new Error("controlled PDF engine failure"),
+          }),
+        )
         .mockResolvedValueOnce({ text: "recoveredopal", totalPages: 1 })
       const contentSpy = vi.spyOn(search, "upsertFileContent")
       const warnSpy = vi.spyOn(logger, "warn")
@@ -752,7 +757,8 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
       expect(extractSpy).toHaveBeenCalledTimes(1)
       expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content indexing failed", {
         path: "doc.pdf",
-        error: "[Error]: controlled PDF extraction failure",
+        error: "[Error]: PDF reader could not start",
+        cause: "[Error]: controlled PDF engine failure",
       })
       expect(contentSpy).not.toHaveBeenCalled()
       expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([{ path: "doc.pdf" }])

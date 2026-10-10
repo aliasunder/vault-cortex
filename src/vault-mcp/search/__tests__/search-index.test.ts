@@ -3992,9 +3992,12 @@ describe("rebuildFromVault filesystem failures", () => {
   it("contains a rebuild PDF extraction failure and indexes its next valid extraction", async () => {
     const { vaultPath, search } = await createRebuildVault()
     await writeFile(join(vaultPath, "broken.pdf"), "controlled bytes")
+    // A wrapped error, so the log must carry the cause as well as the wrapper
     const extractSpy = vi
       .mocked(extractPdfText)
-      .mockRejectedValueOnce(new Error("controlled PDF failure"))
+      .mockRejectedValueOnce(
+        new Error("PDF reader could not start", { cause: new Error("controlled PDF failure") }),
+      )
       .mockResolvedValueOnce({ text: "recoveredopal", totalPages: 1 })
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => {
@@ -4005,7 +4008,8 @@ describe("rebuildFromVault filesystem failures", () => {
     await rebuilt.embedding
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable PDF during rebuild", {
       path: "broken.pdf",
-      error: "[Error]: controlled PDF failure",
+      error: "[Error]: PDF reader could not start",
+      cause: "[Error]: controlled PDF failure",
     })
     expect(
       (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
