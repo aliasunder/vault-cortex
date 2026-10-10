@@ -183,17 +183,29 @@ const describePdfOpenFailure = (params: {
   }
 }
 
-/** Awaits a PDF read, rethrowing pdf.js's refusal to open the file as the
- *  server's own message, with pdf.js's error as the cause. Takes the read's
- *  promise, so the read must be an async function: a synchronous throw would
- *  happen before this function runs and skip the rewording. */
-const translatePdfOpenFailures = async <T>(params: {
-  pdfRead: Promise<T>
-  path: string
-  bytes: number
-}): Promise<T> => {
+/** pdf.js's refusal to open the file is rethrown as the server's own message,
+ *  with pdf.js's error as the cause. */
+const openPdfDocument = async (params: { pdfData: Uint8Array; path: string; bytes: number }) => {
   try {
-    return await params.pdfRead
+    return await createPdfDocumentProxy(params.pdfData)
+  } catch (error) {
+    const openFailureMessage = describePdfOpenFailure({
+      error,
+      path: params.path,
+      bytes: params.bytes,
+    })
+
+    if (!openFailureMessage) throw error
+    throw new Error(openFailureMessage, { cause: error })
+  }
+}
+
+/** extractPdfText opens and reads the file in one call, so the try covers the
+ *  whole read. Only pdf.js's refusal to open the file is reworded, as in
+ *  openPdfDocument; any other failure passes through. */
+const readPdfText = async (params: { pdfData: Uint8Array; path: string; bytes: number }) => {
+  try {
+    return await extractPdfText(params.pdfData)
   } catch (error) {
     const openFailureMessage = describePdfOpenFailure({
       error,
@@ -331,11 +343,7 @@ const readAssetContent = async (
     )
 
     if (raw) {
-      const proxy = await translatePdfOpenFailures({
-        pdfRead: createPdfDocumentProxy(pdfData),
-        path,
-        bytes: asset.bytes,
-      })
+      const proxy = await openPdfDocument({ pdfData, path, bytes: asset.bytes })
       try {
         const meta = await getMeta(proxy)
         const pdfTitle = meta.info?.Title ?? undefined
@@ -372,15 +380,7 @@ const readAssetContent = async (
       }
     }
 
-    // extractPdfText opens and reads the document in one call, so the whole
-    // extraction is wrapped where the raw branch wraps only the open. Both
-    // scopes reword the same failures, because only pdf.js's open
-    // exceptions match by name and any other failure passes through.
-    const pdfResult = await translatePdfOpenFailures({
-      pdfRead: extractPdfText(pdfData),
-      path,
-      bytes: asset.bytes,
-    })
+    const pdfResult = await readPdfText({ pdfData, path, bytes: asset.bytes })
 
     if (!pdfResult.text) {
       throw new Error(
