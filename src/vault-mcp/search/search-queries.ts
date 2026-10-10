@@ -1132,8 +1132,9 @@ export const listAllTags = (
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
-  // Spellings group by their folded form:
-  // - a group's count is its distinct notes;
+  // Spellings that fold to the same lowercase tag form one group:
+  // - the group's count is the number of distinct notes carrying any of its
+  //   spellings, so a note tagged both `Project` and `project` counts once;
   // - the spelling shown is the one with the most occurrences, a repeat within
   //   one note counting again, which is Obsidian's Tags view rule;
   // - a tie goes to the spelling first in SQLite's default BINARY collation
