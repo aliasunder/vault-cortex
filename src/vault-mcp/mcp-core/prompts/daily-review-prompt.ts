@@ -8,7 +8,11 @@
 
 import { DateTime } from "luxon"
 import { z } from "zod"
-import { getDailyNote, readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
+import {
+  describeNonCalendarDate,
+  getDailyNote,
+  readDailyNotesConfig,
+} from "../../vault-operations/daily-notes.js"
 import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import type { TaskEntry } from "../../search/search-index.js"
 import { TOOL_NAMES } from "../tool-registry.js"
@@ -190,9 +194,7 @@ export const registerDailyReviewPrompt = ({
         // input → warn.
         if (!tomorrow) {
           reqLogger.warn("prompt_bad_argument", { argument: "date", value: resolvedDate })
-          return textResult(
-            `"${resolvedDate}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`,
-          )
+          return textResult(describeNonCalendarDate(resolvedDate))
         }
 
         // Resolved once so the note path and the link classification below

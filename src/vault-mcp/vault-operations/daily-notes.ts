@@ -138,6 +138,13 @@ export const readDailyNotesConfig = async (
 /** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
 const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+/** The refusal for a YYYY-MM-DD date the calendar lacks, such as February 30.
+ *  Shared so the daily-note tool and the daily-review prompt refuse it in the
+ *  same words. */
+export const describeNonCalendarDate = (date: string): string => {
+  return `"${date}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`
+}
+
 /** Resolves a date to a vault-relative daily note path using the env
  *  settings, the vault's .obsidian/daily-notes.json config, and
  *  the fallbacks — in that per-field precedence order. */
@@ -171,8 +178,8 @@ export const getDailyNotePath = async (
   // The shape check above passed, so Luxon rejects only a day the calendar
   // lacks, such as February 30. The message says so, because a caller told
   // only the format would send the same date again
-  if (!dateTime.isValid) {
-    throw new Error(`"${date}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`)
+  if (date && !dateTime.isValid) {
+    throw new Error(describeNonCalendarDate(date))
   }
 
   const filename = dateTime.toFormat(luxonFormat)
