@@ -836,8 +836,9 @@ const deleteNote = async (
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
       : 0
 
-    // trashOption is logged because the result text and the tool_result log
-    // say "trashed" for both "local" and "system".
+    // In the logs, trashOption is the only record of whether a trashed note
+    // is swept later ("system") or kept forever ("local") — the result text
+    // and the tool_result log say "trashed" for both.
     logger.info("deleted note", {
       path,
       trashOption: params.trashOption,
