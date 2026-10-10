@@ -14,7 +14,10 @@ import {
   textContent,
 } from "./test-harness.js"
 import type { ToolResult } from "./test-harness.js"
-import { buildPasswordProtectedPdf } from "../../vault-mcp/obsidian-markdown/__tests__/pdf-fixture.js"
+import {
+  buildPasswordProtectedPdf,
+  buildZeroPagePdf,
+} from "../../vault-mcp/obsidian-markdown/__tests__/pdf-fixture.js"
 
 vi.setConfig({ testTimeout: 15_000 })
 
@@ -1886,6 +1889,26 @@ describe("unreadable PDF", () => {
       })
     },
   )
+
+  it("vault_read_file with raw: true on a PDF that has no pages", async () => {
+    const pdfContent = buildZeroPagePdf()
+    await plantPdf({ pdfPath: "No Pages.pdf", content: pdfContent })
+
+    const result = await callTool({
+      client,
+      name: "vault_read_file",
+      args: { path: "No Pages.pdf", raw: true },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: PDF page rendering failed: "No Pages.pdf" exists (${pdfContent.length} bytes) but has 0 pages`,
+        },
+      ],
+      isError: true,
+    })
+  })
 })
 
 // ── Task errors ──────────────────────────────────────────────
