@@ -770,16 +770,16 @@ describe("filesystem errors name the path vault-relative", () => {
   })
 
   // A name of 233 bytes reads, but the temp file a save writes beside it
-  // adds 41 bytes and passes the filesystem's 255-byte limit
+  // adds 41 bytes and goes over the filesystem's 255-byte limit
   it.each([
     { name: "vault_replace_in_note", args: { old_text: "line one", new_text: "line 1" } },
     { name: "vault_delete_span", args: { start_anchor: "line one" } },
     { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
-  ])("$name on a note whose name is too long to save beside", async ({ name, args }) => {
-    const longNoteName = `${"b".repeat(230)}.md`
-    await plantFileWithMode({ filePath: longNoteName, mode: 0o644 })
+  ])("$name on a note whose name is too long for the save's temp file", async ({ name, args }) => {
+    const nameTooLongForTempFile = `${"b".repeat(230)}.md`
+    await plantFileWithMode({ filePath: nameTooLongForTempFile, mode: 0o644 })
 
-    const result = await callTool({ client, name, args: { path: longNoteName, ...args } })
+    const result = await callTool({ client, name, args: { path: nameTooLongForTempFile, ...args } })
     expect(result).toEqual({
       content: [
         {
@@ -787,15 +787,16 @@ describe("filesystem errors name the path vault-relative", () => {
           // The temp file's name ends in a random UUID
           text: expect.stringMatching(
             new RegExp(
-              `^\\[Error\\]: ENAMETOOLONG: name too long, open '${longNoteName.replace(".", "\\.")}\\.[0-9a-f-]{36}\\.tmp'$`,
+              `^\\[Error\\]: ENAMETOOLONG: name too long, open '${RegExp.escape(nameTooLongForTempFile)}\\.[0-9a-f-]{36}\\.tmp'$`,
             ),
           ),
         },
       ],
       isError: true,
     })
-    // The note was read, so the failure came from the save
-    await expect(readFile(join(serverVaultPath, longNoteName), "utf8")).resolves.toBe(
+    // The note opens under its own name and is unchanged, so only the save's
+    // temp file name was too long
+    await expect(readFile(join(serverVaultPath, nameTooLongForTempFile), "utf8")).resolves.toBe(
       "line one\n- [ ] a task\n",
     )
   })
