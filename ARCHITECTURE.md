@@ -1202,22 +1202,14 @@ Docker hardening, and durability seatbelts above.
   delete under Obsidian's `system` (default) or `local` trash setting
   moves the note into `.trash/`. Each candidate name is claimed with an
   exclusive create, so an existing trash copy is never overwritten.
-  - **Recording** — moves made under the `system` setting are recorded in
-    the index DB's `trash_entries` table, together with the landed file's
-    identity (its inode number, size and modification time, read by
-    `readTrashFileState`). Recording is fail-open — a failed identity read
-    or row write logs a warning, the delete still succeeds, and an
-    unrecorded entry is never swept.
-  - **Stale rows** — a move that is not recorded (`local`, or a failed
-    record) drops any earlier row at its landed path, so the sweep never
-    deletes the newly trashed note.
-  - **Case-folded key** — the table's primary key is the case-folded path.
-    On a case-insensitive mount `.trash/a.md` and `.trash/A.md` are one
-    file, so a delete landing at `.trash/A.md` replaces a stale
-    `.trash/a.md` row instead of keeping a second row that could expire the
-    file on the old row's date. On a case-sensitive mount the two names are
-    two files sharing one key, so the file recorded first loses its row and
-    stays until `.trash/` is emptied by hand.
+  `system` moves are recorded in the index DB's `trash_entries` table with
+  the landed file's identity (inode number, size, modification time).
+  Recording is fail-open — a failed record logs a warning, the delete still
+  succeeds, and an unrecorded entry is never swept. A move that is not
+  recorded drops any earlier row at its landed path, so the sweep never
+  deletes the note just trashed. The table's primary
+  key is the case-folded path, so a case alias replaces its stale row on a
+  case-insensitive mount.
 - **Recorded trash bookkeeping** (`trash-sweeper.ts`): two row-driven
   operations (neither walks the folder):
   - **Orphan purge** — runs once at boot regardless of
@@ -1226,34 +1218,16 @@ Docker hardening, and durability seatbelts above.
     manual emptying or `TRASH_RETENTION_DAYS=none` never leaves
     unbounded stale rows.
   - **Retention sweep** — runs at startup and daily. Deletes the files
-    of recorded entries older than `TRASH_RETENTION_DAYS`. Each unlink
-    passes four gates:
-    1. The resolved path must sit inside `.trash/`, so a corrupted row
-       cannot reach live notes.
-    2. The parent directory's realpath must sit inside `.trash/`, so a
-       directory symlink cannot redirect the path onto live notes.
-    3. The file at the path must still have the row's recorded identity.
-    4. The file's inode change time must be no later than 60 seconds after
-       the row was recorded. The change time is not stored in the row,
-       because after a Docker Desktop container renames a file it keeps
-       reporting the file's old change time while the host's value moves,
-       so a stored value would stop matching once the container restarts.
-
-    A file that fails gate 3 or 4 is kept, its row dropped, and a warning
-    logged with the reason. This keeps:
-    - a different note that Obsidian trashed under the same name after
-      `.trash/` was emptied by hand, which leaves the row behind
-    - a trashed note restored by hand and trashed again more than a minute
-      later, on a file system whose renames move the change time (ext4 and
-      APFS do; POSIX leaves it optional)
-    - a file whose attributes changed in `.trash/` more than a minute after
-      it was trashed
-    - the file of a row recorded before identities were kept
-
-    Gates 3 and 4 read the file in the call just before the unlink, so a
-    file the host swaps in between the two is still unlinked. Node has no
-    atomic check-and-unlink to close that gap.
-
+    of recorded entries older than `TRASH_RETENTION_DAYS`. Each unlink is
+    guarded twice:
+    - **Containment** — the resolved path and the parent directory's
+      realpath must both sit inside `.trash/`, so a corrupted row or a
+      directory symlink cannot reach live notes.
+    - **Identity** — the file must still have its recorded identity, and
+      its change time must be no later than a minute after the server
+      trashed it. A file that fails is kept and its row dropped, so a note
+      Obsidian trashed under a recorded name after `.trash/` was emptied
+      by hand survives the sweep.
   - Both share a serializing lock with the trash move and re-read each
     row under it before acting, so neither operates on a stale snapshot.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
