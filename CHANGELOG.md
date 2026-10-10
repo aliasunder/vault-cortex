@@ -116,6 +116,32 @@
 
 
 
+
+## [0.54.12] — 2026-10-10
+
+### Bug Fixes
+
+- **trash:** Never sweep a note Obsidian trashed under a name the server recorded (#665)
+- **search:** Compare frontmatter tags ignoring letter case and store them by Obsidian's tag rule (#667)
+- **search:** Index a note whose properties block is not valid YAML from its body (#664)
+- **hooks:** Install with the same Node the session's commands use (#659)
+- **hooks:** Install and recover dependencies only under the install lock (#658)
+- **hooks:** Stop npx-flag, npm-config and later-cd test runs as root (#657)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.11
+
+### CI / Infrastructure
+
+- Lint the repo's shell scripts with ShellCheck in CI and pre-commit (#660)
+
+### Maintenance
+
+- **deps:** Bump the production group with 4 updates (#662)
+- **deps:** Bump node from `8ec5d75` to `173f125` (#661)
+- **deps-dev:** Bump the development group with 6 updates (#663)
+
 ## [0.54.11] — 2026-10-08
 
 ### Features
