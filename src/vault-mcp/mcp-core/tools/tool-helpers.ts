@@ -211,7 +211,8 @@ export const OPENING_BLOCK_ERROR_ENTRY =
  *  - A too-long name gets its own entry because the caller fixes it, not the
  *    vault's owner. A save first writes a temp file named after the note
  *    plus ".<UUID>.tmp", 41 bytes longer, so a note can read fine and still
- *    fail to save; a rename writes the same temp file beside its new name.
+ *    fail to save. A rename writes that temp file beside the new name too,
+ *    which is why the entry asks for a name at least 41 bytes shorter.
  *  - Every such tool can return these, but each lists them only when its own
  *    description is next revised, because a grader re-scores every
  *    description whose text changes. */
