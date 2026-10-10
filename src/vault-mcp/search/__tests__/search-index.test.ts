@@ -6694,6 +6694,18 @@ Shared datefilter content for boundary tests.
       /^created\.before date "2026-02-31" is not a calendar date\. Pass a real date in YYYY-MM-DD format\.$/,
     )
   })
+
+  it("rejects a created.after date the calendar lacks, naming that bound", () => {
+    const dateIndex = indexWithCreatedDates()
+    expect(() => {
+      dateIndex.fullTextSearch(
+        { query: "datefilter", filters: { created: { after: "2026-04-31" } } },
+        logger,
+      )
+    }).toThrow(
+      /^created\.after date "2026-04-31" is not a calendar date\. Pass a real date in YYYY-MM-DD format\.$/,
+    )
+  })
 })
 
 describe("fullTextSearch modified filter", () => {
