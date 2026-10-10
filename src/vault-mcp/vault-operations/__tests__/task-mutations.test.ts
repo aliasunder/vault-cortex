@@ -754,7 +754,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('note not found: "missing.md"')
+      ).rejects.toThrow(new Error('note not found: "missing.md"'))
     })
 
     it("reports a path through a file as not found, never the server's path", async () => {
@@ -790,7 +790,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('blockId "nonexistent" not found')
+      ).rejects.toThrow(new Error('blockId "nonexistent" not found in "tasks.md"'))
     })
 
     it("throws when line does not contain a task", async () => {
@@ -808,7 +808,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("no task at line 1")
+      ).rejects.toThrow(new Error("no task at line 1"))
     })
 
     it("throws when no mutations specified", async () => {
@@ -842,7 +842,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('heading "Nonexistent" not found')
+      ).rejects.toThrow(
+        new Error('heading "Nonexistent" not found; available: Active, Up Next, Done'),
+      )
     })
 
     it("throws when multiple done lanes and no explicit heading", async () => {
@@ -988,7 +990,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('hidden path blocked: ".trash/tasks.md" targets a hidden file or folder')
+      ).rejects.toThrow(
+        new Error('hidden path blocked: ".trash/tasks.md" targets a hidden file or folder'),
+      )
       expect(await readTestNote(vault, ".trash/tasks.md")).toBe(SIMPLE_NOTE)
     })
   })
@@ -1199,7 +1203,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow('blockId "walk-dog" already exists')
+      ).rejects.toThrow(new Error('blockId "walk-dog" already exists in this note'))
     })
 
     it("errors on invalid block_id characters", async () => {
@@ -1217,7 +1221,11 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("contains invalid characters")
+      ).rejects.toThrow(
+        new Error(
+          'blockId "bad id!" contains invalid characters (allowed: letters, digits, hyphens)',
+        ),
+      )
     })
 
     it("errors when heading is missing on a Kanban board", async () => {
@@ -1333,7 +1341,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("parent task not found")
+      ).rejects.toThrow(new Error('parent task not found: blockId "nonexistent"'))
     })
 
     it("creates a sub-task under a parent identified by line number", async () => {
@@ -1375,7 +1383,9 @@ kanban-plugin: board
           logger,
         ),
       ).rejects.toThrow(
-        'dependsOn entry " " contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+        new Error(
+          'dependsOn entry " " contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+        ),
       )
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
@@ -1398,7 +1408,9 @@ kanban-plugin: board
           logger,
         ),
       ).rejects.toThrow(
-        'taskId "has space" contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+        new Error(
+          'taskId "has space" contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+        ),
       )
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
@@ -1567,7 +1579,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("parent task not found: line 1")
+      ).rejects.toThrow(new Error("parent task not found: line 1"))
     })
 
     it("errors on empty description", async () => {
@@ -1996,7 +2008,9 @@ kanban-plugin: board
           logger,
         ),
       ).rejects.toThrow(
-        'dependsOn entry " " contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+        new Error(
+          'dependsOn entry " " contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+        ),
       )
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
@@ -2161,7 +2175,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow('blockId "dup" already exists in this note')
+      ).rejects.toThrow(new Error('blockId "dup" already exists in this note'))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n")
     })
@@ -3434,7 +3448,9 @@ kanban-plugin: board
             logger,
           ),
         ).rejects.toThrow(
-          `cannot reorder within "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+          new Error(
+            `cannot reorder within "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+          ),
         )
       })
 
@@ -3456,7 +3472,9 @@ kanban-plugin: board
             logger,
           ),
         ).rejects.toThrow(
-          `cannot place at position 1 under "Done" — the heading appears 2 times; rename one section to make it unique`,
+          new Error(
+            `cannot place at position 1 under "Done" — the heading appears 2 times; rename one section to make it unique`,
+          ),
         )
       })
 
@@ -3503,7 +3521,9 @@ kanban-plugin: board
             logger,
           ),
         ).rejects.toThrow(
-          `cannot place at position 2 under "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+          new Error(
+            `cannot place at position 2 under "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+          ),
         )
       })
 
@@ -4639,7 +4659,9 @@ title: Tasks
         logger,
       ),
     ).rejects.toThrow(
-      'unrecognized recurrence rule "whenever I remember" (use the Tasks plugin\'s natural language, e.g. "every week", "every 2 weeks when done")',
+      new Error(
+        'unrecognized recurrence rule "whenever I remember" (use the Tasks plugin\'s natural language, e.g. "every week", "every 2 weeks when done")',
+      ),
     )
   })
 
@@ -4787,7 +4809,11 @@ title: Tasks
         },
         logger,
       ),
-    ).rejects.toThrow('unrecognized recurrence rule "sometimes"')
+    ).rejects.toThrow(
+      new Error(
+        'unrecognized recurrence rule "sometimes" (use the Tasks plugin\'s natural language, e.g. "every week", "every 2 weeks when done")',
+      ),
+    )
   })
 
   it("bases the recurrence on the next-priority date when the due date is calendar-invalid", async () => {
@@ -6449,7 +6475,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+      ).rejects.toThrow(
+        new Error('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry'),
+      )
     })
 
     it("updateTask rejects a NON_TASK checkbox by line number", async () => {
@@ -6471,7 +6499,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+      ).rejects.toThrow(
+        new Error('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry'),
+      )
     })
 
     it("createTask rejects a NON_TASK parent by block_id", async () => {
@@ -6494,7 +6524,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+      ).rejects.toThrow(
+        new Error('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry'),
+      )
     })
 
     it("createTask rejects a NON_TASK parent by line number", async () => {
@@ -6517,7 +6549,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+      ).rejects.toThrow(
+        new Error('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry'),
+      )
     })
 
     it("allows updating a normal task when NON_TASK statuses exist", async () => {
@@ -6608,7 +6642,9 @@ title: Tasks
           logger,
         ),
       ).rejects.toThrow(
-        'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+        new Error(
+          'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+        ),
       )
     })
   })
@@ -6706,7 +6742,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('blockId "example" is inside a fenced code block or comment in "tasks.md"')
+      ).rejects.toThrow(
+        new Error('blockId "example" is inside a fenced code block or comment in "tasks.md"'),
+      )
     })
 
     it("createTask rejects a parent inside a fenced code block", async () => {
@@ -6730,7 +6768,9 @@ title: Tasks
           logger,
         ),
       ).rejects.toThrow(
-        'parent task not found: blockId "fenced" is inside a fenced code block or comment',
+        new Error(
+          'parent task not found: blockId "fenced" is inside a fenced code block or comment',
+        ),
       )
     })
 
@@ -6845,7 +6885,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("line 6 is inside a fenced code block or comment")
+      ).rejects.toThrow(new Error("line 6 is inside a fenced code block or comment"))
     })
 
     it("createTask rejects a line-addressed parent inside a fenced code block", async () => {
@@ -6868,7 +6908,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("parent task not found: line 6 is inside a fenced code block or comment")
+      ).rejects.toThrow(
+        new Error("parent task not found: line 6 is inside a fenced code block or comment"),
+      )
     })
   })
 })

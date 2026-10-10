@@ -624,7 +624,9 @@ Content about quarterly planning and roadmaps.
           { query: "anything", filters: { modified: { on: "bad" } } },
           logger,
         ),
-      ).rejects.toThrow('invalid modified.on date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).')
+      ).rejects.toThrow(
+        new Error('invalid modified.on date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).'),
+      )
     })
   })
 
