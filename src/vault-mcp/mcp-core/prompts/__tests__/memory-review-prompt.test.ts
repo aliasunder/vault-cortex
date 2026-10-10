@@ -17,6 +17,7 @@ import {
   textOf,
   PROMPT_NAMES,
   loadConfig,
+  createSearchIndex,
   type SearchIndex,
   logger,
 } from "./prompt-test-harness.js"
@@ -343,6 +344,33 @@ describe("memory-review logging", () => {
     expect(warn?.level).toBe("warn")
     expect(warn?.data.argument).toBe("file")
     expect(warn?.data.value).toBe("Nope")
+  })
+
+  it("logs prompt_error at error level with the listing failure's cause", async () => {
+    const logs: LogCall[] = []
+    const vault = await mkdtemp(join(tmpdir(), "prompt-log-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    // A file where the memory folder belongs: the store wraps the ENOTDIR,
+    // so only the cause says why the listing failed
+    await writeFile(join(vault, "About Me"), "not a directory", "utf8")
+    const calls = registerWithSearch(vault, createSearchIndex(":memory:"), recordingLogger(logs))
+    const handler = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[2]
+
+    await handler({}, fakeExtra)
+    expect(logs.filter((call) => call.message === "prompt_error")).toEqual([
+      {
+        level: "error",
+        message: "prompt_error",
+        data: {
+          requestId: fakeExtra.requestId,
+          prompt: PROMPT_NAMES.MEMORY_REVIEW,
+          error: '[Error]: cannot list memory folder "About Me"',
+          cause: `[Error]: ENOTDIR: not a directory, scandir '${join(vault, "About Me")}'`,
+        },
+      },
+    ])
   })
 
   it("warns when the completion callback fails", async () => {
