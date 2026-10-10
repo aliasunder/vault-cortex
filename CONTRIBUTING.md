@@ -102,9 +102,8 @@ development. A test fails if the versions drift.
 - Test: `npm test` includes `cli/src/**/*.test.ts`
 - Try it: `node cli/dist/bin.js init --help`
 
-**Template sync rule:** `cli/templates/` holds verbatim copies of
-The optional env blocks in `cli/src/env.ts` are derived from `deploy/*/.env.example`.
-If you change any `.env.example`, run
+**Env block sync:** The optional env blocks in `cli/src/env.ts` are derived
+from `deploy/*/.env.example`. If you change any `.env.example`, run
 `npm run sync:cli-env-blocks` in the same PR — drift tests fail CI otherwise.
 
 **Publishing:** CLI releases are explicit and independent of server releases —

@@ -67,12 +67,13 @@ mechanism-level detail.
 - Memory file names reject `/` and `\` — prevents `../../outside`-style
   escapes from the memory directory — and leading dots, which would
   create hidden files
-- The trash retention sweep deletes only files it previously recorded.
-  Every removal passes two gates — the recorded path must resolve inside
-  `.trash/`, and the file's parent directory must realpath-resolve inside
-  it too. A corrupted or hand-edited index row, or a directory symlink
-  planted in `.trash/`, is skipped with a warning instead of followed to
-  a live note
+- The trash retention sweep deletes only files it previously recorded,
+  and only inside `.trash/`. It skips with a warning, instead of
+  following to a live note:
+  - a recorded path that points outside `.trash/`, from a corrupted or
+    hand-edited index row
+  - a file reached through a folder symlink planted in `.trash/` that
+    leads elsewhere
 
 ### Hidden paths
 
@@ -159,6 +160,12 @@ mechanism-level detail.
   synced `.obsidian/` settings), the container refuses to start,
   preventing the sync engine from interpreting the empty vault as mass
   local deletions
+- Trash sweep identity gate: the retention sweep deletes a recorded
+  `.trash/` file only while it still has the identity recorded when the
+  server trashed it and has not changed since, so a different note that
+  Obsidian later trashed under a recorded name is kept. It cannot catch a
+  note restored by hand and trashed again within a minute, or a file
+  swapped in during the instant between the check and the delete
 - Memory shrink guard: refuses writes that would remove >50% of a file's
   bytes — defense-in-depth against bugs that would silently erase most of
   a memory file

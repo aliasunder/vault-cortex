@@ -27,8 +27,11 @@ import {
   atomicWriteFile,
   atomicWriteFileExclusive,
   pruneEmptyParents,
+  readTrashFileState,
   resolveSafePath,
+  trashDomainLockKey,
 } from "../vault-filesystem.js"
+import { withFileLock } from "../../../utils/file-write-lock.js"
 import {
   OverwriteBlockedError,
   parseNote,
@@ -1038,6 +1041,144 @@ describe("deleteNote", () => {
   })
 })
 
+describe("readTrashFileState", () => {
+  /** A whole-second timestamp, so every file set to it has the same mtimeNs. */
+  const FIXED_EPOCH_SECONDS = 1_700_000_000
+
+  /** Linux stamps inode times from a clock that advances once per scheduler
+   *  tick (up to 10 ms), so two changes inside one tick share a change time.
+   *  Waiting past a tick makes the next change land a new one. */
+  const waitPastTimestampTick = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+
+  it("reads the link's own inode number, size, modification time and change time", async () => {
+    await writeFile(join(vault, "target.md"), "a longer target body", "utf8")
+    await symlink(join(vault, "target.md"), join(vault, "link.md"))
+    const linkStats = await lstat(join(vault, "link.md"), { bigint: true })
+    const targetStats = await lstat(join(vault, "target.md"), { bigint: true })
+    // The link and its target differ in inode and size, so reading through
+    // the link would change the expected identity.
+    expect(linkStats.ino).not.toBe(targetStats.ino)
+
+    const linkState = await readTrashFileState(join(vault, "link.md"))
+
+    expect(linkState).toEqual({
+      identity: `${linkStats.ino}:${linkStats.size}:${linkStats.mtimeNs}`,
+      changeTimeNs: linkStats.ctimeNs,
+    })
+  })
+
+  it("stays the same when the file is only read", async () => {
+    const notePath = join(vault, "read-only.md")
+    await writeFile(notePath, "content", "utf8")
+    const stateBeforeRead = await readTrashFileState(notePath)
+    await waitPastTimestampTick()
+
+    await readFile(notePath, "utf8")
+
+    expect(await readTrashFileState(notePath)).toEqual(stateBeforeRead)
+  })
+
+  it("keeps the identity but moves the change time when the file is renamed out of .trash/ and back", async () => {
+    // A trashed note restored by hand and trashed again keeps its inode, size
+    // and modification time; only the change time records the two renames.
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "restored.md"), "content", "utf8")
+    const stateWhenTrashed = await readTrashFileState(join(vault, ".trash", "restored.md"))
+    await waitPastTimestampTick()
+
+    await rename(join(vault, ".trash", "restored.md"), join(vault, "restored.md"))
+    await rename(join(vault, "restored.md"), join(vault, ".trash", "restored.md"))
+
+    const stateWhenRetrashed = await readTrashFileState(join(vault, ".trash", "restored.md"))
+    expect(stateWhenRetrashed.identity).toBe(stateWhenTrashed.identity)
+    expect(stateWhenRetrashed.changeTimeNs).toBeGreaterThan(stateWhenTrashed.changeTimeNs)
+  })
+
+  it("keeps the identity but moves the change time when only the file's attributes change", async () => {
+    const notePath = join(vault, "chmodded.md")
+    await writeFile(notePath, "content", "utf8")
+    const originalState = await readTrashFileState(notePath)
+    await waitPastTimestampTick()
+
+    await chmod(notePath, 0o600)
+
+    const chmoddedState = await readTrashFileState(notePath)
+    expect(chmoddedState.identity).toBe(originalState.identity)
+    expect(chmoddedState.changeTimeNs).toBeGreaterThan(originalState.changeTimeNs)
+  })
+
+  it("differs by inode number for another file with the same size and modification time", async () => {
+    await writeFile(join(vault, "first.md"), "same", "utf8")
+    await writeFile(join(vault, "second.md"), "same", "utf8")
+    await utimes(join(vault, "first.md"), FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    await utimes(join(vault, "second.md"), FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const firstStats = await lstat(join(vault, "first.md"), { bigint: true })
+    const secondStats = await lstat(join(vault, "second.md"), { bigint: true })
+    // Same size and modification time, so the inode number is the only field
+    // left to tell the two files apart.
+    expect([secondStats.size, secondStats.mtimeNs]).toEqual([firstStats.size, firstStats.mtimeNs])
+
+    const firstState = await readTrashFileState(join(vault, "first.md"))
+    const secondState = await readTrashFileState(join(vault, "second.md"))
+
+    expect(secondState.identity).not.toBe(firstState.identity)
+  })
+
+  it("differs by modification time after the file is rewritten in place at the same size", async () => {
+    const notePath = join(vault, "rewritten.md")
+    await writeFile(notePath, "aaaa", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const originalStats = await lstat(notePath, { bigint: true })
+    const originalState = await readTrashFileState(notePath)
+
+    await writeFile(notePath, "bbbb", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS + 60, FIXED_EPOCH_SECONDS + 60)
+
+    // Same inode and size; the rewrite moved the modification time.
+    const rewrittenStats = await lstat(notePath, { bigint: true })
+    expect([rewrittenStats.ino, rewrittenStats.size]).toEqual([
+      originalStats.ino,
+      originalStats.size,
+    ])
+    const rewrittenState = await readTrashFileState(notePath)
+    expect(rewrittenState.identity).not.toBe(originalState.identity)
+  })
+
+  it("differs by size after the file grows, even with its modification time restored", async () => {
+    const notePath = join(vault, "resized.md")
+    await writeFile(notePath, "short", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const originalStats = await lstat(notePath, { bigint: true })
+    const originalState = await readTrashFileState(notePath)
+
+    await writeFile(notePath, "much longer content", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+
+    const resizedStats = await lstat(notePath, { bigint: true })
+    expect([resizedStats.ino, resizedStats.mtimeNs]).toEqual([
+      originalStats.ino,
+      originalStats.mtimeNs,
+    ])
+    const resizedState = await readTrashFileState(notePath)
+    expect(resizedState.identity).not.toBe(originalState.identity)
+  })
+
+  it("rejects with lstat's ENOENT when nothing is at the path", async () => {
+    // The sweep reads the error code to tell a missing file from a failed
+    // read. A partial match, because the error also carries a stack trace.
+    const absentPath = join(vault, "absent.md")
+
+    await expect(readTrashFileState(absentPath)).rejects.toMatchObject({
+      message: `ENOENT: no such file or directory, lstat '${absentPath}'`,
+      code: "ENOENT",
+      syscall: "lstat",
+      path: absentPath,
+    })
+  })
+})
+
 describe("deleteNote — trash behavior", () => {
   it('moves the note to .trash/ when trashOption is "local"', async () => {
     await writeFile(join(vault, "trash-me.md"), "content", "utf8")
@@ -1167,10 +1308,11 @@ describe("deleteNote — trash behavior", () => {
     await expect(stat(join(vault, "sys.md"))).rejects.toThrow(/ENOENT/)
   })
 
-  it("reports the landed trash path to recordTrashEntry exactly once, suffixes included", async () => {
+  it("reports the landed trash path and the landed file's identity to recordTrashEntry exactly once, suffixes included", async () => {
     // The recorded path must be where the file actually landed — a collision
     // shifts it to a suffixed name, and recording the original would make the
-    // retention sweep act on someone else's trash copy.
+    // retention sweep act on someone else's trash copy. The identity must
+    // describe that landed file, or the sweep would never match it.
     await mkdir(join(vault, ".trash"), { recursive: true })
     await writeFile(join(vault, ".trash", "rec.md"), "older copy", "utf8")
     await writeFile(join(vault, "rec.md"), "fresh", "utf8")
@@ -1189,14 +1331,57 @@ describe("deleteNote — trash behavior", () => {
     )
 
     expect(result.trashLocation).toBe(".trash/rec 1.md")
+    const landedStats = await lstat(join(vault, ".trash", "rec 1.md"), { bigint: true })
     expect(recordTrashEntry).toHaveBeenCalledTimes(1)
-    expect(recordTrashEntry).toHaveBeenCalledWith(".trash/rec 1.md")
+    expect(recordTrashEntry).toHaveBeenCalledWith({
+      trashPath: ".trash/rec 1.md",
+      fileIdentity: `${landedStats.ino}:${landedStats.size}:${landedStats.mtimeNs}`,
+    })
+  })
+
+  it("contains a failed identity read — warns, clears the stale row, and the delete still succeeds", async () => {
+    // The identity is read after the rename, so its failure must take the same
+    // fail-open path as a failed row write, never the claim cleanup that
+    // would delete the moved note.
+    await writeFile(join(vault, "noident.md"), "survives", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const recordTrashEntry = vi.fn()
+    const clearStaleTrashEntry = vi.fn()
+    // The delete path's only lstat call is the identity read on the landed file.
+    vi.mocked(lstat).mockImplementationOnce(async () => {
+      throw new Error("EIO: injected lstat failure")
+    })
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "noident.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry,
+        clearStaleTrashEntry,
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/noident.md")
+    const trashedContent = await readFile(join(vault, ".trash", "noident.md"), "utf8")
+    expect(trashedContent).toBe("survives")
+    expect(recordTrashEntry).not.toHaveBeenCalled()
+    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1)
+    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/noident.md")
+    expect(warnSpy).toHaveBeenCalledWith("failed to record trash entry", {
+      path: ".trash/noident.md",
+      error: "[Error]: EIO: injected lstat failure",
+    })
   })
 
   it("contains a throwing recordTrashEntry — warns, and the delete still succeeds with the note intact in .trash/", async () => {
-    // Recording is fail-open: the rename has already happened, so a throw
-    // must not reach the claim-cleanup path, which would delete the moved
-    // note itself. An unrecorded entry is simply never swept.
+    // The rename has already happened when recording runs, so a throw must
+    // not reach the claim cleanup, which would delete the moved note itself.
+    // An unrecorded entry is never swept.
     await writeFile(join(vault, "unrec.md"), "survives", "utf8")
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
@@ -1610,6 +1795,45 @@ describe("deleteNote — trash behavior", () => {
     expect(await readFile(join(vault, ".trash", "dup.md"), "utf8")).toBe("seed")
     expect(await readFile(join(vault, resultA.trashLocation), "utf8")).toBe("payload-a")
     expect(await readFile(join(vault, resultB.trashLocation), "utf8")).toBe("payload-b")
+  })
+
+  it("creates the trash folder under the trash-domain lock, so a sweep's folder prune cannot fail the move", async () => {
+    await mkdir(join(vault, "Projects"), { recursive: true })
+    await writeFile(join(vault, "Projects", "late.md"), "content", "utf8")
+    // As soon as the move's trash folder exists, queue what the retention
+    // sweep does after unlinking that folder's last expired file: prune it
+    // under the shared trash-domain lock. A folder created before the move
+    // takes the lock is still empty when the queued prune runs, so the prune
+    // removes it and the move's claim fails.
+    const queuedSweepPrunes: Promise<number>[] = []
+    vi.mocked(mkdir).mockImplementationOnce(async () => {
+      await mkdir(join(vault, ".trash", "Projects"), { recursive: true })
+      queuedSweepPrunes.push(
+        withFileLock(trashDomainLockKey(vault), () => {
+          return pruneEmptyParents(
+            { vaultPath: join(vault, ".trash"), path: "Projects/swept.md" },
+            logger,
+          )
+        }),
+      )
+      return undefined
+    })
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "Projects/late.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    // The prune ran after the move, found the trashed note, and removed nothing.
+    expect(await Promise.all(queuedSweepPrunes)).toEqual([0])
+    expect(result.trashLocation).toBe(".trash/Projects/late.md")
+    expect(await readFile(join(vault, ".trash", "Projects", "late.md"), "utf8")).toBe("content")
   })
 
   it("removes its claim placeholder and preserves the source when the rename fails", async () => {

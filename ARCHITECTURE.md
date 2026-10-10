@@ -1189,8 +1189,8 @@ Docker hardening, and durability seatbelts above.
   `withExclusiveMultiFileLock` (all-or-nothing fail-fast) acquires all
   locks in one synchronous tick — used by note-mover, which must lock the
   source, destination, and every backlink source for the whole
-  read-plan-write span. The trash move, the orphan purge, and the
-  retention sweep share one serializing key for the whole `.trash/`
+  read-plan-write span. The trash move and the cleanup in
+  `trash-sweeper.ts` share one serializing key for the whole `.trash/`
   domain.
 - **Properties-block guard** (`frontmatter.ts`): every rewrite refuses a
   note whose properties block it cannot keep, and every write's result is
@@ -1198,30 +1198,15 @@ Docker hardening, and durability seatbelts above.
   properties.
   [Vault read/write](#vault-readwrite) gives the full rules and the
   repair path.
-- **Trash claim loop** (`moveNoteToTrash` in `vault-filesystem.ts`): a
-  delete under Obsidian's `system` (default) or `local` trash setting
-  moves the note into `.trash/`. Each candidate name is claimed with an
-  exclusive create, so an existing trash copy is never overwritten.
-  `system`-mapped moves are recorded in the index DB's `trash_entries`
-  table. Recording is fail-open — a failed row write logs a warning, the
-  delete still succeeds, and an unrecorded entry is never swept. The
-  table's primary key is the case-folded path, so a case alias replaces
-  its stale row instead of leaving one that could purge the wrong sibling
-  on a case-insensitive mount.
-- **Recorded trash bookkeeping** (`trash-sweeper.ts`): two row-driven
-  operations (neither walks the folder):
-  - **Orphan purge** — runs once at boot regardless of
-    `TRASH_RETENTION_DAYS`. Drops rows whose `.trash/` entry no longer
-    exists on disk (uses lstat, so dangling symlinks are kept), so
-    manual emptying or `retention=none` never leaves
-    unbounded stale rows.
-  - **Retention sweep** — runs at startup and daily. Purges recorded
-    entries older than `TRASH_RETENTION_DAYS`. Each unlink is
-    double-guarded: the resolved path and the parent directory's
-    realpath must both sit inside `.trash/`, so a corrupted row or a
-    directory symlink cannot reach live notes.
-  - Both share a serializing lock with the trash move and re-read each
-    row under it before acting, so neither operates on a stale snapshot.
+- **Trash handling** (`moveNoteToTrash` in `vault-filesystem.ts`,
+  `trash-sweeper.ts`): a delete under Obsidian's `system` (default) or
+  `local` trash setting moves the note into `.trash/` and never overwrites
+  an existing trash copy. The server records `system` moves with the
+  trashed file's identity, and its daily retention sweep deletes only
+  those recorded files once they pass `TRASH_RETENTION_DAYS`. Before
+  deleting, it checks that the file still sits inside `.trash/` and is
+  still the unchanged file it trashed, so a corrupted record, a symlink,
+  or a note Obsidian later trashed under the same name is left alone.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans the filesystem for backlinks the search
   index missed (closing a lag race); then reads every affected file and
