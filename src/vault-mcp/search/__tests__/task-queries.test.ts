@@ -449,10 +449,12 @@ describe("listTasks date filters", () => {
     )
   })
 
-  it("rejects a calendar-invalid date", () => {
+  it("rejects a date the calendar lacks, saying so rather than naming the format", () => {
     const index = createTestIndex()
     expect(() => index.listTasks({ due: { on: "2026-02-31" } }, logger)).toThrow(
-      'invalid due.on date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      new Error(
+        'due.on date "2026-02-31" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+      ),
     )
   })
 })

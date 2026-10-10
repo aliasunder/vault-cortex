@@ -41,7 +41,8 @@ Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_searc
 Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
-- A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
+- "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
+- "… is not a calendar date" — the bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - tag must not be empty after its leading "#" — a tags entry is only "#"; pass the tag name
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
@@ -64,7 +65,8 @@ Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_searc
 Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
-- A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
+- "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
+- "… is not a calendar date" — the bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - tag must not be empty after its leading "#" — a tags entry is only "#"; pass the tag name
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,

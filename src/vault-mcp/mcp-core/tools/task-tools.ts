@@ -43,7 +43,8 @@ Parameters:
 - folder: a whole folder, subfolders included ("Projects" covers "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
 
 Errors:
-- A malformed or calendar-invalid date filter throws with remediation text ("Use YYYY-MM-DD")
+- "invalid due.before date: …" (any date filter's bound) — the bound isn't in YYYY-MM-DD form; use that form
+- "… is not a calendar date" — the bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - "path must end in .md" — add the ".md" extension
 - tag must not be empty after its leading "#" — tag is "#" alone; pass the tag name
 - No matches returns { total: 0, tasks: [] }, not an error

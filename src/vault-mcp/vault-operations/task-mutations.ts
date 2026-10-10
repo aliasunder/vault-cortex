@@ -6,6 +6,7 @@ import { DateTime } from "luxon"
 import { parseNoteForRewrite, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { classifyIsoDate } from "../../utils/classify-iso-date.js"
 import { readFileOrNull } from "../../utils/fs.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
@@ -1406,8 +1407,15 @@ const TASK_TEXT_LINE_BREAK_PATTERN = /[\r\n]/
 
 /** Validates a date string is a real calendar date. */
 const validateDate = (date: string, fieldName: string): void => {
-  if (!DateTime.fromFormat(date, "yyyy-MM-dd").isValid) {
+  const dateClass = classifyIsoDate(date)
+
+  if (dateClass === "malformed") {
     throw new Error(`invalid date: ${fieldName} "${date}" (use YYYY-MM-DD)`)
+  }
+  if (dateClass === "not-a-calendar-date") {
+    throw new Error(
+      `invalid date: ${fieldName} "${date}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`,
+    )
   }
 }
 

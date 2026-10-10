@@ -1,8 +1,8 @@
 // ── Query methods bound by createSearchIndex ─────────────────
 
 import type Database from "better-sqlite3"
-import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
+import { classifyIsoDate } from "../../utils/classify-iso-date.js"
 import { describeError } from "../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
@@ -142,13 +142,18 @@ type FileContentMetadataRow = {
 
 // ── Full-text search ───────────────────────────────────────────
 
-/** Rejects a malformed date filter bound with remediation text — shared by
- *  the note created/modified filters and the task date filters.
- *  `fromFormat` with `yyyy-MM-dd` pins both the format (no time component,
- *  no shorthand) and calendar correctness (2026-02-31 fails) in one call. */
+/** Rejects a date filter bound that is not a real YYYY-MM-DD day, shared by
+ *  the note created/modified filters and the task date filters. */
 const assertFilterDate = (value: string, filterName: string): void => {
-  if (!DateTime.fromFormat(value, "yyyy-MM-dd").isValid) {
+  const dateClass = classifyIsoDate(value)
+
+  if (dateClass === "malformed") {
     throw new Error(`invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`)
+  }
+  if (dateClass === "not-a-calendar-date") {
+    throw new Error(
+      `${filterName} date "${value}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`,
+    )
   }
 }
 

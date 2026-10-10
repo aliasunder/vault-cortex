@@ -1240,7 +1240,26 @@ kanban-plugin: board
       )
     })
 
-    it("errors on invalid date", async () => {
+    it("errors on a malformed date", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Bad date",
+            blockId: "bad-date",
+            due: "2026-2-3",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('invalid date: due "2026-2-3" (use YYYY-MM-DD)'))
+    })
+
+    it("errors on a date the calendar lacks, saying so rather than naming the format", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
@@ -1256,7 +1275,11 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow('invalid date: due "2026-02-30"')
+      ).rejects.toThrow(
+        new Error(
+          'invalid date: due "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        ),
+      )
     })
 
     it("errors when parent not found", async () => {
@@ -2207,7 +2230,7 @@ kanban-plugin: board
       )
     })
 
-    it("errors on invalid date in update", async () => {
+    it("errors on a malformed date in update", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
@@ -2222,7 +2245,29 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("invalid date")
+      ).rejects.toThrow(new Error('invalid date: due "not-a-date" (use YYYY-MM-DD)'))
+    })
+
+    it("errors on a date the calendar lacks in update, saying so rather than naming the format", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            created: "2026-13-01",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error(
+          'invalid date: created "2026-13-01" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        ),
+      )
     })
 
     it("errors on empty description in update", async () => {
