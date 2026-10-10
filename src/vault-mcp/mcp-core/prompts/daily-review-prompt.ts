@@ -432,8 +432,10 @@ export const registerDailyReviewPrompt = ({
         })
         return textResult(dailyReview)
       } catch (error) {
-        // A bad date returns earlier in the try, so a failure caught here is
-        // the server's own and logs at error, not warn
+        // The date checks above return bad input early, so a failure caught
+        // here is the server's own and logs at error, not warn. 9999-12-31 is
+        // the exception: it passes those checks, but the task filter refuses
+        // the day after it
         reqLogger.error("prompt_error", describeErrorForLog(error))
         const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const dailyFallbackHint = whenToolEnabledText(
