@@ -169,7 +169,8 @@ export const getDailyNotePath = async (
   const dateTime = date ? DateTime.fromISO(date) : DateTime.now()
 
   // The shape check above passed, so Luxon rejects only a day the calendar
-  // lacks, such as February 30; a format hint would get the same date back
+  // lacks, such as February 30. The message says so, because a caller told
+  // only the format would send the same date again
   if (!dateTime.isValid) {
     throw new Error(`"${date}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`)
   }
@@ -206,13 +207,13 @@ export const getDailyNote = async (
   try {
     const content = await vaultFs.readNote({ vaultPath: params.vaultPath, path }, logger)
     return { path, content, exists: true }
-  } catch (err) {
-    const errorMessage = describeError(err)
+  } catch (error) {
+    const errorMessage = describeError(error)
 
     if (errorMessage.startsWith("[Error]: note not found")) {
       logger.info("daily note not found", { path })
       return { path, content: null, exists: false }
     }
-    throw err
+    throw error
   }
 }

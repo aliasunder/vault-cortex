@@ -95,6 +95,21 @@ const formatTaskForPrompt = (task: TaskEntry, includePath: boolean): string => {
   return `- ${checkbox} ${task.description}${locationSuffix}${metadataSuffix}`
 }
 
+/** Assembles the modified-notes section. The query fetches one note past
+ *  DAILY_RECENT_LIMIT, so a longer list means more notes changed that day than
+ *  the section shows. */
+const formatModifiedNotesSection = (
+  modifiedNotes: ReadonlyArray<{ path: string; title: string }>,
+  date: string,
+): string => {
+  if (modifiedNotes.length === 0) return `No notes were modified on ${date}.`
+
+  const noteLines = modifiedNotes.slice(0, DAILY_RECENT_LIMIT).map(formatNoteLine).join("\n")
+
+  if (modifiedNotes.length <= DAILY_RECENT_LIMIT) return noteLines
+  return `${noteLines}\n\n_Showing the ${DAILY_RECENT_LIMIT} most recently modified; more notes changed on ${date}._`
+}
+
 /** Assembles a task section with an overflow hint when results are capped.
  *  overflowToolHint is keyed on availability so the hint never names a tool
  *  the server doesn't serve. */
@@ -278,15 +293,7 @@ export const registerDailyReviewPrompt = ({
           brokenLinks,
         )
         const backlinksSection = formatBacklinksSection(dailyNote.exists, backlinks)
-        const modifiedNotesShown = modifiedOnDate.slice(0, DAILY_RECENT_LIMIT)
-        const moreModifiedNotesHint =
-          modifiedOnDate.length > DAILY_RECENT_LIMIT
-            ? `\n\n_Showing the ${DAILY_RECENT_LIMIT} most recently modified; more notes changed on ${resolvedDate}._`
-            : ""
-        const modifiedSection =
-          modifiedNotesShown.length > 0
-            ? `${modifiedNotesShown.map(formatNoteLine).join("\n")}${moreModifiedNotesHint}`
-            : `No notes were modified on ${resolvedDate}.`
+        const modifiedSection = formatModifiedNotesSection(modifiedOnDate, resolvedDate)
 
         const taskOverflowHint = whenToolEnabledText(
           "vault_list_tasks",
