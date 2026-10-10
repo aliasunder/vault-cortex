@@ -27,11 +27,13 @@ export type DailyNotesEnvSettings = {
   format?: string | undefined
 }
 
+export const DEFAULT_DAILY_NOTES_FOLDER = "Daily Notes"
+
 // The format matches Obsidian's default; the folder is this server's own
 // choice — Obsidian with no configured location creates dailies in the
 // vault root, which is not a sensible folder for the server to assume.
 const FALLBACK_CONFIG: DailyNotesConfig = {
-  folder: "Daily Notes",
+  folder: DEFAULT_DAILY_NOTES_FOLDER,
   format: "YYYY-MM-DD",
 }
 
@@ -136,6 +138,13 @@ export const readDailyNotesConfig = async (
 /** Matches strict YYYY-MM-DD date strings (no time component, no partial dates). */
 const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
+/** The refusal for a YYYY-MM-DD date the calendar lacks, such as February 30.
+ *  Shared so the daily-note tool and the daily-review prompt refuse it in the
+ *  same words. */
+export const describeNonCalendarDate = (date: string): string => {
+  return `"${date}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`
+}
+
 /** Resolves a date to a vault-relative daily note path using the env
  *  settings, the vault's .obsidian/daily-notes.json config, and
  *  the fallbacks — in that per-field precedence order. */
@@ -166,8 +175,11 @@ export const getDailyNotePath = async (
 
   const dateTime = date ? DateTime.fromISO(date) : DateTime.now()
 
-  if (!dateTime.isValid) {
-    throw new Error(`invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`)
+  // The shape check above passed, so Luxon rejects only a day the calendar
+  // lacks, such as February 30. The message says so, because a caller told
+  // only the format would send the same date again
+  if (date && !dateTime.isValid) {
+    throw new Error(describeNonCalendarDate(date))
   }
 
   const filename = dateTime.toFormat(luxonFormat)
@@ -202,13 +214,13 @@ export const getDailyNote = async (
   try {
     const content = await vaultFs.readNote({ vaultPath: params.vaultPath, path }, logger)
     return { path, content, exists: true }
-  } catch (err) {
-    const errorMessage = describeError(err)
+  } catch (error) {
+    const errorMessage = describeError(error)
 
     if (errorMessage.startsWith("[Error]: note not found")) {
       logger.info("daily note not found", { path })
       return { path, content: null, exists: false }
     }
-    throw err
+    throw error
   }
 }

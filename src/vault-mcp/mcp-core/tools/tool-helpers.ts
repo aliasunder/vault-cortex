@@ -10,7 +10,7 @@ import type { Logger } from "../../../logger.js"
 import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
-import { describeError } from "../../../utils/describe-error.js"
+import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { isTagsKey } from "../../obsidian-markdown/tags.js"
 import {
   OverwriteBlockedError,
@@ -114,23 +114,28 @@ type ToolHandlerResult = {
   isError?: true
 }
 
-/** The try/catch wrappers every tool handler runs inside. Built per server
- *  from the enabled tool set, because the repair steps they add for a
- *  refused properties block name tools a server may not serve. */
+/** The try/catch wrappers every tool handler runs inside, built per server
+ *  from two inputs:
+ *  - the enabled tool set, because the repair steps they add for a refused
+ *    properties block name tools a server may not serve;
+ *  - the vault path, which a Node error's text must not show. */
 type SafeHandlers = {
   /** Wraps a handler with try/catch. A throw is logged as `tool_error` and
-   *  returned as an isError result whose text is describeError's
-   *  `[ErrorName]: message`, plus how to fix a properties-block refusal, so
-   *  the error's cause and stack never reach the client. The format callback
-   *  produces the full content-block array — text, image, or mixed (the SDK
-   *  union) — for tools whose results aren't a single text block. */
+   *  returned as an isError result that holds only text, so the error's
+   *  cause and stack never reach the client. The text is:
+   *  - `[ErrorName]: message`, with a Node error's paths made vault-relative;
+   *  - then how to fix it, for a properties-block refusal.
+   *
+   *  The format callback produces the full content-block array — text, image,
+   *  or mixed (the SDK union) — for tools whose results aren't a single text
+   *  block. */
   safeHandlerContent: <T>(
     logger: Logger,
     fn: () => Promise<T>,
     format: (result: T) => CallToolResult["content"],
   ) => Promise<ToolHandlerResult>
   /** The common single-text-block case. Delegates to safeHandlerContent so
-   *  the error contract (describeError, tool_error log, isError) has exactly
+   *  the error contract (error text, tool_error log, isError) has exactly
    *  one home. */
   safeHandler: <T>(
     logger: Logger,
@@ -188,9 +193,10 @@ const describeOverwriteRepair = (isToolEnabled: (name: ToolName) => boolean): st
   return "To overwrite it, read the note in full with vault_read_note, call vault_update_properties with replace: true and the properties to keep ({} for none), then run this write again."
 }
 
-/** A property makes the server's own block come first, and text above the
- *  `---` lines or their removal stops the note opening with them. The
- *  sentence names no tool, so it needs no gating. */
+/** When a note has properties, the server writes its own properties block at
+ *  the top, so the `---` lines in the body are no longer at the top of the
+ *  note; text above them or their removal has the same effect. The sentence
+ *  names no tool, so it needs no gating. */
 const OPENING_BLOCK_REMEDY =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
 
@@ -198,6 +204,22 @@ const OPENING_BLOCK_REMEDY =
  *  top of a note with no properties. The error carries the ways around it. */
 export const OPENING_BLOCK_ERROR_ENTRY =
   '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties, around text that can\'t be kept as properties; the error says how to avoid it'
+
+/** The Errors entries of a tool that saves a note, for a file the server
+ *  cannot read or write; the message is Node's, with the path made
+ *  vault-relative.
+ *  - A too-long name gets its own entry because the caller fixes it, not the
+ *    vault's owner. A save first writes a temp file named after the note
+ *    plus ".<UUID>.tmp", 41 bytes longer, so a note can read fine and still
+ *    fail to save. A rename writes that temp file beside the new name too,
+ *    which is why the entry asks for a name at least 41 bytes shorter.
+ *  - Every such tool can return these, but each lists them only when its own
+ *    description is next revised, because a grader re-scores every
+ *    description whose text changes. */
+export const FILESYSTEM_ERROR_ENTRIES = [
+  '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path. If the quoted name ends in ".tmp", the note exists but its name is too long to save; rename it at least 41 bytes shorter',
+  "- \"EACCES: …\" or another filesystem error code — the note's file can't be read or written (permissions, a full or read-only disk); ask the vault's owner to fix it",
+].join("\n")
 
 /** The Errors entry of every tool that rewrites a note, led by when the tool
  *  rewrites it for tools that do so only sometimes. The error itself carries
@@ -207,19 +229,28 @@ export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): st
   return `- "properties block …" — ${conditionClause}the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it`
 }
 
-export const createSafeHandlers = (isToolEnabled: (name: ToolName) => boolean): SafeHandlers => {
-  /** describeError's text, plus how to fix a properties-block failure:
-   *  repair steps for a block already in the vault, or a way around `---`
-   *  lines a write would leave at the top of the note. */
+export const createSafeHandlers = (params: {
+  isToolEnabled: (name: ToolName) => boolean
+  vaultPath: string
+}): SafeHandlers => {
+  const { isToolEnabled, vaultPath } = params
+
+  /** The error's text with a Node error's paths made vault-relative, plus how
+   *  to fix a properties-block failure: repair steps for a block already in
+   *  the vault, or a way around `---` lines a write would leave at the top of
+   *  the note. */
   const describeToolError = (error: unknown): string => {
-    const message = describeError(error)
-    // A move abort's message already ends with a sentence
+    const message = describeErrorRelativeTo({ error, directory: vaultPath })
+    // A move abort's properties-block message already ends with a period
+    // ("Nothing was written."), so the repair steps follow after a space
     const separator = message.endsWith(".") ? " " : ". "
 
     if (error instanceof UnkeepableOpeningBlockError) {
       return `${message}${separator}${OPENING_BLOCK_REMEDY}`
     }
-    // Checked before its parent class, whose repair steps carry prose over
+    // Checked before its parent class, whose repair steps carry prose over.
+    // OverwriteBlockedError extends UnsupportedPropertiesBlockError, while
+    // UnkeepableOpeningBlockError extends Error directly, so its order is free.
     if (error instanceof OverwriteBlockedError) {
       return `${message}${separator}${describeOverwriteRepair(isToolEnabled)}`
     }
@@ -234,8 +265,9 @@ export const createSafeHandlers = (isToolEnabled: (name: ToolName) => boolean): 
       const result = await fn()
       return { content: format(result) }
     } catch (error) {
-      // The log keeps the bare message; the repair steps are for the client
-      logger.warn("tool_error", { error: describeError(error) })
+      // The log keeps the full message and the cause a wrapped error carries;
+      // the vault-relative paths and repair steps are for the client
+      logger.warn("tool_error", describeErrorForLog(error))
       return {
         content: [{ type: "text" as const, text: describeToolError(error) }],
         isError: true as const,

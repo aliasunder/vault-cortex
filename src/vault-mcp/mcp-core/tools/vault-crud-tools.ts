@@ -3,6 +3,7 @@
 import { z } from "zod"
 import type { VaultConfig } from "../../config.js"
 import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
+import { DEFAULT_DAILY_NOTES_FOLDER } from "../../vault-operations/daily-notes.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { resolveEffectiveProtectedPaths } from "../../vault-operations/vault-folder-config.js"
 import { readTrashConfig } from "../../vault-operations/trash-config.js"
@@ -14,6 +15,7 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   describePropertiesBlockErrorEntry,
   describeTextWindow,
+  FILESYSTEM_ERROR_ENTRIES,
   OPENING_BLOCK_ERROR_ENTRY,
 } from "./tool-helpers.js"
 
@@ -35,14 +37,13 @@ const describeDisplacedLeadingContent = ({
 
 /** Protected-path list for tool descriptions. Descriptions are built once at
  *  registration and the daily notes folder is resolved per call, so the text
- *  names that folder's sources, not its value ("Daily Notes" restates the
- *  fallback in daily-notes.ts). */
+ *  names that folder's sources and its fallback, not its resolved value. */
 const describeProtectedPaths = (config: VaultConfig): string => {
   if (config.protectedPathsOverride) {
     // loadConfig strips trailing slashes from override entries.
     return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ")
   }
-  return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
+  return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to ${DEFAULT_DAILY_NOTES_FOLDER}/)`
 }
 
 /** Sentences that point to other tools, each already "" when its tool is
@@ -176,9 +177,10 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
       }
 
       // The read modes select different content; allowing more than one would
-      // make the result ambiguous, so reject the combination up front. An empty
-      // heading still counts as section mode (heading !== undefined) so it's
-      // rejected here rather than silently falling through to a full read.
+      // make the result ambiguous, so reject the combination up front. A
+      // whitespace-only heading (the schema's min(1) already rejects "") still
+      // counts as section mode (heading !== undefined), so the heading lookup
+      // rejects it rather than the read silently falling through to a full one.
       const selectedModeCount = [
         properties_only === true,
         outline === true,
@@ -670,6 +672,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
+${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -733,9 +736,29 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
     },
   )
 
+  /** The span tools' warning about a fenced code block: an end anchor on its
+   *  closing fence also matches the opening fence, which the span includes.
+   *  `blockEdit` names the vault_replace_in_note call that edits such a block. */
+  const fencedBlockEndAnchorText = (blockEdit: "remove" | "replace"): string => {
+    const newTextArgument = blockEdit === "remove" ? ' with new_text: ""' : ""
+    const fallbackAdvice = whenToolEnabledText(
+      "vault_replace_in_note",
+      `; to ${blockEdit} such a block, use vault_replace_in_note${newTextArgument}`,
+    )
+    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): every fragment of the closing fence also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence${fallbackAdvice}.`
+  }
+
   const replaceBlockAdvice = isToolEnabled("vault_replace_span")
     ? "use vault_replace_span (one atomic step)"
     : `delete it here${whenToolEnabledText("vault_patch_note", ", then vault_patch_note to add the new content")}`
+
+  const deleteSpanAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_replace_in_note",
+      "Prefer vault_replace_in_note for small in-place edits (this tool only deletes).",
+    ),
+    `To replace a block, ${replaceBlockAdvice}.`,
+  ])
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_SPAN,
@@ -746,12 +769,11 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
 
-When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). ")}To replace a block, ${replaceBlockAdvice}.
+When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${deleteSpanAlternativesLine}
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Omit end_anchor for a single-line delete. The empty lines above and below the removed lines join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
-- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted.
+- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
 
 Errors:
@@ -761,6 +783,7 @@ Errors:
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -817,9 +840,9 @@ Returns: Confirmation with the number of lines the span covered and a preview of
             },
             reqLogger,
           ),
-        (msg) => {
+        (confirmation) => {
           reqLogger.info("tool_result", { outcome: "span_deleted" })
-          return msg
+          return confirmation
         },
       )
     },
@@ -848,7 +871,7 @@ Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning]
 When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${replaceSpanAlternativesLine}
 
 Parameters:
-- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced.
+- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
 - content: empty lines at its start and end join the empty lines around the replaced lines, and each joined gap keeps the larger of the two counts (only at the end of the note, the count above drops by one). So content can widen a gap but not narrow it: a trailing newline leaves at least one empty line after the new block unless the block ends the note. Content made only of empty lines joins both sides into one gap. Empty lines inside content are written as given, and no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
 - first_match applies to both anchors independently.
 
@@ -860,6 +883,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
+${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -1135,12 +1159,11 @@ Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any 
               // Only "system" moves are swept later, so only they are recorded;
               // "local" is Obsidian's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
-              // The retention sweep deletes the file at each expired
-              // trash_entries row's path, and a row can outlive its file when
-              // .trash/ is emptied by hand. A move that does not record clears
-              // the row at its landed path, so the sweep cannot remove the new
-              // file, such as a "local" note meant to be kept. A "none" delete
-              // lands nothing in .trash/ and never calls it.
+              // A stale trash_entries row can make the retention sweep delete a
+              // new note at the same path, such as a "local" note meant to be
+              // kept. A row outlives its file when .trash/ is emptied by hand,
+              // so a move that does not record clears the row at its landed
+              // path. A "none" delete lands nothing in .trash/ and never calls it.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,

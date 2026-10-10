@@ -7,7 +7,7 @@ import type { LineWindow } from "../obsidian-markdown/lines.js"
 import { links } from "../obsidian-markdown/links.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
-import { describeError } from "../../utils/describe-error.js"
+import { describeErrorForLog } from "../../utils/describe-error.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
 import type { Logger } from "../../logger.js"
@@ -19,8 +19,9 @@ import type { Logger } from "../../logger.js"
  *
  * - `readAssetContent` dispatches one file to its most useful representation:
  *   images fitted to a byte budget, canvases linearized (or their raw JSON
- *   source), text formats decoded verbatim — whole, or as a 1-based line
- *   window when paging params are supplied — structured errors for the rest.
+ *   source), PDFs as extracted text (or rendered page images), text formats
+ *   decoded verbatim — whole, or as a 1-based line window when paging params
+ *   are supplied — structured errors for the rest.
  * - `buildAssetListing` browses many: extension-filtered, counted per
  *   extension over the full filtered set, and capped to a statted slice.
  *   There is no pagination — `limit` caps the returned entries, and
@@ -102,7 +103,7 @@ const assertTextWithinCap = (params: { text: string; path: string }): void => {
 
 /**
  * Builds the text result for a rendition — whole or paged. Without paging
- * params the full text returns byte-identical, cap enforced as before. With
+ * params the full text returns byte-identical, within the text output cap. With
  * paging, delegates line splitting, validation, and slicing to the shared
  * pageTextByLines primitive, then enforces the asset-specific byte cap on
  * the resulting window.
@@ -154,6 +155,69 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   }
 }
 
+// ── PDF reading ───────────────────────────────────────────────
+
+/** The server's message for pdf.js refusing to open a vault file, worded like
+ *  the other read errors; undefined for any other failure. The match is on
+ *  `name`:
+ *  - pdf.js's PasswordException and InvalidPDFException constructors set
+ *    these names.
+ *  - Importing those classes for instanceof would load pdf.js before
+ *    pdf-engine sets the canvas globals pdf.js must find on load. */
+const describePdfOpenFailure = (params: {
+  error: unknown
+  path: string
+  bytes: number
+}): string | undefined => {
+  const { error, path, bytes } = params
+
+  if (!(error instanceof Error)) return undefined
+
+  switch (error.name) {
+    case "PasswordException":
+      return `PDF is password-protected: "${path}" exists (${bytes} bytes) but cannot be opened without its password`
+    case "InvalidPDFException":
+      return `PDF is damaged or not a PDF: "${path}" exists (${bytes} bytes) but cannot be parsed`
+    default:
+      return undefined
+  }
+}
+
+/** pdf.js's refusal to open the file is rethrown as the server's own message,
+ *  with pdf.js's error as the cause. */
+const openPdfDocument = async (params: { pdfData: Uint8Array; path: string; bytes: number }) => {
+  try {
+    return await createPdfDocumentProxy(params.pdfData)
+  } catch (error) {
+    const openFailureMessage = describePdfOpenFailure({
+      error,
+      path: params.path,
+      bytes: params.bytes,
+    })
+
+    if (!openFailureMessage) throw error
+    throw new Error(openFailureMessage, { cause: error })
+  }
+}
+
+/** extractPdfText opens and reads the file in one call, so the try covers the
+ *  whole read. Only pdf.js's refusal to open the file is reworded, as in
+ *  openPdfDocument; any other failure passes through. */
+const readPdfText = async (params: { pdfData: Uint8Array; path: string; bytes: number }) => {
+  try {
+    return await extractPdfText(params.pdfData)
+  } catch (error) {
+    const openFailureMessage = describePdfOpenFailure({
+      error,
+      path: params.path,
+      bytes: params.bytes,
+    })
+
+    if (!openFailureMessage) throw error
+    throw new Error(openFailureMessage, { cause: error })
+  }
+}
+
 // ── PDF page rendering ────────────────────────────────────────
 
 /** Render scale for PDF page images — 2.0 produces 1224×1584px for US Letter
@@ -196,10 +260,8 @@ const renderPdfPages = async (
       })
       results.push({ pageNumber, fitted, originalBytes: pngBuffer.length })
     } catch (error) {
-      logger.warn("pdf_page_render_failed", {
-        page: pageNumber,
-        error: describeError(error),
-      })
+      // A page sharp cannot decode arrives wrapped, and only the cause holds sharp's reason
+      logger.warn("pdf_page_render_failed", { page: pageNumber, ...describeErrorForLog(error) })
     }
   }
   return results
@@ -212,8 +274,9 @@ const renderPdfPages = async (
  * they apply after the rendition is produced (passthrough source, canvas
  * outline or raw JSON, PDF-extracted text), so every path that can hit the
  * text cap can also be paged. Throws structured errors for images with
- * `raw`, non-text reads with paging params, and unsupported types — each
- * stating the file's existence and size.
+ * `raw`, non-text reads with paging params, PDFs that can't be opened or
+ * yield nothing, and unsupported types; the PDF and unsupported-type errors
+ * state the file's existence and size.
  */
 const readAssetContent = async (
   params: {
@@ -280,13 +343,14 @@ const readAssetContent = async (
     )
 
     if (raw) {
-      const proxy = await createPdfDocumentProxy(pdfData)
+      const proxy = await openPdfDocument({ pdfData, path, bytes: asset.bytes })
       try {
         const meta = await getMeta(proxy)
         const pdfTitle = meta.info?.Title ?? undefined
         const totalPages = proxy.numPages
         const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
 
+        // Config rejects MAX_PDF_RENDER_PAGES=0 at boot, so 0 here means the PDF has no pages.
         if (pagesToRender === 0) {
           throw new Error(
             `PDF page rendering failed: "${path}" exists ` +
@@ -316,7 +380,7 @@ const readAssetContent = async (
       }
     }
 
-    const pdfResult = await extractPdfText(pdfData)
+    const pdfResult = await readPdfText({ pdfData, path, bytes: asset.bytes })
 
     if (!pdfResult.text) {
       throw new Error(
@@ -336,8 +400,8 @@ const readAssetContent = async (
   throw new Error(
     `unsupported file type "${asset.extension}": "${path}" exists ` +
       `(${asset.bytes} bytes). Readable types: images ` +
-      `(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats ` +
-      `(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)`,
+      `(${[...IMAGE_EXTENSIONS].join("/")}), .canvas, .pdf, and text formats ` +
+      `(${[...TEXT_PASSTHROUGH_EXTENSIONS].join("/")})`,
   )
 }
 
@@ -389,9 +453,7 @@ const buildAssetListing = async (
     ? new Set(params.extensions.map(normalizeExtension))
     : undefined
   const filteredPaths = extensionFilter
-    ? assetPaths.filter((assetPath) =>
-        extensionFilter.has(links.getExtension(assetPath).toLowerCase()),
-      )
+    ? assetPaths.filter((assetPath) => extensionFilter.has(extensionOf(assetPath)))
     : assetPaths
 
   const filteredExtensions = filteredPaths.map(extensionOf)

@@ -707,9 +707,9 @@ const deleteNote = async (
   // throws while a note move holds this path — the lock fails fast, it never
   // waits.
   return withExclusiveFileLock(fullPath, async () => {
-    // The existence check runs inside the lock, mirroring moveNote — a clean
-    // vault-relative "note not found" instead of unlink's raw ENOENT (whose
-    // message would leak the absolute container path to the client).
+    // The existence check runs inside the lock, mirroring moveNote, so a
+    // missing note fails with the "note not found" error the tool documents
+    // instead of Node's ENOENT text.
     if (!(await fileExists(fullPath))) {
       throw new Error(`note not found: "${path}"`)
     }

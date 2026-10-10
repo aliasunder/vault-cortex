@@ -11,7 +11,11 @@
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js"
 import { z } from "zod"
 import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
-import { describeError } from "../../../utils/describe-error.js"
+import {
+  describeError,
+  describeErrorForLog,
+  describeErrorRelativeTo,
+} from "../../../utils/describe-error.js"
 import {
   type PromptRegistrationContext,
   textResult,
@@ -95,12 +99,12 @@ export const registerMemoryReviewPrompt = ({
               const names = await memoryStore.listMemoryFileNames({ vaultPath }, sessionLogger)
               const loweredValue = (value ?? "").toLowerCase()
               return names.filter((name) => name.toLowerCase().startsWith(loweredValue))
-            } catch (err) {
+            } catch (error) {
               // Recoverable and high-frequency (fires per keystroke), so warn
               // rather than error — but never swallow it silently.
               sessionLogger.warn("prompt_completion_failed", {
                 prompt: PROMPT_NAMES.MEMORY_REVIEW,
-                error: describeError(err),
+                error: describeError(error),
               })
               return []
             }
@@ -223,14 +227,16 @@ export const registerMemoryReviewPrompt = ({
           truncated,
         })
         return textResult(memoryReview)
-      } catch (err) {
-        const message = describeError(err)
-        reqLogger.error("prompt_error", { error: message })
+      } catch (error) {
+        // An unknown file returns earlier in the try, so a failure caught here
+        // is the server's own and logs at error, not warn
+        reqLogger.error("prompt_error", describeErrorForLog(error))
+        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"])
         const fallbackHint = fallbackTools
           ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`
           : ""
-        return textResult(`Could not load memory for review (${message}).${fallbackHint}`)
+        return textResult(`Could not load memory for review (${clientMessage}).${fallbackHint}`)
       }
     },
   )

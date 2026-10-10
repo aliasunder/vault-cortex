@@ -1303,11 +1303,25 @@ Docker hardening, and durability seatbelts above.
 - **`safeHandler()`** (built per server by `createSafeHandlers` in
   `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
   return a structured `isError` response with the error's name and message,
-  plus how to fix a properties-block refusal — no stack traces, no absolute
-  paths. A buggy tool never crashes the server.
+  plus how to fix a properties-block refusal — no stack traces. A buggy tool
+  never crashes the server.
+- **Library errors**: an image sharp cannot decode, a password-protected
+  PDF, a damaged PDF, and a PDF reader that fails to start (pdf.js or the
+  canvas library failing to load, whose error quotes install paths) each
+  return the server's own message, with the library's error kept as the
+  cause.
+- **Vault-relative error paths**: `describeErrorRelativeTo`
+  (`src/utils/describe-error.ts`) rewrites the paths in a Node error's
+  message (a filesystem failure or an invalid path argument) relative to
+  the vault root, for `safeHandler()` and the prompts' fallback messages.
+  Errors the server throws itself keep their text, since they can quote the
+  caller's input. The `tool_error`, `prompt_error` and
+  `pdf_page_render_failed` logs, and the logs of PDFs the search index or
+  file watcher cannot read, keep the full message
+  and the cause of a wrapped error (`describeErrorForLog`).
 - **In-lock existence checks**: `deleteNote` and `moveNote` check file
-  existence inside the lock, returning a vault-relative "not found"
-  instead of ENOENT (whose message leaks the absolute container path).
+  existence inside the lock, so a missing note returns the "note not found"
+  error the tools document instead of Node's ENOENT text.
 - **Graceful shutdown** (`server.ts`): SIGTERM handler drains in-flight
   requests with a 10-second force-exit fallback, so a write is never
   interrupted mid-rename.

@@ -2,7 +2,7 @@
  *  verified over real HTTP transport against a real server. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
@@ -14,6 +14,10 @@ import {
   textContent,
 } from "./test-harness.js"
 import type { ToolResult } from "./test-harness.js"
+import {
+  buildPasswordProtectedPdf,
+  buildZeroPagePdf,
+} from "../../vault-mcp/obsidian-markdown/__tests__/pdf-fixture.js"
 
 vi.setConfig({ testTimeout: 15_000 })
 
@@ -687,6 +691,267 @@ describe("path is not a file", () => {
       args: { path: folderPath, body: "refused" },
     })
     expectToolError(result, `cannot write note "${folderPath}": that path is not a file`)
+  })
+})
+
+// ── Filesystem errors ────────────────────────────────────────
+
+describe("filesystem errors name the path vault-relative", () => {
+  const plantFileWithMode = async (params: { filePath: string; mode: number }): Promise<void> => {
+    const fullPath = join(serverVaultPath, params.filePath)
+    await writeFile(fullPath, "line one\n- [ ] a task\n")
+    await chmod(fullPath, params.mode)
+    onTestFinished(async () => {
+      // Read-write again first, or the removal fails on the locked mode
+      await chmod(fullPath, 0o644)
+      await rm(fullPath)
+    })
+  }
+
+  const plantFolderWithMode = async (params: {
+    folderPath: string
+    mode: number
+  }): Promise<void> => {
+    const fullPath = join(serverVaultPath, params.folderPath)
+    await mkdir(fullPath)
+    await chmod(fullPath, params.mode)
+    onTestFinished(async () => {
+      // Read-write again first, or the removal fails on the locked mode
+      await chmod(fullPath, 0o755)
+      await rm(fullPath, { recursive: true })
+    })
+  }
+
+  it.each([
+    { name: "vault_read_note", args: {} },
+    { name: "vault_update_properties", args: { properties: { status: "draft" } } },
+    { name: "vault_patch_note", args: { operation: "append", content: "added" } },
+    { name: "vault_update_task", args: { line: 2, status: "done" } },
+    { name: "vault_replace_in_note", args: { old_text: "line one", new_text: "line 1" } },
+    { name: "vault_delete_span", args: { start_anchor: "line one" } },
+    { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
+  ])("$name on a note it cannot open names the note vault-relative", async ({ name, args }) => {
+    await plantFileWithMode({ filePath: "Locked.md", mode: 0o000 })
+
+    const result = await callTool({ client, name, args: { path: "Locked.md", ...args } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.md'" }],
+      isError: true,
+    })
+  })
+
+  it("vault_read_file on a file it cannot open names the file vault-relative", async () => {
+    await plantFileWithMode({ filePath: "Locked.png", mode: 0o000 })
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: "Locked.png" } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.png'" }],
+      isError: true,
+    })
+  })
+
+  it("vault_get_daily_note on a daily note it cannot open names the note vault-relative", async () => {
+    await plantFileWithMode({ filePath: "Daily Notes/2026-03-01.md", mode: 0o000 })
+
+    const result = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "2026-03-01" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: EACCES: permission denied, open 'Daily Notes/2026-03-01.md'",
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  // A name of 233 bytes reads, but the temp file a save writes beside it
+  // adds 41 bytes and goes over the filesystem's 255-byte limit
+  it.each([
+    { name: "vault_replace_in_note", args: { old_text: "line one", new_text: "line 1" } },
+    { name: "vault_delete_span", args: { start_anchor: "line one" } },
+    { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
+  ])("$name on a note whose name is too long for the save's temp file", async ({ name, args }) => {
+    const nameTooLongForTempFile = `${"b".repeat(230)}.md`
+    await plantFileWithMode({ filePath: nameTooLongForTempFile, mode: 0o644 })
+
+    const result = await callTool({ client, name, args: { path: nameTooLongForTempFile, ...args } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          // The temp file's name ends in a random UUID
+          text: expect.stringMatching(
+            new RegExp(
+              `^\\[Error\\]: ENAMETOOLONG: name too long, open '${RegExp.escape(nameTooLongForTempFile)}\\.[0-9a-f-]{36}\\.tmp'$`,
+            ),
+          ),
+        },
+      ],
+      isError: true,
+    })
+    // The note opens under its own name and is unchanged, so only the save's
+    // temp file name was too long
+    await expect(readFile(join(serverVaultPath, nameTooLongForTempFile), "utf8")).resolves.toBe(
+      "line one\n- [ ] a task\n",
+    )
+  })
+
+  it("vault_write_note into a read-only folder names the temp file vault-relative", async () => {
+    await plantFolderWithMode({ folderPath: "Sealed", mode: 0o555 })
+
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Sealed/new.md", body: "refused" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          // The temp file's name ends in a random UUID
+          text: expect.stringMatching(
+            /^\[Error\]: EACCES: permission denied, open 'Sealed\/new\.md\.[0-9a-f-]{36}\.tmp'$/,
+          ),
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_write_note through a note names the note vault-relative", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Projects/alpha.md/child.md", body: "refused" },
+    })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'" },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_move_note to a path through a note names the note vault-relative", async () => {
+    const sourcePath = join(serverVaultPath, "Orphan Note.md")
+    const sourceContentBefore = await readFile(sourcePath, "utf8")
+
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Orphan Note.md", new_path: "Projects/alpha.md/Orphan Note.md" },
+    })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'" },
+      ],
+      isError: true,
+    })
+    // The move stopped before writing anything, so the note is unchanged
+    await expect(readFile(sourcePath, "utf8")).resolves.toBe(sourceContentBefore)
+  })
+
+  it("vault_update_memory when a file sits where the memory folder belongs", async () => {
+    const memoryFolder = join(serverVaultPath, "About Me")
+    const movedAside = join(serverVaultPath, "About Me (moved aside)")
+    await rename(memoryFolder, movedAside)
+    await writeFile(memoryFolder, "not a folder")
+    onTestFinished(async () => {
+      await rm(memoryFolder)
+      await rename(movedAside, memoryFolder)
+    })
+
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Preferences", section: "Notes (newest first)", entry: "refused" },
+    })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'About Me'" }],
+      isError: true,
+    })
+  })
+
+  const longNoteName = `${"a".repeat(300)}.md`
+
+  it.each([
+    { name: "vault_read_note", args: {} },
+    { name: "vault_patch_note", args: { operation: "append", content: "added" } },
+    { name: "vault_update_task", args: { line: 1, status: "done" } },
+    { name: "vault_replace_in_note", args: { old_text: "old", new_text: "new" } },
+    { name: "vault_delete_span", args: { start_anchor: "old" } },
+    { name: "vault_replace_span", args: { start_anchor: "old", content: "new" } },
+  ])("$name on a note name too long for the filesystem", async ({ name, args }) => {
+    const result = await callTool({ client, name, args: { path: longNoteName, ...args } })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: `[Error]: ENAMETOOLONG: name too long, open '${longNoteName}'` },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_read_file on a file name too long for the filesystem", async () => {
+    const longFileName = `${"a".repeat(300)}.png`
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: longFileName } })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: `[Error]: ENAMETOOLONG: name too long, stat '${longFileName}'` },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_patch_note on a path holding a NUL character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: { path: "Bad\u0000Name.md", operation: "append", content: "added" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[TypeError]: The argument 'path' must be a string, Uint8Array, or URL without null bytes. Received 'Bad\\x00Name.md'",
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_read_note on a symbolic link that points to itself", async () => {
+    const loopPath = join(serverVaultPath, "Loop.md")
+    await symlink("Loop.md", loopPath)
+    onTestFinished(() => rm(loopPath))
+
+    const result = await callTool({ client, name: "vault_read_note", args: { path: "Loop.md" } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: ELOOP: too many symbolic links encountered, open 'Loop.md'",
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_list_notes on a vault holding a folder it cannot open", async () => {
+    await plantFolderWithMode({ folderPath: "Sealed Folder", mode: 0o000 })
+
+    const result = await callTool({ client, name: "vault_list_notes", args: {} })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "[Error]: EACCES: permission denied, scandir 'Sealed Folder'" },
+      ],
+      isError: true,
+    })
   })
 })
 
@@ -1435,6 +1700,23 @@ describe("parameter combinations", () => {
     expectToolError(result, "heading cannot be empty")
   })
 
+  it("vault_get_daily_note with a date the calendar lacks", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "2026-02-30" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it("vault_move_note onto its own path", async () => {
     const result = await callTool({
       client,
@@ -1542,7 +1824,91 @@ describe("undecodable image", () => {
     onTestFinished(() => rm(imageFullPath))
 
     const result = await callTool({ client, name: "vault_read_file", args: { path: imagePath } })
-    expectToolError(result, "Input buffer contains unsupported image format")
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: could not decode image (the file is empty, damaged, not an image, or over about 268 million pixels)",
+        },
+      ],
+      isError: true,
+    })
+  })
+})
+
+// ── Unreadable PDF ───────────────────────────────────────────
+
+describe("unreadable PDF", () => {
+  const plantPdf = async (params: { pdfPath: string; content: Buffer }): Promise<void> => {
+    const fullPath = join(serverVaultPath, params.pdfPath)
+    await writeFile(fullPath, params.content)
+    onTestFinished(() => rm(fullPath))
+  }
+
+  it.each([{ raw: false }, { raw: true }])(
+    "vault_read_file on a password-protected PDF with raw: $raw",
+    async ({ raw }) => {
+      const pdfContent = buildPasswordProtectedPdf()
+      await plantPdf({ pdfPath: "Locked.pdf", content: pdfContent })
+
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "Locked.pdf", raw },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: `[Error]: PDF is password-protected: "Locked.pdf" exists (${pdfContent.length} bytes) but cannot be opened without its password`,
+          },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  it.each([{ raw: false }, { raw: true }])(
+    "vault_read_file on a .pdf that holds no PDF with raw: $raw",
+    async ({ raw }) => {
+      const pdfContent = Buffer.from("plain text, not a PDF")
+      await plantPdf({ pdfPath: "Not Really A PDF.pdf", content: pdfContent })
+
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "Not Really A PDF.pdf", raw },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: `[Error]: PDF is damaged or not a PDF: "Not Really A PDF.pdf" exists (${pdfContent.length} bytes) but cannot be parsed`,
+          },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  it("vault_read_file with raw: true on a PDF that has no pages", async () => {
+    const pdfContent = buildZeroPagePdf()
+    await plantPdf({ pdfPath: "No Pages.pdf", content: pdfContent })
+
+    const result = await callTool({
+      client,
+      name: "vault_read_file",
+      args: { path: "No Pages.pdf", raw: true },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: PDF page rendering failed: "No Pages.pdf" exists (${pdfContent.length} bytes) but has 0 pages`,
+        },
+      ],
+      isError: true,
+    })
   })
 })
 
