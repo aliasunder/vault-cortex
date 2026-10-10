@@ -1,8 +1,8 @@
 // ── Query methods bound by createSearchIndex ─────────────────
 
 import type Database from "better-sqlite3"
-import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
+import { classifyIsoDate } from "../../utils/classify-iso-date.js"
 import { describeError } from "../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
@@ -140,17 +140,26 @@ type FileContentMetadataRow = {
   bytes: number
 }
 
-// ── Full-text search ───────────────────────────────────────────
+// ── Date filter validation ─────────────────────────────────────
 
-/** Rejects a malformed date filter bound with remediation text — shared by
- *  the note created/modified filters and the task date filters.
- *  `fromFormat` with `yyyy-MM-dd` pins both the format (no time component,
- *  no shorthand) and calendar correctness (2026-02-31 fails) in one call. */
+/** Rejects a date filter bound that isn't in YYYY-MM-DD form or names a day
+ *  the calendar lacks.
+ *  - Used by the note created/modified filters and the task date filters
+ *  - vault_search and vault_list_tasks quote both messages in their Errors sections */
 const assertFilterDate = (value: string, filterName: string): void => {
-  if (!DateTime.fromFormat(value, "yyyy-MM-dd").isValid) {
+  const dateClass = classifyIsoDate(value)
+
+  if (dateClass === "calendar-date") return
+
+  if (dateClass === "malformed") {
     throw new Error(`invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`)
   }
+  throw new Error(
+    `${filterName} date "${value}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`,
+  )
 }
+
+// ── Full-text search ───────────────────────────────────────────
 
 export const fullTextSearch = (
   context: SearchQueryContext,
@@ -260,6 +269,8 @@ export const fullTextSearch = (
   if (params.filters?.modified) {
     const { on, before, after } = params.filters.modified
 
+    // assertFilterDate checks each bound before dayToEpochMsRange converts it,
+    // so a bad bound gets assertFilterDate's message, never the converter's
     if (on !== undefined) {
       assertFilterDate(on, "modified.on")
       const dayRange = dayToEpochMsRange(on)
@@ -996,8 +1007,15 @@ export const listTasks = (
     { column: "created", filter: params.created },
     { column: "cancelled", filter: params.cancelled },
   ]
+
+  // column does two jobs:
+  // - names the SQL column, safe to interpolate because its type allows only
+  //   the six names above
+  // - names the filter in error messages, which vault_list_tasks' Errors
+  //   section quotes ("invalid due.before date: …")
   for (const { column, filter } of dateFilters) {
-    if (filter === undefined) continue
+    if (!filter) continue
+
     if (filter.on !== undefined) {
       assertFilterDate(filter.on, `${column}.on`)
       conditions.push(`t.${column} = ?`)
