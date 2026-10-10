@@ -1201,7 +1201,7 @@ Docker hardening, and durability seatbelts above.
 - **Trash handling** (`moveNoteToTrash` in `vault-filesystem.ts`,
   `trash-sweeper.ts`): a delete under Obsidian's `system` (default) or
   `local` trash setting moves the note into `.trash/` and never overwrites
-  an existing trash copy. The server records each `system` move with the
+  an existing trash copy. The server records `system` moves with the
   trashed file's identity, and its daily retention sweep deletes only
   those recorded files once they pass `TRASH_RETENTION_DAYS`. Before
   deleting, it checks that the file still sits inside `.trash/` and is
