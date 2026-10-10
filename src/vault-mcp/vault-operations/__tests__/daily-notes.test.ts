@@ -393,10 +393,12 @@ describe("getDailyNotePath", () => {
 
     await expect(
       getDailyNotePath({ vaultPath: vaultDir, date: "not-a-date" }, logger),
-    ).rejects.toThrow("invalid date")
+    ).rejects.toThrow(
+      new Error('invalid date "not-a-date" — use YYYY-MM-DD format (e.g. "2026-05-13")'),
+    )
   })
 
-  it("rejects a well-formed date that is not on the calendar as such", async () => {
+  it("rejects a well-formed date that is not on the calendar as not a calendar date", async () => {
     const vaultDir = await createVault()
 
     await expect(
@@ -410,7 +412,7 @@ describe("getDailyNotePath", () => {
     const vaultDir = await createVault()
 
     await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026" }, logger)).rejects.toThrow(
-      "invalid date",
+      new Error('invalid date "2026" — use YYYY-MM-DD format (e.g. "2026-05-13")'),
     )
   })
 
@@ -419,7 +421,9 @@ describe("getDailyNotePath", () => {
 
     await expect(
       getDailyNotePath({ vaultPath: vaultDir, date: "2026-05" }, logger),
-    ).rejects.toThrow("invalid date")
+    ).rejects.toThrow(
+      new Error('invalid date "2026-05" — use YYYY-MM-DD format (e.g. "2026-05-13")'),
+    )
   })
 
   it("rejects full ISO timestamps", async () => {
@@ -427,7 +431,9 @@ describe("getDailyNotePath", () => {
 
     await expect(
       getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13T14:30:00Z" }, logger),
-    ).rejects.toThrow("invalid date")
+    ).rejects.toThrow(
+      new Error('invalid date "2026-05-13T14:30:00Z" — use YYYY-MM-DD format (e.g. "2026-05-13")'),
+    )
   })
 
   it("rejects a format containing unsupported tokens (Do)", async () => {
@@ -436,7 +442,11 @@ describe("getDailyNotePath", () => {
 
     await expect(
       getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }, logger),
-    ).rejects.toThrow("unsupported token(s): Do")
+    ).rejects.toThrow(
+      new Error(
+        "daily note format contains unsupported token(s): Do — the server cannot reproduce the filenames Obsidian creates with these tokens; change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported format",
+      ),
+    )
   })
 
   it("rejects a format containing unsupported tokens (dd)", async () => {
@@ -445,7 +455,11 @@ describe("getDailyNotePath", () => {
 
     await expect(
       getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }, logger),
-    ).rejects.toThrow("unsupported token(s): dd")
+    ).rejects.toThrow(
+      new Error(
+        "daily note format contains unsupported token(s): dd — the server cannot reproduce the filenames Obsidian creates with these tokens; change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported format",
+      ),
+    )
   })
 })
 
@@ -484,7 +498,7 @@ describe("getDailyNote", () => {
     await writeDailyNotesConfig(vaultDir, { folder: "../escape", format: "YYYY-MM-DD" })
 
     await expect(getDailyNote({ vaultPath: vaultDir, date: "2026-05-13" }, logger)).rejects.toThrow(
-      "path traversal blocked",
+      new Error('path traversal blocked: "../escape/2026-05-13.md" escapes vault root'),
     )
   })
 })

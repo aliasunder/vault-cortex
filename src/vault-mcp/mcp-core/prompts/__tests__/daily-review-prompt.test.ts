@@ -589,6 +589,7 @@ describe("daily-review handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
+    // Nine notes and the daily note changed that day, so the list holds all ten
     expect(reviewSection(text, "Notes modified on 2026-06-16")).toBe(
       [
         "- note-09.md — Note 09",
