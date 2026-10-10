@@ -38,17 +38,20 @@ export type ToolRegistrationContext = ToolAvailability &
     config: VaultConfig
   }
 
-// Frontmatter keys that are already top-level fields on NoteMetadata.
-// These are stripped from `properties` before returning to clients
-// so the response doesn't contain the same data twice. The tags key is
-// found per note: the index reads the first key spelled `tags` in any
-// letter case, as Obsidian does, and returns it as `tags`; a second such
-// key, which the index ignores, stays in additional_properties.
-const PROMOTED_KEYS = new Set(["title", "type", "created", "related"])
+// Five frontmatter keys are promoted to top-level fields on NoteMetadata and
+// so are stripped from additional_properties, which would otherwise repeat
+// them. Four have one fixed spelling. The fifth, `tags`, is spelled per note:
+// the index reads the first key spelled `tags` in any letter case (`tags`,
+// `Tags`, `TAGS`), as Obsidian does, so that key is the one stripped, and a
+// later tags-spelled key, which the index ignores, stays in
+// additional_properties.
+const FIXED_PROMOTED_KEYS = new Set(["title", "type", "created", "related"])
 
-const promotedKeysOf = (properties: Record<string, unknown>): ReadonlySet<string> => {
-  const tagsKeyRead = Object.keys(properties).find(isTagsKey)
-  return tagsKeyRead ? new Set([...PROMOTED_KEYS, tagsKeyRead]) : PROMOTED_KEYS
+/** The promoted keys of one note: the fixed four plus the tags key its
+ *  frontmatter spells, when it has one. */
+const promotedKeysOfNote = (properties: Record<string, unknown>): ReadonlySet<string> => {
+  const noteTagsKey = Object.keys(properties).find(isTagsKey)
+  return noteTagsKey ? new Set([...FIXED_PROMOTED_KEYS, noteTagsKey]) : FIXED_PROMOTED_KEYS
 }
 
 /** Reshapes NoteMetadata for client responses: keeps all top-level fields,
@@ -62,7 +65,7 @@ export const formatNoteMetadata = (meta: {
   // keep it (the { type, title, body } block) when present.
   const { properties, leading_callout: leadingCallout, ...fields } = meta
 
-  const promotedKeys = promotedKeysOf(properties)
+  const promotedKeys = promotedKeysOfNote(properties)
   const additional_properties = Object.fromEntries(
     Object.entries(properties).filter(([key]) => !promotedKeys.has(key)),
   )
