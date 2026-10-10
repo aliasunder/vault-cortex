@@ -837,6 +837,34 @@ describe("daily-review error degradation", () => {
       "Could not assemble the daily review ([Error]: EACCES: permission denied, open 'Projects/plan.md'). Try vault_get_daily_note to fetch the note directly.",
     )
   })
+
+  it("logs prompt_error at error level with a wrapped failure's cause", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-err-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    const logCalls: LogCall[] = []
+    const throwingSearch = createSearchIndex(":memory:")
+    vi.spyOn(throwingSearch, "listTasks").mockImplementation(() => {
+      throw new Error("task listing failed", { cause: new Error("task index unavailable") })
+    })
+    const calls = registerWithSearch(vault, throwingSearch, recordingLogger(logCalls))
+    const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    await handler({}, fakeExtra)
+    expect(logCalls.filter((logCall) => logCall.message === "prompt_error")).toEqual([
+      {
+        level: "error",
+        message: "prompt_error",
+        data: {
+          requestId: fakeExtra.requestId,
+          prompt: PROMPT_NAMES.DAILY_REVIEW,
+          error: "[Error]: task listing failed",
+          cause: "[Error]: task index unavailable",
+        },
+      },
+    ])
+  })
 })
 
 // ── Full output ──────────────────────────────────────────────────

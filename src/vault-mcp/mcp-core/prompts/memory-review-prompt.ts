@@ -228,6 +228,8 @@ export const registerMemoryReviewPrompt = ({
         })
         return textResult(memoryReview)
       } catch (error) {
+        // An unknown file returns earlier in the try, so a failure caught here
+        // is the server's own and logs at error, not warn
         reqLogger.error("prompt_error", describeErrorForLog(error))
         const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"])
