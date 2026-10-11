@@ -117,6 +117,18 @@
 
 
 
+
+## [0.54.13] — 2026-10-11
+
+### Bug Fixes
+
+- Return tool errors with vault-relative paths and the server's own messages (#666)
+- Say when a date filter or task date names a day the calendar lacks (#668)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.12
+
 ## [0.54.12] — 2026-10-10
 
 ### Bug Fixes
