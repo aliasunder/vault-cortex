@@ -1144,6 +1144,26 @@ describe("require-nonroot-tests hook", () => {
       })
     })
 
+    // The reply a cloud container gets: env's -u must come before the
+    // settings, or env would take -u as the command to run.
+    it("drops NODE_EXTRA_CA_CERTS ahead of the settings when the prefix also runs a node copy", () => {
+      const fixture = createHookFixture()
+      const nobodyNodeDir = nodeCopyFolder(fixture.checkout, MATCHING_NODE_VERSION)
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+        extraCaCerts: join(fixture.outsideDir, "missing-ca-bundle.crt"),
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: `${expectedRefusal(fixture.checkout, { unsetsExtraCaCerts: true, nobodyNodeDir })}${expectedNodeCopyLine({ nobodyNodeVersion: OTHER_NODE_VERSION, copiedNodeVersion: MATCHING_NODE_VERSION })}`,
+      })
+    })
+
     it("keeps NODE_EXTRA_CA_CERTS when nobody can read its file", () => {
       const fixture = createHookFixture()
       const caBundle = join(fixture.outsideDir, "ca-bundle.crt")
