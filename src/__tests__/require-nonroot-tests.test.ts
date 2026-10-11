@@ -514,7 +514,20 @@ describe("require-nonroot-tests hook", () => {
       },
       { label: "timeout by its path", command: "/usr/bin/timeout 600 npm test" },
       { label: "a shell by its path", command: "/bin/bash -c 'npm test'" },
+      {
+        label: "env with -u and the name it unsets",
+        command: "env -u NODE_EXTRA_CA_CERTS npm test",
+      },
+      {
+        label: "the reply's full prefix without setpriv",
+        command:
+          '/usr/bin/env -u NODE_EXTRA_CA_CERTS HOME=/repo/node_modules/.nobody-home PATH=/repo/node_modules/.nobody-node/node-v24.11.0:"$PATH" npm test',
+      },
       { label: "a double-quoted value with a space", command: 'FOO="a b" npm test' },
+      {
+        label: "a value that mixes unquoted and quoted text",
+        command: 'PATH=/copy:"$PATH" npm test',
+      },
       { label: "time", command: "time npm test" },
       { label: "time with a flag", command: "time -p npm test" },
       {
@@ -955,6 +968,38 @@ describe("require-nonroot-tests hook", () => {
       const fixture = createHookFixture()
       const nvmDir = join(fixture.outsideDir, "nvm-dir")
       writeNvmNodes(nvmDir, ["v22.22.0"])
+      writeNvmNodes(join(fixture.outsideDir, ".nvm"), ["v24.10.0"])
+      const nobodyNodeDir = nodeCopyFolder(fixture.checkout, "v24.10.0")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+        sessionNodeVersion: OTHER_NODE_VERSION,
+        nvmDir,
+      })
+
+      expect({
+        run,
+        copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
+      }).toEqual({
+        run: {
+          status: 2,
+          stdout: "",
+          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}${expectedNodeCopyLine({ nobodyNodeVersion: OTHER_NODE_VERSION, copiedNodeVersion: "v24.10.0" })}`,
+        },
+        copiedNode: "#!/bin/sh\n# node v24.10.0\n",
+      })
+    })
+
+    it("copies the node in ~/.nvm, adding nothing to the reply, when $NVM_DIR's versions/node folder cannot be entered", () => {
+      const fixture = createHookFixture()
+      const nvmDir = join(fixture.outsideDir, "nvm-dir")
+      writeNvmNodes(nvmDir, ["v24.1.0"])
+      // Readable but not searchable: the -d test passes, and cd fails.
+      const lockedVersionsDir = join(nvmDir, "versions", "node")
+      chmodSync(lockedVersionsDir, 0o600)
+      onTestFinished(() => chmodSync(lockedVersionsDir, 0o755))
       writeNvmNodes(join(fixture.outsideDir, ".nvm"), ["v24.10.0"])
       const nobodyNodeDir = nodeCopyFolder(fixture.checkout, "v24.10.0")
 

@@ -80,18 +80,22 @@ npm_runner="npm${flags_with_optional_argument}[[:space:]]+(test|t|run(-script)?$
 test_runner="${vitest_runner}|${npm_exec_runner}|${npm_runner}"
 
 # variable_setting matches a VAR=value setting before the command
-# (`CI=1 npm test`), with the value in one of three forms.
+# (`CI=1 npm test`). The value is unquoted text with any number of quoted
+# parts, each followed by more unquoted text, as in the reply's own prefix
+# (`PATH=/copy:"$PATH"`).
 # - double_quoted matches text in double quotes, with no " inside.
 # - single_quoted matches text in single quotes, with no ' inside.
 # - unquoted matches text up to the first space, ' or ".
 double_quoted='"[^"]*"'
 single_quoted="'[^']*'"
 unquoted="[^[:space:]'\"]*"
-variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${unquoted})[[:space:]]+"
+variable_setting="[A-Za-z_][A-Za-z0-9_]*=${unquoted}((${double_quoted}|${single_quoted})${unquoted})*[[:space:]]+"
 
 # wrapper matches these commands, which run the command after them:
 # - env and time, with flags that take no argument, because a flag's argument
-#   would look the same as the command it runs.
+#   would look the same as the command it runs. env's -u (--unset) is the
+#   exception: it always takes a name, as in the reply's own prefix in a cloud
+#   container (`env -u NODE_EXTRA_CA_CERTS npm test`).
 # - exec and command, without flags, so `command -v vitest` is not a run.
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
@@ -108,10 +112,11 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
 optional_command_folder='([^[:space:]]*/)?'
+env_flags='([[:space:]]+((-u|--unset)[[:space:]]+[^[:space:]]+|-[^[:space:]]*))*'
 timeout_wrapper="${optional_command_folder}timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
 shell_flags='([[:space:]]+([-+][[:alpha:]]*[oO][[:alpha:]]*[[:space:]]+[^[:space:]]+|[-+][^[:space:]]*))*'
 shell_wrapper="${optional_command_folder}(bash|sh|zsh)${shell_flags}[[:space:]]+([\"'][[:space:]]*)?"
-wrapper="(${optional_command_folder}(env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+|${shell_wrapper}"
+wrapper="(${optional_command_folder}env${env_flags}|${optional_command_folder}time${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+|${shell_wrapper}"
 
 # shell_keyword matches a shell keyword a command can follow: if
 # (`if npm test`), then, do, else, elif, while, until, ! (`! npm test`) and {
@@ -392,13 +397,15 @@ if [[ "${node_major_differs}" == true ]]; then
       # named by its version: <nvm_dir>/versions/node/v24.11.0/bin/node.
       # find runs from inside versions/node, so -path sees only those three
       # folders: a v24. elsewhere in the nvm folder's own path cannot match.
+      # CDPATH is cleared so cd enters the folder the -d test checked, and
+      # cd's error on a folder it cannot enter is dropped, as find's is.
       # sort -V orders v24.9.0 before v24.10.0, so the last line is the newest.
       # -L enters a versions/node or version folder that is a symlink.
       # find exits non-zero on a folder it cannot read or a symlink loop that
       # -L walks into, while still listing the nodes it reached, so || true
       # keeps that list rather than let set -e end the hook, which would let
       # the run through as root.
-      newest_node="$(cd "${nvm_dir}/versions/node" && find -L . -mindepth 3 -maxdepth 3 -path "./v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)" || true
+      newest_node="$(CDPATH='' cd "${nvm_dir}/versions/node" 2>/dev/null && find -L . -mindepth 3 -maxdepth 3 -path "./v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)" || true
       [[ -n "${newest_node}" ]] || continue
       nvmrc_node_path="${nvm_dir}/versions/node/${newest_node#./}"
       nvmrc_node_version="$(basename "$(dirname "$(dirname "${nvmrc_node_path}")")")"
