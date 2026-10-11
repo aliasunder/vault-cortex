@@ -388,9 +388,10 @@ if [[ "${node_major_differs}" == true ]]; then
       # named by its version: <nvm_dir>/versions/node/v24.11.0/bin/node.
       # sort -V orders v24.9.0 before v24.10.0, so the last line is the newest.
       # -L enters a versions/node or version folder that is a symlink.
-      # A folder find cannot read makes it exit non-zero while still listing
-      # the nodes it could read, so || true keeps that list rather than let
-      # set -e end the hook, which would let the run through as root.
+      # find exits non-zero on a folder it cannot read or a symlink loop that
+      # -L walks into, while still listing the nodes it reached, so || true
+      # keeps that list rather than let set -e end the hook, which would let
+      # the run through as root.
       newest_node="$(find -L "${nvm_dir}/versions/node" -mindepth 3 -maxdepth 3 -path "*/v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)" || true
       [[ -n "${newest_node}" ]] || continue
       nvmrc_node_path="${newest_node}"

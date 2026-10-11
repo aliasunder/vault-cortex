@@ -547,7 +547,7 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "a test run after a run through setpriv",
         command:
-          "setpriv --reuid=65534 --regid=65534 --clear-groups env HOME=/repo/node_modules/.nobody-home npm test; npm test",
+          "setpriv --reuid=65534 --regid=65534 --clear-groups /usr/bin/env HOME=/repo/node_modules/.nobody-home npm test; npm test",
       },
     ])("stops $label and replies with the nobody prefix", ({ command }) => {
       const fixture = createHookFixture()
@@ -627,7 +627,7 @@ describe("require-nonroot-tests hook", () => {
       {
         label: "a command already run through setpriv",
         command:
-          "setpriv --reuid=65534 --regid=65534 --clear-groups env HOME=/repo/node_modules/.nobody-home npm test",
+          "setpriv --reuid=65534 --regid=65534 --clear-groups /usr/bin/env HOME=/repo/node_modules/.nobody-home npm test",
       },
     ])("lets $label through without preparing folders", ({ command }) => {
       const fixture = createHookFixture()
