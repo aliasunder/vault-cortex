@@ -548,6 +548,11 @@ describe("require-nonroot-tests hook", () => {
       { label: "a double-quoted value holding an escaped quote", command: 'A="a\\"b" npm test' },
       { label: "npm by its path", command: "/usr/local/bin/npm test" },
       { label: "npx by its path", command: "/usr/local/bin/npx vitest run" },
+      {
+        label: "node by its path running vitest.mjs",
+        command: "/usr/local/bin/node node_modules/vitest/vitest.mjs run",
+      },
+      { label: "a += setting", command: "CI+=1 npm test" },
       { label: "a double-quoted value with a space", command: 'FOO="a b" npm test' },
       {
         label: "a value that mixes unquoted and quoted text",
@@ -620,6 +625,9 @@ describe("require-nonroot-tests hook", () => {
       // FOO is the command env runs.
       { label: "env with -u unsetting u, then FOO", command: "env -uu FOO npm test" },
       { label: "env with -u unsetting C, then FOO", command: "env -uC FOO npm test" },
+      // A value ending in /npm is not npm by path: the shell runs test.
+      { label: "a setting whose value ends in /npm", command: "FOO=/x/npm test" },
+      { label: "a setting whose value ends in /npx", command: "FOO=bin/npx -y vitest run" },
       {
         label: "a quoted grep pattern that a | splits after a runner name",
         command: "grep -E 'npm test|vitest' src/",
@@ -1274,6 +1282,24 @@ describe("require-nonroot-tests hook", () => {
       })
     })
 
+    it("compares the major versions when .nvmrc starts with a space", () => {
+      const fixture = createHookFixture()
+      writeFileSync(join(fixture.checkout, ".nvmrc"), ` ${NVMRC_VERSION}\n`)
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: "v22.22.0",
+        sessionNodeVersion: "v20.19.0",
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: `${expectedRefusal(fixture.checkout)}nobody's node is v22.22.0, not the 24 that .nvmrc names and CI runs, so a result can differ from CI's.\n`,
+      })
+    })
+
     it("leaves the version line out when .nvmrc names an alias rather than a version", () => {
       const fixture = createHookFixture()
       writeFileSync(join(fixture.checkout, ".nvmrc"), "lts/*\n")
@@ -1546,6 +1572,23 @@ describe("require-nonroot-tests hook", () => {
         })
       },
     )
+
+    it("prepares the checkout a cd names with an escaped leading /", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+
+      // The session's folder is in no checkout, so only the cd's path can
+      // reach one.
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({
+          command: `cd \\${otherCheckout} && npm test`,
+          cwd: fixture.outsideDir,
+        }),
+      })
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) })
+    })
 
     it("prepares the session's checkout for a cd to an escaped leading -, which cd reads as a flag", () => {
       const fixture = createHookFixture()

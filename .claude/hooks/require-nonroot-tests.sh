@@ -73,19 +73,20 @@ flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space
 #   out test:remote-boot and test:cli-pty, the two suites exempt from this
 #   hook because they cannot run as nobody; the exemptions below give each
 #   reason.
-# npm and npx may be named by path (`/usr/local/bin/npm test`), as vitest and
-# the wrappers below may.
-optional_command_folder='([^[:space:]]*/)?'
-vitest_binary='([^[:space:]]*/)?vitest(@[^[:space:]]*)?'
-vitest_runner="(${optional_command_folder}npx${flags_with_optional_argument}[[:space:]]+)?${vitest_binary}|node[[:space:]]+[^[:space:]]*vitest\.mjs"
+# vitest, npm, npx and node may be named by path (`/usr/local/bin/npm test`),
+# as the wrappers below may. A folder holding = is a setting's value, not a
+# command's path, so `FOO=/x/npm test` runs test, not npm.
+optional_command_folder='([^[:space:]=]*/)?'
+vitest_binary="${optional_command_folder}vitest(@[^[:space:]]*)?"
+vitest_runner="(${optional_command_folder}npx${flags_with_optional_argument}[[:space:]]+)?${vitest_binary}|${optional_command_folder}node[[:space:]]+[^[:space:]]*vitest\.mjs"
 npm_exec_runner="${optional_command_folder}npm${flags_with_optional_argument}[[:space:]]+(exec|x)${flags_with_optional_argument}[[:space:]]+${vitest_binary}"
 npm_runner="${optional_command_folder}npm${flags_with_optional_argument}[[:space:]]+(test|t|run(-script)?${flags_with_optional_argument}[[:space:]]+(test|test:coverage|test:watch|snapshot:update))"
 test_runner="${vitest_runner}|${npm_exec_runner}|${npm_runner}"
 
-# variable_setting matches a VAR=value setting before the command
-# (`CI=1 npm test`). Its value is a shell_word: unquoted text with any number
-# of quoted parts, each followed by more unquoted text, as in the reply's own
-# prefix (`PATH=/copy:"$PATH"`).
+# variable_setting matches a VAR=value or VAR+=value setting before the
+# command (`CI=1 npm test`). Its value is a shell_word: unquoted text with
+# any number of quoted parts, each followed by more unquoted text, as in the
+# reply's own prefix (`PATH=/copy:"$PATH"`).
 # - double_quoted matches text in double quotes, where a backslash escapes
 #   the next character (`"a\"b"`).
 # - single_quoted matches text in single quotes, with no ' inside.
@@ -96,7 +97,7 @@ double_quoted='"([^"\\]|\\.)*"'
 single_quoted="'[^']*'"
 unquoted="([^[:space:]'\"\\\\]|\\\\.)*"
 shell_word="${unquoted}((${double_quoted}|${single_quoted})${unquoted})*"
-variable_setting="[A-Za-z_][A-Za-z0-9_]*=${shell_word}[[:space:]]+"
+variable_setting="[A-Za-z_][A-Za-z0-9_]*\\+?=${shell_word}[[:space:]]+"
 
 # wrapper matches these commands, which run the command after them:
 # - env and time, with flags that take no argument, because a flag's argument
@@ -175,22 +176,23 @@ exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 # test'`) is cut off first, with leading_command_prefix, so the first three
 # patterns start at cd or pushd and the path is the second group of their
 # match. any_cd accepts that prefix itself for the grep below.
-# - cd_to_absolute_path matches an unquoted path that starts with /. In it,
-#   and in cd_to_relative_path, a backslash escapes the next character
-#   (`cd /my\ repo`), and the walk drops the backslash.
+# - cd_to_absolute_path matches an unquoted path that starts with / or \/.
+#   In it, and in cd_to_relative_path, a backslash escapes the next
+#   character (`cd /my\ repo`), and the walk drops the backslash.
 # - cd_to_quoted_absolute_path matches a quoted path that starts with / and
 #   holds no $, backtick or ~, so the shell would use it as written.
 # - cd_to_relative_path matches an unquoted relative path. Its first
-#   character cannot be - or \- (`cd -` or a flag), # (a comment, which leaves a
-#   bare `cd`), or ~, $ or a quote, which only the shell can expand.
+#   character cannot be - or \- (`cd -` or a flag), \/ (an absolute path),
+#   # (a comment, which leaves a bare `cd`), or ~, $ or a quote, which only
+#   the shell can expand.
 # - any_cd matches any cd, pushd or popd. The walk tries it last, so it
 #   catches the rest: a bare `cd`, with or without a comment after it,
 #   `cd -`, popd, and a ~, $ or quoted path the others do not take.
 directory_change="^[[:space:]]*(cd|pushd)[[:space:]]+"
 escaped_path_character='([^[:space:]\\]|\\.)'
-cd_to_absolute_path="${directory_change}(/${escaped_path_character}*)"
+cd_to_absolute_path="${directory_change}(\\\\?/${escaped_path_character}*)"
 cd_to_quoted_absolute_path="${directory_change}[\"'](/[^\"'\$\`~]*)[\"']"
-cd_to_relative_path="${directory_change}(([^-~#\"'\$[:space:]\\\\]|\\\\[^-])${escaped_path_character}*)"
+cd_to_relative_path="${directory_change}(([^-~#\"'\$[:space:]\\\\]|\\\\[^-/])${escaped_path_character}*)"
 leading_command_prefix="^[[:space:]]*${command_prefix}"
 any_cd="^[[:space:]]*${command_prefix}(cd|pushd|popd)([[:space:]]|$)"
 
@@ -361,8 +363,10 @@ chmod -R go-w "${nobody_writable[@]}"
 # node_major_differs is true when .nvmrc names a number (24 or v24.1.0), not
 # an alias such as lts/*, and nobody's node has another major version.
 nvmrc_version="$(cat "${checkout}/.nvmrc" 2>/dev/null)" || nvmrc_version=""
-# Cut the text at its first space, tab or line break, so a CRLF line end or a
-# comment after the version does not hide it.
+# Drop any leading spaces, tabs or line breaks, then cut the text at the
+# next one, so a CRLF line end or a comment after the version does not hide
+# it.
+nvmrc_version="${nvmrc_version#"${nvmrc_version%%[![:space:]]*}"}"
 nvmrc_version="${nvmrc_version%%[[:space:]]*}"
 nvmrc_major="${nvmrc_version#v}"
 nvmrc_major="${nvmrc_major%%.*}"
