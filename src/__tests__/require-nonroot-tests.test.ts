@@ -21,10 +21,13 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * Behavioral spec for the Claude Code hook that stops test runs in a root
  * session (.claude/hooks/require-nonroot-tests.sh): which commands it stops,
  * which checkout's folders it prepares, and the reply it gives. The real hook
- * runs under `bash` with real node and git, and with stub `id`, `setpriv` and
- * `chown` executables first on PATH. The stub `id` poses as root and reports
- * the test runner's own ids for nobody, so the hook's chown needs no
- * privileges.
+ * runs under `bash` with real git, and with stub `id`, `setpriv`, `chown` and
+ * `node` executables first on PATH.
+ * - The stub `id` poses as root and reports the test runner's own ids for
+ *   nobody, so the hook's chown needs no privileges.
+ * - The stub `node` answers the version and binary-path questions the hook
+ *   asks of its own node and hands every other call, such as the payload
+ *   parse, to the real node.
  */
 
 const HOOK_PATH = resolve(import.meta.dirname, "../../.claude/hooks/require-nonroot-tests.sh")
@@ -363,7 +366,7 @@ const expectedRefusal = (
   return [
     "Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.",
     "Run the same test command as the nobody user, with this prefix in front of the test command itself (after any cd):",
-    `  setpriv --reuid=${uid} --regid=${gid} --clear-groups env ${unsetSetting}HOME=${nobodyHomeInPrefix}${pathSetting}`,
+    `  setpriv --reuid=${uid} --regid=${gid} --clear-groups /usr/bin/env ${unsetSetting}HOME=${nobodyHomeInPrefix}${pathSetting}`,
     `The folders nobody needs to write in ${checkout} are ready.`,
     "",
   ].join("\n")
@@ -834,6 +837,37 @@ describe("require-nonroot-tests hook", () => {
       const fixture = createHookFixture()
       // v24.10.0 is newer than v24.9.0, though it sorts first as plain text.
       writeNvmNodes(join(fixture.outsideDir, ".nvm"), ["v24.9.0", "v24.10.0", "v22.22.0"])
+      const nobodyNodeDir = nodeCopyFolder(fixture.checkout, "v24.10.0")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+        sessionNodeVersion: OTHER_NODE_VERSION,
+      })
+
+      expect({
+        run,
+        copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
+      }).toEqual({
+        run: {
+          status: 2,
+          stdout: "",
+          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}${expectedNodeCopyLine({ nobodyNodeVersion: OTHER_NODE_VERSION, copiedNodeVersion: "v24.10.0" })}`,
+        },
+        copiedNode: "#!/bin/sh\n# node v24.10.0\n",
+      })
+    })
+
+    it("still copies the newest node it can read when find cannot read a folder under nvm's versions", () => {
+      const fixture = createHookFixture()
+      const nvmDir = join(fixture.outsideDir, ".nvm")
+      writeNvmNodes(nvmDir, ["v24.10.0"])
+      // A folder find cannot enter makes it exit non-zero.
+      const unreadableFolder = join(nvmDir, "versions", "node", "v24.11.0")
+      mkdirSync(unreadableFolder)
+      chmodSync(unreadableFolder, 0o000)
+      onTestFinished(() => chmodSync(unreadableFolder, 0o755))
       const nobodyNodeDir = nodeCopyFolder(fixture.checkout, "v24.10.0")
 
       const run = runHook({
