@@ -91,12 +91,18 @@ const NOBODY_NODE_STUB = `#!/bin/sh
 echo "$STUB_NOBODY_NODE_VERSION"
 `
 
-/** The session's node: prints STUB_SESSION_NODE_VERSION for --version and
- *  hands every other call (the hook's payload parsing) to the real node at
+/** The session's node: prints STUB_SESSION_NODE_VERSION for --version, and
+ *  for `-p process.execPath` STUB_SESSION_NODE_BINARY when set (as a version
+ *  manager's shim reports the node it starts), else its own path. It hands
+ *  every other call (the hook's payload parsing) to the real node at
  *  STUB_REAL_NODE. */
 const SESSION_NODE_STUB = `#!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "$STUB_SESSION_NODE_VERSION"
+  exit 0
+fi
+if [ "$1 $2" = "-p process.execPath" ]; then
+  echo "\${STUB_SESSION_NODE_BINARY:-$0}"
   exit 0
 fi
 exec "$STUB_REAL_NODE" "$@"
@@ -156,6 +162,9 @@ type HookRunOptions = {
   /** What the session's own node prints for --version. Defaults to a
    *  version that matches the fixture's .nvmrc. */
   sessionNodeVersion?: string
+  /** The binary the session's own node reports as process.execPath.
+   *  Defaults to the stub itself. */
+  sessionNodeBinary?: string
   /** The hook's NODE_EXTRA_CA_CERTS. Unset by default. */
   extraCaCerts?: string
   /** The hook's NVM_DIR. Unset by default, so the hook looks only in ~/.nvm. */
@@ -303,6 +312,7 @@ const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string>
     ...(options.claudeProjectDir ? { CLAUDE_PROJECT_DIR: options.claudeProjectDir } : {}),
     ...(options.extraCaCerts ? { NODE_EXTRA_CA_CERTS: options.extraCaCerts } : {}),
     ...(options.nvmDir ? { NVM_DIR: options.nvmDir } : {}),
+    ...(options.sessionNodeBinary ? { STUB_SESSION_NODE_BINARY: options.sessionNodeBinary } : {}),
   }
 }
 
@@ -348,7 +358,7 @@ const expectedRefusal = (
 ): string => {
   const { uid, gid } = runnerIds()
   const unsetSetting = unsetsExtraCaCerts ? "-u NODE_EXTRA_CA_CERTS " : ""
-  const pathSetting = nobodyNodeDir ? ` PATH=${nobodyNodeDir}:$PATH` : ""
+  const pathSetting = nobodyNodeDir ? ` PATH=${nobodyNodeDir}:"$PATH"` : ""
 
   return [
     "Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.",
@@ -720,6 +730,27 @@ describe("require-nonroot-tests hook", () => {
       })
     })
 
+    it("copies the binary the hook's own node runs from, not the version manager shim found on PATH", () => {
+      const fixture = createHookFixture()
+      const nodeBinary = join(fixture.outsideDir, "installs", "node")
+      const nodeBinaryContent = "#!/bin/sh\n# the node a shim starts\n"
+      mkdirSync(dirname(nodeBinary))
+      writeExecutable(nodeBinary, nodeBinaryContent)
+      const nobodyNodeDir = nodeCopyFolder(fixture.checkout, MATCHING_NODE_VERSION)
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+        sessionNodeBinary: nodeBinary,
+      })
+
+      expect({
+        status: run.status,
+        copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
+      }).toEqual({ status: 2, copiedNode: nodeBinaryContent })
+    })
+
     it("makes the node copy and its folders readable and runnable by others under a restrictive umask", () => {
       const fixture = createHookFixture()
       const nodeCopiesDir = join(fixture.checkout, "node_modules", ".nobody-node")
@@ -780,12 +811,13 @@ describe("require-nonroot-tests hook", () => {
       })
       const run = runHook({ fixture, stdin, nobodyNodeVersion: OTHER_NODE_VERSION })
 
-      // The cut-short run fails at its cp, so the second run meets the
-      // partial file it left.
+      // The cut-short run fails at its cp, whose partial file was already
+      // executable, and removes that file. The second run copies again.
       expect({
         cutShortStatus: cutShortRun.status,
         run,
         copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
+        copyFolderEntries: readdirSync(nobodyNodeDir),
       }).toEqual({
         cutShortStatus: 1,
         run: {
@@ -794,6 +826,7 @@ describe("require-nonroot-tests hook", () => {
           stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}${expectedNodeCopyLine({ nobodyNodeVersion: OTHER_NODE_VERSION, copiedNodeVersion: MATCHING_NODE_VERSION })}`,
         },
         copiedNode: SESSION_NODE_STUB,
+        copyFolderEntries: ["node"],
       })
     })
 
@@ -864,6 +897,35 @@ describe("require-nonroot-tests hook", () => {
         nobodyNodeVersion: OTHER_NODE_VERSION,
         sessionNodeVersion: OTHER_NODE_VERSION,
         nvmDir,
+      })
+
+      expect({
+        run,
+        copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
+      }).toEqual({
+        run: {
+          status: 2,
+          stdout: "",
+          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}${expectedNodeCopyLine({ nobodyNodeVersion: OTHER_NODE_VERSION, copiedNodeVersion: "v24.10.0" })}`,
+        },
+        copiedNode: "#!/bin/sh\n# node v24.10.0\n",
+      })
+    })
+
+    it("copies the node in ~/.nvm when its versions/node folder is a symlink", () => {
+      const fixture = createHookFixture()
+      const movedNvmDir = join(fixture.outsideDir, "moved-nvm")
+      const nvmVersionsDir = join(fixture.outsideDir, ".nvm", "versions")
+      writeNvmNodes(movedNvmDir, ["v24.10.0"])
+      mkdirSync(nvmVersionsDir, { recursive: true })
+      symlinkSync(join(movedNvmDir, "versions", "node"), join(nvmVersionsDir, "node"))
+      const nobodyNodeDir = nodeCopyFolder(fixture.checkout, "v24.10.0")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+        sessionNodeVersion: OTHER_NODE_VERSION,
       })
 
       expect({

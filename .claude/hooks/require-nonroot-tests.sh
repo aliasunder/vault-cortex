@@ -376,7 +376,10 @@ if [[ "${node_major_differs}" == true ]]; then
   hook_node_major="${hook_node_major%%.*}"
 
   if [[ "${hook_node_major}" == "${nvmrc_major}" ]]; then
-    nvmrc_node_path="$(command -v node)"
+    # node names the binary it runs from. The node on PATH can be a version
+    # manager's shim (asdf, mise, volta) that starts it, and a copy of the
+    # shim fails as nobody, who cannot read the version manager's files.
+    nvmrc_node_path="$(node -p process.execPath 2>/dev/null)" || nvmrc_node_path=""
     nvmrc_node_version="${hook_node_version}"
   else
     for nvm_dir in "${NVM_DIR:-}" "${HOME}/.nvm"; do
@@ -384,7 +387,8 @@ if [[ "${node_major_differs}" == true ]]; then
       # nvm keeps each node three folders below versions/node, in a folder
       # named by its version: <nvm_dir>/versions/node/v24.11.0/bin/node.
       # sort -V orders v24.9.0 before v24.10.0, so the last line is the newest.
-      newest_node="$(find "${nvm_dir}/versions/node" -mindepth 3 -maxdepth 3 -path "*/v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)"
+      # -L enters a versions/node or version folder that is a symlink.
+      newest_node="$(find -L "${nvm_dir}/versions/node" -mindepth 3 -maxdepth 3 -path "*/v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)"
       [[ -n "${newest_node}" ]] || continue
       nvmrc_node_path="${newest_node}"
       nvmrc_node_version="$(basename "$(dirname "$(dirname "${newest_node}")")")"
@@ -406,7 +410,12 @@ if [[ "${node_major_differs}" == true ]]; then
       # the hook's timeout, or one a concurrent hook is still writing, would
       # pass the -x check above. The copy gets a temporary name, and mv's
       # rename puts only a whole binary at the name later runs reuse.
-      cp -L "${nvmrc_node_path}" "${nobody_node_dir}/node.$$"
+      # A failed cp (a full disk) ends the hook as set -e would, after
+      # removing its partial file, which would otherwise hold the space.
+      cp -L "${nvmrc_node_path}" "${nobody_node_dir}/node.$$" || {
+        rm -f "${nobody_node_dir}/node.$$"
+        exit 1
+      }
       chmod 755 "${nobody_node_dir}/node.$$"
       mv -f "${nobody_node_dir}/node.$$" "${nobody_node_dir}/node"
     fi
@@ -441,9 +450,12 @@ env_arguments+=("HOME=${nobody_home_for_shell}")
 # $PATH stays literal, so the shell running the prefix expands it to the
 # session's PATH, which env searches after the copy's folder. A folder there
 # that nobody cannot read is skipped.
+# - The double quotes keep that PATH one argument when a folder in it holds a
+#   space, as Windows folders on WSL's PATH do. Unquoted, the shell would
+#   split it, and env would take the text after the space as its command.
 if [[ -n "${nobody_node_dir}" ]]; then
   printf -v nobody_node_dir_for_shell '%q' "${nobody_node_dir}"
-  env_arguments+=("PATH=${nobody_node_dir_for_shell}:\$PATH")
+  env_arguments+=("PATH=${nobody_node_dir_for_shell}:\"\$PATH\"")
 fi
 
 cat >&2 <<EOF
