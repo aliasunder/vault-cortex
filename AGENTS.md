@@ -169,7 +169,7 @@ A module's folder is decided by **what it depends on**, not just its topic:
   (`createSafeHandlers`, `formatNoteMetadata`, `ToolRegistrationContext`
   type) live in `tool-helpers.ts`. Group modules take `safeHandler` and
   `safeHandlerContent` from the registration context; `createSafeHandlers`
-  builds them per server from the enabled tools.
+  builds them per server from the enabled tools and the vault path.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
   one data-layer call, and content-block/JSON formatting. Multi-step
   composition — filtering, counting, pagination, dispatching across parsers
@@ -390,8 +390,13 @@ log would produce N lines during a vault rebuild (one per note), it's
   what went wrong in their own domain and never name API surfaces
   (tool names, routes) or prescribe caller-level remediation.
 - Log full detail internally, return generic messages externally —
-  error responses to clients never include paths, stack traces, or
-  implementation state.
+  error responses to clients never include the server's own paths,
+  stack traces, or implementation state. A Node error's paths reach the
+  client vault-relative, because the tool and prompt boundaries rewrite
+  them (`describeErrorRelativeTo`), so a wrapper passes the Node error as
+  `cause` and never copies its message into its own. Errors the server
+  throws itself keep their text, since they can quote the caller's input
+  (a refused absolute path comes back as sent).
 - `/healthz` needs no sign-in, so never add deployment settings or host
   details to its response. The full server returns `{ ok: true }`, and
   setup mode adds `mode: "setup"` so the setup page can tell when the full

@@ -8,8 +8,12 @@
 
 import { DateTime } from "luxon"
 import { z } from "zod"
-import { getDailyNote, readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { describeError } from "../../../utils/describe-error.js"
+import {
+  describeNonCalendarDate,
+  getDailyNote,
+  readDailyNotesConfig,
+} from "../../vault-operations/daily-notes.js"
+import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import type { TaskEntry } from "../../search/search-index.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import {
@@ -40,10 +44,15 @@ type OutgoingLink = {
 }
 
 /** Formats a single outgoing link as a bullet, flagging broken targets. */
-const formatOutgoingLink = (link: OutgoingLink): string =>
-  link.exists
-    ? `- ${link.path}${link.title ? ` — ${link.title}` : ""}`
-    : `- ${link.path} (**broken** — target does not exist)`
+const formatOutgoingLink = (link: OutgoingLink): string => {
+  // A link to a daily note not created yet is Obsidian's create-on-click
+  // navigation, not a broken link
+  if (link.daily_note_forward_ref) return `- ${link.path} (daily note not created yet)`
+  if (!link.exists) return `- ${link.path} (**broken** — target does not exist)`
+
+  const titleSuffix = link.title ? ` — ${link.title}` : ""
+  return `- ${link.path}${titleSuffix}`
+}
 
 /** Assembles the outgoing links section with a broken-link summary. */
 const formatOutgoingLinksSection = (
@@ -59,7 +68,10 @@ const formatOutgoingLinksSection = (
   if (brokenLinks.length === 0) return linkLines
 
   const brokenCount = brokenLinks.length
-  const brokenSummary = `${brokenCount} broken link${brokenCount === 1 ? "" : "s"} — the target note${brokenCount === 1 ? " does" : "s do"} not exist yet.`
+  const brokenSummary =
+    brokenCount === 1
+      ? "1 broken link — the target note does not exist yet."
+      : `${brokenCount} broken links — the target notes do not exist yet.`
   return `${linkLines}\n\n${brokenSummary}`
 }
 
@@ -85,6 +97,21 @@ const formatTaskForPrompt = (task: TaskEntry, includePath: boolean): string => {
   ].filter(Boolean)
   const metadataSuffix = metadataParts.length > 0 ? ` [${metadataParts.join(", ")}]` : ""
   return `- ${checkbox} ${task.description}${locationSuffix}${metadataSuffix}`
+}
+
+/** Assembles the modified-notes section. The query fetches one note past
+ *  DAILY_RECENT_LIMIT, so a longer list means more notes changed that day than
+ *  the section shows. */
+const formatModifiedNotesSection = (
+  modifiedNotes: ReadonlyArray<{ path: string; title: string }>,
+  date: string,
+): string => {
+  if (modifiedNotes.length === 0) return `No notes were modified on ${date}.`
+
+  const noteLines = modifiedNotes.slice(0, DAILY_RECENT_LIMIT).map(formatNoteLine).join("\n")
+
+  if (modifiedNotes.length <= DAILY_RECENT_LIMIT) return noteLines
+  return `${noteLines}\n\n_Showing the ${DAILY_RECENT_LIMIT} most recently modified; more notes changed on ${date}._`
 }
 
 /** Assembles a task section with an overflow hint when results are capped.
@@ -157,16 +184,17 @@ export const registerDailyReviewPrompt = ({
             "Could not determine today's date. Pass an explicit date in YYYY-MM-DD format.",
           )
         }
-        const dateArg = resolvedDate
 
         // Tomorrow is the exclusive upper bound: due < tomorrow captures
         // both due-today and overdue tasks in a single query.
-        const tomorrow = DateTime.fromISO(dateArg).plus({ days: 1 }).toISODate()
+        const tomorrow = DateTime.fromISO(resolvedDate).plus({ days: 1 }).toISODate()
 
+        // The argument's regex admits a well-formed day that does not exist,
+        // such as a February 30, which Luxon reads as invalid. Bad client
+        // input → warn.
         if (!tomorrow) {
-          return textResult(
-            "Could not compute the next day. Pass an explicit date in YYYY-MM-DD format.",
-          )
+          reqLogger.warn("prompt_bad_argument", { argument: "date", value: resolvedDate })
+          return textResult(describeNonCalendarDate(resolvedDate))
         }
 
         // Resolved once so the note path and the link classification below
@@ -180,11 +208,13 @@ export const registerDailyReviewPrompt = ({
           reqLogger,
         )
         const dailyNote = await getDailyNote(
-          { vaultPath, date: dateArg, envSettings: dailyNotesConfig },
+          { vaultPath, date: resolvedDate, envSettings: dailyNotesConfig },
           reqLogger,
         )
+        // One note past the cap tells the review whether it lists every note
+        // modified that day
         const modifiedOnDate = search.modifiedOnDate(
-          { date: dateArg, limit: DAILY_RECENT_LIMIT },
+          { date: resolvedDate, limit: DAILY_RECENT_LIMIT + 1 },
           reqLogger,
         )
         const outgoingLinks = dailyNote.exists
@@ -212,15 +242,15 @@ export const registerDailyReviewPrompt = ({
         )
         const scheduledToday = search.listTasks(
           {
-            scheduled: { on: dateArg },
+            scheduled: { on: resolvedDate },
             status: "not_done",
             sortBy: "scheduled",
             limit: DAILY_TASK_LIMIT,
           },
           reqLogger,
         )
-        // note_mtime is constant within a single note, so the tiebreaker
-        // (t.line ASC) governs — tasks render in document order.
+        // note_mtime is constant within a single note, so the line-number
+        // tiebreaker governs — tasks render in document order.
         const dailyNoteTasks = dailyNote.exists
           ? search.listTasks(
               {
@@ -240,17 +270,21 @@ export const registerDailyReviewPrompt = ({
           markerAttributes: {
             source: dailyNote.path,
             type: "daily-note",
-            date: dateArg,
+            date: resolvedDate,
           },
           maxChars,
           truncationToolName: isToolEnabled("vault_get_daily_note")
             ? "vault_get_daily_note"
             : undefined,
         })
-        const dailySection =
-          dailyNote.exists && trimmedDaily.length > 0
-            ? cappedDailyContent
-            : `_No daily note exists at \`${dailyNote.path}\` yet._`
+        const describeDailySection = (): string => {
+          if (!dailyNote.exists) return `_No daily note exists at \`${dailyNote.path}\` yet._`
+          if (trimmedDaily.length === 0) {
+            return `_The daily note at \`${dailyNote.path}\` is empty._`
+          }
+          return cappedDailyContent
+        }
+        const dailySection = describeDailySection()
 
         const brokenLinks = outgoingLinks.filter(
           (link) => !link.exists && !link.daily_note_forward_ref,
@@ -261,10 +295,7 @@ export const registerDailyReviewPrompt = ({
           brokenLinks,
         )
         const backlinksSection = formatBacklinksSection(dailyNote.exists, backlinks)
-        const modifiedSection =
-          modifiedOnDate.length > 0
-            ? modifiedOnDate.map(formatNoteLine).join("\n")
-            : `No notes were modified on ${dateArg}.`
+        const modifiedSection = formatModifiedNotesSection(modifiedOnDate, resolvedDate)
 
         const taskOverflowHint = whenToolEnabledText(
           "vault_list_tasks",
@@ -273,14 +304,14 @@ export const registerDailyReviewPrompt = ({
         const dueSection = formatTasksSection({
           tasks: dueOrOverdue.tasks,
           total: dueOrOverdue.total,
-          emptyMessage: `No tasks are due on ${dateArg} or overdue.`,
+          emptyMessage: `No tasks are due on ${resolvedDate} or overdue.`,
           includePath: true,
           overflowToolHint: taskOverflowHint,
         })
         const scheduledSection = formatTasksSection({
           tasks: scheduledToday.tasks,
           total: scheduledToday.total,
-          emptyMessage: `No tasks scheduled for ${dateArg}.`,
+          emptyMessage: `No tasks scheduled for ${resolvedDate}.`,
           includePath: true,
           overflowToolHint: taskOverflowHint,
         })
@@ -369,15 +400,15 @@ export const registerDailyReviewPrompt = ({
           "",
           backlinksSection,
           "",
-          `## Notes modified on ${dateArg}`,
+          `## Notes modified on ${resolvedDate}`,
           "",
           modifiedSection,
           "",
-          `## Tasks due on ${dateArg} or overdue`,
+          `## Tasks due on ${resolvedDate} or overdue`,
           "",
           dueSection,
           "",
-          `## Tasks scheduled for ${dateArg}`,
+          `## Tasks scheduled for ${resolvedDate}`,
           "",
           scheduledSection,
           ...(dailyTasksSection !== null
@@ -400,14 +431,20 @@ export const registerDailyReviewPrompt = ({
           tasksDailyNote: dailyNoteTasks.total,
         })
         return textResult(dailyReview)
-      } catch (err) {
-        const message = describeError(err)
-        reqLogger.error("prompt_error", { error: message })
+      } catch (error) {
+        // The date checks above return bad input early, so a failure caught
+        // here is the server's own and logs at error, not warn. 9999-12-31 is
+        // the exception: it passes those checks, but the task filter refuses
+        // the day after it
+        reqLogger.error("prompt_error", describeErrorForLog(error))
+        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const dailyFallbackHint = whenToolEnabledText(
           "vault_get_daily_note",
           " Try vault_get_daily_note to fetch the note directly.",
         )
-        return textResult(`Could not assemble the daily review (${message}).${dailyFallbackHint}`)
+        return textResult(
+          `Could not assemble the daily review (${clientMessage}).${dailyFallbackHint}`,
+        )
       }
     },
   )

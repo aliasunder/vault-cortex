@@ -99,12 +99,12 @@ describe("createPdfDocumentProxy", () => {
     vi.resetModules()
     const freshUnpdf = await import("unpdf")
     const freshEngine = await import("../pdf-engine.js")
-    vi.mocked(freshUnpdf.definePDFJSModule).mockRejectedValueOnce(
-      new Error("transient init failure"),
-    )
+    const initFailure = new Error("transient init failure")
+    vi.mocked(freshUnpdf.definePDFJSModule).mockRejectedValueOnce(initFailure)
 
-    await expect(freshEngine.createPdfDocumentProxy(fixtureBytes())).rejects.toThrow(
-      /^transient init failure$/,
+    // The server's own message, with the original failure kept as the cause
+    await expect(freshEngine.createPdfDocumentProxy(fixtureBytes())).rejects.toEqual(
+      new Error("PDF reader could not start", { cause: initFailure }),
     )
 
     // A cached rejection would surface the same error here instead.

@@ -4,7 +4,7 @@ import { createMemoryStore, type MemoryFileOutline } from "../../vault-operation
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { resolveEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { describeError } from "../../../utils/describe-error.js"
+import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../../utils/compare-utf8-bytes.js"
 import type { ToolName } from "../tool-registry.js"
 import { type PromptRegistrationContext, textResult, formatNoteLine } from "./prompt-helpers.js"
@@ -97,6 +97,21 @@ const formatMemoryOutlineEntry = (outline: MemoryFileOutline): string => {
 const formatMemoryOutline = (outlines: readonly MemoryFileOutline[]): string =>
   outlines.map(formatMemoryOutlineEntry).join("\n")
 
+/** The "excludes N forward-refs in <folder>/" note, or "" when none were excluded. */
+const formatExcludedForwardRefs = (params: {
+  excludedFolder: string | null
+  excludedCount: number
+}): string => {
+  const { excludedFolder, excludedCount } = params
+
+  if (excludedCount === 0) return ""
+
+  // Collapses a trailing slash the folder name may already carry
+  const excludedFolderLabel = `${excludedFolder}/`.replace(/\/+$/, "/")
+  const forwardReferenceLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
+  return `excludes ${excludedCount} ${forwardReferenceLabel} in ${excludedFolderLabel}`
+}
+
 /** Formats the broken-link count for the stats line, including excluded
  *  forward-refs when present. Returns "" when both counts are zero. */
 const formatBrokenLinkSegment = (result: {
@@ -105,12 +120,7 @@ const formatBrokenLinkSegment = (result: {
   excludedCount: number
 }): string => {
   const { count, excludedFolder, excludedCount } = result
-  const excludedFolderLabel = `${excludedFolder}/`.replace(/\/+$/, "/")
-  const forwardReferenceLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
-  const excludedNote =
-    excludedCount > 0
-      ? `excludes ${excludedCount} ${forwardReferenceLabel} in ${excludedFolderLabel}`
-      : ""
+  const excludedNote = formatExcludedForwardRefs({ excludedFolder, excludedCount })
 
   if (count === 0 && excludedNote.length === 0) return ""
 
@@ -160,10 +170,9 @@ export const registerVaultOrientationPrompt = ({
           reqLogger,
         )
         const paths = await vaultFs.listNotes({ vaultPath }, reqLogger)
-        const memoryFiles =
-          config.memoryEnabled && memoryStore
-            ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
-            : []
+        const memoryFiles = memoryStore
+          ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
+          : []
         const dailyNotesConfig = await readDailyNotesConfig(
           {
             vaultPath,
@@ -320,8 +329,10 @@ export const registerVaultOrientationPrompt = ({
         })
         return textResult(orientationSurvey)
       } catch (error) {
-        const message = describeError(error)
-        reqLogger.error("prompt_error", { error: message })
+        // The prompt takes no arguments, so a failure caught here is the
+        // server's own and logs at error, not warn
+        reqLogger.error("prompt_error", describeErrorForLog(error))
+        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
         const fallbackTools = formatEnabledToolList([
           "vault_list_tags",
           "vault_list_property_keys",
@@ -331,7 +342,7 @@ export const registerVaultOrientationPrompt = ({
         const fallbackHint = fallbackTools
           ? ` You can still explore it directly with the vault tools — try ${fallbackTools}.`
           : ""
-        return textResult(`Could not fully survey the vault (${message}).${fallbackHint}`)
+        return textResult(`Could not fully survey the vault (${clientMessage}).${fallbackHint}`)
       }
     },
   )

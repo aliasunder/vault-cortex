@@ -64,8 +64,8 @@ const defaultParams = {
 /** Builds a single-page StructuredTextItem array from lines of text. Items
  *  are positioned vertically (descending y, like a real PDF) with the given
  *  fontSize and fontFamily. */
-const buildPageItems = (lines: string[], options?: { fontSize?: number; fontFamily?: string }) =>
-  lines.map((str, index) => ({
+const buildPageItems = (lines: string[], options?: { fontSize?: number; fontFamily?: string }) => {
+  return lines.map((str, index) => ({
     str,
     x: 42,
     y: 780 - index * 15,
@@ -76,6 +76,7 @@ const buildPageItems = (lines: string[], options?: { fontSize?: number; fontFami
     dir: "ltr" as const,
     hasEOL: true,
   }))
+}
 
 describe("readAssetContent — PDF extraction", () => {
   it("returns structured markdown with title, headings, and text", async () => {
@@ -353,13 +354,14 @@ describe("readAssetContent — PDF extraction", () => {
     )
   })
 
-  it("propagates getDocumentProxy errors for corrupt PDFs", async () => {
+  it("passes a PDF load failure other than pdf.js refusing the file through unchanged", async () => {
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("not-a-real-pdf"),
       bytes: 14,
       extension: ".pdf",
     })
-    mockCreatePdfDocumentProxy.mockRejectedValue(new Error("Invalid PDF structure"))
+    const loadFailure = new Error("worker terminated")
+    mockCreatePdfDocumentProxy.mockRejectedValue(loadFailure)
     // Restore the default mock regardless of assertion outcome — without
     // this, a failing assertion leaves subsequent tests with a rejecting mock.
     onTestFinished(() => {
@@ -371,8 +373,66 @@ describe("readAssetContent — PDF extraction", () => {
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "corrupt.pdf" }, logger),
-    ).rejects.toThrow("Invalid PDF structure")
+    ).rejects.toBe(loadFailure)
   })
+
+  it.each([
+    {
+      label: "a password-protected PDF read as text",
+      raw: false,
+      pdfjsErrorName: "PasswordException",
+      message:
+        'PDF is password-protected: "papers/locked.pdf" exists (14 bytes) but cannot be opened without its password',
+    },
+    {
+      label: "a password-protected PDF rendered as pages",
+      raw: true,
+      pdfjsErrorName: "PasswordException",
+      message:
+        'PDF is password-protected: "papers/locked.pdf" exists (14 bytes) but cannot be opened without its password',
+    },
+    {
+      label: "a damaged PDF read as text",
+      raw: false,
+      pdfjsErrorName: "InvalidPDFException",
+      message:
+        'PDF is damaged or not a PDF: "papers/locked.pdf" exists (14 bytes) but cannot be parsed',
+    },
+    {
+      label: "a damaged PDF rendered as pages",
+      raw: true,
+      pdfjsErrorName: "InvalidPDFException",
+      message:
+        'PDF is damaged or not a PDF: "papers/locked.pdf" exists (14 bytes) but cannot be parsed',
+    },
+  ])(
+    "rethrows pdf.js refusing $label as the server's message, keeping pdf.js's error as the cause",
+    async ({ raw, pdfjsErrorName, message }) => {
+      mockedReadAsset.mockResolvedValue({
+        buffer: Buffer.from("not-a-real-pdf"),
+        bytes: 14,
+        extension: ".pdf",
+      })
+      // pdf.js marks its refusals by name; the class is not imported here
+      const pdfjsError = Object.assign(new Error("pdf.js refused the file"), {
+        name: pdfjsErrorName,
+      })
+      mockCreatePdfDocumentProxy.mockRejectedValue(pdfjsError)
+      onTestFinished(() => {
+        mockCreatePdfDocumentProxy.mockResolvedValue({
+          loadingTask: { destroy: mockDestroy },
+          numPages: 1,
+        })
+      })
+
+      await expect(
+        assetOperations.readAssetContent(
+          { ...defaultParams, path: "papers/locked.pdf", raw },
+          logger,
+        ),
+      ).rejects.toEqual(new Error(message, { cause: pdfjsError }))
+    },
+  )
 
   it("destroys the document proxy after successful extraction", async () => {
     mockDestroy.mockClear()
@@ -584,15 +644,17 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       logger,
     )
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       kind: "pages",
-      pagesRendered: 3,
-      totalPages: 10,
       pages: [
-        { pageNumber: 1, fitted: fittedResult },
-        { pageNumber: 2, fitted: fittedResult },
-        { pageNumber: 3, fitted: fittedResult },
+        { pageNumber: 1, fitted: fittedResult, originalBytes: 5_000 },
+        { pageNumber: 2, fitted: fittedResult, originalBytes: 5_000 },
+        { pageNumber: 3, fitted: fittedResult, originalBytes: 5_000 },
       ],
+      title: "Long PDF",
+      totalPages: 10,
+      pagesRendered: 3,
+      path: "long.pdf",
     })
     expect(mockRenderPageAsImage).toHaveBeenCalledTimes(3)
   })
@@ -648,6 +710,42 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       totalPages: 3,
       pagesRendered: 2,
       path: "partial.pdf",
+    })
+  })
+
+  it("logs a skipped page's wrapped decode failure with the decoder's error as the cause", async () => {
+    setupPdfMocks({ numPages: 2 })
+    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(5_000))
+    const fittedResult = buildFittedImage()
+    mockedFitImage
+      .mockRejectedValueOnce(
+        new Error("could not decode image", {
+          cause: new Error("Input image exceeds pixel limit"),
+        }),
+      )
+      .mockResolvedValueOnce(fittedResult)
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "huge-page.pdf", raw: true, maxPdfRenderPages: 2 },
+      logger,
+    )
+
+    // Page 2 rendering proves the failure was skipped, not fatal
+    expect(result).toEqual({
+      kind: "pages",
+      pages: [{ pageNumber: 2, fitted: fittedResult, originalBytes: 5_000 }],
+      title: undefined,
+      totalPages: 2,
+      pagesRendered: 1,
+      path: "huge-page.pdf",
+    })
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("pdf_page_render_failed", {
+      page: 1,
+      error: "[Error]: could not decode image",
+      cause: "[Error]: Input image exceeds pixel limit",
     })
   })
 

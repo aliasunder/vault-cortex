@@ -2452,6 +2452,19 @@ describe("file tool handlers", () => {
     },
   )
 
+  it("matches a file whose own extension is uppercase against a lowercase filter", async () => {
+    const { vault, listAssets } = await setupAssetHarness()
+    await writeFile(join(vault, "Scan.PNG"), "12345", "utf8")
+    await writeFile(join(vault, "b.jpg"), "12", "utf8")
+    const result = await listAssets({ extensions: ["png"] })
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      files: [{ path: "Scan.PNG", extension: ".png", bytes: 5 }],
+      extension_counts: { ".png": 1 },
+      total: 1,
+      truncated: false,
+    })
+  })
+
   it("pages with limit while counts and total cover the full filtered set", async () => {
     const { vault, listAssets } = await setupAssetHarness()
     await writeFile(join(vault, "a.png"), "1", "utf8")
@@ -2852,6 +2865,47 @@ describe("DISABLED_TOOLS", () => {
     })
     expect(routingLine).toBe(`the last line for end_anchor.\n${expectedLine}`)
   })
+
+  const FENCED_BLOCK_WARNING =
+    "A span that includes a code block's opening fence can't end at a plain closing fence (```): every fragment of the closing fence also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
+
+  it.each([
+    {
+      label: "vault_delete_span names vault_replace_in_note while it is served",
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      disabledTools: "",
+      expectedSentences: `${FENCED_BLOCK_WARNING}; to remove such a block, use vault_replace_in_note with new_text: "".`,
+    },
+    {
+      label: "vault_delete_span keeps only the warning when vault_replace_in_note is disabled",
+      toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
+      disabledTools: "vault_replace_in_note",
+      expectedSentences: `${FENCED_BLOCK_WARNING}.`,
+    },
+    {
+      label: "vault_replace_span names vault_replace_in_note while it is served",
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      disabledTools: "",
+      expectedSentences: `${FENCED_BLOCK_WARNING}; to replace such a block, use vault_replace_in_note.`,
+    },
+    {
+      label: "vault_replace_span keeps only the warning when vault_replace_in_note is disabled",
+      toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
+      disabledTools: "vault_replace_in_note",
+      expectedSentences: `${FENCED_BLOCK_WARNING}.`,
+    },
+  ])(
+    "fenced-block end-anchor warning: $label",
+    ({ toolName, disabledTools, expectedSentences }) => {
+      const fencedBlockWarning = extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName,
+        startMarker: "A span that includes a code block",
+        endMarker: "\n- ",
+      })
+      expect(fencedBlockWarning).toBe(expectedSentences)
+    },
+  )
 
   it("vault_replace_in_note drops the vault_delete_span advice when that tool is disabled", () => {
     const whenToUse = extractDescriptionSection({

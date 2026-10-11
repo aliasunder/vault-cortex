@@ -108,7 +108,7 @@ When to use: whenever a note references a file you need to actually see or read 
 
 Errors:
 - "not a file" — the path ends in .md; read notes with vault_read_note
-- "file not found" — nothing exists at that path; discover valid paths via vault_list_files
+- "file not found" / "ENAMETOOLONG: …" — nothing exists at that path, or the path (or a name in it) is longer than the filesystem allows; discover valid paths via vault_list_files
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable, matching Obsidian)
 - "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB)
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
@@ -117,9 +117,11 @@ Errors:
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
-- "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
+- "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
+- "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; replace or re-export the file
+- "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead. If that read also finds no text, this tool can't read the PDF
 - "image cannot be fitted" — the image could not be compressed under the image output budget
-- an image that cannot be decoded (corrupt, empty, or not an image despite its extension) fails with the decoder's message, e.g. "Input buffer contains unsupported image format"; replace or re-export the file
+- "EACCES: …" or another filesystem error code — the file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
 Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,
