@@ -636,7 +636,7 @@ describe("require-nonroot-tests hook", () => {
       const nobodyNodeDir = join(
         fixture.checkout,
         "node_modules",
-        ".nobody-home",
+        ".nobody-node",
         `node-${MATCHING_NODE_VERSION}`,
       )
 
@@ -647,7 +647,12 @@ describe("require-nonroot-tests hook", () => {
       })
       const copiedNode = readFileSync(join(nobodyNodeDir, "node"), "utf8")
 
-      expect({ run, copiedNode, copyMode: permissionBits(join(nobodyNodeDir, "node")) }).toEqual({
+      expect({
+        run,
+        copiedNode,
+        copyMode: permissionBits(join(nobodyNodeDir, "node")),
+        copyFolderEntries: readdirSync(nobodyNodeDir),
+      }).toEqual({
         run: {
           status: 2,
           stdout: "",
@@ -655,6 +660,7 @@ describe("require-nonroot-tests hook", () => {
         },
         copiedNode: SESSION_NODE_STUB,
         copyMode: 0o755,
+        copyFolderEntries: ["node"],
       })
     })
 
@@ -663,7 +669,7 @@ describe("require-nonroot-tests hook", () => {
       const nobodyNodeDir = join(
         fixture.checkout,
         "node_modules",
-        ".nobody-home",
+        ".nobody-node",
         `node-${MATCHING_NODE_VERSION}`,
       )
       const earlierCopy = "#!/bin/sh\n# earlier copy\n"
@@ -693,7 +699,7 @@ describe("require-nonroot-tests hook", () => {
         mkdirSync(join(nvmNodes, version, "bin"), { recursive: true })
         writeExecutable(join(nvmNodes, version, "bin", "node"), `#!/bin/sh\n# node ${version}\n`)
       }
-      const nobodyNodeDir = join(fixture.checkout, "node_modules", ".nobody-home", "node-v24.10.0")
+      const nobodyNodeDir = join(fixture.checkout, "node_modules", ".nobody-node", "node-v24.10.0")
 
       const run = runHook({
         fixture,
@@ -719,11 +725,11 @@ describe("require-nonroot-tests hook", () => {
       const fixture = createHookFixture()
 
       const run = runCommandThroughHook(fixture, "npm test")
-      const nobodyHomeEntries = readdirSync(join(fixture.checkout, "node_modules", ".nobody-home"))
+      const nodeCopyFolderMade = existsSync(join(fixture.checkout, "node_modules", ".nobody-node"))
 
-      expect({ run, nobodyHomeEntries }).toEqual({
+      expect({ run, nodeCopyFolderMade }).toEqual({
         run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
-        nobodyHomeEntries: [],
+        nodeCopyFolderMade: false,
       })
     })
 

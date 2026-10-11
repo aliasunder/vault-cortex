@@ -285,7 +285,11 @@ nobody_gid="$(id -g nobody)"
 # root's home, where nvm installs Node, so that node can be another version
 # than the .nvmrc one CI runs, or missing. Without one there is no command to
 # offer, so the run goes through, as it does without setpriv or a nobody user.
-nobody_node_version="$(setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups node --version 2>/dev/null)" || nobody_node_version=""
+# env looks node up, as it does for the prefix: setpriv keeps root's
+# capabilities until it starts its command, so its own PATH search reaches a
+# node under root's home that nobody's runs cannot. /usr/bin/env is named in
+# full because nobody's PATH may not hold env.
+nobody_node_version="$(setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups /usr/bin/env node --version 2>/dev/null)" || nobody_node_version=""
 
 if [[ -z "${nobody_node_version}" ]]; then
   exit 0
@@ -319,9 +323,12 @@ mkdir -p "${nobody_writable[@]}"
 #   PATH, not the session's, so in a cloud container that node is often the
 #   container's, and the hook then looks where nvm keeps its versions
 #   ($NVM_DIR or ~/.nvm), taking the newest of that major.
-# - The copy sits in nobody's HOME, named by version, so a later run reuses it
-#   and a different version gets its own folder. cp -L copies the binary a
-#   symlink points to.
+# - The copy sits in a folder named by version, so a later run reuses it and a
+#   different version gets its own folder. cp -L copies the binary a symlink
+#   points to.
+# - The folder stays root's, outside the folders handed to nobody: root never
+#   writes where nobody could plant a symlink, and nobody can run the copy but
+#   not replace it.
 # - The prefix puts the copy's folder first on PATH, so the npx and tsx
 #   processes a run starts use it too.
 nobody_node_dir=""
@@ -348,11 +355,19 @@ if [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}"
   fi
 
   if [[ -n "${ci_node_path}" ]]; then
-    nobody_node_dir="${checkout}/node_modules/.nobody-home/node-${ci_node_version}"
+    nobody_node_dir="${checkout}/node_modules/.nobody-node/node-${ci_node_version}"
 
     if [[ ! -x "${nobody_node_dir}/node" ]]; then
       mkdir -p "${nobody_node_dir}"
-      cp -L "${ci_node_path}" "${nobody_node_dir}/node"
+      # 755 whatever root's umask, so nobody can reach and run the copy.
+      chmod 755 "${nobody_node_dir%/*}" "${nobody_node_dir}"
+      # cp makes its file executable before writing it, so a copy cut short by
+      # the hook's timeout, or one a concurrent hook is still writing, would
+      # pass the -x check above. The copy gets a temporary name, and mv's
+      # rename puts only a whole binary at the name later runs reuse.
+      cp -L "${ci_node_path}" "${nobody_node_dir}/node.$$"
+      chmod 755 "${nobody_node_dir}/node.$$"
+      mv -f "${nobody_node_dir}/node.$$" "${nobody_node_dir}/node"
     fi
   fi
 fi
