@@ -172,6 +172,8 @@ type HookRunOptions = {
   extraCaCerts?: string
   /** The hook's NVM_DIR. Unset by default, so the hook looks only in ~/.nvm. */
   nvmDir?: string
+  /** Whether the hook gets a HOME. Defaults to true. */
+  hasHome?: boolean
   /** The umask the hook starts with, as `umask` takes it. Defaults to the
    *  runner's own. */
   umask?: string
@@ -301,7 +303,7 @@ const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string>
   // own environment never reaches the hook.
   return {
     PATH: options.path ?? `${fixture.stubBinDir}:${runnerPath()}`,
-    HOME: fixture.outsideDir,
+    ...(options.hasHome === false ? {} : { HOME: fixture.outsideDir }),
     STUB_SESSION_UID: String(options.sessionUid ?? 0),
     STUB_NOBODY_EXISTS: options.nobodyExists === false ? "0" : "1",
     STUB_NOBODY_UID: String(uid),
@@ -539,6 +541,13 @@ describe("require-nonroot-tests hook", () => {
         label: "env with -C and a folder holding an escaped space",
         command: "env -C /my\\ dir npm test",
       },
+      {
+        label: "env with -u and a name holding an escaped quote",
+        command: 'env -u "a\\"b" npm test',
+      },
+      { label: "a double-quoted value holding an escaped quote", command: 'A="a\\"b" npm test' },
+      { label: "npm by its path", command: "/usr/local/bin/npm test" },
+      { label: "npx by its path", command: "/usr/local/bin/npx vitest run" },
       { label: "a double-quoted value with a space", command: 'FOO="a b" npm test' },
       {
         label: "a value that mixes unquoted and quoted text",
@@ -983,6 +992,28 @@ describe("require-nonroot-tests hook", () => {
           stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}${expectedNodeCopyLine({ nobodyNodeVersion: OTHER_NODE_VERSION, copiedNodeVersion: "v24.1.0" })}`,
         },
         copiedNode: "#!/bin/sh\n# node v24.1.0\n",
+      })
+    })
+
+    it("copies the node in $NVM_DIR when HOME is unset", () => {
+      const fixture = createHookFixture()
+      const nvmDir = join(fixture.outsideDir, "nvm-dir")
+      writeNvmNodes(nvmDir, ["v24.1.0"])
+      const nobodyNodeDir = nodeCopyFolder(fixture.checkout, "v24.1.0")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+        sessionNodeVersion: OTHER_NODE_VERSION,
+        nvmDir,
+        hasHome: false,
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}${expectedNodeCopyLine({ nobodyNodeVersion: OTHER_NODE_VERSION, copiedNodeVersion: "v24.1.0" })}`,
       })
     })
 
@@ -1491,6 +1522,8 @@ describe("require-nonroot-tests hook", () => {
       { label: "a double-quoted path", target: '"src"' },
       { label: "a single-quoted path", target: "'src'" },
       { label: "the previous folder", target: "-" },
+      // The shell drops the backslash, so cd reads -src as flags.
+      { label: "an escaped leading -", target: "\\-src" },
     ])(
       "prepares the session's checkout for a cd to $label, which only the shell can resolve",
       ({ target }) => {
@@ -1551,6 +1584,21 @@ describe("require-nonroot-tests hook", () => {
       const otherCheckout = createOtherCheckout(fixture)
 
       const run = runCommandThroughHook(fixture, `npm --prefix ${otherCheckout} test`)
+      // A cd to the other checkout moves the run there, so the fixture can
+      // tell the two checkouts apart.
+      const controlRun = runCommandThroughHook(fixture, `cd ${otherCheckout} && npm test`)
+
+      expect({ run, controlRun }).toEqual({
+        run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+        controlRun: { status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) },
+      })
+    })
+
+    it("prepares the session's checkout, not env's -C folder", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+
+      const run = runCommandThroughHook(fixture, `env -C ${otherCheckout} npm test`)
       // A cd to the other checkout moves the run there, so the fixture can
       // tell the two checkouts apart.
       const controlRun = runCommandThroughHook(fixture, `cd ${otherCheckout} && npm test`)

@@ -73,22 +73,26 @@ flags_with_optional_argument='([[:space:]]+-[^[:space:]]*([[:space:]]+[^-[:space
 #   out test:remote-boot and test:cli-pty, the two suites exempt from this
 #   hook because they cannot run as nobody; the exemptions below give each
 #   reason.
+# npm and npx may be named by path (`/usr/local/bin/npm test`), as vitest and
+# the wrappers below may.
+optional_command_folder='([^[:space:]]*/)?'
 vitest_binary='([^[:space:]]*/)?vitest(@[^[:space:]]*)?'
-vitest_runner="(npx${flags_with_optional_argument}[[:space:]]+)?${vitest_binary}|node[[:space:]]+[^[:space:]]*vitest\.mjs"
-npm_exec_runner="npm${flags_with_optional_argument}[[:space:]]+(exec|x)${flags_with_optional_argument}[[:space:]]+${vitest_binary}"
-npm_runner="npm${flags_with_optional_argument}[[:space:]]+(test|t|run(-script)?${flags_with_optional_argument}[[:space:]]+(test|test:coverage|test:watch|snapshot:update))"
+vitest_runner="(${optional_command_folder}npx${flags_with_optional_argument}[[:space:]]+)?${vitest_binary}|node[[:space:]]+[^[:space:]]*vitest\.mjs"
+npm_exec_runner="${optional_command_folder}npm${flags_with_optional_argument}[[:space:]]+(exec|x)${flags_with_optional_argument}[[:space:]]+${vitest_binary}"
+npm_runner="${optional_command_folder}npm${flags_with_optional_argument}[[:space:]]+(test|t|run(-script)?${flags_with_optional_argument}[[:space:]]+(test|test:coverage|test:watch|snapshot:update))"
 test_runner="${vitest_runner}|${npm_exec_runner}|${npm_runner}"
 
 # variable_setting matches a VAR=value setting before the command
 # (`CI=1 npm test`). Its value is a shell_word: unquoted text with any number
 # of quoted parts, each followed by more unquoted text, as in the reply's own
 # prefix (`PATH=/copy:"$PATH"`).
-# - double_quoted matches text in double quotes, with no " inside.
+# - double_quoted matches text in double quotes, where a backslash escapes
+#   the next character (`"a\"b"`).
 # - single_quoted matches text in single quotes, with no ' inside.
 # - unquoted matches text up to the first space, ' or " that no backslash
 #   escapes. The reply's prefix escapes a space in the checkout's path
 #   (`HOME=/my\ repo/node_modules/.nobody-home`).
-double_quoted='"[^"]*"'
+double_quoted='"([^"\\]|\\.)*"'
 single_quoted="'[^']*'"
 unquoted="([^[:space:]'\"\\\\]|\\\\.)*"
 shell_word="${unquoted}((${double_quoted}|${single_quoted})${unquoted})*"
@@ -116,7 +120,6 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=${shell_word}[[:space:]]+"
 #   command are shell builtins, so they have no path.
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
-optional_command_folder='([^[:space:]]*/)?'
 env_flags="([[:space:]]+((-[0iv]*[uC]|--unset|--chdir)[[:space:]]+${shell_word}|-[^[:space:]]*))*"
 timeout_wrapper="${optional_command_folder}timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
 shell_flags='([[:space:]]+([-+][[:alpha:]]*[oO][[:alpha:]]*[[:space:]]+[^[:space:]]+|[-+][^[:space:]]*))*'
@@ -178,7 +181,7 @@ exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 # - cd_to_quoted_absolute_path matches a quoted path that starts with / and
 #   holds no $, backtick or ~, so the shell would use it as written.
 # - cd_to_relative_path matches an unquoted relative path. Its first
-#   character cannot be - (`cd -` or a flag), # (a comment, which leaves a
+#   character cannot be - or \- (`cd -` or a flag), # (a comment, which leaves a
 #   bare `cd`), or ~, $ or a quote, which only the shell can expand.
 # - any_cd matches any cd, pushd or popd. The walk tries it last, so it
 #   catches the rest: a bare `cd`, with or without a comment after it,
@@ -187,23 +190,8 @@ directory_change="^[[:space:]]*(cd|pushd)[[:space:]]+"
 escaped_path_character='([^[:space:]\\]|\\.)'
 cd_to_absolute_path="${directory_change}(/${escaped_path_character}*)"
 cd_to_quoted_absolute_path="${directory_change}[\"'](/[^\"'\$\`~]*)[\"']"
-cd_to_relative_path="${directory_change}(([^-~#\"'\$[:space:]\\\\]|\\\\.)${escaped_path_character}*)"
+cd_to_relative_path="${directory_change}(([^-~#\"'\$[:space:]\\\\]|\\\\[^-])${escaped_path_character}*)"
 leading_command_prefix="^[[:space:]]*${command_prefix}"
-
-# The shell drops the backslash in front of an escaped character in an
-# unquoted path, so the walk does the same to a path it takes from a cd.
-# Bash, not sed: the hook runs no tool it does not need.
-backslash_escape='^([^\\]*)\\(.)(.*)$'
-remove_backslash_escapes() {
-  local remaining_path="$1"
-  local unescaped_path=""
-
-  while [[ "${remaining_path}" =~ ${backslash_escape} ]]; do
-    unescaped_path+="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
-    remaining_path="${BASH_REMATCH[3]}"
-  done
-  printf '%s' "${unescaped_path}${remaining_path}"
-}
 any_cd="^[[:space:]]*${command_prefix}(cd|pushd|popd)([[:space:]]|$)"
 
 # The command is split into the commands it runs, one per line, and only the
@@ -265,8 +253,11 @@ while IFS= read -r split_command; do
     # match's length.
     cd_candidate="${split_command:${#BASH_REMATCH[0]}}"
   fi
+  # read without -r drops each escaping backslash, as the shell does, and as
+  # a builtin it costs no fork on a command with thousands of cds.
   if [[ "${cd_candidate}" =~ ${cd_to_absolute_path} ]]; then
-    current_dir="$(remove_backslash_escapes "${BASH_REMATCH[2]}")"
+    # shellcheck disable=SC2162
+    IFS= read current_dir <<<"${BASH_REMATCH[2]}"
     continue
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_quoted_absolute_path} ]]; then
@@ -274,7 +265,9 @@ while IFS= read -r split_command; do
     continue
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_relative_path} ]]; then
-    current_dir="${current_dir}/$(remove_backslash_escapes "${BASH_REMATCH[2]}")"
+    # shellcheck disable=SC2162
+    IFS= read relative_path <<<"${BASH_REMATCH[2]}"
+    current_dir="${current_dir}/${relative_path}"
     continue
   fi
   if [[ "${cd_candidate}" =~ ${any_cd} ]]; then
@@ -415,7 +408,7 @@ if [[ "${node_major_differs}" == true ]]; then
     nvmrc_node_path="$(node -p process.execPath 2>/dev/null)" || nvmrc_node_path=""
     nvmrc_node_version="${hook_node_version}"
   else
-    for nvm_dir in "${NVM_DIR:-}" "${HOME}/.nvm"; do
+    for nvm_dir in "${NVM_DIR:-}" "${HOME:-}/.nvm"; do
       [[ -n "${nvm_dir}" && -d "${nvm_dir}/versions/node" ]] || continue
       # nvm keeps each node three folders below versions/node, in a folder
       # named by its version: <nvm_dir>/versions/node/v24.11.0/bin/node.
