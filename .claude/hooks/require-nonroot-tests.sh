@@ -85,17 +85,21 @@ test_runner="${vitest_runner}|${npm_exec_runner}|${npm_runner}"
 # (`PATH=/copy:"$PATH"`).
 # - double_quoted matches text in double quotes, with no " inside.
 # - single_quoted matches text in single quotes, with no ' inside.
-# - unquoted matches text up to the first space, ' or ".
+# - unquoted matches text up to the first space, ' or " that no backslash
+#   escapes. The reply's prefix escapes a space in the checkout's path
+#   (`HOME=/my\ repo/node_modules/.nobody-home`).
 double_quoted='"[^"]*"'
 single_quoted="'[^']*'"
-unquoted="[^[:space:]'\"]*"
+unquoted="([^[:space:]'\"\\\\]|\\\\.)*"
 variable_setting="[A-Za-z_][A-Za-z0-9_]*=${unquoted}((${double_quoted}|${single_quoted})${unquoted})*[[:space:]]+"
 
 # wrapper matches these commands, which run the command after them:
 # - env and time, with flags that take no argument, because a flag's argument
-#   would look the same as the command it runs. env's -u (--unset) is the
-#   exception: it always takes a name, as in the reply's own prefix in a cloud
-#   container (`env -u NODE_EXTRA_CA_CERTS npm test`).
+#   would look the same as the command it runs. env's -u (--unset) and -C
+#   (--chdir) are the exceptions: each always takes an argument, also when it
+#   ends a group of one-letter flags (`env -iu NAME npm test`). The reply's
+#   own prefix in a cloud container uses -u
+#   (`env -u NODE_EXTRA_CA_CERTS npm test`).
 # - exec and command, without flags, so `command -v vitest` is not a run.
 # - timeout, whose flags may each take one argument, then the duration
 #   (`timeout -s KILL 600 npm test`, `timeout -k 5 600 npm test`).
@@ -112,7 +116,7 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=${unquoted}((${double_quoted}|${single_
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
 optional_command_folder='([^[:space:]]*/)?'
-env_flags='([[:space:]]+((-u|--unset)[[:space:]]+[^[:space:]]+|-[^[:space:]]*))*'
+env_flags='([[:space:]]+((-[[:alnum:]]*[uC]|--unset|--chdir)[[:space:]]+[^[:space:]]+|-[^[:space:]]*))*'
 timeout_wrapper="${optional_command_folder}timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
 shell_flags='([[:space:]]+([-+][[:alpha:]]*[oO][[:alpha:]]*[[:space:]]+[^[:space:]]+|[-+][^[:space:]]*))*'
 shell_wrapper="${optional_command_folder}(bash|sh|zsh)${shell_flags}[[:space:]]+([\"'][[:space:]]*)?"

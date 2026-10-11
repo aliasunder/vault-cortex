@@ -523,6 +523,14 @@ describe("require-nonroot-tests hook", () => {
         command:
           '/usr/bin/env -u NODE_EXTRA_CA_CERTS HOME=/repo/node_modules/.nobody-home PATH=/repo/node_modules/.nobody-node/node-v24.11.0:"$PATH" npm test',
       },
+      {
+        label: "the reply's full prefix without setpriv, in a checkout whose path has a space",
+        command:
+          '/usr/bin/env -u NODE_EXTRA_CA_CERTS HOME=/my\\ repo/node_modules/.nobody-home PATH=/my\\ repo/node_modules/.nobody-node/node-v24.11.0:"$PATH" npm test',
+      },
+      { label: "env with -u at the end of a group of flags", command: "env -iu FOO npm test" },
+      { label: "env with -C and the folder it enters", command: "env -C /tmp npm test" },
+      { label: "env with --chdir and the folder it enters", command: "env --chdir /tmp npm test" },
       { label: "a double-quoted value with a space", command: 'FOO="a b" npm test' },
       {
         label: "a value that mixes unquoted and quoted text",
@@ -589,6 +597,8 @@ describe("require-nonroot-tests hook", () => {
       { label: "npm run-script of another script", command: "npm run-script lint" },
       { label: "npm exec of another binary", command: "npm exec prettier -- --version" },
       { label: "bash -c with a quoted non-test command", command: "bash -c 'npm run lint'" },
+      // The escaped space belongs to A's value, so the command is test, not npm.
+      { label: "a setting whose value ends in an escaped space", command: "A=a\\ npm test" },
       {
         label: "a quoted grep pattern that a | splits after a runner name",
         command: "grep -E 'npm test|vitest' src/",
