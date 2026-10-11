@@ -1522,8 +1522,6 @@ describe("require-nonroot-tests hook", () => {
       { label: "a double-quoted path", target: '"src"' },
       { label: "a single-quoted path", target: "'src'" },
       { label: "the previous folder", target: "-" },
-      // The shell drops the backslash, so cd reads -src as flags.
-      { label: "an escaped leading -", target: "\\-src" },
     ])(
       "prepares the session's checkout for a cd to $label, which only the shell can resolve",
       ({ target }) => {
@@ -1548,6 +1546,22 @@ describe("require-nonroot-tests hook", () => {
         })
       },
     )
+
+    it("prepares the session's checkout for a cd to an escaped leading -, which cd reads as a flag", () => {
+      const fixture = createHookFixture()
+      const otherCheckout = createOtherCheckout(fixture)
+      // The folder the path names once the shell drops the backslash: a hook
+      // that followed the cd would land in the other checkout.
+      mkdirSync(join(otherCheckout, "-src"))
+
+      const run = runCommandThroughHook(fixture, `cd ${otherCheckout} && cd \\-src && npm test`)
+      const controlRun = runCommandThroughHook(fixture, `cd ${otherCheckout} && npm test`)
+
+      expect({ run, controlRun }).toEqual({
+        run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+        controlRun: { status: 2, stdout: "", stderr: expectedRefusal(otherCheckout) },
+      })
+    })
 
     it("prepares the session's checkout for a cd followed only by a comment, which bash runs as a bare cd", () => {
       const fixture = createHookFixture()
