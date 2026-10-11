@@ -171,7 +171,9 @@ exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 # test'`) is cut off first, with leading_command_prefix, so the first three
 # patterns start at cd or pushd and the path is the second group of their
 # match. any_cd accepts that prefix itself for the grep below.
-# - cd_to_absolute_path matches an unquoted path that starts with /.
+# - cd_to_absolute_path matches an unquoted path that starts with /. In it,
+#   and in cd_to_relative_path, a backslash escapes the next character
+#   (`cd /my\ repo`), and the walk drops the backslash.
 # - cd_to_quoted_absolute_path matches a quoted path that starts with / and
 #   holds no $, backtick or ~, so the shell would use it as written.
 # - cd_to_relative_path matches an unquoted relative path. Its first
@@ -181,10 +183,26 @@ exempt_suite_run="${vitest_exempt_suite_run}|${npm_exempt_suite_run}"
 #   catches the rest: a bare `cd`, with or without a comment after it,
 #   `cd -`, popd, and a ~, $ or quoted path the others do not take.
 directory_change="^[[:space:]]*(cd|pushd)[[:space:]]+"
-cd_to_absolute_path="${directory_change}(/[^[:space:]]*)"
+escaped_path_character='([^[:space:]\\]|\\.)'
+cd_to_absolute_path="${directory_change}(/${escaped_path_character}*)"
 cd_to_quoted_absolute_path="${directory_change}[\"'](/[^\"'\$\`~]*)[\"']"
-cd_to_relative_path="${directory_change}([^-~#\"'\$[:space:]][^[:space:]]*)"
+cd_to_relative_path="${directory_change}(([^-~#\"'\$[:space:]\\\\]|\\\\.)${escaped_path_character}*)"
 leading_command_prefix="^[[:space:]]*${command_prefix}"
+
+# The shell drops the backslash in front of an escaped character in an
+# unquoted path, so the walk does the same to a path it takes from a cd.
+# Bash, not sed: the hook runs no tool it does not need.
+backslash_escape='^([^\\]*)\\(.)(.*)$'
+remove_backslash_escapes() {
+  local remaining_path="$1"
+  local unescaped_path=""
+
+  while [[ "${remaining_path}" =~ ${backslash_escape} ]]; do
+    unescaped_path+="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+    remaining_path="${BASH_REMATCH[3]}"
+  done
+  printf '%s' "${unescaped_path}${remaining_path}"
+}
 any_cd="^[[:space:]]*${command_prefix}(cd|pushd|popd)([[:space:]]|$)"
 
 # The command is split into the commands it runs, one per line, and only the
@@ -246,7 +264,7 @@ while IFS= read -r split_command; do
     cd_candidate="${split_command:${#BASH_REMATCH[0]}}"
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_absolute_path} ]]; then
-    current_dir="${BASH_REMATCH[2]}"
+    current_dir="$(remove_backslash_escapes "${BASH_REMATCH[2]}")"
     continue
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_quoted_absolute_path} ]]; then
@@ -254,7 +272,7 @@ while IFS= read -r split_command; do
     continue
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_relative_path} ]]; then
-    current_dir="${current_dir}/${BASH_REMATCH[2]}"
+    current_dir="${current_dir}/$(remove_backslash_escapes "${BASH_REMATCH[2]}")"
     continue
   fi
   if [[ "${cd_candidate}" =~ ${any_cd} ]]; then

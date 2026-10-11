@@ -1442,6 +1442,38 @@ describe("require-nonroot-tests hook", () => {
     })
 
     it.each([
+      {
+        label: "an absolute path",
+        command: (spacedCheckout: string) =>
+          `cd ${spacedCheckout.replaceAll(" ", "\\ ")} && npm test`,
+      },
+      {
+        label: "a relative path from an earlier cd",
+        command: (spacedCheckout: string) => {
+          return `cd ${dirname(spacedCheckout)} && cd ${basename(spacedCheckout).replaceAll(" ", "\\ ")} && npm test`
+        },
+      },
+    ])("prepares the checkout a cd names with an escaped space in $label", ({ command }) => {
+      const fixture = createHookFixture()
+      const spacedCheckout = createOtherCheckout(fixture, "spaced checkout")
+
+      // The session's folder is in no checkout, so only the cd's path can
+      // reach one.
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: command(spacedCheckout), cwd: fixture.outsideDir }),
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: expectedRefusal(spacedCheckout, {
+          nobodyHomeInPrefix: `${spacedCheckout.replaceAll(" ", "\\ ")}/node_modules/.nobody-home`,
+        }),
+      })
+    })
+
+    it.each([
       { label: "a ~ path", target: "~" },
       { label: "a variable", target: "$HOME" },
       { label: "a double-quoted path", target: '"src"' },
