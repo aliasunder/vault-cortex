@@ -7,6 +7,9 @@
 #   exits at its first check, so it costs nothing on a developer machine.
 # - Before replying, it makes the folders a test run writes in the checkout
 #   writable for nobody.
+# - The prefix it offers matches CI where it can: it runs the .nvmrc Node
+#   when nobody's own node is another version, and it drops a
+#   NODE_EXTRA_CA_CERTS file nobody cannot read.
 # - .claude/settings.json registers the hook on PreToolUse for Bash with a
 #   10-second timeout. Claude Code cancels a slower hook and runs the command
 #   anyway, so the hook must stay fast.
@@ -288,6 +291,16 @@ if [[ -z "${nobody_node_version}" ]]; then
   exit 0
 fi
 
+# The major versions are compared only when .nvmrc names a number (24 or
+# v24.1.0), not an alias such as lts/*. Only the file's first word counts, so
+# a CRLF line end or a comment after the version does not hide it.
+nvmrc_version="$(cat "${checkout}/.nvmrc" 2>/dev/null)" || nvmrc_version=""
+nvmrc_version="${nvmrc_version%%[[:space:]]*}"
+nvmrc_major="${nvmrc_version#v}"
+nvmrc_major="${nvmrc_major%%.*}"
+nobody_node_major="${nobody_node_version#v}"
+nobody_node_major="${nobody_node_major%%.*}"
+
 # A test run writes in these folders: vitest's caches under node_modules, a
 # fake HOME that keeps npm's cache and logs out of root's home, and coverage/
 # for test:coverage's report (gitignored).
@@ -298,6 +311,31 @@ nobody_writable=(
   "${checkout}/coverage"
 )
 mkdir -p "${nobody_writable[@]}"
+
+# When nobody's node is another major version than .nvmrc names but the
+# session's own node matches it, the prefix runs a copy of the session's node.
+# nobody cannot run the original, because nvm installs it under root's home.
+# - The copy sits in nobody's HOME, named by version, so a later run reuses it
+#   and a different version gets its own folder.
+# - cp -L copies the binary a symlink such as nvm's points to.
+# - The prefix puts the copy's folder first on PATH, so the npx and tsx
+#   processes a run starts use it too.
+nobody_node_dir=""
+
+if [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
+  session_node_version="$(node --version 2>/dev/null)" || session_node_version=""
+  session_node_major="${session_node_version#v}"
+  session_node_major="${session_node_major%%.*}"
+
+  if [[ "${session_node_major}" == "${nvmrc_major}" ]]; then
+    nobody_node_dir="${checkout}/node_modules/.nobody-home/node-${session_node_version}"
+
+    if [[ ! -x "${nobody_node_dir}/node" ]]; then
+      mkdir -p "${nobody_node_dir}"
+      cp -L "$(command -v node)" "${nobody_node_dir}/node"
+    fi
+  fi
+fi
 
 # snapshot:update rewrites the tool-surface baseline in this folder, the only
 # snapshot folder in the repo. git tracks neither owner nor write bits, so the
@@ -319,24 +357,39 @@ chmod -R go-w "${nobody_writable[@]}"
 # checkout's path holds a space. A path of plain characters prints unchanged.
 printf -v nobody_home_for_shell '%q' "${checkout}/node_modules/.nobody-home"
 
+# env's settings, each followed by a space. $PATH stays literal, so the shell
+# running the prefix expands it.
+env_settings=""
+
+# Claude Code's cloud containers point NODE_EXTRA_CA_CERTS at a file under
+# root's home. Every node nobody starts then prints a warning that it cannot
+# read the file, which breaks tests that check a child process's exact stderr.
+# The tests make no network calls, so the prefix drops the setting. /bin/sh is
+# named in full because nobody's PATH may not hold sh, and its $1 is
+# single-quoted on purpose: the inner shell expands it, not this one.
+# shellcheck disable=SC2016
+if [[ -n "${NODE_EXTRA_CA_CERTS:-}" ]] &&
+  ! setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups /bin/sh -c 'test -r "$1"' sh "${NODE_EXTRA_CA_CERTS}"; then
+  env_settings+="-u NODE_EXTRA_CA_CERTS "
+fi
+
+env_settings+="HOME=${nobody_home_for_shell}"
+
+if [[ -n "${nobody_node_dir}" ]]; then
+  printf -v nobody_node_dir_for_shell '%q' "${nobody_node_dir}"
+  env_settings+=" PATH=${nobody_node_dir_for_shell}:\$PATH"
+fi
+
 cat >&2 <<EOF
 Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.
 Run the same test command as the nobody user, with this prefix in front of the test command itself (after any cd):
-  setpriv --reuid=${nobody_uid} --regid=${nobody_gid} --clear-groups env HOME=${nobody_home_for_shell}
+  setpriv --reuid=${nobody_uid} --regid=${nobody_gid} --clear-groups env ${env_settings}
 The folders nobody needs to write in ${checkout} are ready.
 EOF
 
-# The major versions are compared only when .nvmrc names a number (24 or
-# v24.1.0), not an alias such as lts/*. Only the file's first word counts, so
-# a CRLF line end or a comment after the version does not hide it.
-nvmrc_version="$(cat "${checkout}/.nvmrc" 2>/dev/null)" || nvmrc_version=""
-nvmrc_version="${nvmrc_version%%[[:space:]]*}"
-nvmrc_major="${nvmrc_version#v}"
-nvmrc_major="${nvmrc_major%%.*}"
-nobody_node_major="${nobody_node_version#v}"
-nobody_node_major="${nobody_node_major%%.*}"
-
-if [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
+if [[ -n "${nobody_node_dir}" ]]; then
+  echo "nobody's own node is ${nobody_node_version}, so the prefix runs a copy of this session's node ${session_node_version}, the version .nvmrc names and CI runs." >&2
+elif [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
   echo "nobody's node is ${nobody_node_version}, not the ${nvmrc_version} that .nvmrc names and CI runs, so a result can differ from CI's." >&2
 fi
 

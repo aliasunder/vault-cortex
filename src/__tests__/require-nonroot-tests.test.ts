@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -80,9 +81,22 @@ const NOBODY_NODE_STUB = `#!/bin/sh
 echo "$STUB_NOBODY_NODE_VERSION"
 `
 
-/** The fixture checkout's .nvmrc, and a nobody node version that matches it. */
+/** The session's node: prints STUB_SESSION_NODE_VERSION for --version and
+ *  hands every other call (the hook's payload parsing) to the real node at
+ *  STUB_REAL_NODE. */
+const SESSION_NODE_STUB = `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "$STUB_SESSION_NODE_VERSION"
+  exit 0
+fi
+exec "$STUB_REAL_NODE" "$@"
+`
+
+/** The fixture checkout's .nvmrc, and a node version that matches it. */
 const NVMRC_VERSION = "24"
 const MATCHING_NODE_VERSION = "v24.11.0"
+/** A node version whose major differs from the fixture's .nvmrc. */
+const OTHER_NODE_VERSION = "v22.22.0"
 
 const SNAPSHOTS_FOLDER = "src/vault-mcp/mcp-core/__tests__/__snapshots__"
 
@@ -119,6 +133,11 @@ type HookRunOptions = {
   /** What nobody's node prints for --version. Defaults to a version that
    *  matches the fixture's .nvmrc. */
   nobodyNodeVersion?: string
+  /** What the session's own node prints for --version. Defaults to a
+   *  version that matches the fixture's .nvmrc. */
+  sessionNodeVersion?: string
+  /** The hook's NODE_EXTRA_CA_CERTS. Unset by default. */
+  extraCaCerts?: string
   claudeProjectDir?: string
   /** The hook's PATH. Defaults to the stubs ahead of the runner's PATH. */
   path?: string
@@ -173,6 +192,7 @@ const createHookFixture = (): HookFixture => {
   writeExecutable(join(stubBinDir, "setpriv"), SETPRIV_STUB)
   writeExecutable(join(stubBinDir, "chown"), CHOWN_STUB)
   writeExecutable(join(nobodyBinDir, "node"), NOBODY_NODE_STUB)
+  writeExecutable(join(stubBinDir, "node"), SESSION_NODE_STUB)
 
   execFileSync("git", ["init", "--quiet", checkout], {
     env: { PATH: runnerPath(), HOME: outsideDir },
@@ -251,9 +271,12 @@ const hookEnv = (options: Omit<HookRunOptions, "stdin">): Record<string, string>
     STUB_NOBODY_GID: String(gid),
     STUB_NOBODY_PATH: options.nobodyHasNode === false ? fixture.emptyBinDir : fixture.nobodyBinDir,
     STUB_NOBODY_NODE_VERSION: options.nobodyNodeVersion ?? MATCHING_NODE_VERSION,
+    STUB_SESSION_NODE_VERSION: options.sessionNodeVersion ?? MATCHING_NODE_VERSION,
+    STUB_REAL_NODE: process.execPath,
     STUB_CHOWN_LOG: fixture.chownLog,
     STUB_REAL_CHOWN: realChownPath(),
     ...(options.claudeProjectDir ? { CLAUDE_PROJECT_DIR: options.claudeProjectDir } : {}),
+    ...(options.extraCaCerts ? { NODE_EXTRA_CA_CERTS: options.extraCaCerts } : {}),
   }
 }
 
@@ -280,20 +303,27 @@ const runCommandThroughHook = (fixture: HookFixture, command: string): HookRun =
 }
 
 /** The hook's reply to a stopped run, test-owned so a change to the prefix
- *  or the wording shows up here. nobodyHomeInPrefix is the HOME path as the
- *  prefix spells it: the plain path, unless the path needs quoting. */
+ *  or the wording shows up here.
+ *  - nobodyHomeInPrefix is the HOME path as the prefix spells it: the plain
+ *    path, unless the path needs quoting.
+ *  - unsetsExtraCaCerts adds env's -u NODE_EXTRA_CA_CERTS.
+ *  - nobodyNodeDir adds that folder first on PATH. */
 const expectedRefusal = (
   checkout: string,
   {
     nobodyHomeInPrefix = `${checkout}/node_modules/.nobody-home`,
-  }: { nobodyHomeInPrefix?: string } = {},
+    unsetsExtraCaCerts = false,
+    nobodyNodeDir,
+  }: { nobodyHomeInPrefix?: string; unsetsExtraCaCerts?: boolean; nobodyNodeDir?: string } = {},
 ): string => {
   const { uid, gid } = runnerIds()
+  const unsetSetting = unsetsExtraCaCerts ? "-u NODE_EXTRA_CA_CERTS " : ""
+  const pathSetting = nobodyNodeDir ? ` PATH=${nobodyNodeDir}:$PATH` : ""
 
   return [
     "Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.",
     "Run the same test command as the nobody user, with this prefix in front of the test command itself (after any cd):",
-    `  setpriv --reuid=${uid} --regid=${gid} --clear-groups env HOME=${nobodyHomeInPrefix}`,
+    `  setpriv --reuid=${uid} --regid=${gid} --clear-groups env ${unsetSetting}HOME=${nobodyHomeInPrefix}${pathSetting}`,
     `The folders nobody needs to write in ${checkout} are ready.`,
     "",
   ].join("\n")
@@ -584,13 +614,14 @@ describe("require-nonroot-tests hook", () => {
       expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
     })
 
-    it("adds a line to the reply when nobody's node is another major version than .nvmrc", () => {
+    it("adds a line to the reply when neither nobody's node nor the session's is the .nvmrc major version", () => {
       const fixture = createHookFixture()
 
       const run = runHook({
         fixture,
         stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
         nobodyNodeVersion: "v22.22.0",
+        sessionNodeVersion: "v20.19.0",
       })
 
       expect(run).toEqual({
@@ -598,6 +629,102 @@ describe("require-nonroot-tests hook", () => {
         stdout: "",
         stderr: `${expectedRefusal(fixture.checkout)}nobody's node is v22.22.0, not the 24 that .nvmrc names and CI runs, so a result can differ from CI's.\n`,
       })
+    })
+
+    it("runs a copy of the session's node when only the session's node is the .nvmrc major version", () => {
+      const fixture = createHookFixture()
+      const nobodyNodeDir = join(
+        fixture.checkout,
+        "node_modules",
+        ".nobody-home",
+        `node-${MATCHING_NODE_VERSION}`,
+      )
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+      })
+      const copiedNode = readFileSync(join(nobodyNodeDir, "node"), "utf8")
+
+      expect({ run, copiedNode, copyMode: permissionBits(join(nobodyNodeDir, "node")) }).toEqual({
+        run: {
+          status: 2,
+          stdout: "",
+          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of this session's node ${MATCHING_NODE_VERSION}, the version .nvmrc names and CI runs.\n`,
+        },
+        copiedNode: SESSION_NODE_STUB,
+        copyMode: 0o755,
+      })
+    })
+
+    it("reuses an earlier copy of the session's node instead of copying it again", () => {
+      const fixture = createHookFixture()
+      const nobodyNodeDir = join(
+        fixture.checkout,
+        "node_modules",
+        ".nobody-home",
+        `node-${MATCHING_NODE_VERSION}`,
+      )
+      const earlierCopy = "#!/bin/sh\n# earlier copy\n"
+      mkdirSync(nobodyNodeDir, { recursive: true })
+      writeExecutable(join(nobodyNodeDir, "node"), earlierCopy)
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+      })
+
+      expect({
+        stderr: run.stderr,
+        copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
+      }).toEqual({
+        stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of this session's node ${MATCHING_NODE_VERSION}, the version .nvmrc names and CI runs.\n`,
+        copiedNode: earlierCopy,
+      })
+    })
+
+    it("copies no node when nobody's node is already the .nvmrc major version", () => {
+      const fixture = createHookFixture()
+
+      const run = runCommandThroughHook(fixture, "npm test")
+      const nobodyHomeEntries = readdirSync(join(fixture.checkout, "node_modules", ".nobody-home"))
+
+      expect({ run, nobodyHomeEntries }).toEqual({
+        run: { status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) },
+        nobodyHomeEntries: [],
+      })
+    })
+
+    it("drops NODE_EXTRA_CA_CERTS from the prefix when nobody cannot read its file", () => {
+      const fixture = createHookFixture()
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        extraCaCerts: join(fixture.outsideDir, "missing-ca-bundle.crt"),
+      })
+
+      expect(run).toEqual({
+        status: 2,
+        stdout: "",
+        stderr: expectedRefusal(fixture.checkout, { unsetsExtraCaCerts: true }),
+      })
+    })
+
+    it("keeps NODE_EXTRA_CA_CERTS when nobody can read its file", () => {
+      const fixture = createHookFixture()
+      const caBundle = join(fixture.outsideDir, "ca-bundle.crt")
+      writeFileSync(caBundle, "certificate\n")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        extraCaCerts: caBundle,
+      })
+
+      expect(run).toEqual({ status: 2, stdout: "", stderr: expectedRefusal(fixture.checkout) })
     })
 
     it("lets a test run through, preparing nothing, when nobody finds no node", () => {
@@ -641,6 +768,7 @@ describe("require-nonroot-tests hook", () => {
         fixture,
         stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
         nobodyNodeVersion: "v22.22.0",
+        sessionNodeVersion: "v20.19.0",
       })
 
       expect(run).toEqual({
