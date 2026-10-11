@@ -1692,7 +1692,7 @@ describe("task errors", () => {
     )
   })
 
-  it("vault_create_task with invalid date", async () => {
+  it("vault_create_task with a date the calendar lacks", async () => {
     const result = await callTool({
       client,
       name: "vault_create_task",
@@ -1703,10 +1703,18 @@ describe("task errors", () => {
         due: "2026-02-30",
       },
     })
-    expectToolError(result, "invalid date")
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: invalid date: due "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
+      isError: true,
+    })
   })
 
-  it("vault_update_task with invalid date", async () => {
+  it("vault_update_task with a malformed date", async () => {
     const result = await callTool({
       client,
       name: "vault_update_task",
@@ -1716,7 +1724,10 @@ describe("task errors", () => {
         due: "not-a-date",
       },
     })
-    expectToolError(result, "invalid date")
+    expect(result).toEqual({
+      content: [{ type: "text", text: '[Error]: invalid date: due "not-a-date" (use YYYY-MM-DD)' }],
+      isError: true,
+    })
   })
 
   it("vault_update_task — cannot move a sub-task to a heading", async () => {
@@ -2531,6 +2542,78 @@ describe("tag must not be empty", () => {
     const result = await callTool({ client, name: "vault_list_tasks", args: { tag: "#" } })
     expect(result).toEqual({
       content: [{ type: "text", text: EMPTY_TAG_MESSAGE }],
+      isError: true,
+    })
+  })
+})
+
+// ── Date filter values ───────────────────────────────────────
+
+describe("date filter values", () => {
+  it("vault_search rejects a date filter not in YYYY-MM-DD form", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "note", filters: { modified: { after: "yesterday" } } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: invalid modified.after date: "yesterday". Use YYYY-MM-DD (e.g. 2026-07-03).',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_search rejects a date filter naming a day the calendar lacks", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "note", filters: { created: { on: "2026-02-30" } } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: created.on date "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_list_tasks rejects a date filter not in YYYY-MM-DD form", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_tasks",
+      args: { due: { before: "July 3rd" } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: invalid due.before date: "July 3rd". Use YYYY-MM-DD (e.g. 2026-07-03).',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_list_tasks rejects a date filter naming a day the calendar lacks", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_tasks",
+      args: { done: { after: "2026-04-31" } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: done.after date "2026-04-31" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
       isError: true,
     })
   })

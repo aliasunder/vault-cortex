@@ -6680,7 +6680,7 @@ Shared datefilter content for boundary tests.
     }).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
   })
 
-  it("rejects a calendar-invalid created date", () => {
+  it("rejects a created date the calendar lacks, saying so rather than naming the format", () => {
     const dateIndex = indexWithCreatedDates()
     expect(() => {
       dateIndex.fullTextSearch(
@@ -6691,7 +6691,19 @@ Shared datefilter content for boundary tests.
         logger,
       )
     }).toThrow(
-      /^invalid created\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+      /^created\.before date "2026-02-31" is not a calendar date\. Pass a real date in YYYY-MM-DD format\.$/,
+    )
+  })
+
+  it("rejects a created.after date the calendar lacks, naming that bound", () => {
+    const dateIndex = indexWithCreatedDates()
+    expect(() => {
+      dateIndex.fullTextSearch(
+        { query: "datefilter", filters: { created: { after: "2026-04-31" } } },
+        logger,
+      )
+    }).toThrow(
+      /^created\.after date "2026-04-31" is not a calendar date\. Pass a real date in YYYY-MM-DD format\.$/,
     )
   })
 })
@@ -6787,7 +6799,7 @@ Shared datefilter content for mtime boundary tests.
     )
   })
 
-  it("rejects a calendar-invalid modified date", () => {
+  it("rejects a modified date the calendar lacks, saying so rather than naming the format", () => {
     const dateIndex = indexWithModifiedTimes()
     expect(() => {
       dateIndex.fullTextSearch(
@@ -6798,7 +6810,7 @@ Shared datefilter content for mtime boundary tests.
         logger,
       )
     }).toThrow(
-      /^invalid modified\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+      /^modified\.before date "2026-02-31" is not a calendar date\. Pass a real date in YYYY-MM-DD format\.$/,
     )
   })
 

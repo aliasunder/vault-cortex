@@ -17,6 +17,21 @@ export const registerSearchTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
+  // Filters and errors are the same with or without embeddings, so both
+  // vault_search description variants share these two sections
+  const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query:
+- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
+- tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
+- created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter`
+
+  const searchErrorsSection = `Errors:
+- No matches returns { results: [], total: 0 }, not an error
+- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
+- "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
+- "… is not a calendar date" — the bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
+- tag must not be empty after its leading "#" — a tags entry is only "#"; pass the tag name`
+
   registerTool(
     TOOL_NAMES.VAULT_SEARCH,
     {
@@ -24,11 +39,7 @@ export const registerSearchTools = ({
       description: config.embeddingEnabled
         ? `Hybrid search across all vault notes, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. Results are refined by a cross-encoder reranker using position-aware score blending when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only (FTS5 BM25) transparently while embeddings are being built. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
-Filters — all conditions AND-combine with each other and the text query:
-- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
-- created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter
+${searchFiltersSection}
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
@@ -38,20 +49,12 @@ Example: vault_search({ query: "how the server watches for file changes" }) — 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Semantic matching bridges vocabulary gaps — try natural-language queries, not just keywords.
 Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
 
-Errors:
-- No matches returns { results: [], total: 0 }, not an error
-- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
-- A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
-- tag must not be empty after its leading "#" — a tags entry is only "#"; pass the tag name
+${searchErrorsSection}
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
         : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
-Filters — all conditions AND-combine with each other and the text query:
-- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
-- created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter
+${searchFiltersSection}
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
@@ -61,11 +64,7 @@ Example: vault_search({ query: "deployment", filters: { properties: { status: "a
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.
 Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
 
-Errors:
-- No matches returns { results: [], total: 0 }, not an error
-- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
-- A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
-- tag must not be empty after its leading "#" — a tags entry is only "#"; pass the tag name
+${searchErrorsSection}
 
 Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {

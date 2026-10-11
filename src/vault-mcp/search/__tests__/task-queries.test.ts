@@ -445,14 +445,16 @@ describe("listTasks date filters", () => {
   it("rejects a malformed date with remediation text", () => {
     const index = createTestIndex()
     expect(() => index.listTasks({ due: { before: "July 3rd" } }, logger)).toThrow(
-      'invalid due.before date: "July 3rd". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      new Error('invalid due.before date: "July 3rd". Use YYYY-MM-DD (e.g. 2026-07-03).'),
     )
   })
 
-  it("rejects a calendar-invalid date", () => {
+  it("rejects a date the calendar lacks, saying so rather than naming the format", () => {
     const index = createTestIndex()
     expect(() => index.listTasks({ due: { on: "2026-02-31" } }, logger)).toThrow(
-      'invalid due.on date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      new Error(
+        'due.on date "2026-02-31" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+      ),
     )
   })
 })
@@ -660,7 +662,7 @@ describe("listTasks scope filters", () => {
   it("rejects a path without the .md extension", () => {
     const index = createTestIndex()
     expect(() => index.listTasks({ path: "Inbox/notes" }, logger)).toThrow(
-      'path must end in ".md" (received "Inbox/notes")',
+      new Error('path must end in ".md" (received "Inbox/notes")'),
     )
   })
 

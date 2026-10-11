@@ -6,6 +6,7 @@ import { DateTime } from "luxon"
 import { parseNoteForRewrite, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { classifyIsoDate } from "../../utils/classify-iso-date.js"
 import { readFileOrNull } from "../../utils/fs.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
@@ -1404,11 +1405,20 @@ const assertRecurrenceRuleGrammar = (recurrenceText: string | null | undefined):
  *  reads as part of the task. */
 const TASK_TEXT_LINE_BREAK_PATTERN = /[\r\n]/
 
-/** Validates a date string is a real calendar date. */
-const validateDate = (date: string, fieldName: string): void => {
-  if (!DateTime.fromFormat(date, "yyyy-MM-dd").isValid) {
+/** Rejects a task date param that isn't in YYYY-MM-DD form or names a day the
+ *  calendar lacks. Both messages open with "invalid date", which the
+ *  vault_create_task and vault_update_task Errors sections quote. */
+const assertTaskDate = (date: string, fieldName: string): void => {
+  const dateClass = classifyIsoDate(date)
+
+  if (dateClass === "calendar-date") return
+
+  if (dateClass === "malformed") {
     throw new Error(`invalid date: ${fieldName} "${date}" (use YYYY-MM-DD)`)
   }
+  throw new Error(
+    `invalid date: ${fieldName} "${date}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`,
+  )
 }
 
 type ParentLocator = { kind: "blockId"; blockId: string } | { kind: "line"; line: number }
@@ -1517,15 +1527,14 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     throw new Error("description must be a single line")
   }
 
-  // Validate dates
   if (due) {
-    validateDate(due, "due")
+    assertTaskDate(due, "due")
   }
   if (scheduled) {
-    validateDate(scheduled, "scheduled")
+    assertTaskDate(scheduled, "scheduled")
   }
   if (start) {
-    validateDate(start, "start")
+    assertTaskDate(start, "start")
   }
 
   if (parentBlockId && parentLine) {
@@ -1787,7 +1796,6 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     )
   }
 
-  // Validate dates
   const dateParams: ReadonlyArray<{
     field: DateFieldKey
     value: string | null | undefined
@@ -1797,9 +1805,11 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     { field: "start", value: start },
     { field: "created", value: created },
   ]
+
   for (const { field, value } of dateParams) {
+    // null clears the date and undefined leaves it as it is; only a string sets one
     if (typeof value === "string") {
-      validateDate(value, field)
+      assertTaskDate(value, field)
     }
   }
 
