@@ -508,6 +508,12 @@ describe("require-nonroot-tests hook", () => {
       { label: "a variable setting before npx", command: "CI=1 npx vitest run" },
       { label: "env with a variable setting", command: "env CI=1 npm test" },
       { label: "env with a flag", command: "env -i npm test" },
+      {
+        label: "env by its path, as the reply's prefix names it",
+        command: "/usr/bin/env HOME=/repo/node_modules/.nobody-home npm test",
+      },
+      { label: "timeout by its path", command: "/usr/bin/timeout 600 npm test" },
+      { label: "a shell by its path", command: "/bin/bash -c 'npm test'" },
       { label: "a double-quoted value with a space", command: 'FOO="a b" npm test' },
       { label: "time", command: "time npm test" },
       { label: "time with a flag", command: "time -p npm test" },
@@ -887,6 +893,33 @@ describe("require-nonroot-tests hook", () => {
           stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}${expectedNodeCopyLine({ nobodyNodeVersion: OTHER_NODE_VERSION, copiedNodeVersion: "v24.10.0" })}`,
         },
         copiedNode: "#!/bin/sh\n# node v24.10.0\n",
+      })
+    })
+
+    it("matches the .nvmrc major only in the version folder's name, not in the nvm folder's own path", () => {
+      const fixture = createHookFixture()
+      // The nvm folder's own path holds /v24.x/, and its only node is v18.
+      const nvmDir = join(fixture.outsideDir, "v24.x", "nvm")
+      writeNvmNodes(nvmDir, ["v18.20.0"])
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+        sessionNodeVersion: OTHER_NODE_VERSION,
+        nvmDir,
+      })
+
+      expect({
+        run,
+        nodeCopiesMade: existsSync(join(fixture.checkout, "node_modules", ".nobody-node")),
+      }).toEqual({
+        run: {
+          status: 2,
+          stdout: "",
+          stderr: `${expectedRefusal(fixture.checkout)}nobody's node is ${OTHER_NODE_VERSION}, not the 24 that .nvmrc names and CI runs, so a result can differ from CI's.\n`,
+        },
+        nodeCopiesMade: false,
       })
     })
 

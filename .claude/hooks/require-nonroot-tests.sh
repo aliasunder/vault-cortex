@@ -102,12 +102,16 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*=(${double_quoted}|${single_quoted}|${un
 #   quotes, so a run or a cd after ; or && inside the quoted text counts too
 #   (`bash -c 'npm ci && cd /repo && npm test'`), and a mention there
 #   (`bash -c 'echo npm test'`) does not.
+# - Each of env, time, timeout and the shells may be named by path
+#   (`/usr/bin/env npm test`), as the reply's own prefix names env. exec and
+#   command are shell builtins, so they have no path.
 # setpriv is not a wrapper here: a run through setpriv is the nobody run the
 # reply asks for, so the runner after it never counts.
-timeout_wrapper="timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
+optional_command_folder='([^[:space:]]*/)?'
+timeout_wrapper="${optional_command_folder}timeout${flags_with_optional_argument}[[:space:]]+[0-9][^[:space:]]*"
 shell_flags='([[:space:]]+([-+][[:alpha:]]*[oO][[:alpha:]]*[[:space:]]+[^[:space:]]+|[-+][^[:space:]]*))*'
-shell_wrapper="(bash|sh|zsh)${shell_flags}[[:space:]]+([\"'][[:space:]]*)?"
-wrapper="((env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+|${shell_wrapper}"
+shell_wrapper="${optional_command_folder}(bash|sh|zsh)${shell_flags}[[:space:]]+([\"'][[:space:]]*)?"
+wrapper="(${optional_command_folder}(env|time)${flags_without_argument}|exec|command|${timeout_wrapper})[[:space:]]+|${shell_wrapper}"
 
 # shell_keyword matches a shell keyword a command can follow: if
 # (`if npm test`), then, do, else, elif, while, until, ! (`! npm test`) and {
@@ -386,16 +390,18 @@ if [[ "${node_major_differs}" == true ]]; then
       [[ -n "${nvm_dir}" && -d "${nvm_dir}/versions/node" ]] || continue
       # nvm keeps each node three folders below versions/node, in a folder
       # named by its version: <nvm_dir>/versions/node/v24.11.0/bin/node.
+      # find runs from inside versions/node, so -path sees only those three
+      # folders: a v24. elsewhere in the nvm folder's own path cannot match.
       # sort -V orders v24.9.0 before v24.10.0, so the last line is the newest.
       # -L enters a versions/node or version folder that is a symlink.
       # find exits non-zero on a folder it cannot read or a symlink loop that
       # -L walks into, while still listing the nodes it reached, so || true
       # keeps that list rather than let set -e end the hook, which would let
       # the run through as root.
-      newest_node="$(find -L "${nvm_dir}/versions/node" -mindepth 3 -maxdepth 3 -path "*/v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)" || true
+      newest_node="$(cd "${nvm_dir}/versions/node" && find -L . -mindepth 3 -maxdepth 3 -path "./v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)" || true
       [[ -n "${newest_node}" ]] || continue
-      nvmrc_node_path="${newest_node}"
-      nvmrc_node_version="$(basename "$(dirname "$(dirname "${newest_node}")")")"
+      nvmrc_node_path="${nvm_dir}/versions/node/${newest_node#./}"
+      nvmrc_node_version="$(basename "$(dirname "$(dirname "${nvmrc_node_path}")")")"
       break
     done
   fi
