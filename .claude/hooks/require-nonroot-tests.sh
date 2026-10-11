@@ -312,27 +312,47 @@ nobody_writable=(
 )
 mkdir -p "${nobody_writable[@]}"
 
-# When nobody's node is another major version than .nvmrc names but the
-# session's own node matches it, the prefix runs a copy of the session's node.
-# nobody cannot run the original, because nvm installs it under root's home.
+# When nobody's node is another major version than .nvmrc names, the prefix
+# runs a copy of an .nvmrc-major node root has. nobody cannot run the
+# original, because nvm installs it under root's home.
+# - The hook's own node comes first. Claude Code starts hooks with its own
+#   PATH, not the session's, so in a cloud container that node is often the
+#   container's, and the hook then looks where nvm keeps its versions
+#   ($NVM_DIR or ~/.nvm), taking the newest of that major.
 # - The copy sits in nobody's HOME, named by version, so a later run reuses it
-#   and a different version gets its own folder.
-# - cp -L copies the binary a symlink such as nvm's points to.
+#   and a different version gets its own folder. cp -L copies the binary a
+#   symlink points to.
 # - The prefix puts the copy's folder first on PATH, so the npx and tsx
 #   processes a run starts use it too.
 nobody_node_dir=""
 
 if [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
-  session_node_version="$(node --version 2>/dev/null)" || session_node_version=""
-  session_node_major="${session_node_version#v}"
-  session_node_major="${session_node_major%%.*}"
+  ci_node_path=""
+  ci_node_version="$(node --version 2>/dev/null)" || ci_node_version=""
+  ci_node_major="${ci_node_version#v}"
+  ci_node_major="${ci_node_major%%.*}"
 
-  if [[ "${session_node_major}" == "${nvmrc_major}" ]]; then
-    nobody_node_dir="${checkout}/node_modules/.nobody-home/node-${session_node_version}"
+  if [[ "${ci_node_major}" == "${nvmrc_major}" ]]; then
+    ci_node_path="$(command -v node)"
+  else
+    for nvm_dir in "${NVM_DIR:-}" "${HOME}/.nvm"; do
+      [[ -n "${nvm_dir}" && -d "${nvm_dir}/versions/node" ]] || continue
+      # sort -V orders v24.9.0 before v24.10.0, so the last line is the newest.
+      newest_node="$(find "${nvm_dir}/versions/node" -mindepth 3 -maxdepth 3 -path "*/v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)"
+      [[ -n "${newest_node}" ]] || continue
+      ci_node_path="${newest_node}"
+      # The version is the folder name nvm gives it: <nvm_dir>/versions/node/v24.11.0/bin/node.
+      ci_node_version="$(basename "$(dirname "$(dirname "${newest_node}")")")"
+      break
+    done
+  fi
+
+  if [[ -n "${ci_node_path}" ]]; then
+    nobody_node_dir="${checkout}/node_modules/.nobody-home/node-${ci_node_version}"
 
     if [[ ! -x "${nobody_node_dir}/node" ]]; then
       mkdir -p "${nobody_node_dir}"
-      cp -L "$(command -v node)" "${nobody_node_dir}/node"
+      cp -L "${ci_node_path}" "${nobody_node_dir}/node"
     fi
   fi
 fi
@@ -388,7 +408,7 @@ The folders nobody needs to write in ${checkout} are ready.
 EOF
 
 if [[ -n "${nobody_node_dir}" ]]; then
-  echo "nobody's own node is ${nobody_node_version}, so the prefix runs a copy of this session's node ${session_node_version}, the version .nvmrc names and CI runs." >&2
+  echo "nobody's own node is ${nobody_node_version}, so the prefix runs a copy of node ${ci_node_version}, the major version .nvmrc names and CI runs." >&2
 elif [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
   echo "nobody's node is ${nobody_node_version}, not the ${nvmrc_version} that .nvmrc names and CI runs, so a result can differ from CI's." >&2
 fi

@@ -631,7 +631,7 @@ describe("require-nonroot-tests hook", () => {
       })
     })
 
-    it("runs a copy of the session's node when only the session's node is the .nvmrc major version", () => {
+    it("runs a copy of the hook's own node when it is the .nvmrc major version and nobody's is not", () => {
       const fixture = createHookFixture()
       const nobodyNodeDir = join(
         fixture.checkout,
@@ -651,14 +651,14 @@ describe("require-nonroot-tests hook", () => {
         run: {
           status: 2,
           stdout: "",
-          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of this session's node ${MATCHING_NODE_VERSION}, the version .nvmrc names and CI runs.\n`,
+          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node ${MATCHING_NODE_VERSION}, the major version .nvmrc names and CI runs.\n`,
         },
         copiedNode: SESSION_NODE_STUB,
         copyMode: 0o755,
       })
     })
 
-    it("reuses an earlier copy of the session's node instead of copying it again", () => {
+    it("reuses an earlier copy of the node instead of copying it again", () => {
       const fixture = createHookFixture()
       const nobodyNodeDir = join(
         fixture.checkout,
@@ -680,8 +680,38 @@ describe("require-nonroot-tests hook", () => {
         stderr: run.stderr,
         copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
       }).toEqual({
-        stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of this session's node ${MATCHING_NODE_VERSION}, the version .nvmrc names and CI runs.\n`,
+        stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node ${MATCHING_NODE_VERSION}, the major version .nvmrc names and CI runs.\n`,
         copiedNode: earlierCopy,
+      })
+    })
+
+    it("copies nvm's newest node of the .nvmrc major version when the hook's own node is another version", () => {
+      const fixture = createHookFixture()
+      const nvmNodes = join(fixture.outsideDir, ".nvm", "versions", "node")
+      // v24.10.0 is newer than v24.9.0, though it sorts first as plain text.
+      for (const version of ["v24.9.0", "v24.10.0", "v22.22.0"]) {
+        mkdirSync(join(nvmNodes, version, "bin"), { recursive: true })
+        writeExecutable(join(nvmNodes, version, "bin", "node"), `#!/bin/sh\n# node ${version}\n`)
+      }
+      const nobodyNodeDir = join(fixture.checkout, "node_modules", ".nobody-home", "node-v24.10.0")
+
+      const run = runHook({
+        fixture,
+        stdin: payloadFor({ command: "npm test", cwd: fixture.checkout }),
+        nobodyNodeVersion: OTHER_NODE_VERSION,
+        sessionNodeVersion: OTHER_NODE_VERSION,
+      })
+
+      expect({
+        run,
+        copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
+      }).toEqual({
+        run: {
+          status: 2,
+          stdout: "",
+          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node v24.10.0, the major version .nvmrc names and CI runs.\n`,
+        },
+        copiedNode: "#!/bin/sh\n# node v24.10.0\n",
       })
     })
 
