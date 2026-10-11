@@ -656,7 +656,7 @@ describe("require-nonroot-tests hook", () => {
         run: {
           status: 2,
           stdout: "",
-          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node ${MATCHING_NODE_VERSION}, the major version .nvmrc names and CI runs.\n`,
+          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node ${MATCHING_NODE_VERSION}, whose major version .nvmrc names and CI runs.\n`,
         },
         copiedNode: SESSION_NODE_STUB,
         copyMode: 0o755,
@@ -686,7 +686,7 @@ describe("require-nonroot-tests hook", () => {
         stderr: run.stderr,
         copiedNode: readFileSync(join(nobodyNodeDir, "node"), "utf8"),
       }).toEqual({
-        stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node ${MATCHING_NODE_VERSION}, the major version .nvmrc names and CI runs.\n`,
+        stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node ${MATCHING_NODE_VERSION}, whose major version .nvmrc names and CI runs.\n`,
         copiedNode: earlierCopy,
       })
     })
@@ -715,7 +715,7 @@ describe("require-nonroot-tests hook", () => {
         run: {
           status: 2,
           stdout: "",
-          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node v24.10.0, the major version .nvmrc names and CI runs.\n`,
+          stderr: `${expectedRefusal(fixture.checkout, { nobodyNodeDir })}nobody's own node is ${OTHER_NODE_VERSION}, so the prefix runs a copy of node v24.10.0, whose major version .nvmrc names and CI runs.\n`,
         },
         copiedNode: "#!/bin/sh\n# node v24.10.0\n",
       })

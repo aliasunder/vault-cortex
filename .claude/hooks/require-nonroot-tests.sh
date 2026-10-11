@@ -7,9 +7,10 @@
 #   exits at its first check, so it costs nothing on a developer machine.
 # - Before replying, it makes the folders a test run writes in the checkout
 #   writable for nobody.
-# - The prefix it offers matches CI where it can: it runs the .nvmrc Node
-#   when nobody's own node is another version, and it drops a
-#   NODE_EXTRA_CA_CERTS file nobody cannot read.
+# - The prefix it offers matches CI where it can. When nobody's own node has
+#   another major version than .nvmrc names, the prefix runs a copy of root's
+#   node of that major. When nobody cannot read the file NODE_EXTRA_CA_CERTS
+#   names, the prefix unsets the variable.
 # - .claude/settings.json registers the hook on PreToolUse for Bash with a
 #   10-second timeout. Claude Code cancels a slower hook and runs the command
 #   anyway, so the hook must stay fast.
@@ -119,7 +120,8 @@ command_prefix="(${wrapper}|${shell_keyword}|${variable_setting})*"
 # followed only by spaces and then a redirection (`bash -c 'npm test' 2>`), a
 # ) (`$(bash -c 'npm test')`), a comment or the end. So `npm run testx` and
 # `npm run test:cli-pty` are not runs, and neither is the `vitest' src/` that
-# `grep -E 'npm test|vitest' src/` splits into.
+# `grep -E 'npm test|vitest' src/` splits into. Inside the double quotes,
+# `\\)` reaches the regex as `\)`, a literal ).
 runner_end="([[:space:]]|\\)|[\"'][[:space:]]*([0-9]*[<>]|\\)|$)|[\"'][[:space:]]+#|$)"
 
 # A command that runs tests starts with the runner, after any prefix. A
@@ -226,6 +228,8 @@ root_test_runs=""
 while IFS= read -r split_command; do
   cd_candidate="${split_command}"
   if [[ "${split_command}" =~ ${leading_command_prefix} ]]; then
+    # Keep the text after the matched prefix: ${var:offset} starts at the
+    # match's length.
     cd_candidate="${split_command:${#BASH_REMATCH[0]}}"
   fi
   if [[ "${cd_candidate}" =~ ${cd_to_absolute_path} ]]; then
@@ -281,29 +285,24 @@ fi
 nobody_uid="$(id -u nobody)"
 nobody_gid="$(id -g nobody)"
 
-# The prefix runs whichever node nobody finds on PATH. nobody cannot read
-# root's home, where nvm installs Node, so that node can be another version
-# than the .nvmrc one CI runs, or missing. Without one there is no command to
-# offer, so the run goes through, as it does without setpriv or a nobody user.
-# env looks node up, as it does for the prefix: setpriv keeps root's
-# capabilities until it starts its command, so its own PATH search reaches a
-# node under root's home that nobody's runs cannot. /usr/bin/env is named in
-# full because nobody's PATH may not hold env.
+# By default the prefix runs whichever node nobody finds on the session's
+# PATH. nvm installs Node under root's home, which nobody cannot read, so
+# nobody's node can be another version than the .nvmrc one CI runs, or
+# missing.
+# - With no node at all, nobody most likely has no npx either, because npx
+#   installs beside node, and the node copy made below holds only node. There
+#   is then no command to offer, so the run goes through, as it does without
+#   setpriv or a nobody user.
+# - The probe searches the PATH Claude Code gives the hook, and env searches
+#   it as nobody, as the prefix's env does. setpriv keeps root's capabilities
+#   until it starts its command, so a search by setpriv itself reaches a node
+#   under root's home that nobody's runs cannot. /usr/bin/env is named in
+#   full so setpriv searches no PATH.
 nobody_node_version="$(setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups /usr/bin/env node --version 2>/dev/null)" || nobody_node_version=""
 
 if [[ -z "${nobody_node_version}" ]]; then
   exit 0
 fi
-
-# The major versions are compared only when .nvmrc names a number (24 or
-# v24.1.0), not an alias such as lts/*. Only the file's first word counts, so
-# a CRLF line end or a comment after the version does not hide it.
-nvmrc_version="$(cat "${checkout}/.nvmrc" 2>/dev/null)" || nvmrc_version=""
-nvmrc_version="${nvmrc_version%%[[:space:]]*}"
-nvmrc_major="${nvmrc_version#v}"
-nvmrc_major="${nvmrc_major%%.*}"
-nobody_node_major="${nobody_node_version#v}"
-nobody_node_major="${nobody_node_major%%.*}"
 
 # A test run writes in these folders: vitest's caches under node_modules, a
 # fake HOME that keeps npm's cache and logs out of root's home, and coverage/
@@ -314,63 +313,6 @@ nobody_writable=(
   "${checkout}/node_modules/.nobody-home"
   "${checkout}/coverage"
 )
-mkdir -p "${nobody_writable[@]}"
-
-# When nobody's node is another major version than .nvmrc names, the prefix
-# runs a copy of an .nvmrc-major node root has. nobody cannot run the
-# original, because nvm installs it under root's home.
-# - The hook's own node comes first. Claude Code starts hooks with its own
-#   PATH, not the session's, so in a cloud container that node is often the
-#   container's, and the hook then looks where nvm keeps its versions
-#   ($NVM_DIR or ~/.nvm), taking the newest of that major.
-# - The copy sits in a folder named by version, so a later run reuses it and a
-#   different version gets its own folder. cp -L copies the binary a symlink
-#   points to.
-# - The folder stays root's, outside the folders handed to nobody: root never
-#   writes where nobody could plant a symlink, and nobody can run the copy but
-#   not replace it.
-# - The prefix puts the copy's folder first on PATH, so the npx and tsx
-#   processes a run starts use it too.
-nobody_node_dir=""
-
-if [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
-  ci_node_path=""
-  ci_node_version="$(node --version 2>/dev/null)" || ci_node_version=""
-  ci_node_major="${ci_node_version#v}"
-  ci_node_major="${ci_node_major%%.*}"
-
-  if [[ "${ci_node_major}" == "${nvmrc_major}" ]]; then
-    ci_node_path="$(command -v node)"
-  else
-    for nvm_dir in "${NVM_DIR:-}" "${HOME}/.nvm"; do
-      [[ -n "${nvm_dir}" && -d "${nvm_dir}/versions/node" ]] || continue
-      # sort -V orders v24.9.0 before v24.10.0, so the last line is the newest.
-      newest_node="$(find "${nvm_dir}/versions/node" -mindepth 3 -maxdepth 3 -path "*/v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)"
-      [[ -n "${newest_node}" ]] || continue
-      ci_node_path="${newest_node}"
-      # The version is the folder name nvm gives it: <nvm_dir>/versions/node/v24.11.0/bin/node.
-      ci_node_version="$(basename "$(dirname "$(dirname "${newest_node}")")")"
-      break
-    done
-  fi
-
-  if [[ -n "${ci_node_path}" ]]; then
-    nobody_node_dir="${checkout}/node_modules/.nobody-node/node-${ci_node_version}"
-
-    if [[ ! -x "${nobody_node_dir}/node" ]]; then
-      mkdir -p "${nobody_node_dir}"
-      # 755 whatever root's umask, so nobody can reach and run the copy.
-      chmod 755 "${nobody_node_dir%/*}" "${nobody_node_dir}"
-      # cp makes its file executable before writing it, so a copy cut short by
-      # the hook's timeout, or one a concurrent hook is still writing, would
-      # pass the -x check above. The copy gets a temporary name, and mv's
-      # rename puts only a whole binary at the name later runs reuse.
-      cp -L "${ci_node_path}" "${nobody_node_dir}/node.$$"
-      chmod 755 "${nobody_node_dir}/node.$$"
-      mv -f "${nobody_node_dir}/node.$$" "${nobody_node_dir}/node"
-    fi
-  fi
-fi
 
 # snapshot:update rewrites the tool-surface baseline in this folder, the only
 # snapshot folder in the repo. git tracks neither owner nor write bits, so the
@@ -381,6 +323,8 @@ if [[ -d "${snapshots_dir}" ]]; then
   nobody_writable+=("${snapshots_dir}")
 fi
 
+mkdir -p "${nobody_writable[@]}"
+
 # The folders go to nobody and are not writable by group or other users,
 # because vitest runs code from its caches and checks test output against the
 # snapshots. Both commands recurse, so the files a root run left inside also
@@ -388,43 +332,131 @@ fi
 chown -R "${nobody_uid}:${nobody_gid}" "${nobody_writable[@]}"
 chmod -R go-w "${nobody_writable[@]}"
 
+# node_major_differs is true when .nvmrc names a number (24 or v24.1.0), not
+# an alias such as lts/*, and nobody's node has another major version.
+nvmrc_version="$(cat "${checkout}/.nvmrc" 2>/dev/null)" || nvmrc_version=""
+# Cut the text at its first space, tab or line break, so a CRLF line end or a
+# comment after the version does not hide it.
+nvmrc_version="${nvmrc_version%%[[:space:]]*}"
+nvmrc_major="${nvmrc_version#v}"
+nvmrc_major="${nvmrc_major%%.*}"
+nobody_node_major="${nobody_node_version#v}"
+nobody_node_major="${nobody_node_major%%.*}"
+node_major_differs=false
+
+if [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
+  node_major_differs=true
+fi
+
+# When node_major_differs, the prefix runs a copy of a node root has
+# installed whose major version .nvmrc names. nobody cannot run the original,
+# because nvm installs it under root's home.
+# - The hook checks its own node first. Claude Code starts hooks with its own
+#   PATH, not the session's, so in a cloud container that node is often the
+#   container's. The hook then looks where nvm keeps its versions ($NVM_DIR,
+#   then ~/.nvm, often the same folder) and takes the newest of that major in
+#   the first folder that has one.
+# - The copy sits in a folder named by version, so a later run reuses it and a
+#   different version gets its own folder. cp -L copies the binary a symlink
+#   points to.
+# - The folder stays root's, outside the folders handed to nobody: root never
+#   writes where nobody could plant a symlink, and nobody can run the copy but
+#   not replace it.
+# - The prefix puts the copy's folder first on PATH. nobody's runs then find
+#   the copy, and so do the npx and tsx scripts a run starts, whose
+#   `#!/usr/bin/env node` lines look node up on PATH. npx and npm themselves
+#   still come from the session's PATH.
+nobody_node_dir=""
+
+if [[ "${node_major_differs}" == true ]]; then
+  nvmrc_node_path=""
+  nvmrc_node_version=""
+  hook_node_version="$(node --version 2>/dev/null)" || hook_node_version=""
+  hook_node_major="${hook_node_version#v}"
+  hook_node_major="${hook_node_major%%.*}"
+
+  if [[ "${hook_node_major}" == "${nvmrc_major}" ]]; then
+    nvmrc_node_path="$(command -v node)"
+    nvmrc_node_version="${hook_node_version}"
+  else
+    for nvm_dir in "${NVM_DIR:-}" "${HOME}/.nvm"; do
+      [[ -n "${nvm_dir}" && -d "${nvm_dir}/versions/node" ]] || continue
+      # nvm keeps each node three folders below versions/node, in a folder
+      # named by its version: <nvm_dir>/versions/node/v24.11.0/bin/node.
+      # sort -V orders v24.9.0 before v24.10.0, so the last line is the newest.
+      newest_node="$(find "${nvm_dir}/versions/node" -mindepth 3 -maxdepth 3 -path "*/v${nvmrc_major}.*/bin/node" 2>/dev/null | sort -V | tail -n 1)"
+      [[ -n "${newest_node}" ]] || continue
+      nvmrc_node_path="${newest_node}"
+      nvmrc_node_version="$(basename "$(dirname "$(dirname "${newest_node}")")")"
+      break
+    done
+  fi
+
+  if [[ -n "${nvmrc_node_path}" ]]; then
+    node_copies_dir="${checkout}/node_modules/.nobody-node"
+    nobody_node_dir="${node_copies_dir}/node-${nvmrc_node_version}"
+
+    # A node already at this name is reused. Only the mv below puts one
+    # there, so it is a whole copy.
+    if [[ ! -x "${nobody_node_dir}/node" ]]; then
+      mkdir -p "${nobody_node_dir}"
+      # 755 whatever root's umask, so nobody can reach and run the copy.
+      chmod 755 "${node_copies_dir}" "${nobody_node_dir}"
+      # cp makes its file executable before writing it, so a copy cut short by
+      # the hook's timeout, or one a concurrent hook is still writing, would
+      # pass the -x check above. The copy gets a temporary name, and mv's
+      # rename puts only a whole binary at the name later runs reuse.
+      cp -L "${nvmrc_node_path}" "${nobody_node_dir}/node.$$"
+      chmod 755 "${nobody_node_dir}/node.$$"
+      mv -f "${nobody_node_dir}/node.$$" "${nobody_node_dir}/node"
+    fi
+  fi
+fi
+
 # %q quotes the HOME path for the shell, so the prefix still works when the
 # checkout's path holds a space. A path of plain characters prints unchanged.
 printf -v nobody_home_for_shell '%q' "${checkout}/node_modules/.nobody-home"
 
-# env's settings, each followed by a space. $PATH stays literal, so the shell
-# running the prefix expands it.
-env_settings=""
+# env's arguments, joined with spaces in the reply. The -u option goes first,
+# because env reads options only before its first NAME=value setting.
+env_arguments=()
 
 # Claude Code's cloud containers point NODE_EXTRA_CA_CERTS at a file under
 # root's home. Every node nobody starts then prints a warning that it cannot
 # read the file, which breaks tests that check a child process's exact stderr.
-# The tests make no network calls, so the prefix drops the setting. /bin/sh is
-# named in full because nobody's PATH may not hold sh, and its $1 is
-# single-quoted on purpose: the inner shell expands it, not this one.
+# The suites this prefix runs make no network calls, so the prefix unsets the
+# variable.
+# - /bin/sh is named in full so setpriv searches no PATH.
+# - The script's $1 is single-quoted on purpose: the inner shell expands it,
+#   not this one. The `sh` after the script is the inner shell's $0, so the
+#   file's path lands in $1.
 # shellcheck disable=SC2016
 if [[ -n "${NODE_EXTRA_CA_CERTS:-}" ]] &&
   ! setpriv --reuid="${nobody_uid}" --regid="${nobody_gid}" --clear-groups /bin/sh -c 'test -r "$1"' sh "${NODE_EXTRA_CA_CERTS}"; then
-  env_settings+="-u NODE_EXTRA_CA_CERTS "
+  env_arguments+=(-u NODE_EXTRA_CA_CERTS)
 fi
 
-env_settings+="HOME=${nobody_home_for_shell}"
+env_arguments+=("HOME=${nobody_home_for_shell}")
 
+# $PATH stays literal, so the shell running the prefix expands it to the
+# session's PATH, which env searches after the copy's folder. A folder there
+# that nobody cannot read is skipped.
 if [[ -n "${nobody_node_dir}" ]]; then
   printf -v nobody_node_dir_for_shell '%q' "${nobody_node_dir}"
-  env_settings+=" PATH=${nobody_node_dir_for_shell}:\$PATH"
+  env_arguments+=("PATH=${nobody_node_dir_for_shell}:\$PATH")
 fi
 
 cat >&2 <<EOF
 Tests do not run as root in this repo: root reads the files the permission tests make unreadable, so those tests fail here but pass in CI.
 Run the same test command as the nobody user, with this prefix in front of the test command itself (after any cd):
-  setpriv --reuid=${nobody_uid} --regid=${nobody_gid} --clear-groups env ${env_settings}
+  setpriv --reuid=${nobody_uid} --regid=${nobody_gid} --clear-groups env ${env_arguments[*]}
 The folders nobody needs to write in ${checkout} are ready.
 EOF
 
 if [[ -n "${nobody_node_dir}" ]]; then
-  echo "nobody's own node is ${nobody_node_version}, so the prefix runs a copy of node ${ci_node_version}, the major version .nvmrc names and CI runs." >&2
-elif [[ "${nvmrc_major}" =~ ^[0-9]+$ && "${nobody_node_major}" != "${nvmrc_major}" ]]; then
+  echo "nobody's own node is ${nobody_node_version}, so the prefix runs a copy of node ${nvmrc_node_version}, whose major version .nvmrc names and CI runs." >&2
+elif [[ "${node_major_differs}" == true ]]; then
+  # The majors differ, but root has no node of the .nvmrc major to copy.
   echo "nobody's node is ${nobody_node_version}, not the ${nvmrc_version} that .nvmrc names and CI runs, so a result can differ from CI's." >&2
 fi
 
