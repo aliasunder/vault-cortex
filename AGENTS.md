@@ -1327,6 +1327,12 @@ Contributor and release conventions live in
 `BREAKING CHANGE:` footer in the PR description, so the generated release
 notes list it (other accepted flags are in `CONTRIBUTING.md`).
 
+Pick a commit's conventional-commit type by what it changes in the server
+this repo ships. Claude Code hooks, dev scripts and other local tooling
+are never `feat` or `fix`: use `chore`, or `ci` or `build` where they fit,
+so they stay out of the changelog's Features and Bug Fixes. A squash merge
+lands the PR title, so the title takes the type of the PR's main purpose.
+
 ### Files that track feature surface
 
 **No hardcoded tool or prompt counts in user-facing surfaces.** Never
