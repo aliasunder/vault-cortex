@@ -61,9 +61,8 @@ on a folder for the full list.
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed Claude Code hook setup only (the rest is gitignored): settings.json registers the two hooks below
+.claude/ # Committed Claude Code hook setup only (the rest is gitignored): settings.json registers the hook below
   hooks/install-deps.sh # Runs at session start and worktree entry: loads nvm, installs dependencies when needed (npm ci, sst install), and at session start puts the checkout's Node (the .nvmrc version when nvm has it, else nvm's default alias) first on PATH for the session's later Bash commands
-  hooks/require-nonroot-tests.sh # Runs before each Bash command: blocks a root session's test runs, makes the folders they write writable for the nobody user, and replies to Claude with the setpriv prefix that reruns the command as nobody
 obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
 rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian that prints the Sync token for .env
 templates/memory/ # About Me/ memory file templates for new vaults
@@ -71,6 +70,7 @@ deploy/ # End-user quickstarts (no clone needed): local/ and remote/ (guide, com
 assets/ # Static assets (not shipped in Docker)
 scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open with a header comment saying what they do
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
+  root-test-guard.ts # Loaded by vitest.config.ts while vitest starts: reruns a root test run as nobody, or as the checkout's owner when root doesn't own it, and warns when it can't
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
@@ -858,6 +858,12 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 ### Test conventions
 
+- Tests never run as root: root ignores file permissions, so the tests
+  that deny access with `chmod` fail as root and pass in CI.
+  `vitest.config.ts` reruns a root run as `nobody`, or as the checkout's
+  owner, through `scripts/root-test-guard.ts`. When it can't, it prints a
+  warning and the run continues as root. Run tests as usual; don't add a
+  `setpriv` prefix yourself.
 - Tests read as a behavioral spec. One focused `it()` per
   behavior — a failing test name should identify which behavior
   regressed without reading the body.
@@ -939,17 +945,17 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   **Exception — shell scripts outside vitest's include paths.** The
   remote image's s6 init scripts under `rootfs/etc/s6-overlay/scripts/`
   are the `vault-mcp` server's boot chain for the `:remote` target, and
-  the Claude Code hooks sit in `.claude/hooks/`. Neither is a TypeScript
+  the Claude Code hook sits in `.claude/hooks/`. Neither is a TypeScript
   module, and vitest's include paths (`src/`, `cli/src/`, `scripts/`)
   reach neither folder. The init-script tests live in
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes), and the hook tests in `src/__tests__/`
-  (`install-deps.test.ts`, `require-nonroot-tests.test.ts`). These script
+  `init-derive-env` publishes), and the hook's test in `src/__tests__/`
+  (`install-deps.test.ts`). These script
   tests run the real script under its own shell (`sh` for the init
-  scripts, `bash` for the hooks) with stub binaries on `PATH`, and name
+  scripts, `bash` for the hook) with stub binaries on `PATH`, and name
   the script they cover —
   don't move them next to the scripts or widen vitest's include for
   them. Whole-image behaviour (the init chain's ordering,
