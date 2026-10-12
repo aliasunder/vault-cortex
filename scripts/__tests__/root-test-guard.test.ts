@@ -397,7 +397,11 @@ describe("prepareRerun", () => {
 
     prepareRerun({ plan: nobodyPlanFor(checkout), changeOwner: vi.fn() })
 
-    expect(readdirSync(join(checkout, "coverage"))).toEqual(["coverage-final.json"])
+    expect({
+      coverageEntries: readdirSync(join(checkout, "coverage")),
+      // Proves prepareRerun ran: it creates the rerun's HOME.
+      testHomeExists: existsSync(join(checkout, "node_modules", ".test-home")),
+    }).toEqual({ coverageEntries: ["coverage-final.json"], testHomeExists: true })
   })
 
   it("copies the Node binary for nobody, mode 755, when the plan calls for a copy", () => {
@@ -433,7 +437,11 @@ describe("prepareRerun", () => {
 
     prepareRerun({ plan, changeOwner: vi.fn() })
 
-    expect(readFileSync(nodeCopy, "utf8")).toBe("existing\n")
+    expect({
+      nodeCopyContent: readFileSync(nodeCopy, "utf8"),
+      // Proves prepareRerun ran: it creates the rerun's HOME.
+      testHomeExists: existsSync(join(checkout, "node_modules", ".test-home")),
+    }).toEqual({ nodeCopyContent: "existing\n", testHomeExists: true })
   })
 
   it("never hands the Node copy's folder to the target", () => {
@@ -449,6 +457,15 @@ describe("prepareRerun", () => {
     prepareRerun({ plan, changeOwner })
 
     const handedOver = changeOwner.mock.calls.map(([{ path }]) => path)
-    expect(handedOver.filter((path) => path.includes(".nobody-node"))).toEqual([])
+    const nodeCopy = join(checkout, "node_modules", ".nobody-node", "node-v24.21.0", "node")
+    expect({ handedOver: handedOver.toSorted(), nodeCopyExists: existsSync(nodeCopy) }).toEqual({
+      handedOver: [
+        join(checkout, "node_modules", ".test-home"),
+        join(checkout, "node_modules", ".vite-temp"),
+        join(checkout, "node_modules", ".vite", "vitest"),
+        join(checkout, "src/vault-mcp/mcp-core/__tests__/__snapshots__"),
+      ].toSorted(),
+      nodeCopyExists: true,
+    })
   })
 })
