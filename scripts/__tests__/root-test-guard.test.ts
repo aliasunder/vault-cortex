@@ -67,7 +67,6 @@ const FOLDERS_TO_HAND_OVER = [
   "/repo/node_modules/.vite-temp",
   "/repo/node_modules/.vite/vitest",
   "/repo/node_modules/.test-home",
-  "/repo/coverage",
   "/repo/src/vault-mcp/mcp-core/__tests__/__snapshots__",
 ]
 
@@ -262,9 +261,11 @@ describe("planRootRun", () => {
     const plan = rootRerun({ vitestArguments: ["run", "--coverage"] })
 
     expect({
+      foldersToHandOver: plan.foldersToHandOver,
       coverageFolderToEmpty: plan.coverageFolderToEmpty,
       rerunArguments: plan.setprivArguments.slice(-4),
     }).toEqual({
+      foldersToHandOver: [...FOLDERS_TO_HAND_OVER, "/repo/coverage"],
       coverageFolderToEmpty: "/repo/coverage",
       rerunArguments: [
         "run",
@@ -339,15 +340,16 @@ describe("prepareRerun", () => {
         "node_modules/.vite-temp",
         "node_modules/.vite/vitest",
         "node_modules/.test-home",
-        "coverage",
         "src/vault-mcp/mcp-core/__tests__/__snapshots__",
       ].map((folder) => existsSync(join(checkout, folder))),
+      // A run without coverage leaves coverage/ alone.
+      coverageFolderExists: existsSync(join(checkout, "coverage")),
       handedOver: handedOver.toSorted(),
       cacheFileMode: lstatSync(cacheFile).mode & 0o777,
     }).toEqual({
-      foldersExist: [true, true, true, true, true],
+      foldersExist: [true, true, true, true],
+      coverageFolderExists: false,
       handedOver: [
-        join(checkout, "coverage"),
         join(checkout, "node_modules", ".test-home"),
         join(checkout, "node_modules", ".vite-temp"),
         join(checkout, "node_modules", ".vite", "vitest"),

@@ -93,7 +93,8 @@ type RerunPlan = {
   kind: "rerun"
   target: RerunTarget
   /** Handed to the target and left with it after the run: the scratch
-   *  folders under node_modules, coverage/ and the snapshot folder. */
+   *  folders under node_modules, the snapshot folder, and coverage/ on a
+   *  coverage run. */
   foldersToHandOver: readonly string[]
   coverageFolderToEmpty: string | null
   node: NodeChoice
@@ -254,13 +255,14 @@ export const planRootRun = ({
 
   const nodeModules = join(checkoutRoot, "node_modules")
   const coverageFolder = join(checkoutRoot, "coverage")
+  const coverageRun = isCoverageRun(vitestArguments)
   const foldersToHandOver = [
     ...NODE_MODULES_SCRATCH_FOLDERS.map((folderName) => join(nodeModules, folderName)),
-    coverageFolder,
     join(checkoutRoot, SNAPSHOT_FOLDER),
+    // Only a coverage run writes in coverage/.
+    ...(coverageRun ? [coverageFolder] : []),
   ]
 
-  const coverageRun = isCoverageRun(vitestArguments)
   const rerunArguments = coverageRun ? addCoverageFlags(vitestArguments) : [...vitestArguments]
   // Node warns on stderr at every start when it cannot read this file, and
   // tests that assert a child's exact stderr then fail.
