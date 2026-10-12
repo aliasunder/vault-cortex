@@ -28,9 +28,9 @@ import {
 import { dirname, join } from "node:path"
 import { parseCLI } from "vitest/node"
 
-/** Folder names under node_modules the rerun writes in: vite's config
- *  bundle, vitest's cache, and the rerun's HOME (npm's cache and logs). */
-const NODE_MODULES_SCRATCH_FOLDERS = [".vite-temp", ".vitest", ".test-home"]
+/** Folders under node_modules the rerun writes in: vite's config bundle,
+ *  vitest's results cache, and the rerun's HOME (npm's cache and logs). */
+const NODE_MODULES_SCRATCH_FOLDERS = [".vite-temp", ".vite/vitest", ".test-home"]
 
 /** The one snapshot folder in the repo; `snapshot:update` rewrites it. */
 const SNAPSHOT_FOLDER = "src/vault-mcp/mcp-core/__tests__/__snapshots__"

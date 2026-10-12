@@ -55,7 +55,7 @@ const rootRun = (overrides: Partial<Parameters<typeof planRootRun>[0]> = {}) => 
 
 const SCRATCH_FOLDERS = [
   "/repo/node_modules/.vite-temp",
-  "/repo/node_modules/.vitest",
+  "/repo/node_modules/.vite/vitest",
   "/repo/node_modules/.test-home",
   "/repo/coverage",
   "/repo/src/vault-mcp/mcp-core/__tests__/__snapshots__",
@@ -307,8 +307,8 @@ describe("prepareRerun", () => {
 
   it("creates every scratch folder and hands it, and everything in it, to the target", () => {
     const checkout = createCheckout()
-    const cacheFile = join(checkout, "node_modules", ".vitest", "results.json")
-    mkdirSync(join(checkout, "node_modules", ".vitest"), { recursive: true })
+    const cacheFile = join(checkout, "node_modules", ".vite", "vitest", "results.json")
+    mkdirSync(join(checkout, "node_modules", ".vite", "vitest"), { recursive: true })
     writeFileSync(cacheFile, "{}\n")
     // chmod, because the umask cuts the mode writeFileSync is given.
     chmodSync(cacheFile, 0o666)
@@ -318,7 +318,7 @@ describe("prepareRerun", () => {
 
     const handedOver = changeOwner.mock.calls.map(([{ path }]) => path)
     expect({
-      foldersExist: [".vite-temp", ".vitest", ".test-home"].map((folder) =>
+      foldersExist: [".vite-temp", ".vite/vitest", ".test-home"].map((folder) =>
         existsSync(join(checkout, "node_modules", folder)),
       ),
       handedOver: handedOver.toSorted(),
@@ -329,7 +329,7 @@ describe("prepareRerun", () => {
         join(checkout, "coverage"),
         join(checkout, "node_modules", ".test-home"),
         join(checkout, "node_modules", ".vite-temp"),
-        join(checkout, "node_modules", ".vitest"),
+        join(checkout, "node_modules", ".vite", "vitest"),
         cacheFile,
         join(checkout, "src/vault-mcp/mcp-core/__tests__/__snapshots__"),
       ].toSorted(),
@@ -343,8 +343,8 @@ describe("prepareRerun", () => {
     const outsideFile = join(checkout, "outside.txt")
     writeFileSync(outsideFile, "keep\n")
     chmodSync(outsideFile, 0o666)
-    mkdirSync(join(checkout, "node_modules", ".vitest"), { recursive: true })
-    const link = join(checkout, "node_modules", ".vitest", "link")
+    mkdirSync(join(checkout, "node_modules", ".vite", "vitest"), { recursive: true })
+    const link = join(checkout, "node_modules", ".vite", "vitest", "link")
     symlinkSync(outsideFile, link)
     const changeOwner = vi.fn()
 
