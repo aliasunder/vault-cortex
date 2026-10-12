@@ -10,6 +10,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -21,6 +22,7 @@ import {
   planRootRun,
   prepareRerun,
   readNodeMajor,
+  removeLeftoverConfigBundles,
   rerunRootTestRun,
 } from "../root-test-guard.js"
 
@@ -526,6 +528,58 @@ describe("prepareRerun", () => {
   })
 })
 
+describe("removeLeftoverConfigBundles", () => {
+  /** Writes a file in `folder` with its modification time set to `mtimeMs`. */
+  const writeFileModifiedAt = ({
+    folder,
+    name,
+    mtimeMs,
+  }: {
+    folder: string
+    name: string
+    mtimeMs: number
+  }): void => {
+    const path = join(folder, name)
+
+    writeFileSync(path, "")
+    utimesSync(path, mtimeMs / 1000, mtimeMs / 1000)
+  }
+
+  const CUTOFF_MS = 1_800_000_000_000
+
+  it("removes this config's bundles written before the cutoff and keeps every other file", () => {
+    const bundleFolder = createCheckout()
+    writeFileModifiedAt({
+      folder: bundleFolder,
+      name: "vitest.config.ts.timestamp-1-a.mjs",
+      mtimeMs: CUTOFF_MS - 60_000,
+    })
+    writeFileModifiedAt({
+      folder: bundleFolder,
+      name: "vitest.config.ts.timestamp-2-b.mjs",
+      mtimeMs: CUTOFF_MS + 1_000,
+    })
+    writeFileModifiedAt({
+      folder: bundleFolder,
+      name: "vitest.cli-pty.config.ts.timestamp-3-c.mjs",
+      mtimeMs: CUTOFF_MS - 60_000,
+    })
+    writeFileModifiedAt({ folder: bundleFolder, name: "other.mjs", mtimeMs: CUTOFF_MS - 60_000 })
+
+    removeLeftoverConfigBundles({
+      bundleFolder,
+      configName: "vitest.config.ts",
+      writtenBeforeMs: CUTOFF_MS,
+    })
+
+    expect(readdirSync(bundleFolder).sort()).toEqual([
+      "other.mjs",
+      "vitest.cli-pty.config.ts.timestamp-3-c.mjs",
+      "vitest.config.ts.timestamp-2-b.mjs",
+    ])
+  })
+})
+
 describe("rerunRootTestRun", () => {
   /** A spawnSync result: an exit status, what the command printed, and the
    *  error spawnSync reports when the command could not start. */
@@ -549,12 +603,21 @@ describe("rerunRootTestRun", () => {
     }
   }
 
+  /** A file named like vitest's command-line entry, in a temp folder. */
+  const createVitestEntry = (): string => {
+    const entryPath = join(createCheckout(), "vitest.mjs")
+
+    writeFileSync(entryPath, "")
+    return entryPath
+  }
+
   /** Runs the guard as uid `uid` with spawnSync answering each command the way
    *  `answerCommand` says. process.exit throws instead of ending the worker. */
   const runGuard = ({
     uid,
     checkoutRoot,
     answerCommand,
+    entryPath = createVitestEntry(),
   }: {
     uid: number
     checkoutRoot: string
@@ -562,7 +625,14 @@ describe("rerunRootTestRun", () => {
       command: string,
       commandArguments: readonly string[],
     ) => SpawnSyncReturns<string>
+    /** The script in process.argv[1]; vitest's entry unless a test varies it. */
+    entryPath?: string
   }) => {
+    const originalArgv = process.argv
+    process.argv = [process.execPath, entryPath, "run"]
+    onTestFinished(() => {
+      process.argv = originalArgv
+    })
     const getuidSpy = vi.spyOn(process, "getuid").mockReturnValue(uid)
     const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
@@ -613,6 +683,43 @@ describe("rerunRootTestRun", () => {
 
     expect(spawnSpy).not.toHaveBeenCalled()
     expect(stderrSpy).not.toHaveBeenCalled()
+  })
+
+  it("warns and continues as root when another program started vitest", () => {
+    const programScript = join(createCheckout(), "worker.js")
+    writeFileSync(programScript, "")
+    const { runOnce, stderrSpy, spawnSpy } = runGuard({
+      uid: 0,
+      checkoutRoot: "/",
+      answerCommand: answerWithFailingProbes,
+      entryPath: programScript,
+    })
+
+    runOnce()
+
+    expect(spawnSpy).not.toHaveBeenCalled()
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(
+      `${WARNING_PREFIX}vitest was started by another program, not by its own command.\n`,
+    )
+  })
+
+  it("accepts vitest's entry through node_modules/.bin's symlink", () => {
+    const binFolder = createCheckout()
+    const binLink = join(binFolder, "vitest")
+    symlinkSync(createVitestEntry(), binLink)
+    const { runOnce, stderrSpy } = runGuard({
+      uid: 0,
+      checkoutRoot: "/",
+      answerCommand: answerWithFailingProbes,
+      entryPath: binLink,
+    })
+
+    runOnce()
+
+    // Reaching the probes shows the entry check passed.
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(`${WARNING_PREFIX}setpriv cannot switch to nobody.\n`)
   })
 
   it("warns and continues as root when setpriv is not installed", () => {
@@ -718,6 +825,28 @@ describe("rerunRootTestRun", () => {
     })
 
     expect(runOnce).toThrow(new Error("process.exit(3)"))
+  })
+
+  it("removes the config bundle vite left behind for the root run once the rerun ends", () => {
+    const checkout = createCheckout()
+    const bundleFolder = join(checkout, "node_modules", ".vite-temp")
+    const bundlePath = join(bundleFolder, "vitest.config.ts.timestamp-1-a.mjs")
+    mkdirSync(bundleFolder, { recursive: true })
+    writeFileSync(bundlePath, "")
+    // vite wrote the root run's bundle before the config, and so the guard, ran.
+    const writtenSeconds = Date.now() / 1000 - 60
+    utimesSync(bundlePath, writtenSeconds, writtenSeconds)
+    const { runOnce, spawnSpy } = runGuard({
+      uid: 0,
+      checkoutRoot: checkout,
+      answerCommand: () => spawnResult({ status: 0 }),
+    })
+
+    expect(runOnce).toThrow(new Error("process.exit(0)"))
+    expect(spawnSpy).toHaveBeenCalledWith("setpriv", expect.arrayContaining(["/usr/bin/env"]), {
+      stdio: "inherit",
+    })
+    expect(existsSync(bundlePath)).toBe(false)
   })
 
   it("exits with status 1 when a signal ended the rerun", () => {

@@ -21,19 +21,24 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
 } from "node:fs"
-import { dirname, join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { parseCLI } from "vitest/node"
 
 /** The rerun's HOME under node_modules, where npm keeps its cache and logs. */
 const TEST_HOME_FOLDER = ".test-home"
 
+/** The folder under node_modules where vite writes the bundled config it
+ *  imports. */
+const CONFIG_BUNDLE_FOLDER = ".vite-temp"
+
 /** Folders under node_modules the rerun writes in: vite's config bundle,
  *  vitest's results cache, and the rerun's HOME. */
-const NODE_MODULES_SCRATCH_FOLDERS = [".vite-temp", ".vite/vitest", TEST_HOME_FOLDER]
+const NODE_MODULES_SCRATCH_FOLDERS = [CONFIG_BUNDLE_FOLDER, ".vite/vitest", TEST_HOME_FOLDER]
 
 /** The only folder inside the checkout that tests write (`snapshot:update`
  *  rewrites it). A test that writes another folder needs it handed over too,
@@ -65,6 +70,7 @@ type RerunTarget = {
 
 /** Why a rerun can't happen, named in the warning. */
 type WarningCause =
+  | { kind: "not-vitest-command" }
   | { kind: "no-setpriv" }
   | { kind: "no-nobody-user" }
   | { kind: "setpriv-fails"; targetLabel: string }
@@ -106,6 +112,8 @@ type GuardPlan = { kind: "warn"; message: string } | RerunPlan
 
 const describeWarningCause = (cause: WarningCause): string => {
   switch (cause.kind) {
+    case "not-vitest-command":
+      return "vitest was started by another program, not by its own command"
     case "no-setpriv":
       return "setpriv is not installed"
     case "no-nobody-user":
@@ -121,6 +129,10 @@ const describeWarningCause = (cause: WarningCause): string => {
     case "spawn-failed":
       return `starting the rerun failed (${cause.reason})`
   }
+}
+
+const readErrorMessage = (error: unknown): string => {
+  return error instanceof Error ? error.message : String(error)
 }
 
 const formatWarning = (cause: WarningCause): string => {
@@ -392,6 +404,37 @@ export const prepareRerun = ({
   if (plan.node.kind === "copy") copyNodeBinary(plan.node)
 }
 
+/**
+ * Removes the bundles vite wrote for this config before `writtenBeforeMs`.
+ * - vite deletes a bundle once importing it finishes, but the guard exits
+ *   while vite is still importing the root run's bundle, so it stays behind.
+ * - vite imports a bundle milliseconds after writing it, and the rerun runs
+ *   for seconds, so a bundle written before the guard started has been
+ *   imported, by this run or a concurrent one, and is safe to remove.
+ */
+export const removeLeftoverConfigBundles = ({
+  bundleFolder,
+  configName,
+  writtenBeforeMs,
+}: {
+  bundleFolder: string
+  configName: string
+  writtenBeforeMs: number
+}): void => {
+  const bundlePrefix = `${configName}.timestamp-`
+
+  for (const entry of readdirSync(bundleFolder)) {
+    if (!entry.startsWith(bundlePrefix)) continue
+
+    const bundlePath = join(bundleFolder, entry)
+    // vite may delete another run's bundle between the listing and this stat.
+    const bundleStats = statSync(bundlePath, { throwIfNoEntry: false })
+
+    if (!bundleStats || bundleStats.mtimeMs >= writtenBeforeMs) continue
+    rmSync(bundlePath, { force: true })
+  }
+}
+
 /** Runs a command as the target and reports whether it exited 0. */
 const runsAsTarget = ({
   target,
@@ -488,9 +531,22 @@ export const rerunRootTestRun = ({
   // keeps the rerun from rerunning itself.
   if (process.getuid?.() !== 0) return
 
+  const guardStartMs = Date.now()
   const warn = (cause: WarningCause): void => {
     process.stderr.write(`${formatWarning(cause)}\n`)
   }
+  const [, vitestEntry, ...vitestArguments] = process.argv
+  // Node puts the script it runs in argv[1]. That is vitest's entry for a
+  // vitest command, but another program's script when that program starts
+  // vitest through its API, and rerunning that script is not a test run.
+  const startedByVitestCommand =
+    vitestEntry !== undefined && basename(realpathSync(vitestEntry)) === "vitest.mjs"
+
+  if (!startedByVitestCommand) {
+    warn({ kind: "not-vitest-command" })
+    return
+  }
+
   const targetLookup = findRerunTarget(checkoutRoot)
 
   if (targetLookup.kind === "none") {
@@ -502,10 +558,6 @@ export const rerunRootTestRun = ({
 
   const extraCaCerts = process.env.NODE_EXTRA_CA_CERTS
   const nvmrcPath = join(checkoutRoot, ".nvmrc")
-  const [, vitestEntry, ...vitestArguments] = process.argv
-
-  // Node always puts the script it runs (vitest's entry) in argv[1].
-  if (!vitestEntry) throw new Error("vitest's entry file is missing from process.argv")
 
   const plan = planRootRun({
     checkoutRoot,
@@ -537,7 +589,7 @@ export const rerunRootTestRun = ({
       changeOwner: ({ path, uid, gid }) => lchownSync(path, uid, gid),
     })
   } catch (error) {
-    warn({ kind: "prepare-failed", reason: error instanceof Error ? error.message : String(error) })
+    warn({ kind: "prepare-failed", reason: readErrorMessage(error) })
     return
   }
 
@@ -549,6 +601,19 @@ export const rerunRootTestRun = ({
     warn({ kind: "spawn-failed", reason: rerun.error.message })
     return
   }
+
+  try {
+    removeLeftoverConfigBundles({
+      bundleFolder: join(checkoutRoot, "node_modules", CONFIG_BUNDLE_FOLDER),
+      configName: basename(configPath),
+      writtenBeforeMs: guardStartMs,
+    })
+  } catch (error) {
+    process.stderr.write(
+      `Removing vite's leftover config bundles failed: ${readErrorMessage(error)}\n`,
+    )
+  }
+
   // status is null when a signal ended the rerun; that run failed too.
   process.exit(rerun.status ?? 1)
 }
