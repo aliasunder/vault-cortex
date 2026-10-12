@@ -73,6 +73,7 @@
     "test": "vitest run",
     "snapshot:update": "vitest run src/vault-mcp/mcp-core/__tests__/tool-surface-snapshot.test.ts --update",
     "test:coverage": "vitest run --coverage",
+    "test:as-nobody": "tsx scripts/test-as-nobody.ts",
     "test:watch": "vitest",
     "test:cli-pty": "vitest run --config vitest.cli-pty.config.ts",
     "build:remote-image": "docker build --target remote -t vault-cortex:remote-ci .",

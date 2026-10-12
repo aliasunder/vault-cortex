@@ -18,6 +18,7 @@ import {
   buildPasswordProtectedPdf,
   buildZeroPagePdf,
 } from "../../vault-mcp/obsidian-markdown/__tests__/pdf-fixture.js"
+import { runsAsRoot } from "../runs-as-root.js"
 
 vi.setConfig({ testTimeout: 15_000 })
 
@@ -722,7 +723,7 @@ describe("filesystem errors name the path vault-relative", () => {
     })
   }
 
-  it.each([
+  it.skipIf(runsAsRoot).each([
     { name: "vault_read_note", args: {} },
     { name: "vault_update_properties", args: { properties: { status: "draft" } } },
     { name: "vault_patch_note", args: { operation: "append", content: "added" } },
@@ -740,34 +741,44 @@ describe("filesystem errors name the path vault-relative", () => {
     })
   })
 
-  it("vault_read_file on a file it cannot open names the file vault-relative", async () => {
-    await plantFileWithMode({ filePath: "Locked.png", mode: 0o000 })
+  it.skipIf(runsAsRoot)(
+    "vault_read_file on a file it cannot open names the file vault-relative",
+    async () => {
+      await plantFileWithMode({ filePath: "Locked.png", mode: 0o000 })
 
-    const result = await callTool({ client, name: "vault_read_file", args: { path: "Locked.png" } })
-    expect(result).toEqual({
-      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.png'" }],
-      isError: true,
-    })
-  })
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "Locked.png" },
+      })
+      expect(result).toEqual({
+        content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.png'" }],
+        isError: true,
+      })
+    },
+  )
 
-  it("vault_get_daily_note on a daily note it cannot open names the note vault-relative", async () => {
-    await plantFileWithMode({ filePath: "Daily Notes/2026-03-01.md", mode: 0o000 })
+  it.skipIf(runsAsRoot)(
+    "vault_get_daily_note on a daily note it cannot open names the note vault-relative",
+    async () => {
+      await plantFileWithMode({ filePath: "Daily Notes/2026-03-01.md", mode: 0o000 })
 
-    const result = await callTool({
-      client,
-      name: "vault_get_daily_note",
-      args: { date: "2026-03-01" },
-    })
-    expect(result).toEqual({
-      content: [
-        {
-          type: "text",
-          text: "[Error]: EACCES: permission denied, open 'Daily Notes/2026-03-01.md'",
-        },
-      ],
-      isError: true,
-    })
-  })
+      const result = await callTool({
+        client,
+        name: "vault_get_daily_note",
+        args: { date: "2026-03-01" },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: "[Error]: EACCES: permission denied, open 'Daily Notes/2026-03-01.md'",
+          },
+        ],
+        isError: true,
+      })
+    },
+  )
 
   // A name of 233 bytes reads, but the temp file a save writes beside it
   // adds 41 bytes and goes over the filesystem's 255-byte limit
@@ -801,27 +812,30 @@ describe("filesystem errors name the path vault-relative", () => {
     )
   })
 
-  it("vault_write_note into a read-only folder names the temp file vault-relative", async () => {
-    await plantFolderWithMode({ folderPath: "Sealed", mode: 0o555 })
+  it.skipIf(runsAsRoot)(
+    "vault_write_note into a read-only folder names the temp file vault-relative",
+    async () => {
+      await plantFolderWithMode({ folderPath: "Sealed", mode: 0o555 })
 
-    const result = await callTool({
-      client,
-      name: "vault_write_note",
-      args: { path: "Sealed/new.md", body: "refused" },
-    })
-    expect(result).toEqual({
-      content: [
-        {
-          type: "text",
-          // The temp file's name ends in a random UUID
-          text: expect.stringMatching(
-            /^\[Error\]: EACCES: permission denied, open 'Sealed\/new\.md\.[0-9a-f-]{36}\.tmp'$/,
-          ),
-        },
-      ],
-      isError: true,
-    })
-  })
+      const result = await callTool({
+        client,
+        name: "vault_write_note",
+        args: { path: "Sealed/new.md", body: "refused" },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            // The temp file's name ends in a random UUID
+            text: expect.stringMatching(
+              /^\[Error\]: EACCES: permission denied, open 'Sealed\/new\.md\.[0-9a-f-]{36}\.tmp'$/,
+            ),
+          },
+        ],
+        isError: true,
+      })
+    },
+  )
 
   it("vault_write_note through a note names the note vault-relative", async () => {
     const result = await callTool({
@@ -942,7 +956,7 @@ describe("filesystem errors name the path vault-relative", () => {
     })
   })
 
-  it("vault_list_notes on a vault holding a folder it cannot open", async () => {
+  it.skipIf(runsAsRoot)("vault_list_notes on a vault holding a folder it cannot open", async () => {
     await plantFolderWithMode({ folderPath: "Sealed Folder", mode: 0o000 })
 
     const result = await callTool({ client, name: "vault_list_notes", args: {} })

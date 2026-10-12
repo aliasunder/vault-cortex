@@ -61,9 +61,8 @@ on a folder for the full list.
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed Claude Code hook setup only (the rest is gitignored): settings.json registers the two hooks below
+.claude/ # Committed Claude Code hook setup only (the rest is gitignored): settings.json registers the hook below
   hooks/install-deps.sh # Runs at session start and worktree entry: loads nvm, installs dependencies when needed (npm ci, sst install), and at session start puts the checkout's Node (the .nvmrc version when nvm has it, else nvm's default alias) first on PATH for the session's later Bash commands
-  hooks/require-nonroot-tests.sh # Runs before each Bash command: blocks a root session's test runs, makes the folders they write writable for the nobody user, and replies to Claude with the setpriv prefix that reruns the command as nobody
 obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
 rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian that prints the Sync token for .env
 templates/memory/ # About Me/ memory file templates for new vaults
@@ -858,6 +857,12 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 ### Test conventions
 
+- A test that denies file access with `chmod` and expects the access to
+  fail can't pass as root, because root ignores file permissions. Mark it
+  `it.skipIf(runsAsRoot)`, importing `runsAsRoot` from
+  `src/__tests__/runs-as-root.ts`. CI runs it as a normal user. To run
+  these tests from a root shell, such as a cloud session, use
+  `npm run test:as-nobody`; it takes the same arguments as `vitest run`.
 - Tests read as a behavioral spec. One focused `it()` per
   behavior — a failing test name should identify which behavior
   regressed without reading the body.
@@ -939,17 +944,17 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   **Exception — shell scripts outside vitest's include paths.** The
   remote image's s6 init scripts under `rootfs/etc/s6-overlay/scripts/`
   are the `vault-mcp` server's boot chain for the `:remote` target, and
-  the Claude Code hooks sit in `.claude/hooks/`. Neither is a TypeScript
+  the Claude Code hook sits in `.claude/hooks/`. Neither is a TypeScript
   module, and vitest's include paths (`src/`, `cli/src/`, `scripts/`)
   reach neither folder. The init-script tests live in
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes), and the hook tests in `src/__tests__/`
-  (`install-deps.test.ts`, `require-nonroot-tests.test.ts`). These script
+  `init-derive-env` publishes), and the hook's test in `src/__tests__/`
+  (`install-deps.test.ts`). These script
   tests run the real script under its own shell (`sh` for the init
-  scripts, `bash` for the hooks) with stub binaries on `PATH`, and name
+  scripts, `bash` for the hook) with stub binaries on `PATH`, and name
   the script they cover —
   don't move them next to the scripts or widen vitest's include for
   them. Whole-image behaviour (the init chain's ordering,
@@ -1320,6 +1325,13 @@ Contributor and release conventions live in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). Flag a **breaking change** with a
 `BREAKING CHANGE:` footer in the PR description, so the generated release
 notes list it (other accepted flags are in `CONTRIBUTING.md`).
+
+Pick a commit's conventional-commit type by what it changes in what this
+repo ships: the server's Docker images and the `vault-cortex` npm CLI.
+Claude Code hooks, dev scripts and other local tooling
+are never `feat` or `fix`: use `chore`, or `ci` or `build` where they fit,
+so they stay out of the changelog's Features and Bug Fixes. A squash merge
+lands the PR title, so the title takes the type of the PR's main purpose.
 
 ### Files that track feature surface
 
