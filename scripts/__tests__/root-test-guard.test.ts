@@ -1,3 +1,4 @@
+import { type SpawnSyncReturns, spawnSync } from "node:child_process"
 import {
   chmodSync,
   existsSync,
@@ -7,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
@@ -19,7 +21,13 @@ import {
   planRootRun,
   prepareRerun,
   readNodeMajor,
+  rerunRootTestRun,
 } from "../root-test-guard.js"
+
+vi.mock("node:child_process", { spy: true })
+vi.mock("node:fs", { spy: true })
+
+const realFs = await vi.importActual<typeof import("node:fs")>("node:fs")
 
 const CHECKOUT = "/repo"
 const ROOT_NODE = "/root/.nvm/versions/node/v24.21.0/bin/node"
@@ -313,6 +321,17 @@ describe("planRootRun", () => {
       `  setpriv --reuid=65534 --regid=65534 --clear-groups /usr/bin/env 'HOME=/my repo/node_modules/.test-home' PATH=/root/.nvm/versions/node/v24.21.0/bin:"$PATH" /root/.nvm/versions/node/v24.21.0/bin/node '/my repo/node_modules/.bin/vitest' run`,
     )
   })
+
+  it("escapes a single quote in a quoted path in the printed command", () => {
+    const plan = rootRerun({
+      checkoutRoot: "/dev's repo",
+      vitestEntry: "/dev's repo/node_modules/.bin/vitest",
+    })
+
+    expect(plan.announcement.split("\n")[1]).toBe(
+      `  setpriv --reuid=65534 --regid=65534 --clear-groups /usr/bin/env 'HOME=/dev'\\''s repo/node_modules/.test-home' PATH=/root/.nvm/versions/node/v24.21.0/bin:"$PATH" /root/.nvm/versions/node/v24.21.0/bin/node '/dev'\\''s repo/node_modules/.bin/vitest' run`,
+    )
+  })
 })
 
 describe("prepareRerun", () => {
@@ -388,6 +407,23 @@ describe("prepareRerun", () => {
     })
 
     expect(readdirSync(join(checkout, "coverage"))).toEqual([])
+  })
+
+  it("creates coverage/ and hands it over on a coverage run in a checkout without one", () => {
+    const checkout = createCheckout()
+    const changeOwner = createChangeOwner()
+
+    prepareRerun({
+      plan: nobodyPlanFor(checkout, { vitestArguments: ["run", "--coverage"] }),
+      changeOwner,
+    })
+
+    expect(readdirSync(join(checkout, "coverage"))).toEqual([])
+    expect(changeOwner).toHaveBeenCalledWith({
+      path: join(checkout, "coverage"),
+      uid: 65534,
+      gid: 65534,
+    })
   })
 
   it("leaves coverage/ alone on a run without coverage", () => {
@@ -467,5 +503,234 @@ describe("prepareRerun", () => {
       ].toSorted(),
       nodeCopyExists: true,
     })
+  })
+
+  it("leaves no Node copy behind when the copy fails part way", () => {
+    const checkout = createCheckout()
+    const sourceNode = join(checkout, "source-node")
+    writeFileSync(sourceNode, "node\n", { mode: 0o755 })
+    const copyFailure = new Error("ENOSPC: no space left on device")
+    const chmodSpy = vi.mocked(chmodSync).mockImplementation((path, mode) => {
+      // Fails the chmod on the temp copy, after its bytes are written.
+      if (String(path).endsWith(`node.${process.pid}`)) throw copyFailure
+      realFs.chmodSync(path, mode)
+    })
+    onTestFinished(() => chmodSpy.mockRestore())
+    const plan = nobodyPlanFor(checkout, {
+      execPath: sourceNode,
+      probes: { ...ALL_PROBES_PASS, canRunNode: false },
+    })
+
+    expect(() => prepareRerun({ plan, changeOwner: vi.fn() })).toThrow(copyFailure)
+    expect(readdirSync(join(checkout, "node_modules", ".nobody-node", "node-v24.21.0"))).toEqual([])
+  })
+})
+
+describe("rerunRootTestRun", () => {
+  /** A spawnSync result: an exit status, what the command printed, and the
+   *  error spawnSync reports when the command could not start. */
+  const spawnResult = ({
+    status,
+    stdout = "",
+    error,
+  }: {
+    status: number | null
+    stdout?: string
+    error?: Error
+  }): SpawnSyncReturns<string> => {
+    return {
+      pid: 0,
+      output: [],
+      stdout,
+      stderr: "",
+      status,
+      signal: null,
+      ...(error ? { error } : {}),
+    }
+  }
+
+  /** Runs the guard as uid `uid` with spawnSync answering each command the way
+   *  `answerCommand` says. process.exit throws instead of ending the worker. */
+  const runGuard = ({
+    uid,
+    checkoutRoot,
+    answerCommand,
+  }: {
+    uid: number
+    checkoutRoot: string
+    answerCommand: (
+      command: string,
+      commandArguments: readonly string[],
+    ) => SpawnSyncReturns<string>
+  }) => {
+    const getuidSpy = vi.spyOn(process, "getuid").mockReturnValue(uid)
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`process.exit(${String(code)})`)
+    })
+    const spawnSpy = vi
+      .mocked(spawnSync)
+      .mockImplementation((command: string, commandArguments?: readonly string[]) => {
+        return answerCommand(command, commandArguments ?? [])
+      })
+    onTestFinished(() => {
+      getuidSpy.mockRestore()
+      stderrSpy.mockRestore()
+      exitSpy.mockRestore()
+      spawnSpy.mockRestore()
+    })
+
+    const runOnce = (): void => {
+      rerunRootTestRun({ checkoutRoot, configPath: join(checkoutRoot, "vitest.config.ts") })
+    }
+    return { runOnce, stderrSpy, spawnSpy }
+  }
+
+  /** Answers setpriv --version and id for nobody; every other setpriv call
+   *  (the probes) fails, so the guard stops at the setpriv warning. */
+  const answerWithFailingProbes = (command: string, commandArguments: readonly string[]) => {
+    if (command === "id") {
+      return spawnResult({
+        status: 0,
+        stdout: commandArguments[0] === "-u" ? "65534\n" : "65533\n",
+      })
+    }
+    if (commandArguments[0] === "--version") return spawnResult({ status: 0 })
+    return spawnResult({ status: 1 })
+  }
+
+  const WARNING_PREFIX =
+    "vitest is running as root, which ignores the file permissions some tests check, so those tests will fail. It cannot rerun them as another user: "
+
+  it("does nothing when the process is not root", () => {
+    const { runOnce, stderrSpy, spawnSpy } = runGuard({
+      uid: 1000,
+      checkoutRoot: "/",
+      answerCommand: answerWithFailingProbes,
+    })
+
+    runOnce()
+
+    expect(spawnSpy).not.toHaveBeenCalled()
+    expect(stderrSpy).not.toHaveBeenCalled()
+  })
+
+  it("warns and continues as root when setpriv is not installed", () => {
+    const { runOnce, stderrSpy } = runGuard({
+      uid: 0,
+      checkoutRoot: "/",
+      answerCommand: () =>
+        spawnResult({ status: null, error: new Error("spawnSync setpriv ENOENT") }),
+    })
+
+    runOnce()
+
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(`${WARNING_PREFIX}setpriv is not installed.\n`)
+  })
+
+  it("warns and continues as root when the system has no nobody user", () => {
+    const { runOnce, stderrSpy } = runGuard({
+      uid: 0,
+      checkoutRoot: "/",
+      answerCommand: (command, commandArguments) => {
+        if (command === "id") return spawnResult({ status: 1 })
+        return answerWithFailingProbes(command, commandArguments)
+      },
+    })
+
+    runOnce()
+
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(`${WARNING_PREFIX}this system has no nobody user.\n`)
+  })
+
+  it("targets nobody's uid and gid when root owns the checkout", () => {
+    // Root owns / on every Linux system.
+    const { runOnce, stderrSpy, spawnSpy } = runGuard({
+      uid: 0,
+      checkoutRoot: "/",
+      answerCommand: answerWithFailingProbes,
+    })
+
+    runOnce()
+
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(`${WARNING_PREFIX}setpriv cannot switch to nobody.\n`)
+    expect(spawnSpy).toHaveBeenCalledWith(
+      "setpriv",
+      ["--reuid=65534", "--regid=65533", "--clear-groups", "true"],
+      { stdio: "ignore" },
+    )
+  })
+
+  it("targets the checkout owner's uid and gid when root does not own the checkout", () => {
+    // The test runs as a non-root user, so it owns the checkout it creates.
+    const checkout = createCheckout()
+    const checkoutStats = statSync(checkout)
+    const { runOnce, stderrSpy, spawnSpy } = runGuard({
+      uid: 0,
+      checkoutRoot: checkout,
+      answerCommand: answerWithFailingProbes,
+    })
+
+    runOnce()
+
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(
+      `${WARNING_PREFIX}setpriv cannot switch to the checkout's owner.\n`,
+    )
+    expect(spawnSpy).toHaveBeenCalledWith(
+      "setpriv",
+      [`--reuid=${checkoutStats.uid}`, `--regid=${checkoutStats.gid}`, "--clear-groups", "true"],
+      { stdio: "ignore" },
+    )
+  })
+
+  it("warns and continues as root when preparing the rerun fails", () => {
+    const checkout = createCheckout()
+    // A file where a scratch folder goes makes creating that folder fail.
+    mkdirSync(join(checkout, "node_modules"))
+    writeFileSync(join(checkout, "node_modules", ".vite-temp"), "")
+    const { runOnce, stderrSpy } = runGuard({
+      uid: 0,
+      checkoutRoot: checkout,
+      answerCommand: () => spawnResult({ status: 0 }),
+    })
+
+    runOnce()
+
+    expect(stderrSpy).toHaveBeenCalledTimes(1)
+    expect(stderrSpy).toHaveBeenCalledWith(
+      `${WARNING_PREFIX}preparing the rerun failed (EEXIST: file already exists, mkdir '${join(checkout, "node_modules", ".vite-temp")}').\n`,
+    )
+  })
+
+  it("exits with the rerun's exit status", () => {
+    const checkout = createCheckout()
+    const { runOnce } = runGuard({
+      uid: 0,
+      checkoutRoot: checkout,
+      answerCommand: (_command, commandArguments) => {
+        const isRerun = commandArguments.includes("/usr/bin/env")
+        return spawnResult({ status: isRerun ? 3 : 0 })
+      },
+    })
+
+    expect(runOnce).toThrow(new Error("process.exit(3)"))
+  })
+
+  it("exits with status 1 when a signal ended the rerun", () => {
+    const checkout = createCheckout()
+    const { runOnce } = runGuard({
+      uid: 0,
+      checkoutRoot: checkout,
+      answerCommand: (_command, commandArguments) => {
+        const isRerun = commandArguments.includes("/usr/bin/env")
+        return spawnResult({ status: isRerun ? null : 0 })
+      },
+    })
+
+    expect(runOnce).toThrow(new Error("process.exit(1)"))
   })
 })
