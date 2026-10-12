@@ -70,8 +70,8 @@ deploy/ # End-user quickstarts (no clone needed): local/ and remote/ (guide, com
 assets/ # Static assets (not shipped in Docker)
 scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open with a header comment saying what they do
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
-  root-test-guard.ts # Loaded by vitest.config.ts while vitest starts: reruns a root test run as nobody, or as the checkout's owner when root doesn't own it, and warns when it can't
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
+  root-test-guard.ts # Loaded by vitest.config.ts while vitest starts: reruns a root test run as nobody, or as the checkout's owner when root doesn't own it, and warns when it can't
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
@@ -858,12 +858,14 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 ### Test conventions
 
-- Tests never run as root: root ignores file permissions, so the tests
-  that deny access with `chmod` fail as root and pass in CI.
-  `vitest.config.ts` reruns a root run as `nobody`, or as the checkout's
-  owner, through `scripts/root-test-guard.ts`. When it can't, it prints a
-  warning and the run continues as root. Run tests as usual; don't add a
-  `setpriv` prefix yourself.
+- A root test run reruns itself as another user, because root ignores
+  file permissions: the tests that deny access with `chmod` fail as root
+  and pass in CI. `vitest.config.ts` calls `scripts/root-test-guard.ts`,
+  which reruns the same command as `nobody`, or as the checkout's owner
+  when root doesn't own the checkout. Run tests as usual; NEVER add a
+  `setpriv` prefix yourself. When no rerun is possible, the guard prints
+  a warning naming the cause and the run continues as root, so the
+  permission tests fail; fix the cause or run as a non-root user.
 - Tests read as a behavioral spec. One focused `it()` per
   behavior — a failing test name should identify which behavior
   regressed without reading the body.
@@ -1327,8 +1329,9 @@ Contributor and release conventions live in
 `BREAKING CHANGE:` footer in the PR description, so the generated release
 notes list it (other accepted flags are in `CONTRIBUTING.md`).
 
-Pick a commit's conventional-commit type by what it changes in the server
-this repo ships. Claude Code hooks, dev scripts and other local tooling
+Pick a commit's conventional-commit type by what it changes in what this
+repo ships: the server's Docker images and the `vault-cortex` npm CLI.
+Claude Code hooks, dev scripts and other local tooling
 are never `feat` or `fix`: use `chore`, or `ci` or `build` where they fit,
 so they stay out of the changelog's Features and Bug Fixes. A squash merge
 lands the PR title, so the title takes the type of the PR's main purpose.

@@ -55,7 +55,9 @@ Some tests deny access to a file or folder and expect the access to
 fail, which never happens as root. So when you run the tests as root, for
 example inside a container, they rerun as the checkout's owner, or as the
 `nobody` user when root owns the checkout, and print a line saying so.
-When that isn't possible, they print a warning and those tests fail.
+When that isn't possible, they print a warning naming the cause and those
+tests fail. To fix it, install `setpriv` (part of util-linux) if the
+warning says it is missing, or run the tests as a non-root user.
 
 `npm run test:coverage` runs the same suite with a statement-coverage
 report (V8 provider); the `coverage/` output directory is gitignored.

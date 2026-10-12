@@ -18,14 +18,14 @@ import {
   isCoverageRun,
   planRootRun,
   prepareRerun,
-  readNvmrcMajor,
+  readNodeMajor,
 } from "../root-test-guard.js"
 
 const CHECKOUT = "/repo"
 const ROOT_NODE = "/root/.nvm/versions/node/v24.21.0/bin/node"
 const VITEST_ENTRY = "/repo/node_modules/.bin/vitest"
-const NOBODY = { kind: "nobody", name: "nobody", uid: 65534, gid: 65534 } as const
-const OWNER = { kind: "owner", name: "the checkout's owner", uid: 1000, gid: 1000 } as const
+const NOBODY = { kind: "nobody", label: "nobody", uid: 65534, gid: 65534 } as const
+const OWNER = { kind: "owner", label: "the checkout's owner", uid: 1000, gid: 1000 } as const
 const ALL_PROBES_PASS = {
   setprivWorks: true,
   canReadConfig: true,
@@ -46,14 +46,24 @@ const rootRun = (overrides: Partial<Parameters<typeof planRootRun>[0]> = {}) => 
     execArguments: [],
     vitestEntry: VITEST_ENTRY,
     vitestArguments: ["run"],
-    coverageRun: false,
     extraCaCertsSet: false,
     pathEnvironment: "/usr/bin:/bin",
     ...overrides,
   })
 }
 
-const SCRATCH_FOLDERS = [
+/** rootRun's plan, narrowed to a rerun; any other plan fails the test. */
+const rootRerun = (overrides: Partial<Parameters<typeof planRootRun>[0]> = {}) => {
+  const plan = rootRun(overrides)
+
+  if (plan.kind !== "rerun") throw new Error(`expected a rerun plan, got ${plan.message}`)
+  return plan
+}
+
+/** A changeOwner stub typed as prepareRerun's, so its calls read back typed. */
+const createChangeOwner = () => vi.fn<Parameters<typeof prepareRerun>[0]["changeOwner"]>()
+
+const FOLDERS_TO_HAND_OVER = [
   "/repo/node_modules/.vite-temp",
   "/repo/node_modules/.vite/vitest",
   "/repo/node_modules/.test-home",
@@ -68,7 +78,7 @@ const createCheckout = (): string => {
   return checkout
 }
 
-describe("readNvmrcMajor", () => {
+describe("readNodeMajor", () => {
   it.each([
     { label: "a bare major", nvmrcText: "24\n", major: 24 },
     { label: "a full version with v", nvmrcText: "v24.1.0\n", major: 24 },
@@ -78,7 +88,7 @@ describe("readNvmrcMajor", () => {
     { label: "an alias", nvmrcText: "lts/*\n", major: null },
     { label: "an empty file", nvmrcText: "", major: null },
   ])("reads $label", ({ nvmrcText, major }) => {
-    expect(readNvmrcMajor(nvmrcText)).toBe(major)
+    expect(readNodeMajor(nvmrcText)).toBe(major)
   })
 })
 
@@ -131,7 +141,7 @@ describe("planRootRun", () => {
     expect(plan).toEqual({
       kind: "rerun",
       target: NOBODY,
-      scratchFolders: SCRATCH_FOLDERS,
+      foldersToHandOver: FOLDERS_TO_HAND_OVER,
       coverageFolderToEmpty: null,
       node: {
         kind: "copy",
@@ -161,7 +171,7 @@ describe("planRootRun", () => {
     expect(plan).toEqual({
       kind: "rerun",
       target: OWNER,
-      scratchFolders: SCRATCH_FOLDERS,
+      foldersToHandOver: FOLDERS_TO_HAND_OVER,
       coverageFolderToEmpty: null,
       node: { kind: "as-is", nodePath: "/usr/local/bin/node" },
       setprivArguments: [
@@ -212,39 +222,49 @@ describe("planRootRun", () => {
   })
 
   it("unsets NODE_EXTRA_CA_CERTS when the target cannot read its file", () => {
-    const plan = rootRun({
+    const plan = rootRerun({
       extraCaCertsSet: true,
       probes: { ...ALL_PROBES_PASS, canReadExtraCaCerts: false },
     })
 
-    expect(plan.kind === "rerun" ? plan.setprivArguments.slice(3, 7) : plan).toEqual([
+    expect(plan.setprivArguments).toEqual([
+      "--reuid=65534",
+      "--regid=65534",
+      "--clear-groups",
       "/usr/bin/env",
       "-u",
       "NODE_EXTRA_CA_CERTS",
       "HOME=/repo/node_modules/.test-home",
+      "PATH=/root/.nvm/versions/node/v24.21.0/bin:/usr/bin:/bin",
+      ROOT_NODE,
+      VITEST_ENTRY,
+      "run",
     ])
   })
 
   it("keeps NODE_EXTRA_CA_CERTS when the target can read its file", () => {
-    const plan = rootRun({ extraCaCertsSet: true })
+    const plan = rootRerun({ extraCaCertsSet: true })
 
-    expect(plan.kind === "rerun" ? plan.setprivArguments.slice(3, 5) : plan).toEqual([
+    expect(plan.setprivArguments).toEqual([
+      "--reuid=65534",
+      "--regid=65534",
+      "--clear-groups",
       "/usr/bin/env",
       "HOME=/repo/node_modules/.test-home",
+      "PATH=/root/.nvm/versions/node/v24.21.0/bin:/usr/bin:/bin",
+      ROOT_NODE,
+      VITEST_ENTRY,
+      "run",
     ])
   })
 
   it("empties coverage/ and tells vitest not to clean it on a coverage run", () => {
-    const plan = rootRun({ vitestArguments: ["run", "--coverage"], coverageRun: true })
+    const plan = rootRerun({ vitestArguments: ["run", "--coverage"] })
 
-    expect(
-      plan.kind === "rerun"
-        ? {
-            coverageFolderToEmpty: plan.coverageFolderToEmpty,
-            rerunArguments: plan.setprivArguments.slice(-4),
-          }
-        : plan,
-    ).toEqual({
+    expect({
+      coverageFolderToEmpty: plan.coverageFolderToEmpty,
+      rerunArguments: plan.setprivArguments.slice(-4),
+    }).toEqual({
       coverageFolderToEmpty: "/repo/coverage",
       rerunArguments: [
         "run",
@@ -256,9 +276,9 @@ describe("planRootRun", () => {
   })
 
   it("passes Node's own flags through ahead of vitest's entry", () => {
-    const plan = rootRun({ execArguments: ["--inspect-brk"] })
+    const plan = rootRerun({ execArguments: ["--inspect-brk"] })
 
-    expect(plan.kind === "rerun" ? plan.setprivArguments.slice(-4) : plan).toEqual([
+    expect(plan.setprivArguments.slice(-4)).toEqual([
       ROOT_NODE,
       "--inspect-brk",
       VITEST_ENTRY,
@@ -267,28 +287,28 @@ describe("planRootRun", () => {
   })
 
   it("notes a Node major that differs from the one .nvmrc names", () => {
-    const plan = rootRun({ nodeVersion: "v22.22.0" })
+    const plan = rootRerun({ nodeVersion: "v22.22.0" })
 
-    expect(plan.kind === "rerun" ? plan.announcement.split("\n")[0] : plan).toBe(
+    expect(plan.announcement.split("\n")[0]).toBe(
       "Root ignores the file permissions some tests check, so the tests rerun as nobody (uid 65534) on Node v22.22.0. .nvmrc names Node 24, which CI runs, so a result can differ from CI's.",
     )
   })
 
   it("adds no version note when .nvmrc names an alias", () => {
-    const plan = rootRun({ nodeVersion: "v22.22.0", nvmrcText: "lts/*\n" })
+    const plan = rootRerun({ nodeVersion: "v22.22.0", nvmrcText: "lts/*\n" })
 
-    expect(plan.kind === "rerun" ? plan.announcement.split("\n")[0] : plan).toBe(
+    expect(plan.announcement.split("\n")[0]).toBe(
       "Root ignores the file permissions some tests check, so the tests rerun as nobody (uid 65534) on Node v22.22.0.",
     )
   })
 
   it("quotes a path with a space in the printed command", () => {
-    const plan = rootRun({
+    const plan = rootRerun({
       checkoutRoot: "/my repo",
       vitestEntry: "/my repo/node_modules/.bin/vitest",
     })
 
-    expect(plan.kind === "rerun" ? plan.announcement.split("\n")[1] : plan).toBe(
+    expect(plan.announcement.split("\n")[1]).toBe(
       `  setpriv --reuid=65534 --regid=65534 --clear-groups /usr/bin/env 'HOME=/my repo/node_modules/.test-home' PATH=/root/.nvm/versions/node/v24.21.0/bin:"$PATH" /root/.nvm/versions/node/v24.21.0/bin/node '/my repo/node_modules/.bin/vitest' run`,
     )
   })
@@ -299,32 +319,33 @@ describe("prepareRerun", () => {
     checkout: string,
     overrides: Partial<Parameters<typeof planRootRun>[0]> = {},
   ) => {
-    const plan = rootRun({ checkoutRoot: checkout, ...overrides })
-
-    if (plan.kind !== "rerun") throw new Error(`expected a rerun plan, got ${plan.message}`)
-    return plan
+    return rootRerun({ checkoutRoot: checkout, ...overrides })
   }
 
-  it("creates every scratch folder and hands it, and everything in it, to the target", () => {
+  it("creates every folder to hand over and hands it, and everything in it, to the target", () => {
     const checkout = createCheckout()
     const cacheFile = join(checkout, "node_modules", ".vite", "vitest", "results.json")
     mkdirSync(join(checkout, "node_modules", ".vite", "vitest"), { recursive: true })
     writeFileSync(cacheFile, "{}\n")
     // chmod, because the umask cuts the mode writeFileSync is given.
     chmodSync(cacheFile, 0o666)
-    const changeOwner = vi.fn()
+    const changeOwner = createChangeOwner()
 
     prepareRerun({ plan: nobodyPlanFor(checkout), changeOwner })
 
     const handedOver = changeOwner.mock.calls.map(([{ path }]) => path)
     expect({
-      foldersExist: [".vite-temp", ".vite/vitest", ".test-home"].map((folder) =>
-        existsSync(join(checkout, "node_modules", folder)),
-      ),
+      foldersExist: [
+        "node_modules/.vite-temp",
+        "node_modules/.vite/vitest",
+        "node_modules/.test-home",
+        "coverage",
+        "src/vault-mcp/mcp-core/__tests__/__snapshots__",
+      ].map((folder) => existsSync(join(checkout, folder))),
       handedOver: handedOver.toSorted(),
       cacheFileMode: lstatSync(cacheFile).mode & 0o777,
     }).toEqual({
-      foldersExist: [true, true, true],
+      foldersExist: [true, true, true, true, true],
       handedOver: [
         join(checkout, "coverage"),
         join(checkout, "node_modules", ".test-home"),
@@ -340,17 +361,17 @@ describe("prepareRerun", () => {
 
   it("hands over a symlink without changing the mode of what it points to", () => {
     const checkout = createCheckout()
-    const outsideFile = join(checkout, "outside.txt")
-    writeFileSync(outsideFile, "keep\n")
-    chmodSync(outsideFile, 0o666)
+    const symlinkTarget = join(checkout, "symlink-target.txt")
+    writeFileSync(symlinkTarget, "keep\n")
+    chmodSync(symlinkTarget, 0o666)
     mkdirSync(join(checkout, "node_modules", ".vite", "vitest"), { recursive: true })
     const link = join(checkout, "node_modules", ".vite", "vitest", "link")
-    symlinkSync(outsideFile, link)
-    const changeOwner = vi.fn()
+    symlinkSync(symlinkTarget, link)
+    const changeOwner = createChangeOwner()
 
     prepareRerun({ plan: nobodyPlanFor(checkout), changeOwner })
 
-    expect(lstatSync(outsideFile).mode & 0o777).toBe(0o666)
+    expect(lstatSync(symlinkTarget).mode & 0o777).toBe(0o666)
     expect(changeOwner).toHaveBeenCalledWith({ path: link, uid: 65534, gid: 65534 })
   })
 
@@ -360,7 +381,7 @@ describe("prepareRerun", () => {
     writeFileSync(join(checkout, "coverage", "coverage-final.json"), "{}\n")
 
     prepareRerun({
-      plan: nobodyPlanFor(checkout, { vitestArguments: ["run", "--coverage"], coverageRun: true }),
+      plan: nobodyPlanFor(checkout, { vitestArguments: ["run", "--coverage"] }),
       changeOwner: vi.fn(),
     })
 
@@ -417,7 +438,7 @@ describe("prepareRerun", () => {
     const checkout = createCheckout()
     const sourceNode = join(checkout, "source-node")
     writeFileSync(sourceNode, "node\n", { mode: 0o755 })
-    const changeOwner = vi.fn()
+    const changeOwner = createChangeOwner()
     const plan = nobodyPlanFor(checkout, {
       execPath: sourceNode,
       probes: { ...ALL_PROBES_PASS, canRunNode: false },
@@ -425,7 +446,7 @@ describe("prepareRerun", () => {
 
     prepareRerun({ plan, changeOwner })
 
-    const handedOver = changeOwner.mock.calls.map(([{ path }]) => String(path))
+    const handedOver = changeOwner.mock.calls.map(([{ path }]) => path)
     expect(handedOver.filter((path) => path.includes(".nobody-node"))).toEqual([])
   })
 })

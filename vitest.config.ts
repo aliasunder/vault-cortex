@@ -1,10 +1,11 @@
 import { defineConfig } from "vitest/config"
-import { stopRootTestRun } from "./scripts/root-test-guard.js"
+import { rerunRootTestRun } from "./scripts/root-test-guard.js"
 
 // vitest sets VITEST before it loads this file. Other tools that load it,
-// such as knip, don't, so the guard runs only for a real vitest run.
+// such as knip, don't, so the guard runs only for a real vitest run. The
+// rerun loads this file again, but not as root, so the guard returns at once.
 if (process.env.VITEST === "true") {
-  stopRootTestRun({ checkoutRoot: import.meta.dirname, configPath: import.meta.filename })
+  rerunRootTestRun({ checkoutRoot: import.meta.dirname, configPath: import.meta.filename })
 }
 
 export default defineConfig({

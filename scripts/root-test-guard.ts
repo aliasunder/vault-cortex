@@ -2,8 +2,8 @@
  * Reruns a root vitest run as a user the permission tests can rely on.
  * Root ignores file permissions, so tests that chmod a file or folder to deny
  * access, then expect the access to fail, fail as root and pass in CI.
- * - vitest.config.ts calls `stopRootTestRun` while vitest loads it, before any
- *   test file, the coverage provider or the watcher starts.
+ * - vitest.config.ts calls `rerunRootTestRun` while vitest loads it, before
+ *   any test file, the coverage provider or the watcher starts.
  * - The rerun runs as nobody when root owns the checkout (a cloud or agent
  *   container's clone), and as the checkout's owner otherwise (a contributor's
  *   checkout mounted into a root container).
@@ -28,20 +28,37 @@ import {
 import { dirname, join } from "node:path"
 import { parseCLI } from "vitest/node"
 
-/** Folders under node_modules the rerun writes in: vite's config bundle,
- *  vitest's results cache, and the rerun's HOME (npm's cache and logs). */
-const NODE_MODULES_SCRATCH_FOLDERS = [".vite-temp", ".vite/vitest", ".test-home"]
+/** The rerun's HOME under node_modules, where npm keeps its cache and logs. */
+const TEST_HOME_FOLDER = ".test-home"
 
-/** The one snapshot folder in the repo; `snapshot:update` rewrites it. */
+/** Folders under node_modules the rerun writes in: vite's config bundle,
+ *  vitest's results cache, and the rerun's HOME. */
+const NODE_MODULES_SCRATCH_FOLDERS = [".vite-temp", ".vite/vitest", TEST_HOME_FOLDER]
+
+/** The only folder inside the checkout that tests write (`snapshot:update`
+ *  rewrites it). A test that writes another folder needs it handed over too,
+ *  or the rerun cannot write there. */
 const SNAPSHOT_FOLDER = "src/vault-mcp/mcp-core/__tests__/__snapshots__"
 
 /** A plain shell word that needs no quoting when the command is printed. */
 const SHELL_SAFE_WORD = /^[\w@%+=:,./-]+$/
 
+/** The leading major number of a Node version (`24`, `v24.1.0`), ending at a
+ *  dot, whitespace or the end of the text. */
+const NODE_MAJOR_VERSION = /^v?(\d+)(?:[.\s]|$)/
+
+/** Write access for group and other, removed from every handed-over path. */
+const GROUP_AND_OTHER_WRITE = 0o022
+
+/** rwxr-xr-x: the Node copy and its folders stay root-owned and unwritable by
+ *  the target, but the target can run the copy. */
+const EXECUTABLE_BY_ALL_MODE = 0o755
+
 type RerunTarget = {
   /** nobody for a root-owned checkout; the checkout's owner otherwise. */
   kind: "nobody" | "owner"
-  name: string
+  /** How messages name the target: a user name, or a phrase for an owner. */
+  label: string
   uid: number
   gid: number
 }
@@ -50,18 +67,22 @@ type RerunTarget = {
 type WarningCause =
   | { kind: "no-setpriv" }
   | { kind: "no-nobody-user" }
-  | { kind: "setpriv-fails"; targetName: string }
-  | { kind: "config-unreadable"; targetName: string }
-  | { kind: "node-unrunnable"; targetName: string }
+  | { kind: "setpriv-fails"; targetLabel: string }
+  | { kind: "config-unreadable"; targetLabel: string }
+  | { kind: "node-unrunnable"; targetLabel: string }
   | { kind: "prepare-failed"; reason: string }
   | { kind: "spawn-failed"; reason: string }
+
+/** The user the rerun runs as, or why there is none. */
+type TargetLookup = { kind: "found"; target: RerunTarget } | { kind: "none"; cause: WarningCause }
 
 /** What the target can do, each probed by running a command as the target. */
 type TargetProbes = {
   setprivWorks: boolean
+  /** The config file stands in for the checkout: vitest must read it first. */
   canReadConfig: boolean
   canRunNode: boolean
-  /** Only probed when NODE_EXTRA_CA_CERTS is set. */
+  /** True when NODE_EXTRA_CA_CERTS is unset; probed only when it is set. */
   canReadExtraCaCerts: boolean
 }
 
@@ -71,7 +92,9 @@ type NodeChoice =
 type RerunPlan = {
   kind: "rerun"
   target: RerunTarget
-  scratchFolders: readonly string[]
+  /** Handed to the target and left with it after the run: the scratch
+   *  folders under node_modules, coverage/ and the snapshot folder. */
+  foldersToHandOver: readonly string[]
   coverageFolderToEmpty: string | null
   node: NodeChoice
   setprivArguments: readonly string[]
@@ -87,11 +110,11 @@ const describeWarningCause = (cause: WarningCause): string => {
     case "no-nobody-user":
       return "this system has no nobody user"
     case "setpriv-fails":
-      return `setpriv cannot switch to ${cause.targetName}`
+      return `setpriv cannot switch to ${cause.targetLabel}`
     case "config-unreadable":
-      return `${cause.targetName} cannot read the checkout`
+      return `${cause.targetLabel} cannot read the checkout`
     case "node-unrunnable":
-      return `${cause.targetName} cannot run this Node binary`
+      return `${cause.targetLabel} cannot run this Node binary`
     case "prepare-failed":
       return `preparing the rerun failed (${cause.reason})`
     case "spawn-failed":
@@ -103,13 +126,19 @@ const formatWarning = (cause: WarningCause): string => {
   return `vitest is running as root, which ignores the file permissions some tests check, so those tests will fail. It cannot rerun them as another user: ${describeWarningCause(cause)}.`
 }
 
-/** The major version .nvmrc names, or null for an alias such as lts/*. */
-export const readNvmrcMajor = (nvmrcText: string): number | null => {
-  const firstWord = nvmrcText.trimStart().split(/\s/)[0] ?? ""
-  const majorText = firstWord.replace(/^v/, "").split(".")[0] ?? ""
+/** The major version a Node version or .nvmrc names, or null for an alias
+ *  such as lts/*. */
+export const readNodeMajor = (versionText: string): number | null => {
+  const majorText = NODE_MAJOR_VERSION.exec(versionText.trimStart())?.[1]
 
-  if (!/^\d+$/.test(majorText)) return null
+  if (!majorText) return null
   return Number(majorText)
+}
+
+/** setpriv's flags that switch to the target's uid and gid and drop root's
+ *  supplementary groups. */
+const buildSwitchArguments = (target: RerunTarget): string[] => {
+  return [`--reuid=${target.uid}`, `--regid=${target.gid}`, "--clear-groups"]
 }
 
 /** Quotes a word for a POSIX shell only when it needs it. */
@@ -119,8 +148,9 @@ const quoteForShell = (word: string): string => {
 }
 
 /**
- * Appends the flags a non-root coverage run needs: it cannot delete
- * coverage/ from a root-owned checkout, so the guard empties the folder as
+ * Appends the flags a non-root coverage run needs. vitest cleans by deleting
+ * coverage/ itself, which needs write access to the checkout folder, and root
+ * owns that folder in a container's clone. So the guard empties coverage/ as
  * root and vitest must not clean it. vitest ignores flags after a lone `--`,
  * so they go before one.
  */
@@ -143,6 +173,8 @@ export const isCoverageRun = (vitestArguments: readonly string[]): boolean => {
   return options.coverage?.enabled === true
 }
 
+/** The Node binary the rerun starts, or null when the target has none it can
+ *  run. */
 const chooseNode = ({
   canRunNode,
   target,
@@ -155,8 +187,13 @@ const chooseNode = ({
   nodeCopyPath: string
 }): NodeChoice | null => {
   if (canRunNode) return { kind: "as-is", nodePath: execPath }
-  // An owner's checkout never gets a root-owned binary copied into it.
+  // The target cannot run root's Node when it sits under /root, as nvm's
+  // does: /root is mode 700, so no other user can enter it. A copy in the
+  // checkout fixes that, but in an owner's checkout it would leave a large
+  // root-owned file the owner cannot delete, so an owner gets the warning.
   if (target.kind === "owner") return null
+  // nobody can already read the checkout (the config probe passed), and the
+  // copy's folders are created mode 755, so nobody can reach and run it.
   return { kind: "copy", sourcePath: execPath, nodePath: nodeCopyPath }
 }
 
@@ -171,7 +208,6 @@ export const planRootRun = ({
   execArguments,
   vitestEntry,
   vitestArguments,
-  coverageRun,
   extraCaCertsSet,
   pathEnvironment,
 }: {
@@ -184,20 +220,19 @@ export const planRootRun = ({
   execArguments: readonly string[]
   vitestEntry: string
   vitestArguments: readonly string[]
-  coverageRun: boolean
   extraCaCertsSet: boolean
   pathEnvironment: string
 }): GuardPlan => {
   if (!probes.setprivWorks) {
     return {
       kind: "warn",
-      message: formatWarning({ kind: "setpriv-fails", targetName: target.name }),
+      message: formatWarning({ kind: "setpriv-fails", targetLabel: target.label }),
     }
   }
   if (!probes.canReadConfig) {
     return {
       kind: "warn",
-      message: formatWarning({ kind: "config-unreadable", targetName: target.name }),
+      message: formatWarning({ kind: "config-unreadable", targetLabel: target.label }),
     }
   }
 
@@ -213,26 +248,31 @@ export const planRootRun = ({
   if (!node) {
     return {
       kind: "warn",
-      message: formatWarning({ kind: "node-unrunnable", targetName: target.name }),
+      message: formatWarning({ kind: "node-unrunnable", targetLabel: target.label }),
     }
   }
 
   const nodeModules = join(checkoutRoot, "node_modules")
-  const home = join(nodeModules, ".test-home")
   const coverageFolder = join(checkoutRoot, "coverage")
-  const scratchFolders = [
+  const foldersToHandOver = [
     ...NODE_MODULES_SCRATCH_FOLDERS.map((folderName) => join(nodeModules, folderName)),
     coverageFolder,
     join(checkoutRoot, SNAPSHOT_FOLDER),
   ]
-  const unsetsExtraCaCerts = extraCaCertsSet && !probes.canReadExtraCaCerts
+
+  const coverageRun = isCoverageRun(vitestArguments)
   const rerunArguments = coverageRun ? addCoverageFlags(vitestArguments) : [...vitestArguments]
+  // Node warns on stderr at every start when it cannot read this file, and
+  // tests that assert a child's exact stderr then fail.
+  const unsetsExtraCaCerts = extraCaCertsSet && !probes.canReadExtraCaCerts
   const environmentArguments = [
     ...(unsetsExtraCaCerts ? ["-u", "NODE_EXTRA_CA_CERTS"] : []),
-    `HOME=${home}`,
+    `HOME=${join(nodeModules, TEST_HOME_FOLDER)}`,
   ]
   const commandAfterPath = [node.nodePath, ...execArguments, vitestEntry, ...rerunArguments]
-  const switchArguments = [`--reuid=${target.uid}`, `--regid=${target.gid}`, "--clear-groups"]
+  const switchArguments = buildSwitchArguments(target)
+  // The Node folder goes first on PATH so that a test starting a bare `node`
+  // child process gets the same binary as the rerun.
   const nodeFolder = dirname(node.nodePath)
   const setprivArguments = [
     ...switchArguments,
@@ -241,8 +281,11 @@ export const planRootRun = ({
     `PATH=${nodeFolder}:${pathEnvironment}`,
     ...commandAfterPath,
   ]
-  // The printed command keeps $PATH literal, so it stays short and still
-  // runs as written in a shell.
+
+  // The guard runs the command itself; it is printed so the reader sees what
+  // runs as whom. Rerunning it by hand works once the guard has prepared the
+  // folders, as it has by the time the line prints. $PATH stays literal, so
+  // the line stays short and still runs as written in a shell.
   const printedCommand = [
     "setpriv",
     ...switchArguments,
@@ -251,8 +294,11 @@ export const planRootRun = ({
     `PATH=${quoteForShell(nodeFolder)}:"$PATH"`,
     ...commandAfterPath.map(quoteForShell),
   ].join(" ")
-  const nvmrcMajor = nvmrcText === null ? null : readNvmrcMajor(nvmrcText)
-  const nodeMajor = Number(nodeVersion.replace(/^v/, "").split(".")[0])
+
+  // The rerun uses the Node that started vitest, whatever its major. CI runs
+  // the .nvmrc major, and a different one can pass or fail tests CI doesn't.
+  const nvmrcMajor = nvmrcText === null ? null : readNodeMajor(nvmrcText)
+  const nodeMajor = readNodeMajor(nodeVersion)
   const versionNote =
     nvmrcMajor !== null && nvmrcMajor !== nodeMajor
       ? ` .nvmrc names Node ${nvmrcMajor}, which CI runs, so a result can differ from CI's.`
@@ -261,11 +307,11 @@ export const planRootRun = ({
   return {
     kind: "rerun",
     target,
-    scratchFolders,
+    foldersToHandOver,
     coverageFolderToEmpty: coverageRun ? coverageFolder : null,
     node,
     setprivArguments,
-    announcement: `Root ignores the file permissions some tests check, so the tests rerun as ${target.name} (uid ${target.uid}) on Node ${nodeVersion}.${versionNote}\n  ${printedCommand}`,
+    announcement: `Root ignores the file permissions some tests check, so the tests rerun as ${target.label} (uid ${target.uid}) on Node ${nodeVersion}.${versionNote}\n  ${printedCommand}`,
   }
 }
 
@@ -292,7 +338,7 @@ const handOverFolder = ({
 
     // chmod would follow a symlink to its target.
     if (stats.isSymbolicLink()) continue
-    chmodSync(path, stats.mode & ~0o022)
+    chmodSync(path, stats.mode & ~GROUP_AND_OTHER_WRITE)
   }
 }
 
@@ -310,12 +356,14 @@ const copyNodeBinary = ({
 
   const temporaryPath = `${nodePath}.${process.pid}`
 
-  mkdirSync(dirname(nodePath), { recursive: true, mode: 0o755 })
+  mkdirSync(dirname(nodePath), { recursive: true, mode: EXECUTABLE_BY_ALL_MODE })
   try {
     copyFileSync(sourcePath, temporaryPath)
-    chmodSync(temporaryPath, 0o755)
+    chmodSync(temporaryPath, EXECUTABLE_BY_ALL_MODE)
     renameSync(temporaryPath, nodePath)
   } finally {
+    // Removes a half-written copy when the copy or chmod threw; after a
+    // successful rename the temp name no longer exists.
     rmSync(temporaryPath, { force: true })
   }
 }
@@ -333,10 +381,12 @@ export const prepareRerun = ({
       rmSync(join(plan.coverageFolderToEmpty, entry), { recursive: true, force: true })
     }
   }
-  for (const folder of plan.scratchFolders) {
+
+  for (const folder of plan.foldersToHandOver) {
     mkdirSync(folder, { recursive: true })
     handOverFolder({ folder, target: plan.target, changeOwner })
   }
+
   if (plan.node.kind === "copy") copyNodeBinary(plan.node)
 }
 
@@ -348,11 +398,9 @@ const runsAsTarget = ({
   target: RerunTarget
   command: readonly string[]
 }): boolean => {
-  const result = spawnSync(
-    "setpriv",
-    [`--reuid=${target.uid}`, `--regid=${target.gid}`, "--clear-groups", ...command],
-    { stdio: "ignore" },
-  )
+  const result = spawnSync("setpriv", [...buildSwitchArguments(target), ...command], {
+    stdio: "ignore",
+  })
   return result.status === 0
 }
 
@@ -364,32 +412,34 @@ const readUserId = ({ flag, user }: { flag: "-u" | "-g"; user: string }): number
   return Number(result.stdout.trim())
 }
 
-/** The user the rerun runs as, or the reason there is none. */
-const findRerunTarget = (checkoutRoot: string): RerunTarget | WarningCause => {
+const findRerunTarget = (checkoutRoot: string): TargetLookup => {
   const setprivCheck = spawnSync("setpriv", ["--version"], { stdio: "ignore" })
 
-  if (setprivCheck.error) return { kind: "no-setpriv" }
+  if (setprivCheck.error) return { kind: "none", cause: { kind: "no-setpriv" } }
 
   const checkoutStats = statSync(checkoutRoot)
 
   if (checkoutStats.uid !== 0) {
-    return {
+    const owner: RerunTarget = {
       kind: "owner",
-      name: "the checkout's owner",
+      label: "the checkout's owner",
       uid: checkoutStats.uid,
       gid: checkoutStats.gid,
     }
+
+    return { kind: "found", target: owner }
   }
 
   const nobodyUid = readUserId({ flag: "-u", user: "nobody" })
   const nobodyGid = readUserId({ flag: "-g", user: "nobody" })
 
-  if (nobodyUid === null || nobodyGid === null) return { kind: "no-nobody-user" }
-  return { kind: "nobody", name: "nobody", uid: nobodyUid, gid: nobodyGid }
-}
-
-const isRerunTarget = (value: RerunTarget | WarningCause): value is RerunTarget => {
-  return value.kind === "nobody" || value.kind === "owner"
+  if (nobodyUid === null || nobodyGid === null) {
+    return { kind: "none", cause: { kind: "no-nobody-user" } }
+  }
+  return {
+    kind: "found",
+    target: { kind: "nobody", label: "nobody", uid: nobodyUid, gid: nobodyGid },
+  }
 }
 
 const probeTarget = ({
@@ -403,15 +453,19 @@ const probeTarget = ({
   execPath: string
   extraCaCerts: string | undefined
 }): TargetProbes => {
-  const testsFile = (testFlag: "-r" | "-x", path: string): boolean => {
-    return runsAsTarget({ target, command: ["/bin/sh", "-c", `test ${testFlag} "$1"`, "sh", path] })
+  const passesFileTest = (testFlag: "-r" | "-x", path: string): boolean => {
+    // The path goes in as "$1", never inside the script, so the shell does
+    // not parse it; "sh" fills $0, the slot before $1.
+    const command = ["/bin/sh", "-c", `test ${testFlag} "$1"`, "sh", path]
+
+    return runsAsTarget({ target, command })
   }
 
   return {
     setprivWorks: runsAsTarget({ target, command: ["true"] }),
-    canReadConfig: testsFile("-r", configPath),
-    canRunNode: testsFile("-x", execPath),
-    canReadExtraCaCerts: extraCaCerts ? testsFile("-r", extraCaCerts) : true,
+    canReadConfig: passesFileTest("-r", configPath),
+    canRunNode: passesFileTest("-x", execPath),
+    canReadExtraCaCerts: extraCaCerts ? passesFileTest("-r", extraCaCerts) : true,
   }
 }
 
@@ -421,24 +475,28 @@ const probeTarget = ({
  * and exits with its status, or prints a warning and returns so the run
  * continues as root.
  */
-export const stopRootTestRun = ({
+export const rerunRootTestRun = ({
   checkoutRoot,
   configPath,
 }: {
   checkoutRoot: string
   configPath: string
 }): void => {
+  // The rerun loads this config again as its own user, so this check is what
+  // keeps the rerun from rerunning itself.
   if (process.getuid?.() !== 0) return
 
   const warn = (cause: WarningCause): void => {
     process.stderr.write(`${formatWarning(cause)}\n`)
   }
-  const targetOrCause = findRerunTarget(checkoutRoot)
+  const targetLookup = findRerunTarget(checkoutRoot)
 
-  if (!isRerunTarget(targetOrCause)) {
-    warn(targetOrCause)
+  if (targetLookup.kind === "none") {
+    warn(targetLookup.cause)
     return
   }
+
+  const { target } = targetLookup
 
   const extraCaCerts = process.env.NODE_EXTRA_CA_CERTS
   const nvmrcPath = join(checkoutRoot, ".nvmrc")
@@ -449,9 +507,9 @@ export const stopRootTestRun = ({
 
   const plan = planRootRun({
     checkoutRoot,
-    target: targetOrCause,
+    target,
     probes: probeTarget({
-      target: targetOrCause,
+      target,
       configPath,
       execPath: process.execPath,
       extraCaCerts,
@@ -462,7 +520,6 @@ export const stopRootTestRun = ({
     execArguments: process.execArgv,
     vitestEntry,
     vitestArguments,
-    coverageRun: isCoverageRun(vitestArguments),
     extraCaCertsSet: Boolean(extraCaCerts),
     pathEnvironment: process.env.PATH ?? "",
   })
@@ -490,5 +547,6 @@ export const stopRootTestRun = ({
     warn({ kind: "spawn-failed", reason: rerun.error.message })
     return
   }
+  // status is null when a signal ended the rerun; that run failed too.
   process.exit(rerun.status ?? 1)
 }
