@@ -51,13 +51,17 @@ each config combination serves the correct tool surface, that auth
 rejects invalid tokens, that write operations actually mutate the vault
 (read-back verified), and that misconfiguration fails fast at boot.
 
-Some tests deny access to a file or folder and expect the access to
-fail, which never happens as root. So when you run the tests as root, for
-example inside a container, they rerun as the checkout's owner, or as the
-`nobody` user when root owns the checkout, and print a line saying so.
-When that isn't possible, they print a warning naming the cause and those
-tests fail. To fix it, install `setpriv` (part of util-linux) if the
-warning says it is missing, or run the tests as a non-root user.
+Run as root (inside a container, for example), the tests rerun as another
+user, because root ignores the file permissions some tests check:
+
+| Checkout owned by | Tests rerun as |
+| ----------------- | -------------- |
+| root              | `nobody`       |
+| another user      | that user      |
+
+When no rerun is possible, a warning names the cause and the permission
+tests fail. Install `setpriv` (part of util-linux) if the warning says it
+is missing; otherwise run the tests as a non-root user.
 
 `npm run test:coverage` runs the same suite with a statement-coverage
 report (V8 provider); the `coverage/` output directory is gitignored.
