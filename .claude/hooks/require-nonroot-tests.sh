@@ -35,17 +35,177 @@ fi
 # - Without node, or with a payload node cannot parse, node prints nothing.
 #   Each read then fails and leaves its variable empty (`|| true` keeps set -e
 #   from ending the hook), and an empty command lets the call through.
-# - The script is single-quoted on purpose: its ${...} is JavaScript, not shell.
+# - The script is single-quoted on purpose: its ${...} is JavaScript, not
+#   shell, and it writes a single quote as \u0027.
+# - The command it prints has the text the command only passes as data
+#   blanked out, so the split below never reads a mention of a test run in
+#   a commit message, a script or a heredoc as a run:
+#   - Inside quotes, each ;, &, |, (, backtick and line break becomes a
+#     space (`git commit -m "... (npm test) ..."`, `node -e '/(npx|npm)/'`).
+#   - A heredoc's body is dropped (`python3 - <<'EOF'`), and so is a comment.
+#   - Both stay as written when a word of the command names bash, sh or zsh,
+#     because the shell runs that text (`bash -c 'cd /repo && npm test'`,
+#     `bash <<'EOF'`). A $( ) inside double quotes runs too, so its text is
+#     read as commands (`echo "$(npm test)"`).
 # shellcheck disable=SC2016
 {
   IFS= read -r -d '' tool_command || true
   IFS= read -r -d '' payload_cwd || true
 } < <(node -e '
+  const QUOTE = "\u0027"
+  const SEPARATORS = ";&|(`\n"
+  const SHELL_NAME = /(^|\/)(bash|sh|zsh)$/
+  const HEREDOC_OPERATOR = /^<<(-?)[ \t]*(?:"([^"]*)"|\u0027([^\u0027]*)\u0027|([^\s;&|()<>]+))/
+
+  const blankSeparators = (text) => text.replace(/[;&|(`\n]/g, " ")
+
+  const maskDataText = (command) => {
+    // A parser threading state character by character: output, position,
+    // the context stack, and the current word are all sequential state.
+    let output = ""
+    let index = 0
+    let word = ""
+    let commandRunsShell = false
+    const pendingHeredocs = []
+    // The bottom context is the command itself; "double" is double-quoted
+    // text; "substitution" is a $( ) inside double quotes.
+    const contexts = [{ kind: "command" }]
+
+    const endWord = () => {
+      if (SHELL_NAME.test(word)) commandRunsShell = true
+      word = ""
+    }
+    const startCommand = () => {
+      word = ""
+      commandRunsShell = false
+    }
+    const readHeredocBodies = () => {
+      for (const heredoc of pendingHeredocs) {
+        while (index < command.length) {
+          const newlineIndex = command.indexOf("\n", index)
+          const lineEnd = newlineIndex === -1 ? command.length : newlineIndex
+          const line = command.slice(index, lineEnd)
+          const delimiterLine = heredoc.stripsTabs ? line.replace(/^\t+/, "") : line
+          index = lineEnd + 1
+          if (delimiterLine === heredoc.delimiter) break
+          output += `${heredoc.bodyRuns ? line : ""}\n`
+        }
+      }
+      pendingHeredocs.length = 0
+    }
+
+    while (index < command.length) {
+      const character = command[index]
+      const next = command[index + 1] ?? ""
+      const context = contexts[contexts.length - 1]
+
+      if (context.kind === "double") {
+        if (character === "\\") {
+          output += character + (commandRunsShell ? next : blankSeparators(next))
+          index += 2
+          continue
+        }
+        if (character === "\"") {
+          contexts.pop()
+          output += character
+          index += 1
+          continue
+        }
+        if (character === "$" && next === "(") {
+          contexts.push({ kind: "substitution", depth: 0, word, commandRunsShell })
+          startCommand()
+          output += "$("
+          index += 2
+          continue
+        }
+        output += commandRunsShell ? character : blankSeparators(character)
+        index += 1
+        continue
+      }
+
+      if (character === "\\") {
+        // A line continuation joins two lines into one command.
+        output += next === "\n" ? " " : character + blankSeparators(next)
+        word += next
+        index += 2
+        continue
+      }
+      if (character === QUOTE) {
+        const closing = command.indexOf(QUOTE, index + 1)
+        const quoteEnd = closing === -1 ? command.length : closing
+        const quotedText = command.slice(index + 1, quoteEnd)
+        output += QUOTE + (commandRunsShell ? quotedText : blankSeparators(quotedText))
+        output += closing === -1 ? "" : QUOTE
+        word += quotedText
+        index = quoteEnd + 1
+        continue
+      }
+      if (character === "\"") {
+        contexts.push({ kind: "double" })
+        output += character
+        index += 1
+        continue
+      }
+      if (character === "#" && word === "") {
+        const lineEnd = command.indexOf("\n", index)
+        index = lineEnd === -1 ? command.length : lineEnd
+        continue
+      }
+      const heredocOperator = character === "<" && next === "<" ? HEREDOC_OPERATOR.exec(command.slice(index)) : null
+      if (heredocOperator) {
+        const [operatorText, tabsFlag, doubleQuoted, singleQuoted, bare] = heredocOperator
+        pendingHeredocs.push({
+          delimiter: doubleQuoted ?? singleQuoted ?? bare,
+          stripsTabs: tabsFlag === "-",
+          bodyRuns: commandRunsShell || SHELL_NAME.test(word),
+        })
+        output += operatorText
+        index += operatorText.length
+        continue
+      }
+      if (character === "\n") {
+        output += character
+        index += 1
+        readHeredocBodies()
+        startCommand()
+        continue
+      }
+      if (context.kind === "substitution" && character === ")") {
+        if (context.depth === 0) {
+          contexts.pop()
+          word = context.word
+          commandRunsShell = context.commandRunsShell
+          output += character
+          index += 1
+          continue
+        }
+        context.depth -= 1
+      }
+      if (SEPARATORS.includes(character)) {
+        if (context.kind === "substitution" && character === "(") context.depth += 1
+        output += character
+        index += 1
+        startCommand()
+        continue
+      }
+      if (/\s/.test(character)) {
+        endWord()
+        output += character
+        index += 1
+        continue
+      }
+      word += character
+      output += character
+      index += 1
+    }
+    return output
+  }
+
   const chunks = []
   // Buffer.concat runs before toString, because a multi-byte character can span two chunks.
   process.stdin.on("data", (chunk) => chunks.push(chunk)).on("end", () => {
     const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"))
-    process.stdout.write(`${parsed.tool_input?.command ?? ""}\0${parsed.cwd ?? ""}\0`)
+    process.stdout.write(`${maskDataText(parsed.tool_input?.command ?? "")}\0${parsed.cwd ?? ""}\0`)
   })
 ' 2>/dev/null)
 
@@ -112,10 +272,10 @@ variable_setting="[A-Za-z_][A-Za-z0-9_]*\\+?=${shell_word}[[:space:]]+"
 # - bash, sh and zsh with their flags, where a group of one-letter flags that
 #   holds o or O takes an argument (`bash -euo pipefail -c`,
 #   `bash -O extglob -c`), then the opening quote of the command they run and
-#   any spaces after it (`bash -lc 'npm test'`). The split below ignores
-#   quotes, so a run or a cd after ; or && inside the quoted text counts too
-#   (`bash -c 'npm ci && cd /repo && npm test'`), and a mention there
-#   (`bash -c 'echo npm test'`) does not.
+#   any spaces after it (`bash -lc 'npm test'`). The quoted text a shell runs
+#   reaches the split as written, so a run or a cd after ; or && inside it
+#   counts too (`bash -c 'npm ci && cd /repo && npm test'`), and a mention
+#   there (`bash -c 'echo npm test'`) does not.
 # - Each of env, time, timeout and the shells may be named by path
 #   (`/usr/bin/env npm test`), as the reply's own prefix names env. exec and
 #   command are shell builtins, so they have no path.
@@ -138,8 +298,8 @@ command_prefix="(${wrapper}|${shell_keyword}|${variable_setting})*"
 # followed only by spaces and then a redirection (`bash -c 'npm test' 2>`), a
 # ) (`$(bash -c 'npm test')`), a comment or the end. So `npm run testx` and
 # `npm run test:cli-pty` are not runs, and neither is the `vitest' src/` that
-# `grep -E 'npm test|vitest' src/` splits into. Inside the double quotes,
-# `\\)` reaches the regex as `\)`, a literal ).
+# a shell's quoted `grep -E 'npm test|vitest' src/` splits into. Inside the
+# double quotes, `\\)` reaches the regex as `\)`, a literal ).
 runner_end="([[:space:]]|\\)|[\"'][[:space:]]*([0-9]*[<>]|\\)|$)|[\"'][[:space:]]+#|$)"
 
 # A command that runs tests starts with the runner, after any prefix. A

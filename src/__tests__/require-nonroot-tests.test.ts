@@ -505,6 +505,10 @@ describe("require-nonroot-tests hook", () => {
       { label: "node running vitest.mjs", command: "node node_modules/vitest/vitest.mjs run" },
       { label: "npm run snapshot:update", command: "npm run snapshot:update" },
       { label: "a subshell", command: "(cd sub; npm test)" },
+      { label: "a line after a comment holding an apostrophe", command: "# it's a run\nnpm test" },
+      { label: "a bash heredoc", command: "bash <<'EOF'\nnpm test\nEOF" },
+      { label: "a line after a cat heredoc", command: "cat <<EOF >notes\nhello\nEOF\nnpm test" },
+      { label: "a command substitution inside double quotes", command: 'echo "$(npm test)"' },
       { label: "a subshell inside command substitution", command: "out=$( (npm test) )" },
       { label: "a backtick substitution", command: "out=`npm test 2>&1`" },
       { label: "a variable setting before npx", command: "CI=1 npx vitest run" },
@@ -625,6 +629,24 @@ describe("require-nonroot-tests hook", () => {
       // FOO is the command env runs.
       { label: "env with -u unsetting u, then FOO", command: "env -uu FOO npm test" },
       { label: "env with -u unsetting C, then FOO", command: "env -uC FOO npm test" },
+      // Quoted text and heredoc bodies a command only passes as data.
+      {
+        label: "a commit message that mentions a run in parentheses",
+        command:
+          'git commit -m "fix: x\n\n- the prefix (/usr/bin/env HOME=/h npm test) went\n  through"',
+      },
+      {
+        label: "a commit message from a cat heredoc that mentions a run",
+        command: `git commit -m "$(cat <<'EOF'\nfix: the (npm test) run "worked"\nEOF\n)"`,
+      },
+      {
+        label: "a python heredoc whose body mentions a run",
+        command: "python3 - <<'EOF'\nprint(\"(`env -iu NAME npm test`)\")\nEOF",
+      },
+      {
+        label: "a node -e script whose regex names a run",
+        command: "node -e 'if (!/^(npx|npm|npx vitest run src)/.test(text)) report()'",
+      },
       // A value ending in /npm is not npm by path: the shell runs test.
       { label: "a setting whose value ends in /npm", command: "FOO=/x/npm test" },
       { label: "a setting whose value ends in /npx", command: "FOO=bin/npx -y vitest run" },
