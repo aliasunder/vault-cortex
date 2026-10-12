@@ -51,17 +51,10 @@ each config combination serves the correct tool surface, that auth
 rejects invalid tokens, that write operations actually mutate the vault
 (read-back verified), and that misconfiguration fails fast at boot.
 
-Run as root (inside a container, for example), the tests rerun as another
-user, because root ignores the file permissions some tests check:
-
-| Checkout owned by | Tests rerun as |
-| ----------------- | -------------- |
-| root              | `nobody`       |
-| another user      | that user      |
-
-When no rerun is possible, a warning names the cause and the permission
-tests fail. Install `setpriv` (part of util-linux) if the warning says it
-is missing; otherwise run the tests as a non-root user.
+Some tests deny access to a file and expect the access to fail. Root
+ignores file permissions, so those tests skip when you run the suite as
+root (inside a container, for example). To run them from a root shell,
+use `npm run test:as-nobody`, which runs the suite as the `nobody` user.
 
 `npm run test:coverage` runs the same suite with a statement-coverage
 report (V8 provider); the `coverage/` output directory is gitignored.

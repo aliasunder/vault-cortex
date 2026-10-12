@@ -24,6 +24,7 @@ import { readTrashFileState, vaultFs } from "../vault-filesystem.js"
 import { createSearchIndex } from "../../search/search-index.js"
 import type { TrashEntry, TrashEntryStore } from "../../search/search-index.js"
 import { logger } from "../../../logger.js"
+import { runsAsRoot } from "../../../__tests__/runs-as-root.js"
 
 /** A temp vault with a .trash/ folder, removed when the test finishes. */
 const createTestVault = async (): Promise<string> => {
@@ -437,57 +438,65 @@ describe("sweepExpiredTrashEntries", () => {
     })
   })
 
-  it("keeps the row and warns when realpath fails with a non-ENOENT error", async () => {
-    const vault = await createTestVault()
-    const lockedDir = join(vault, ".trash", "noaccess")
-    await mkdir(lockedDir, { recursive: true })
-    await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
-    const index = createSearchIndex(":memory:")
-    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/noaccess/stuck.md"))
-    // Remove all permissions from .trash/ so realpath on the parent fails.
-    await chmod(join(vault, ".trash"), 0o000)
-    onTestFinished(() => chmod(join(vault, ".trash"), 0o755))
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+  it.skipIf(runsAsRoot)(
+    "keeps the row and warns when realpath fails with a non-ENOENT error",
+    async () => {
+      const vault = await createTestVault()
+      const lockedDir = join(vault, ".trash", "noaccess")
+      await mkdir(lockedDir, { recursive: true })
+      await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
+      const index = createSearchIndex(":memory:")
+      index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/noaccess/stuck.md"))
+      // Remove all permissions from .trash/ so realpath on the parent fails.
+      await chmod(join(vault, ".trash"), 0o000)
+      onTestFinished(() => chmod(join(vault, ".trash"), 0o755))
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
 
-    await sweepAfterRetention(vault, index)
+      await sweepAfterRetention(vault, index)
 
-    expect(index.getTrashEntry(".trash/noaccess/stuck.md")?.trashPath).toBe(
-      ".trash/noaccess/stuck.md",
-    )
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith("failed to resolve trash entry path", {
-      trashPath: ".trash/noaccess/stuck.md",
-      error: `[Error]: EACCES: permission denied, realpath '${lockedDir}'`,
-    })
-  })
+      expect(index.getTrashEntry(".trash/noaccess/stuck.md")?.trashPath).toBe(
+        ".trash/noaccess/stuck.md",
+      )
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("failed to resolve trash entry path", {
+        trashPath: ".trash/noaccess/stuck.md",
+        error: `[Error]: EACCES: permission denied, realpath '${lockedDir}'`,
+      })
+    },
+  )
 
-  it("keeps the row and warns when unlink fails with a non-ENOENT error", async () => {
-    // A permission error during unlink keeps the row so the next sweep
-    // retries; one bad row never aborts the sweep.
-    const vault = await createTestVault()
-    const lockedDir = join(vault, ".trash", "locked")
-    await mkdir(lockedDir, { recursive: true })
-    await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
-    const index = createSearchIndex(":memory:")
-    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/locked/stuck.md"))
-    // Remove write permission from the parent so unlink fails with EACCES.
-    await chmod(lockedDir, 0o555)
-    onTestFinished(() => chmod(lockedDir, 0o755))
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+  it.skipIf(runsAsRoot)(
+    "keeps the row and warns when unlink fails with a non-ENOENT error",
+    async () => {
+      // A permission error during unlink keeps the row so the next sweep
+      // retries; one bad row never aborts the sweep.
+      const vault = await createTestVault()
+      const lockedDir = join(vault, ".trash", "locked")
+      await mkdir(lockedDir, { recursive: true })
+      await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
+      const index = createSearchIndex(":memory:")
+      index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/locked/stuck.md"))
+      // Remove write permission from the parent so unlink fails with EACCES.
+      await chmod(lockedDir, 0o555)
+      onTestFinished(() => chmod(lockedDir, 0o755))
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
 
-    await sweepAfterRetention(vault, index)
+      await sweepAfterRetention(vault, index)
 
-    expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(".trash/locked/stuck.md")
-    const content = await readFile(join(lockedDir, "stuck.md"), "utf8")
-    expect(content).toBe("perm error")
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith("failed to remove expired trash entry", {
-      trashPath: ".trash/locked/stuck.md",
-      error: `[Error]: EACCES: permission denied, unlink '${join(lockedDir, "stuck.md")}'`,
-    })
-  })
+      expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(
+        ".trash/locked/stuck.md",
+      )
+      const content = await readFile(join(lockedDir, "stuck.md"), "utf8")
+      expect(content).toBe("perm error")
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("failed to remove expired trash entry", {
+        trashPath: ".trash/locked/stuck.md",
+        error: `[Error]: EACCES: permission denied, unlink '${join(lockedDir, "stuck.md")}'`,
+      })
+    },
+  )
 
   it("an unrecorded delete clears a stale row at its landed path before any sweep runs", async () => {
     // A row can outlive its file in .trash/. A keep-forever "local" delete
@@ -736,34 +745,37 @@ describe("sweepExpiredTrashEntries", () => {
     })
   })
 
-  it("keeps the row and warns when the identity read fails with a non-ENOENT error", async () => {
-    const vault = await createTestVault()
-    const index = createSearchIndex(":memory:")
-    const lockedDir = join(vault, ".trash", "nosearch")
-    await mkdir(lockedDir)
-    await writeFile(join(lockedDir, "stuck.md"), "stays", "utf8")
-    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/nosearch/stuck.md"))
-    // Without search permission the folder itself still resolves, so the
-    // containment gate passes, but no entry inside it can be looked up.
-    await chmod(lockedDir, 0o600)
-    onTestFinished(() => chmod(lockedDir, 0o755))
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+  it.skipIf(runsAsRoot)(
+    "keeps the row and warns when the identity read fails with a non-ENOENT error",
+    async () => {
+      const vault = await createTestVault()
+      const index = createSearchIndex(":memory:")
+      const lockedDir = join(vault, ".trash", "nosearch")
+      await mkdir(lockedDir)
+      await writeFile(join(lockedDir, "stuck.md"), "stays", "utf8")
+      index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/nosearch/stuck.md"))
+      // Without search permission the folder itself still resolves, so the
+      // containment gate passes, but no entry inside it can be looked up.
+      await chmod(lockedDir, 0o600)
+      onTestFinished(() => chmod(lockedDir, 0o755))
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
 
-    await sweepAfterRetention(vault, index)
+      await sweepAfterRetention(vault, index)
 
-    expect(index.getTrashEntry(".trash/nosearch/stuck.md")?.trashPath).toBe(
-      ".trash/nosearch/stuck.md",
-    )
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith("failed to read trash entry identity", {
-      trashPath: ".trash/nosearch/stuck.md",
-      error: `[Error]: EACCES: permission denied, lstat '${join(lockedDir, "stuck.md")}'`,
-    })
-    await chmod(lockedDir, 0o755)
-    const stuckContent = await readFile(join(lockedDir, "stuck.md"), "utf8")
-    expect(stuckContent).toBe("stays")
-  })
+      expect(index.getTrashEntry(".trash/nosearch/stuck.md")?.trashPath).toBe(
+        ".trash/nosearch/stuck.md",
+      )
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("failed to read trash entry identity", {
+        trashPath: ".trash/nosearch/stuck.md",
+        error: `[Error]: EACCES: permission denied, lstat '${join(lockedDir, "stuck.md")}'`,
+      })
+      await chmod(lockedDir, 0o755)
+      const stuckContent = await readFile(join(lockedDir, "stuck.md"), "utf8")
+      expect(stuckContent).toBe("stays")
+    },
+  )
 
   it("prunes the folders an unlink empties, keeping .trash/ itself", async () => {
     const vault = await createTestVault()
@@ -1349,31 +1361,36 @@ describe("purgeOrphanedTrashEntries", () => {
     })
   })
 
-  it("keeps the row and warns when stat fails with a non-ENOENT error", async () => {
-    const vault = await createTestVault()
-    const lockedDir = join(vault, ".trash", "locked")
-    await mkdir(lockedDir, { recursive: true })
-    await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
-    const index = createSearchIndex(":memory:")
-    index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/locked/stuck.md"))
-    // Remove traverse permission from the parent so stat fails with EACCES.
-    await chmod(lockedDir, 0o000)
-    onTestFinished(() => chmod(lockedDir, 0o755))
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+  it.skipIf(runsAsRoot)(
+    "keeps the row and warns when stat fails with a non-ENOENT error",
+    async () => {
+      const vault = await createTestVault()
+      const lockedDir = join(vault, ".trash", "locked")
+      await mkdir(lockedDir, { recursive: true })
+      await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
+      const index = createSearchIndex(":memory:")
+      index.recordTrashEntry(await recordedTrashFileAt(vault, ".trash/locked/stuck.md"))
+      // Remove traverse permission from the parent so stat fails with EACCES.
+      await chmod(lockedDir, 0o000)
+      onTestFinished(() => chmod(lockedDir, 0o755))
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.purgeOrphanedTrashEntries(
-      { vaultPath: vault, trashEntryStore: index },
-      logger,
-    )
+      await trashSweeper.purgeOrphanedTrashEntries(
+        { vaultPath: vault, trashEntryStore: index },
+        logger,
+      )
 
-    expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(".trash/locked/stuck.md")
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith("failed to stat trash entry", {
-      trashPath: ".trash/locked/stuck.md",
-      error: `[Error]: EACCES: permission denied, lstat '${join(lockedDir, "stuck.md")}'`,
-    })
-  })
+      expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(
+        ".trash/locked/stuck.md",
+      )
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("failed to stat trash entry", {
+        trashPath: ".trash/locked/stuck.md",
+        error: `[Error]: EACCES: permission denied, lstat '${join(lockedDir, "stuck.md")}'`,
+      })
+    },
+  )
 
   it("retains a traversal-path row when the target exists outside .trash/", async () => {
     const base = await mkdtemp(join(tmpdir(), "trash-traversal-"))

@@ -71,7 +71,6 @@ assets/ # Static assets (not shipped in Docker)
 scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open with a header comment saying what they do
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
-  root-test-guard.ts # Loaded by vitest.config.ts while vitest starts: reruns a root test run as nobody, or as the checkout's owner when root doesn't own it, and warns when it can't
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
@@ -858,14 +857,12 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 ### Test conventions
 
-- A root test run reruns itself as another user, because root ignores
-  file permissions: the tests that deny access with `chmod` fail as root
-  and pass in CI. `vitest.config.ts` calls `scripts/root-test-guard.ts`,
-  which reruns the same command as `nobody`, or as the checkout's owner
-  when root doesn't own the checkout. Run tests as usual; NEVER add a
-  `setpriv` prefix yourself. When no rerun is possible, the guard prints
-  a warning naming the cause and the run continues as root, so the
-  permission tests fail; fix the cause or run as a non-root user.
+- A test that denies file access with `chmod` and expects the access to
+  fail can't pass as root, because root ignores file permissions. Mark it
+  `it.skipIf(runsAsRoot)`, importing `runsAsRoot` from
+  `src/__tests__/runs-as-root.ts`. CI runs it as a normal user. To run
+  these tests from a root shell, such as a cloud session, use
+  `npm run test:as-nobody`; it takes the same arguments as `vitest run`.
 - Tests read as a behavioral spec. One focused `it()` per
   behavior — a failing test name should identify which behavior
   regressed without reading the body.

@@ -19,6 +19,7 @@ import {
 } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
+import { runsAsRoot } from "../../../__tests__/runs-as-root.js"
 vi.mock("node:fs/promises", { spy: true })
 
 const createBlockedMemoryReads = async (vaultPath: string) => {
@@ -176,14 +177,17 @@ describe("getMemory", () => {
     expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutSymlink)
   })
 
-  it("rejects an unreadable memory file with a vault-relative message in the all-files read", async () => {
-    // afterEach deletes the vault, which removes a mode-000 file inside it, so
-    // the permissions need no restore.
-    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
-    await expect(getMemory({ vaultPath: vault }, logger)).rejects.toThrow(
-      new Error('cannot read memory file "About Me/Opinions.md"'),
-    )
-  })
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory file with a vault-relative message in the all-files read",
+    async () => {
+      // afterEach deletes the vault, which removes a mode-000 file inside it, so
+      // the permissions need no restore.
+      await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+      await expect(getMemory({ vaultPath: vault }, logger)).rejects.toThrow(
+        new Error('cannot read memory file "About Me/Opinions.md"'),
+      )
+    },
+  )
 
   it("concatenates all memory files when no file specified", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
@@ -271,23 +275,26 @@ describe("getMemory", () => {
     )
   })
 
-  it("rejects an unreadable memory file with a vault-relative message in the named read and logs the raw error", async () => {
-    const lockedFile = join(vault, "About Me", "Opinions.md")
-    // afterEach deletes the vault, which removes a mode-000 file inside it, so
-    // the permissions need no restore.
-    await chmod(lockedFile, 0o000)
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-    onTestFinished(() => warnSpy.mockRestore())
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory file with a vault-relative message in the named read and logs the raw error",
+    async () => {
+      const lockedFile = join(vault, "About Me", "Opinions.md")
+      // afterEach deletes the vault, which removes a mode-000 file inside it, so
+      // the permissions need no restore.
+      await chmod(lockedFile, 0o000)
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
 
-    await expect(getMemory({ vaultPath: vault, file: "Opinions" }, logger)).rejects.toThrow(
-      new Error('cannot read memory file "About Me/Opinions.md"'),
-    )
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith("cannot read memory file", {
-      file: "Opinions.md",
-      error: `[Error]: EACCES: permission denied, open '${lockedFile}'`,
-    })
-  })
+      await expect(getMemory({ vaultPath: vault, file: "Opinions" }, logger)).rejects.toThrow(
+        new Error('cannot read memory file "About Me/Opinions.md"'),
+      )
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("cannot read memory file", {
+        file: "Opinions.md",
+        error: `[Error]: EACCES: permission denied, open '${lockedFile}'`,
+      })
+    },
+  )
 
   it("throws on non-existent section", async () => {
     await expect(
@@ -565,23 +572,26 @@ created: 2026-01-01T00:00:00-05:00
     expect(result).toBe("- **2026-05-15**: first entry")
   })
 
-  it("rejects an unreadable memory file with a vault-relative message", async () => {
-    // afterEach deletes the vault, which removes a mode-000 file inside it, so
-    // the permissions need no restore.
-    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
-    await expect(
-      updateMemory(
-        {
-          vaultPath: vault,
-          file: "Opinions",
-          section: "Code patterns",
-          entry: "never written",
-          date: "2026-05-15",
-        },
-        logger,
-      ),
-    ).rejects.toThrow(new Error('cannot read memory file "About Me/Opinions.md"'))
-  })
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory file with a vault-relative message",
+    async () => {
+      // afterEach deletes the vault, which removes a mode-000 file inside it, so
+      // the permissions need no restore.
+      await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+      await expect(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Opinions",
+            section: "Code patterns",
+            entry: "never written",
+            date: "2026-05-15",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('cannot read memory file "About Me/Opinions.md"'))
+    },
+  )
 
   it("leaves a symlink to a folder in place when it has the memory file's name", async () => {
     await mkdir(join(vault, "linked-folder"))
@@ -1874,15 +1884,18 @@ describe("listMemoryFiles", () => {
     expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
-  it("rejects an unreadable memory file with a vault-relative message", async () => {
-    const lockedFile = join(vault, "About Me", "Opinions.md")
-    // afterEach deletes the vault, which removes a mode-000 file inside it, so
-    // the permissions need no restore.
-    await chmod(lockedFile, 0o000)
-    await expect(listMemoryFiles({ vaultPath: vault }, logger)).rejects.toThrow(
-      new Error('cannot read memory file "About Me/Opinions.md"'),
-    )
-  })
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory file with a vault-relative message",
+    async () => {
+      const lockedFile = join(vault, "About Me", "Opinions.md")
+      // afterEach deletes the vault, which removes a mode-000 file inside it, so
+      // the permissions need no restore.
+      await chmod(lockedFile, 0o000)
+      await expect(listMemoryFiles({ vaultPath: vault }, logger)).rejects.toThrow(
+        new Error('cannot read memory file "About Me/Opinions.md"'),
+      )
+    },
+  )
 
   it("returns outlines sorted by filename", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
@@ -2123,27 +2136,30 @@ describe("listMemoryFileNames", () => {
     ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
   })
 
-  it("rejects an unreadable memory folder with a vault-relative message and logs the raw error", async () => {
-    const vaultWithLockedMemoryFolder = await mkdtemp(join(tmpdir(), "locked-memory-folder-"))
-    onTestFinished(() => rm(vaultWithLockedMemoryFolder, { recursive: true }))
-    const memoryFolder = join(vaultWithLockedMemoryFolder, "About Me")
-    await mkdir(memoryFolder)
-    await chmod(memoryFolder, 0o000)
-    // Registered after the removal so that it runs first, which makes the
-    // folder readable again before the vault is removed.
-    onTestFinished(() => chmod(memoryFolder, 0o700))
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-    onTestFinished(() => warnSpy.mockRestore())
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory folder with a vault-relative message and logs the raw error",
+    async () => {
+      const vaultWithLockedMemoryFolder = await mkdtemp(join(tmpdir(), "locked-memory-folder-"))
+      onTestFinished(() => rm(vaultWithLockedMemoryFolder, { recursive: true }))
+      const memoryFolder = join(vaultWithLockedMemoryFolder, "About Me")
+      await mkdir(memoryFolder)
+      await chmod(memoryFolder, 0o000)
+      // Registered after the removal so that it runs first, which makes the
+      // folder readable again before the vault is removed.
+      onTestFinished(() => chmod(memoryFolder, 0o700))
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
 
-    await expect(
-      listMemoryFileNames({ vaultPath: vaultWithLockedMemoryFolder }, logger),
-    ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith("cannot list memory folder", {
-      folder: "About Me",
-      error: `[Error]: EACCES: permission denied, scandir '${memoryFolder}'`,
-    })
-  })
+      await expect(
+        listMemoryFileNames({ vaultPath: vaultWithLockedMemoryFolder }, logger),
+      ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("cannot list memory folder", {
+        folder: "About Me",
+        error: `[Error]: EACCES: permission denied, scandir '${memoryFolder}'`,
+      })
+    },
+  )
 })
 
 describe("custom memoryDir", () => {
