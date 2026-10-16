@@ -523,7 +523,8 @@ const startHoldingWatcher = (
   const scheduleUnstableFileRetry = (filePath: string): void => {
     const retryTimer = setTimeout(() => {
       const indexIfSettled = async (): Promise<void> => {
-        // Ends the retries, which would otherwise poll a closed watcher's file forever.
+        // Ends the retries, which would otherwise keep polling a closed
+        // watcher's file until it settles.
         if (watcherState.mode === "closed") return
 
         const fileStat = await stat(filePath)
@@ -569,6 +570,14 @@ const startHoldingWatcher = (
     dirPath: string,
     visitedRealPaths: Set<string>,
   ): Promise<void> => {
+    // A rescan scheduled before close still fires, but a closed watcher has
+    // nothing to reconcile, and close empties getWatched, so every entry would
+    // look missed.
+    if (watcherState.mode === "closed") {
+      logger.debug("rescan skipped, watcher closed", { path: relative(vaultPath, dirPath) })
+      return
+    }
+
     // readdirOrNull lists every descendant recursively, or returns null when the
     // directory is gone. It does not enter symlinked directories; the loop
     // below rescans those.
@@ -833,8 +842,9 @@ const startHoldingWatcher = (
   }
 
   /** Ends holding and replays the events held while the batch ran: deletions
-   *  at once, then each changed path read again at the batch's bounds. Startup
-   *  does not wait for those reads, as it does not wait for later live events. */
+   *  at once, then each changed path read again at the batch's bounds unless a
+   *  later deletion or event replaced it. Startup does not wait for those
+   *  reads, as it does not wait for later live events. */
   const goLiveAndReplay = (batchPathCount: number): void => {
     // The watcher is already live only when applyHeldChanges ran twice and the
     // first batch replayed everything, and it is closed only when startup failed.
@@ -913,7 +923,7 @@ const startHoldingWatcher = (
    *    vanished by its read is removed.
    * 3. The watcher goes live, and the events held while steps 1 and 2 ran are
    *    replayed: deletions at once, then the changed paths read again in the
-   *    background.
+   *    background, except those a later deletion or event replaced.
    *
    * Never rejects, and step 3 runs even if an earlier step threw: a watcher
    * left holding would drop every later change.
