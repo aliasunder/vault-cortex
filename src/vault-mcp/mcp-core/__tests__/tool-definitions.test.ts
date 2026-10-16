@@ -2990,6 +2990,35 @@ describe("DISABLED_TOOLS", () => {
     expect(routingLine).toBe(`would be error-prone.\n${expectedLine}`)
   })
 
+  const FILESYSTEM_ENTRY_RENAME_REMEDY =
+    'a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter'
+
+  it.each([
+    {
+      label: "names vault_move_note while it is served",
+      disabledTools: "",
+      expectedRemedy: `${FILESYSTEM_ENTRY_RENAME_REMEDY} with vault_move_note.`,
+    },
+    {
+      label: "drops the tool name when vault_move_note is disabled",
+      disabledTools: "vault_move_note",
+      expectedRemedy: `${FILESYSTEM_ENTRY_RENAME_REMEDY}.`,
+    },
+  ])("the filesystem Errors entry's rename remedy $label", ({ disabledTools, expectedRemedy }) => {
+    const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
+    const renameRemedies = [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_UPDATE_TASK].map(
+      (toolName) => {
+        return extractDescriptionSection({
+          registeredCalls,
+          toolName,
+          startMarker: 'a quoted name ending in ".tmp"',
+          endMarker: " Permissions or a full",
+        })
+      },
+    )
+    expect(renameRemedies).toEqual([expectedRemedy, expectedRemedy])
+  })
+
   const FENCED_BLOCK_WARNING =
     "A span that includes a code block's opening fence can't end at a plain closing fence (```): every fragment of the closing fence also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
 

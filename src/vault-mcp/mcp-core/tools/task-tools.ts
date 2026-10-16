@@ -5,8 +5,8 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   dateFilterSchema,
+  describeFilesystemErrorEntry,
   describePropertiesBlockErrorEntry,
-  FILESYSTEM_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
 } from "./tool-helpers.js"
 import { taskMutations } from "../../vault-operations/task-mutations.js"
@@ -519,7 +519,7 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur; use a rule such as "every week" or "every 2 weeks when done"
 - "concurrent write in progress" — another write to this note is in flight; retry
-${FILESYSTEM_ERROR_ENTRY}
+${describeFilesystemErrorEntry(whenToolEnabledText("vault_move_note", " with vault_move_note"))}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 

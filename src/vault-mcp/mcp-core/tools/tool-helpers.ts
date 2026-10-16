@@ -216,9 +216,12 @@ export const OPENING_BLOCK_ERROR_ENTRY =
  *    a name at least 41 bytes shorter.
  *  - Every such tool can return these, but each lists the bullet only when
  *    its own description is next revised, because a grader re-scores every
- *    description whose text changes. */
-export const FILESYSTEM_ERROR_ENTRY =
-  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the file and the cause. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but its name is too long to save, so rename it at least 41 bytes shorter. Permissions or a full or read-only disk need the vault\'s owner'
+ *    description whose text changes.
+ *  - `renameToolClause` names the rename tool while it is served, and is
+ *    empty otherwise. */
+export const describeFilesystemErrorEntry = (renameToolClause: string): string => {
+  return `- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the file and the cause. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter${renameToolClause}. Permissions or a full or read-only disk need the vault's owner`
+}
 
 /** The Errors entry of every tool that rewrites a note, led by when the tool
  *  rewrites it for tools that do so only sometimes. The error itself carries
