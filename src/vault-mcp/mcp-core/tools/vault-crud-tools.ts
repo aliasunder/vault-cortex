@@ -972,7 +972,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines before or after a specific line identified by a short anchor substring. Case-sensitive matching; an anchor matching more than one line is an error unless first_match is set.${whenToolEnabledText("vault_delete_span", " Same anchor resolution as vault_delete_span.")} Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
+      description: `Insert content as whole lines before or after a specific line identified by a short anchor substring. Case-sensitive matching; an anchor matching more than one line is an error unless first_match is set.${whenToolEnabledText("vault_delete_span", " Same anchor resolution as vault_delete_span.")} Properties are preserved, but saving may rewrite their YAML in block style. Operates on the body only.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
