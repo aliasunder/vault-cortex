@@ -489,7 +489,7 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs three passes, then returns:
+**Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 runs in the background:
 
 1. **Pass 1** — index notes (FTS5 + metadata)
 2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
@@ -502,7 +502,7 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 3. One batch checks each held path against the disk, 16 at a time. Paths gone from disk are removed first, then the rest are read again.
 4. The watcher goes live and replays, in arrival order, the changes reported while the batch ran.
 
-The server starts accepting requests once the step 3 batch commits, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background.
+The server starts accepting requests once the step 3 batch commits and step 4 starts its replay, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background.
 
 A file that is created after step 1 and deleted within chokidar's 2 s write-stability window emits no event, so if the rebuild read it, it stays searchable until the next restart.
 
@@ -938,7 +938,7 @@ graph LR
    doesn't exist, `MEMORY_ENABLED` is not `false`, and the server is not in
    `READONLY_MODE`, starts the file watcher, builds the FTS5 search index
    including those templates, then applies the changes the watcher saw while
-   the index was built (see [Startup order](#indexing)).
+   the index was built (see **Startup order** under [Indexing](#indexing)).
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after the full init chain has finished and the sync

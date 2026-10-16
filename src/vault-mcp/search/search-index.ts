@@ -2078,10 +2078,12 @@ export const createSearchIndex = (
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
    * Returns the note count and a background embedding promise.
-   * - No source write may run while it does: a write that lands during its reads is
-   *   replaced by the older content it read.
-   * - The file watcher is the only runtime source writer, and watchVaultAndBuildIndex
-   *   holds it until this returns; a new runtime writer must go through that hold. */
+   * - No source write may run while it does. A source write is an upsert or remove call
+   *   that changes the tables this clears; one that lands during its reads is replaced by
+   *   the older content it read.
+   * - The file watcher is the only caller that makes source writes at runtime, and
+   *   watchVaultAndBuildIndex holds it until this returns; a new runtime caller must go
+   *   through that hold. */
   const rebuildFromVault = async (
     params: { vaultPath: string },
     logger: Logger,
