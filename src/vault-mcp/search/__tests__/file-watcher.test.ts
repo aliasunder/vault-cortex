@@ -183,7 +183,10 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     // must not upsert (without the guard, reading .size off null would throw
     // inside the watcher callback).
     await waitFor(() => upsertNonMdFileSpy.mock.calls.length > 0)
-    expect(upsertNonMdFileSpy.mock.calls.map(([path]) => path)).toEqual(["kept.png"])
+    expect(upsertNonMdFileSpy).toHaveBeenCalledExactlyOnceWith(
+      "kept.png",
+      Buffer.byteLength("here"),
+    )
   })
 
   it("ignores hidden directories", { timeout: 15000 }, async () => {
@@ -1944,6 +1947,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
       return actualFs.readFile(asFoundOnDisk(requestedPath), options)
     })
+    // gateFirstRead's cleanup restores readFile.
     onTestFinished(() => vi.mocked(stat).mockRestore())
     await fire("change", "note.md")
     await fire("unlink", "note.md")
@@ -2003,6 +2007,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       }
       return actualFs.readFile(asFoundOnDisk(requestedPath), options)
     })
+    // gateFirstRead's cleanup restores readFile.
     onTestFinished(() => vi.mocked(stat).mockRestore())
     for (const blockerName of blockerNames) {
       await fire("change", blockerName)
@@ -2609,45 +2614,66 @@ describe("file watcher — chokidar watch options", () => {
     return watcher
   }
 
-  /** Starts the watcher with the given FileWatcherOptions (chokidar.watch stubbed
-   *  for this one test) and returns the options object chokidar.watch was called
-   *  with. mockRestore (via onTestFinished) hands the real, spied watch back to
-   *  the integration tests. */
-  const chokidarOptionsFrom = async (
+  /** Starts the watcher with the given FileWatcherOptions, with chokidar.watch
+   *  stubbed for this one test. mockRestore (via onTestFinished) hands the
+   *  real, spied watch back to the integration tests. */
+  const startWatcherWithStubbedChokidar = async (
     watcherOptions?: Parameters<typeof watchVaultAndBuildIndex>[2],
-  ): Promise<Record<string, unknown>> => {
+  ): Promise<void> => {
     const watchMock = vi.mocked(watch)
     watchMock.mockReset()
     watchMock.mockImplementation(() => createFakeWatcher() as unknown as ReturnType<typeof watch>)
     onTestFinished(() => watchMock.mockRestore())
     await startWatcherWithoutRebuild("/vault", index, watcherOptions)
-    expect(watchMock).toHaveBeenCalledTimes(1)
-    return watchMock.mock.calls[0]?.[1] as Record<string, unknown>
   }
 
+  // The options every watcher passes chokidar. The whole object is asserted,
+  // so an interval key passed without polling fails the match.
+  const sharedChokidarOptions = {
+    ignored: expect.any(Function),
+    persistent: true,
+    ignoreInitial: true,
+  }
+  const defaultWriteFinish = { stabilityThreshold: 2000, pollInterval: 100 }
+
   it("defaults to native events (usePolling false) with no interval when unset", async () => {
-    const chokidarOptions = await chokidarOptionsFrom()
-    expect(chokidarOptions.usePolling).toBe(false)
-    expect("interval" in chokidarOptions).toBe(false)
+    await startWatcherWithStubbedChokidar()
+
+    expect(vi.mocked(watch)).toHaveBeenCalledExactlyOnceWith("/vault", {
+      ...sharedChokidarOptions,
+      usePolling: false,
+      awaitWriteFinish: defaultWriteFinish,
+    })
   })
 
   it("omits interval when usePolling is false", async () => {
-    const chokidarOptions = await chokidarOptionsFrom({ usePolling: false })
-    expect(chokidarOptions.usePolling).toBe(false)
-    expect("interval" in chokidarOptions).toBe(false)
+    await startWatcherWithStubbedChokidar({ usePolling: false })
+
+    expect(vi.mocked(watch)).toHaveBeenCalledExactlyOnceWith("/vault", {
+      ...sharedChokidarOptions,
+      usePolling: false,
+      awaitWriteFinish: defaultWriteFinish,
+    })
   })
 
   it("passes interval (300ms) only when usePolling is true", async () => {
-    const chokidarOptions = await chokidarOptionsFrom({ usePolling: true })
-    expect(chokidarOptions.usePolling).toBe(true)
-    expect(chokidarOptions.interval).toBe(300)
+    await startWatcherWithStubbedChokidar({ usePolling: true })
+
+    expect(vi.mocked(watch)).toHaveBeenCalledExactlyOnceWith("/vault", {
+      ...sharedChokidarOptions,
+      usePolling: true,
+      interval: 300,
+      awaitWriteFinish: defaultWriteFinish,
+    })
   })
 
   it("defaults awaitWriteFinish to 2000ms stability and 100ms poll interval", async () => {
-    const chokidarOptions = await chokidarOptionsFrom()
-    expect(chokidarOptions.awaitWriteFinish).toEqual({
-      stabilityThreshold: 2000,
-      pollInterval: 100,
+    await startWatcherWithStubbedChokidar()
+
+    expect(vi.mocked(watch)).toHaveBeenCalledExactlyOnceWith("/vault", {
+      ...sharedChokidarOptions,
+      usePolling: false,
+      awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 100 },
     })
   })
 })
