@@ -21,7 +21,12 @@ export const registerSearchTools = ({
   // vault_search description variants share them
   const searchSyntaxText = `Combine a text query with structured filters to narrow results by metadata. Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.`
 
-  const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query:
+  // File content has no properties or dates, so the file legs are skipped
+  // whenever a filter other than folder is set
+  const fileResultsFilterText = config.fileToolsEnabled
+    ? "; any filter but folder limits results to notes"
+    : ""
+  const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${fileResultsFilterText}:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
@@ -51,7 +56,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
-- "… is not a calendar date" — the bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
+- "… is not a calendar date" — a created/modified bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name`
 
   registerTool(
@@ -84,7 +89,7 @@ ${searchAlternativesLine}
 
 ${searchErrorsSection}
 
-Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). ${searchResultDetailsText}`,
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). A higher score is more relevant. ${searchResultDetailsText}`,
       inputSchema: {
         query: z.string().min(1).describe("Search query text"),
         filters: z
@@ -599,7 +604,7 @@ Errors:
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes (vault-relative paths embedded in the canvas), not links inside text cards. Links inside code blocks are ignored; self-links are included.
+      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes (vault-relative paths embedded in the canvas), not links inside text cards. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
@@ -608,7 +613,7 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 For incoming links (what links TO a note), use vault_get_backlinks.
 
 Parameters:
-- path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
+- path: matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
 Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"). When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on broken links into the vault's daily notes folder, false otherwise — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 

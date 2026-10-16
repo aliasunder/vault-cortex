@@ -2980,10 +2980,10 @@ describe("DISABLED_TOOLS", () => {
     const routingLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
-      startMarker: "the last line for end_anchor.\n",
+      startMarker: "would be error-prone.\n",
       endMarker: "\n\nParameters:",
     })
-    expect(routingLine).toBe(`the last line for end_anchor.\n${expectedLine}`)
+    expect(routingLine).toBe(`would be error-prone.\n${expectedLine}`)
   })
 
   const FENCED_BLOCK_WARNING =
@@ -3481,7 +3481,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const REPLACE_SPAN_WHEN_TO_USE =
-    "When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor."
+    "When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone."
   const INSERT_AT_ANCHOR_WHEN_TO_USE =
     "When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line."
 

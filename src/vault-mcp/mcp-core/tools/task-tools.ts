@@ -6,6 +6,7 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   dateFilterSchema,
   describePropertiesBlockErrorEntry,
+  FILESYSTEM_ERROR_ENTRIES,
   OPENING_BLOCK_ERROR_ENTRY,
 } from "./tool-helpers.js"
 import { taskMutations } from "../../vault-operations/task-mutations.js"
@@ -487,7 +488,7 @@ Parameters:
   Delete (🏁 delete / [onCompletion:: delete]), on "done": removes the task line and its children instead of moving to done. With 🔁 + 🏁, the spawn is created first, then the completed task is removed. Result carries on_completion_applied: "delete".
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the spawn. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
-- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, a moved task lands at the top and an unmoved one stays put. Ignored when the task is deleted on completion. Not valid on sub-tasks.
+- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, an unmoved task stays put. Ignored when the task is deleted on completion. Not valid on sub-tasks.
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}
@@ -518,6 +519,7 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur; use a rule such as "every week" or "every 2 weeks when done"
 - "concurrent write in progress" — another write to this note is in flight; retry
+${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
