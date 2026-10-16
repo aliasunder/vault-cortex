@@ -22,8 +22,8 @@ type DailyNotesConfig = {
   format: string
   /** The folder when it holds daily notes apart from other notes, for the
    *  delete guard, orphan exclusion and forward-reference counts. Null when
-   *  daily notes sit in the vault root or Obsidian's new-note folder, since
-   *  treating those as daily-only would cover every other note there too. */
+   *  the setting is the vault root or blank (Obsidian's new-note folder),
+   *  since treating those as daily-only would cover every other note there. */
   dedicatedFolder: string | null
 }
 
@@ -110,8 +110,8 @@ const resolveDedicatedFolder = (folderSetting: DailyNotesFolderSetting): string 
 
 /** Reads the daily notes folder the delete and move guard protects, from
  *  .obsidian/daily-notes.json.
- *  - Returns "Daily Notes" when the file is missing, and null when daily
- *    notes sit in the vault root or Obsidian's new-note folder.
+ *  - Returns "Daily Notes" when the file is missing, and null when its
+ *    folder is the vault root or blank.
  *  - Throws when the file exists but cannot be read or parsed. */
 export const readProtectedDailyNotesFolder = async (
   vaultPath: string,

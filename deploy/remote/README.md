@@ -550,11 +550,19 @@ that file when settings syncing is turned on in two places:
 
 Some community plugins keep API keys in their settings. Server tools never
 read `.obsidian/`, and the server itself opens only the two config files
-above — synced settings otherwise just sit in the config volume.
+above, plus `app.json` when the `app` category is synced — synced settings
+otherwise just sit in the config volume.
 
 If you turn on **Core plugin settings** syncing after the server is
 already running, `daily-notes.json` is picked up automatically once it
 lands; no restart needed.
+
+If the folder box in Obsidian's Daily notes options is empty, Obsidian puts
+daily notes where **Default location for new notes** says, a setting stored
+in `.obsidian/app.json`. The default `SYNC_CONFIGS` leaves that file out, so
+the server then looks in the vault root. If your new notes go to a set
+folder, add `app` to `SYNC_CONFIGS` and turn on **Main settings** under
+Vault configuration sync, or set `DAILY_NOTES_FOLDER` as described below.
 
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any

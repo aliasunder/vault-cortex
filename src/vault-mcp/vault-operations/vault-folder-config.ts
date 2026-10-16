@@ -9,9 +9,9 @@ import { readDailyNotesConfig, readProtectedDailyNotesFolder } from "./daily-not
  *    plus the daily notes folder, resolved on each call (DAILY_NOTES_FOLDER →
  *    .obsidian/daily-notes.json → "Daily Notes") so a folder configured only
  *    in the vault is protected too.
- *  - Daily notes kept in the vault root or Obsidian's new-note folder are not
- *    protected, since protecting either folder would cover every other note
- *    in it.
+ *  - A daily-notes.json folder that is the vault root or blank (Obsidian's
+ *    new-note folder) protects no daily folder, since protecting either
+ *    would cover every other note in it.
  *  Throws when daily-notes.json exists but cannot be read, since the folder
  *  it names is then unknown; DAILY_NOTES_FOLDER or PROTECTED_PATHS bypasses
  *  the file. */
@@ -37,7 +37,7 @@ export const resolveEffectiveOrphanExcludeFolders = ({
 }: {
   orphanExcludeFoldersOverride: readonly string[] | null
   memoryDir: string
-  /** Null when daily notes share the vault root or the new-note folder with other notes. */
+  /** Null when the daily folder setting is the vault root or blank. */
   dailyNotesFolder: string | null
 }): readonly string[] => {
   if (orphanExcludeFoldersOverride) return orphanExcludeFoldersOverride
