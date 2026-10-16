@@ -710,7 +710,8 @@ which are the description and the input schema with each parameter's Zod
   keeps its remedy.** Messages that share a remedy share one bullet,
   which lists only the messages that tool can raise: for example
   `"absolute path blocked"`, `"path traversal blocked"`, and
-  `"hidden path blocked"`.
+  `"hidden path blocked"`. Errors of one class with short remedies may
+  share a grouped bullet that names each remedy.
 - **Split parameter facts between `.describe()` and the tool description.**
   The calling model receives each parameter's Zod `.describe()` text
   inside the input schema, so the tool description earns its space
