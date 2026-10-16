@@ -8,7 +8,7 @@ import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import type { Stats } from "node:fs"
 import { basename, dirname, extname, join, relative, resolve as resolvePath } from "node:path"
-import { INDEXABLE_TEXT_EXTENSIONS } from "./search-index.js"
+import { INDEXABLE_TEXT_EXTENSIONS, INDEXING_FILE_READ_CONCURRENCY } from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { logger } from "../../logger.js"
@@ -32,11 +32,6 @@ const DEFAULT_STABILITY_THRESHOLD_MS = 2000
  *  listen inside it. Without a deadline, a Sync backlog arriving during startup
  *  could keep the server from listening past the CLI's 120 s health wait. */
 const DEFAULT_HELD_CHANGES_DEADLINE_MS = 10_000
-
-/** Paths the startup batch checks and reads at once. It matches the rebuild's
- *  REBUILD_IO_CONCURRENCY in search-index.ts, so the batch opens no more files
- *  at once than the rebuild did. */
-const HELD_CHANGES_CONCURRENCY = 16
 
 type FileWatcherOptions = Readonly<{
   /** ms a file's size must stay unchanged before we index it (default 2000).
@@ -391,14 +386,19 @@ const startHoldingWatcher = (
     currentEvents.delete(relativePath)
 
     if (!filePath.endsWith(".md")) {
-      try {
-        search.removeNonMdFile(relativePath)
-      } catch (error) {
-        logger.error("failed to remove non-md file metadata", {
-          path: relativePath,
-          error: describeError(error),
-        })
+      const removeAssetRow = (): boolean => {
+        try {
+          search.removeNonMdFile(relativePath)
+          return true
+        } catch (error) {
+          logger.error("failed to remove non-md file metadata", {
+            path: relativePath,
+            error: describeError(error),
+          })
+          return false
+        }
       }
+      const assetRowRemoved = removeAssetRow()
 
       // The content rows live in their own tables, so they are removed even
       // when the asset-table removal above failed.
@@ -418,7 +418,8 @@ const startHoldingWatcher = (
           return
         }
       }
-      logger.debug("processed non-md file removal", { path: relativePath })
+      // Reported only when every removal succeeded; a failure logged its own error.
+      if (assetRowRemoved) logger.debug("processed non-md file removal", { path: relativePath })
       return
     }
 
@@ -780,7 +781,7 @@ const startHoldingWatcher = (
 
     const presenceChecks = await mapWithConcurrency({
       items: batchPaths,
-      concurrency: HELD_CHANGES_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: async (filePath) => {
         return { filePath, presence: await checkHeldPathOnDisk(filePath, listFolderOnce) }
       },
@@ -801,7 +802,7 @@ const startHoldingWatcher = (
 
     await mapWithConcurrency({
       items: pathsToRead,
-      concurrency: HELD_CHANGES_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: indexHeldPath,
     })
   }
@@ -810,7 +811,7 @@ const startHoldingWatcher = (
    * Brings the index up to date with the held paths, in one batch, then goes live:
    *
    * 1. Each path is checked against the disk, and missing ones are removed.
-   * 2. The rest are read and indexed, HELD_CHANGES_CONCURRENCY at a time; one
+   * 2. The rest are read and indexed, INDEXING_FILE_READ_CONCURRENCY at a time; one
    *    that vanished by its read is removed.
    * 3. Events held while steps 1 and 2 ran are replayed live.
    *

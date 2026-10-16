@@ -39,6 +39,11 @@ import { hybridSearch } from "./hybrid-search.js"
 
 // ── File content indexing constants ─────────────────────────────
 
+/** Files read at once while indexing from disk, by the startup rebuild and by
+ *  the file watcher's startup batch, so a large vault cannot open every file
+ *  at once. */
+export const INDEXING_FILE_READ_CONCURRENCY = 16
+
 /** Extensions whose content is indexed into file_content_fts for vault_search.
  *  Excludes .canvas (own path with link extraction) and .md (notes_fts). */
 export const INDEXABLE_TEXT_EXTENSIONS = new Set([
@@ -2183,11 +2188,9 @@ export const createSearchIndex = (
         return null
       }
     }
-    /** Bound filesystem work so a large vault cannot open every file at once. */
-    const REBUILD_IO_CONCURRENCY = 16
     const nonMarkdownFileSizeResults = await mapWithConcurrency({
       items: allNonMdFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: readFileSize,
     })
     const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
@@ -2232,7 +2235,7 @@ export const createSearchIndex = (
     }
     const canvasContentResults = await mapWithConcurrency({
       items: canvasFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "canvas file" }),
     })
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
@@ -2279,14 +2282,14 @@ export const createSearchIndex = (
     // Read text files for content indexing (raw UTF-8).
     const textFileContentResults = await mapWithConcurrency({
       items: textFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "text file" }),
     })
     const textFileContents = textFileContentResults.filter((entry) => entry !== null)
 
     const noteContentResults = await mapWithConcurrency({
       items: markdownFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "note" }),
     })
     const noteContents = noteContentResults.filter((entry) => entry !== null)
