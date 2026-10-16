@@ -27,14 +27,15 @@ const POLLING_INTERVAL_MS = 300
 /** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
 const DEFAULT_STABILITY_THRESHOLD_MS = 2000
 
-/** Default for FileWatcherOptions.heldChangesDeadline. It sits inside the local
- *  compose health check's 20 s start period. A batch that runs longer means
- *  Sync is delivering a backlog during startup, which search lags anyway, and
- *  the CLI stops waiting for health after 120 s. */
+/** Default for FileWatcherOptions.heldChangesDeadline. The local compose health
+ *  check's 20 s start period sets the bound: 10 s leaves the server time to
+ *  listen inside it. Without a deadline, a Sync backlog arriving during startup
+ *  could keep the server from listening past the CLI's 120 s health wait. */
 const DEFAULT_HELD_CHANGES_DEADLINE_MS = 10_000
 
-/** Paths the startup batch checks and reads at once: the rebuild's own file
- *  concurrency, so a large batch cannot open every file at once. */
+/** Paths the startup batch checks and reads at once. It matches the rebuild's
+ *  REBUILD_IO_CONCURRENCY in search-index.ts, so the batch opens no more files
+ *  at once than the rebuild did. */
 const HELD_CHANGES_CONCURRENCY = 16
 
 type FileWatcherOptions = Readonly<{
@@ -58,16 +59,26 @@ type FileWatcherOptions = Readonly<{
 }>
 
 /** A change chokidar reported while the watcher held it. `add` and `change`
- *  both record "change", since either means "read this path again". */
+ *  both record "change", since either means "read this path again". Only the
+ *  replay of events that arrive during the startup batch uses `kind`; the batch
+ *  itself checks each path against the disk instead. */
 type HeldEvent = Readonly<{ kind: "change" | "unlink"; filePath: string }>
+
+/** While holding, chokidar's events are recorded in arrival order instead of
+ *  applied; once live, each event is applied as it arrives. */
+type WatcherState = { mode: "holding"; heldEvents: HeldEvent[] } | { mode: "live" }
 
 /** What indexing one changed file did. A note's embedding is still running when
  *  this returns, so whoever receives `note-indexed` reports its failure. */
 type ChangeIndexResult =
   | { status: "note-indexed"; embedding: Promise<void> }
   | { status: "file-indexed" }
+  // The file was gone when read.
   | { status: "vanished" }
+  // A newer event or a removal for the same path arrived during the read, so
+  // this read's content was dropped.
   | { status: "superseded" }
+  // A read, stat, extraction or index write failed; already logged.
   | { status: "failed" }
 
 /** Whether a held path names a file on disk. "unknown" leaves the path to its
@@ -97,199 +108,239 @@ const startHoldingWatcher = (
   search: SearchIndex,
   options?: FileWatcherOptions,
 ): HoldingWatcher => {
-  // Serializing per path limits model concurrency; source versions reject
-  // obsolete results independently of the order jobs finish.
+  // Each path's latest embedding job. A new job for the path waits for this one,
+  // so a note edited many times runs one model job at a time. A job that still
+  // finishes after a newer edit writes nothing: the index checks the source
+  // version the job carries (the token upsertNote or upsertFileContent returned
+  // for the content it embeds) against the path's current one.
   const pendingEmbeds = new Map<string, Promise<void>>()
 
-  /** Event tokens reject superseded filesystem reads until their handler finishes.
-   *  Source versions belong to the index and protect model work after the handler returns. */
+  /** Each path's event token. indexChangedFile stores a fresh token before it
+   *  reads the file and drops what it read if the token changed meanwhile,
+   *  because a newer event or a removal replaced it. The token guards only the
+   *  read; source versions guard the embedding that runs after it. */
   const currentEvents = new Map<string, symbol>()
 
-  /** Each held event's path and kind in arrival order, or undefined once the
-   *  watcher is live. Reassigned twice: the startup batch takes the list and
-   *  starts a new one, and going live ends holding. */
-  let heldEvents: HeldEvent[] | undefined = []
+  // Reassigned twice, so `let`: the startup batch swaps in a new held list for
+  // events that arrive while it runs, and going live ends holding.
+  let watcherState: WatcherState = { mode: "holding", heldEvents: [] }
 
-  /** Indexes an added or modified file: non-md files land in the asset table;
-   *  notes are read from disk and upserted into the FTS index, and their
-   *  re-embedding is queued (serialized per path via pendingEmbeds). */
-  const indexChangedFile = async (filePath: string): Promise<ChangeIndexResult> => {
-    const relativePath = relative(vaultPath, filePath)
-    const eventToken = Symbol()
-    currentEvents.set(relativePath, eventToken)
+  /** Indexes an added or modified non-md file: its asset-table row, plus its
+   *  content when it is a canvas or an indexable text or PDF file. */
+  const indexChangedNonMdFile = async (params: {
+    filePath: string
+    relativePath: string
+    eventToken: symbol
+  }): Promise<ChangeIndexResult> => {
+    const { filePath, relativePath, eventToken } = params
 
-    try {
-      if (!filePath.endsWith(".md")) {
-        const readNonMdFileStat = async (): Promise<
-          { status: "found"; fileStat: Stats } | { status: "missing" } | { status: "failed" }
-        > => {
-          try {
-            const fileStat = await statOrNull(filePath)
-            return fileStat ? { status: "found", fileStat } : { status: "missing" }
-          } catch (error) {
-            logger.error("failed to stat non-md file", {
-              path: relativePath,
-              error: describeError(error),
-            })
-            return { status: "failed" }
-          }
-        }
-        const nonMdStat = await readNonMdFileStat()
-
-        if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
-        // Vanished between the watcher event and the stat — the unlink event
-        // that follows will remove any existing row.
-        if (nonMdStat.status === "missing") return { status: "vanished" }
-        if (nonMdStat.status === "failed") return { status: "failed" }
-
-        const { fileStat } = nonMdStat
-
-        try {
-          search.upsertNonMdFile(relativePath, fileStat.size)
-        } catch (error) {
-          logger.error("failed to index non-md file metadata", {
-            path: relativePath,
-            error: describeError(error),
-          })
-          return { status: "failed" }
-        }
-
-        // Canvas files are always read — link extraction is unconditional.
-        // PDF and text files are only read when file content FTS is enabled.
-        const extension = extname(filePath)
-        const isCanvas = extension === ".canvas"
-        const isIndexableNonCanvas =
-          search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
-
-        if (isCanvas || isIndexableNonCanvas) {
-          try {
-            const readContentToIndex = async (): Promise<string> => {
-              if (extension !== ".pdf") return await readFile(filePath, "utf8")
-
-              const buffer = await readFile(filePath)
-              const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-              const pdfResult = await extractPdfText(pdfData)
-              return pdfResult.text
-            }
-            const contentToIndex = await readContentToIndex()
-
-            if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
-
-            const sourceVersion = search.upsertFileContent(
-              {
-                filePath: relativePath,
-                rawContent: contentToIndex,
-                fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
-              },
-              logger,
-            )
-
-            // Embed file content vectors — serialized per path via the same
-            // pendingEmbeds map (note paths end in .md, file paths don't).
-            // Reads the processed content from the file_content table.
-            const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
-            const currentEmbed = previousEmbed
-              .catch((previousError) => {
-                logger.debug("previous file embed failed, proceeding with current", {
-                  path: relativePath,
-                  error: describeError(previousError),
-                })
-              })
-              .then(() => {
-                return search.embedFileContent({ filePath: relativePath, sourceVersion }, logger)
-              })
-            pendingEmbeds.set(relativePath, currentEmbed)
-
-            /** This detached job owns its error reporting and queue cleanup after the
-             *  file handler returns; an older job must leave a newer queued job registered. */
-            currentEmbed
-              .catch((embedError) => {
-                logger.error("file content embedding failed", {
-                  path: relativePath,
-                  error: describeError(embedError),
-                })
-              })
-              .finally(() => {
-                if (pendingEmbeds.get(relativePath) === currentEmbed) {
-                  pendingEmbeds.delete(relativePath)
-                }
-              })
-          } catch (error) {
-            // A PDF reader that failed to start arrives wrapped; the cause holds why
-            logger.warn("file content indexing failed", {
-              path: relativePath,
-              ...describeErrorForLog(error),
-            })
-          }
-        }
-
-        logger.debug("indexed non-md file", { path: relativePath })
-        return { status: "file-indexed" }
-      }
-
+    const readNonMdFileStat = async (): Promise<
+      { status: "found"; fileStat: Stats } | { status: "missing" } | { status: "failed" }
+    > => {
       try {
-        const readNoteSource = async (): Promise<{ content: string; fileStat: Stats } | null> => {
-          try {
-            const [content, fileStat] = await Promise.all([
-              readFile(filePath, "utf8"),
-              stat(filePath),
-            ])
-            return { content, fileStat }
-          } catch (error) {
-            if (!isErrnoException(error, "ENOENT")) throw error
+        const fileStat = await statOrNull(filePath)
+        return fileStat ? { status: "found", fileStat } : { status: "missing" }
+      } catch (error) {
+        logger.error("failed to stat non-md file", {
+          path: relativePath,
+          error: describeError(error),
+        })
+        return { status: "failed" }
+      }
+    }
+    const nonMdStat = await readNonMdFileStat()
 
-            logger.debug("change event skipped, file vanished", { path: relativePath })
-            return null
-          }
+    if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+    // Vanished between the event and the stat. Live, the unlink event that
+    // follows removes any existing row; the startup batch removes it itself.
+    if (nonMdStat.status === "missing") return { status: "vanished" }
+    if (nonMdStat.status === "failed") return { status: "failed" }
+
+    const { fileStat } = nonMdStat
+
+    // Nothing is awaited between the token check above and this write, so it
+    // cannot be superseded; only the content read below needs a second check.
+    try {
+      search.upsertNonMdFile(relativePath, fileStat.size)
+    } catch (error) {
+      logger.error("failed to index non-md file metadata", {
+        path: relativePath,
+        error: describeError(error),
+      })
+      return { status: "failed" }
+    }
+
+    // Canvas files are always read — link extraction is unconditional.
+    // PDF and text files are only read when file content FTS is enabled.
+    const extension = extname(filePath)
+    const isCanvas = extension === ".canvas"
+    const isIndexableNonCanvas =
+      search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+
+    if (isCanvas || isIndexableNonCanvas) {
+      try {
+        const readContentToIndex = async (): Promise<string> => {
+          if (extension !== ".pdf") return await readFile(filePath, "utf8")
+
+          const buffer = await readFile(filePath)
+          const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+          const pdfResult = await extractPdfText(pdfData)
+          return pdfResult.text
         }
-        const noteSource = await readNoteSource()
+        const contentToIndex = await readContentToIndex()
 
         if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
-        if (!noteSource) return { status: "vanished" }
 
-        const { content, fileStat } = noteSource
-
-        const sourceVersion = search.upsertNote(
+        const sourceVersion = search.upsertFileContent(
           {
             filePath: relativePath,
-            rawContent: content,
+            rawContent: contentToIndex,
             fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
           },
           logger,
         )
-        // Each path queues model work; recovering a rejected predecessor
-        // allows later jobs to run after a transient failure.
+
+        // Embed file content vectors — serialized per path via the same
+        // pendingEmbeds map (note paths end in .md, file paths don't).
+        // Reads the processed content from the file_content table.
         const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
         const currentEmbed = previousEmbed
           .catch((previousError) => {
-            logger.debug("previous embed failed, proceeding with current", {
+            logger.debug("previous file embed failed, proceeding with current", {
               path: relativePath,
               error: describeError(previousError),
             })
           })
           .then(() => {
-            return search.embedNote(
-              { notePath: relativePath, rawContent: content, sourceVersion },
-              logger,
-            )
+            return search.embedFileContent({ filePath: relativePath, sourceVersion }, logger)
           })
         pendingEmbeds.set(relativePath, currentEmbed)
 
-        /** The receiver of this result reports the job's failures. Hand over the
-         *  cleanup promise, so its rejection is the one handled and newer queued jobs remain registered. */
-        const embedding = currentEmbed.finally(() => {
-          if (pendingEmbeds.get(relativePath) === currentEmbed) {
-            pendingEmbeds.delete(relativePath)
-          }
-        })
-        return { status: "note-indexed", embedding }
-      } catch (err) {
-        logger.error("failed to process file change", {
+        // Unlike a note's, this embedding is not returned: neither the live
+        // handler nor the startup batch waits on file-content model work. So
+        // the job reports its own failure and removes its own queue entry,
+        // leaving a newer queued job registered.
+        currentEmbed
+          .catch((embedError) => {
+            logger.error("file content embedding failed", {
+              path: relativePath,
+              error: describeError(embedError),
+            })
+          })
+          .finally(() => {
+            if (pendingEmbeds.get(relativePath) === currentEmbed) {
+              pendingEmbeds.delete(relativePath)
+            }
+          })
+      } catch (error) {
+        // Warn, as the rebuild does for an unreadable file: the asset-table row
+        // above is indexed, so only the file's content search is missing.
+        // describeErrorForLog keeps the cause, because a PDF reader that
+        // failed to start arrives wrapped.
+        logger.warn("file content indexing failed", {
           path: relativePath,
-          error: describeError(err),
+          ...describeErrorForLog(error),
         })
-        return { status: "failed" }
       }
+    }
+
+    logger.debug("indexed non-md file", { path: relativePath })
+    return { status: "file-indexed" }
+  }
+
+  /** Indexes an added or modified note and queues its re-embedding. The
+   *  embedding is returned unawaited, so the caller decides whether to wait. */
+  const indexChangedNote = async (params: {
+    filePath: string
+    relativePath: string
+    eventToken: symbol
+  }): Promise<ChangeIndexResult> => {
+    const { filePath, relativePath, eventToken } = params
+
+    try {
+      const readNoteSource = async (): Promise<{ content: string; fileStat: Stats } | null> => {
+        try {
+          const [content, fileStat] = await Promise.all([
+            readFile(filePath, "utf8"),
+            stat(filePath),
+          ])
+          return { content, fileStat }
+        } catch (error) {
+          if (!isErrnoException(error, "ENOENT")) throw error
+
+          logger.debug("change event skipped, file vanished", { path: relativePath })
+          return null
+        }
+      }
+      const noteSource = await readNoteSource()
+
+      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      if (!noteSource) return { status: "vanished" }
+
+      const { content, fileStat } = noteSource
+
+      const sourceVersion = search.upsertNote(
+        {
+          filePath: relativePath,
+          rawContent: content,
+          fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+        },
+        logger,
+      )
+
+      // Each path queues model work; recovering a rejected predecessor
+      // allows later jobs to run after a transient failure.
+      const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
+      const currentEmbed = previousEmbed
+        .catch((previousError) => {
+          logger.debug("previous embed failed, proceeding with current", {
+            path: relativePath,
+            error: describeError(previousError),
+          })
+        })
+        .then(() => {
+          return search.embedNote(
+            { notePath: relativePath, rawContent: content, sourceVersion },
+            logger,
+          )
+        })
+      pendingEmbeds.set(relativePath, currentEmbed)
+
+      // The caller reports the job's failure, so it receives the promise with
+      // the queue cleanup attached rather than currentEmbed: `.finally` passes
+      // a rejection through, and a cleanup promise nobody received would reject
+      // unhandled. The cleanup leaves a newer queued job registered.
+      const embedding = currentEmbed.finally(() => {
+        if (pendingEmbeds.get(relativePath) === currentEmbed) {
+          pendingEmbeds.delete(relativePath)
+        }
+      })
+      return { status: "note-indexed", embedding }
+    } catch (err) {
+      logger.error("failed to process file change", {
+        path: relativePath,
+        error: describeError(err),
+      })
+      return { status: "failed" }
+    }
+  }
+
+  /** Indexes an added or modified file and reports what it did. */
+  const indexChangedFile = async (filePath: string): Promise<ChangeIndexResult> => {
+    const relativePath = relative(vaultPath, filePath)
+
+    // Taken before the first await, so events take their tokens in the order
+    // their handlers start. goLiveAndReplay relies on this: a replayed event
+    // must take its token before a newer live event for the same path does.
+    const eventToken = Symbol()
+    currentEvents.set(relativePath, eventToken)
+
+    const indexParams = { filePath, relativePath, eventToken }
+
+    // Awaited inside the try, so the token is released only once indexing ends.
+    try {
+      if (filePath.endsWith(".md")) return await indexChangedNote(indexParams)
+      return await indexChangedNonMdFile(indexParams)
     } finally {
       // A newer handler may already have finished and removed its entry.
       // Only the current event owns cleanup; absence still invalidates old reads.
@@ -311,16 +362,18 @@ const startHoldingWatcher = (
   /** chokidar's add and change listener. While the watcher holds, it records
    *  the path for applyHeldChanges instead of indexing it. */
   const handleChange = async (filePath: string): Promise<void> => {
-    if (heldEvents) {
-      heldEvents.push({ kind: "change", filePath })
+    if (watcherState.mode === "holding") {
+      watcherState.heldEvents.push({ kind: "change", filePath })
       logger.debug("held a change until startup indexing ends", {
         path: relative(vaultPath, filePath),
       })
       return
     }
+
     const indexResult = await indexChangedFile(filePath)
 
     if (indexResult.status !== "note-indexed") return
+
     try {
       await indexResult.embedding
     } catch (error) {
@@ -332,6 +385,9 @@ const startHoldingWatcher = (
    *  files, the note tables (FTS, links, tasks, vectors) for notes. */
   const removeFromIndex = (filePath: string): void => {
     const relativePath = relative(vaultPath, filePath)
+
+    // Dropping the path's token makes a read still in flight for it return
+    // "superseded", so that read cannot re-add the file removed here.
     currentEvents.delete(relativePath)
 
     if (!filePath.endsWith(".md")) {
@@ -343,6 +399,9 @@ const startHoldingWatcher = (
           error: describeError(error),
         })
       }
+
+      // The content rows live in their own tables, so they are removed even
+      // when the asset-table removal above failed.
       const deletedExtension = extname(filePath)
       const isDeletedCanvas = deletedExtension === ".canvas"
       const isDeletedIndexable =
@@ -378,8 +437,8 @@ const startHoldingWatcher = (
   /** chokidar's unlink listener. While the watcher holds, it records the path
    *  for applyHeldChanges instead of removing it. */
   const handleDelete = (filePath: string): void => {
-    if (heldEvents) {
-      heldEvents.push({ kind: "unlink", filePath })
+    if (watcherState.mode === "holding") {
+      watcherState.heldEvents.push({ kind: "unlink", filePath })
       logger.debug("held a deletion until startup indexing ends", {
         path: relative(vaultPath, filePath),
       })
@@ -440,6 +499,9 @@ const startHoldingWatcher = (
       const indexIfSettled = async (): Promise<void> => {
         const fileStat = await stat(filePath)
 
+        // A file still being written is checked again after another window.
+        // The retries have no limit, since a file that keeps changing is still
+        // arriving; a deleted file ends them when the stat above rejects.
         if (isWithinStabilityWindow(fileStat.mtimeMs)) {
           scheduleUnstableFileRetry(filePath)
           return
@@ -477,7 +539,9 @@ const startHoldingWatcher = (
     dirPath: string,
     visitedRealPaths: Set<string>,
   ): Promise<void> => {
-    /** The wrapper lists descendants recursively; symlinked directories are followed below. */
+    // readdirOrNull lists every descendant recursively, or returns null when the
+    // directory is gone. It does not enter symlinked directories; the loop
+    // below rescans those.
     const entries = await readdirOrNull(dirPath)
 
     if (!entries) {
@@ -595,6 +659,8 @@ const startHoldingWatcher = (
   /** Lists a folder's entry names for the startup batch's presence checks. */
   const listFolderNames = async (folderPath: string): Promise<FolderListing> => {
     try {
+      // A plain readdir, not readdirOrNull: the check needs only this folder's
+      // own names, and readdirOrNull lists every descendant.
       const names = await readdir(folderPath)
       return { status: "listed", names: new Set(names) }
     } catch (error) {
@@ -612,7 +678,8 @@ const startHoldingWatcher = (
    * Decides whether a held path still names a file. The parent folder's listing
    * must hold the exact name: on a case-insensitive filesystem, `stat` of
    * `note.md` still succeeds after a rename to `Note.md`, and reading it would
-   * index the old name again.
+   * index the old name again. `listFolderOnce` returns the batch's shared
+   * listing of a folder, so each folder is read once per batch.
    */
   const checkHeldPathOnDisk = async (
     filePath: string,
@@ -623,8 +690,14 @@ const startHoldingWatcher = (
       folderListing.status === "listed" && !folderListing.names.has(basename(filePath))
 
     if (folderListing.status === "missing" || missingFromListing) return "missing"
+
+    // A folder that could not be listed proves nothing either way, so the stat
+    // below decides.
     try {
       const fileStat = await statOrNull(filePath)
+
+      // A folder now at the path also counts as missing. Removing it is
+      // harmless: it clears only rows for a file that is no longer there.
       return fileStat?.isFile() ? "present" : "missing"
     } catch (error) {
       // The path's read runs next and reports the failure at error level.
@@ -653,7 +726,10 @@ const startHoldingWatcher = (
       return
     }
     if (indexResult.status !== "note-indexed") return
-    // Caught here, inside the batch step, so a fast rejection is never unhandled.
+
+    // The batch does not wait for embeddings, so the failure handler is
+    // attached now. Attached after the batch, an embedding that rejected first
+    // would be reported as an unhandled rejection.
     indexResult.embedding.catch((error) => {
       reportEmbeddingFailure(filePath, error)
     })
@@ -661,11 +737,15 @@ const startHoldingWatcher = (
 
   /** Ends holding and replays the events held while the batch ran, in arrival order. */
   const goLiveAndReplay = (batchPathCount: number): void => {
-    const eventsDuringBatch = heldEvents ?? []
-    heldEvents = undefined
+    // Already live only when applyHeldChanges ran twice and the first batch
+    // replayed everything.
+    const eventsDuringBatch = watcherState.mode === "holding" ? watcherState.heldEvents : []
+    watcherState = { mode: "live" }
+
     // Every replayed event starts in this one tick, before any newer live
     // event for the same path, so that newer event takes the path's token and
-    // wins. chokidar delivers a burst the same way.
+    // wins. indexChangedFile takes the token before its first await, and
+    // chokidar delivers a burst the same way.
     for (const heldEvent of eventsDuringBatch) {
       if (heldEvent.kind === "unlink") {
         handleDelete(heldEvent.filePath)
@@ -680,10 +760,11 @@ const startHoldingWatcher = (
     })
   }
 
-  /** Steps 1 and 2 of applyHeldBatch. Removing a path because its check found
-   *  it missing is safe only while holding: once live, the removal could clear
-   *  the event token of an `add` that started during the check, and the added
-   *  note would stay unindexed. */
+  /** Checks each held path against the disk, removes the missing ones, then
+   *  re-reads the rest. It must run while the watcher holds: removeFromIndex
+   *  drops the path's event token, so once live, a removal could cancel the
+   *  read of an `add` that started during the check, and the added file would
+   *  stay unindexed. */
   const reconcileHeldPaths = async (batchPaths: ReadonlyArray<string>): Promise<void> => {
     const folderListings = new Map<string, Promise<FolderListing>>()
 
@@ -711,9 +792,13 @@ const startHoldingWatcher = (
       .filter((check) => check.presence !== "missing")
       .map((check) => check.filePath)
 
+    // Removals run before reads. upsertNote re-resolves only links whose target
+    // is not indexed, so when a renamed note's old path is removed first, the
+    // new path claims the links that pointed at the old one.
     for (const filePath of missingPaths) {
       removeHeldPath(filePath)
     }
+
     await mapWithConcurrency({
       items: pathsToRead,
       concurrency: HELD_CHANGES_CONCURRENCY,
@@ -724,9 +809,9 @@ const startHoldingWatcher = (
   /**
    * Brings the index up to date with the held paths, in one batch, then goes live:
    *
-   * 1. Each path is checked against the disk; missing ones are removed first,
-   *    so a rename seen whole in the batch resolves incoming links to the new path.
-   * 2. The rest are read and indexed, 16 at a time; one that vanished by its read is removed.
+   * 1. Each path is checked against the disk, and missing ones are removed.
+   * 2. The rest are read and indexed, HELD_CHANGES_CONCURRENCY at a time; one
+   *    that vanished by its read is removed.
    * 3. Events held while steps 1 and 2 ran are replayed live.
    *
    * Never rejects, and step 3 runs even if an earlier step threw: a watcher
@@ -743,12 +828,15 @@ const startHoldingWatcher = (
     goLiveAndReplay(batchPaths.length)
   }
 
+  /** Starts the startup batch over the distinct paths held so far. The batch
+   *  ignores each event's kind, because it checks every path against the disk. */
   const applyHeldChanges = (): { heldPathCount: number; applied: Promise<void> } => {
-    if (!heldEvents) return { heldPathCount: 0, applied: Promise.resolve() }
+    if (watcherState.mode === "live") return { heldPathCount: 0, applied: Promise.resolve() }
 
-    const batchEvents = heldEvents
-    // Events arriving while the batch runs collect here and are replayed after it.
-    heldEvents = []
+    const batchEvents = watcherState.heldEvents
+    // Events arriving while the batch runs collect in a new list and are
+    // replayed after it.
+    watcherState = { mode: "holding", heldEvents: [] }
     const batchPaths = [...new Set(batchEvents.map((heldEvent) => heldEvent.filePath))]
 
     return { heldPathCount: batchPaths.length, applied: applyHeldBatch(batchPaths) }
@@ -780,31 +868,32 @@ const startHoldingWatcher = (
  * changes the watcher saw meanwhile. The watcher is ready before the rebuild
  * reads anything and holds every change until the rebuild returns, so a change
  * landing mid-rebuild is applied after it instead of being missed or replaced
- * by the rebuild's older read. Resolves with the rebuild's result once the
- * held changes are indexed, or at heldChangesDeadline if they take longer;
- * the rest then apply in the background.
+ * by the rebuild's older read. Resolves with the rebuild's result (the note
+ * count and its background embedding promise) once the held changes are
+ * indexed, or at heldChangesDeadline if they take longer; the rest then apply
+ * in the background.
  */
 export const watchVaultAndBuildIndex = async (
   vaultPath: string,
   search: SearchIndex,
   options?: FileWatcherOptions,
-): ReturnType<SearchIndex["rebuildFromVault"]> => {
+): Promise<{ count: number; embedding: Promise<void> }> => {
   const holdingWatcher = startHoldingWatcher(vaultPath, search, options)
   await holdingWatcher.ready
 
   const rebuildResult = await search.rebuildFromVault({ vaultPath }, logger)
+
+  // `applied` never rejects, so past the deadline it can finish unawaited.
   const { heldPathCount, applied } = holdingWatcher.applyHeldChanges()
   const heldChangesDeadline = options?.heldChangesDeadline ?? DEFAULT_HELD_CHANGES_DEADLINE_MS
   const { promise: deadlinePassed, resolve: passDeadline } = Promise.withResolvers<"deadline">()
   const deadlineTimer = setTimeout(() => passDeadline("deadline"), heldChangesDeadline)
-  const waitForHeldChanges = async (): Promise<"applied"> => {
-    await applied
-    return "applied"
-  }
-  const outcome = await Promise.race([waitForHeldChanges(), deadlinePassed])
+
+  // `applied` resolves with nothing, so only the deadline makes this "deadline".
+  const firstSettled = await Promise.race([applied, deadlinePassed])
   clearTimeout(deadlineTimer)
 
-  if (outcome === "deadline") {
+  if (firstSettled === "deadline") {
     logger.info("startup continues while the changes held during it are still applied", {
       heldPaths: heldPathCount,
       heldChangesDeadline,
