@@ -1946,6 +1946,32 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(readCounts.peak).toBe(16)
   })
 
+  it("replays a change that follows a held deletion of the same path", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "note.md": "oldtext\n" },
+    })
+    const batchPath = join(testVault, "batch.md")
+    await writeFile(batchPath, "batchonyx\n")
+    const readGate = await gateFirstRead(batchPath, "before-disk")
+    const pathsFor = (query: string) => {
+      return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+    }
+
+    await fire("add", "batch.md")
+    finishRebuild()
+    await readGate.reached
+    await writeFile(join(testVault, "note.md"), "newopal\n")
+    await fire("unlink", "note.md")
+    await fire("change", "note.md")
+    readGate.release()
+    await startup
+
+    await vi.waitFor(() => {
+      expect(pathsFor("newopal")).toEqual(["note.md"])
+    })
+    expect(pathsFor("oldtext")).toEqual([])
+  })
+
   it("does not replay a change that a later held deletion of the path replaced", async () => {
     const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
       seedNotes: { "note.md": "caseopal\n" },
