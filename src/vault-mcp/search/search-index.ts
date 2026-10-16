@@ -2092,12 +2092,17 @@ export const createSearchIndex = (
    *   the older content it read.
    * - The file watcher is the only caller that makes source writes at runtime, and
    *   watchVaultAndBuildIndex holds it until this returns; a new runtime caller must go
-   *   through that hold. */
+   *   through that hold.
+   * - The returned embedding promise rejects if the background pass fails. This function
+   *   already logs that failure, so a caller may leave the promise unawaited. */
   const rebuildFromVault = async (
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<{ count: number; embedding: Promise<void> }> => {
     const { vaultPath } = params
+    // Embedding work that outlived its source can leave vectors whose chunk or
+    // memory entry is gone. They would take nearest-neighbour slots from live
+    // vectors, so they are dropped before anything else.
     const orphanNoteVectorsRemoved = deleteOrphanNoteVectorsStmt?.run().changes ?? 0
     const orphanFileVectorsRemoved = deleteOrphanFileVectorsStmt?.run().changes ?? 0
     const orphanMemoryVectorsRemoved = deleteOrphanMemoryVectorsStmt?.run().changes ?? 0
@@ -2211,7 +2216,6 @@ export const createSearchIndex = (
         })
       : []
 
-    // Read canvas files for content indexing + link extraction.
     const readRebuildFileContent = async (params: {
       file: RebuildFilePaths
       sourceKind: "canvas file" | "text file" | "note"
@@ -2237,6 +2241,7 @@ export const createSearchIndex = (
         return null
       }
     }
+    // Read canvas files for content indexing + link extraction.
     const canvasContentResults = await mapWithConcurrency({
       items: canvasFiles,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
@@ -2245,15 +2250,9 @@ export const createSearchIndex = (
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
     // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
-    const extractPdfContent = async (file: {
-      absolutePath: string
-      relativePath: string
-    }): Promise<{
-      relativePath: string
-      content: string
-      modifiedAtMs: number
-      sizeBytes: number
-    } | null> => {
+    const extractPdfContent = async (
+      file: RebuildFilePaths,
+    ): Promise<RebuildFileContent | null> => {
       try {
         const [buffer, fileStat] = await Promise.all([
           readFile(file.absolutePath),
@@ -2384,6 +2383,8 @@ export const createSearchIndex = (
         const pathList = allPaths.map((row) => row.path)
         cachedCanvasNotePaths = pathList
 
+        // Cleared again because the first clear ran before the file reads
+        // above, so every link left in the table is written by this transaction.
         db.exec("DELETE FROM links")
         for (const note of noteContents) {
           if (skippedNotePaths.has(note.relativePath)) continue
@@ -2510,13 +2511,12 @@ export const createSearchIndex = (
             let entriesEmbedded = 0
             let embedErrors = 0
             for (const note of notesForEmbedding) {
-              if (
-                !isCurrentSourceVersion(
-                  { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
-                  logger,
-                )
+              const noteVersionIsCurrent = isCurrentSourceVersion(
+                { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
+                logger,
               )
-                continue
+
+              if (!noteVersionIsCurrent) continue
 
               try {
                 chunksEmbedded += await embedAndStoreChunks(
@@ -2529,6 +2529,8 @@ export const createSearchIndex = (
                 )
                 const memoryFile = memoryFileNameFromPath(note.relativePath)
 
+                // Checked again after the await above: a newer write to the
+                // note during the chunk embedding makes this entry pass obsolete.
                 if (
                   memoryFile &&
                   isCurrentSourceVersion(
@@ -2593,13 +2595,12 @@ export const createSearchIndex = (
               let fileChunksEmbedded = 0
               let fileEmbedErrors = 0
               for (const file of filesForEmbedding) {
-                if (
-                  !isCurrentSourceVersion(
-                    { sourcePath: file.path, sourceVersion: file.sourceVersion },
-                    logger,
-                  )
+                const fileVersionIsCurrent = isCurrentSourceVersion(
+                  { sourcePath: file.path, sourceVersion: file.sourceVersion },
+                  logger,
                 )
-                  continue
+
+                if (!fileVersionIsCurrent) continue
 
                 try {
                   fileChunksEmbedded += await embedAndStoreFileChunks(
