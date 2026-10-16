@@ -1755,6 +1755,31 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     ])
   })
 
+  it("logs a failure to start the replay instead of rejecting startup", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
+    const errorSpy = spyOnLogger("error")
+    // The replay's summary line is the last step of going live, so a throw
+    // there escapes it after the watcher is live.
+    spyOnLogger("info").mockImplementation((message) => {
+      if (message === "applied the changes held during startup indexing") {
+        throw new Error("controlled replay failure")
+      }
+    })
+
+    finishRebuild()
+    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+      "failed to start replaying the changes held during the startup batch",
+      { error: "[Error]: controlled replay failure" },
+    )
+
+    await writeFile(join(testVault, "live.md"), "livetopaz\n")
+    await fire("add", "live.md")
+    expect(search.fullTextSearch({ query: "livetopaz" }, logger).map((hit) => hit.path)).toEqual([
+      "live.md",
+    ])
+  })
+
   it("reports a note embedding that fails during the batch once, with no unhandled rejection", async () => {
     const vector = new Float32Array(384).fill(0.1)
     const embedder = {

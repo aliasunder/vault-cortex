@@ -155,7 +155,7 @@ const startServer = async (): Promise<void> => {
   const { count } = await watchVaultAndBuildIndex(vaultPath, search, {
     usePolling: config.windowsBindMount,
   })
-  logger.info("initial index built", { count })
+  logger.info("initial index built", { notesIndexedByRebuild: count })
 
   const oauthProvider = createOAuthProvider({
     authToken,
