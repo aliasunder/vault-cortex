@@ -846,8 +846,9 @@ const startHoldingWatcher = (
    *  later deletion or event replaced it. Startup does not wait for those
    *  reads, as it does not wait for later live events. */
   const goLiveAndReplay = (batchPathCount: number): void => {
-    // The watcher is already live only when applyHeldChanges ran twice and the
-    // first batch replayed everything, and it is closed only when startup failed.
+    // Unreachable today, because applyHeldChanges runs once per startup and the
+    // watcher closes only when the rebuild fails, before that call. A second
+    // call would start a second batch, and this keeps it from going live twice.
     if (watcherState.mode !== "holding") return
 
     const eventsDuringBatch = watcherState.heldEvents
@@ -936,7 +937,15 @@ const startHoldingWatcher = (
         error: describeError(error),
       })
     }
-    goLiveAndReplay(batchPaths.length)
+    // Its own catch, because nothing awaits `applied` once the deadline has
+    // passed, so a throw here would be an unhandled rejection.
+    try {
+      goLiveAndReplay(batchPaths.length)
+    } catch (error) {
+      logger.error("failed to start replaying the changes held during the startup batch", {
+        error: describeError(error),
+      })
+    }
   }
 
   /** Starts the startup batch over the distinct paths held so far. The batch
