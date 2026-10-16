@@ -1992,6 +1992,37 @@ describe("listMemoryFiles", () => {
     expect(living?.entry_policy).toBe("living")
   })
 
+  it("reads entry-policy living as the last property of a file with Windows line endings", async () => {
+    const content = [
+      "---",
+      "title: Living",
+      "entry-policy: living",
+      "---",
+      "",
+      "# Living",
+      "",
+      "## Upcoming (newest first)",
+      "- **2026-07-11**: a current-state entry",
+      "",
+    ].join("\r\n")
+    await writeFile(join(vault, "About Me/Living.md"), content, "utf8")
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const living = outlines.find((outline) => outline.file === "Living")
+
+    expect(living).toEqual({
+      file: "Living",
+      title: "Living",
+      bytes: Buffer.byteLength(content, "utf8"),
+      entry_policy: "living",
+      leading_callout: null,
+      headings: [
+        { level: 1, text: "Living" },
+        { level: 2, text: "Upcoming (newest first)", entry_count: 1 },
+      ],
+    })
+  })
+
   it("treats an unrecognized entry-policy value as append-only", async () => {
     // Only the explicit "living" opt-in relaxes append-only; a typo must not
     // silently authorize destructive maintenance.

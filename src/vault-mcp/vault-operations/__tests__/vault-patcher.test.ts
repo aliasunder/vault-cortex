@@ -4950,6 +4950,196 @@ duplicate beta
   })
 })
 
+describe("Windows line breaks (CRLF)", () => {
+  const CRLF_NOTE = "---\r\ntitle: C\r\n---\r\n# H\r\nA\r\n- [ ] task\r\nB\r\n"
+  const LF_NOTE = "---\ntitle: C\n---\n# H\nA\n- [ ] task\nB\n"
+  const NOTES = [
+    { label: "an LF note", note: LF_NOTE },
+    { label: "a CRLF note", note: CRLF_NOTE },
+  ]
+  const CRLF_CONTENT = "X1\r\nX2"
+
+  describe("replaceInNote", () => {
+    it("matches old_text copied with CRLF line breaks", async () => {
+      await writeTestNote("crlf.md", CRLF_NOTE)
+      const result = await replaceInNote(
+        {
+          vaultPath: vault,
+          path: "crlf.md",
+          oldText: "- [ ] task\r\n",
+          newText: "- [x] task\n",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({ message: "Replaced 1 occurrence in crlf.md", count: 1 })
+      expect(await readTestNote("crlf.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [x] task\nB\n")
+    })
+
+    it("converts new_text's CRLF line breaks to LF", async () => {
+      await writeTestNote("lf.md", LF_NOTE)
+      await replaceInNote(
+        { vaultPath: vault, path: "lf.md", oldText: "task", newText: "one\r\ntwo" },
+        logger,
+      )
+
+      expect(await readTestNote("lf.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [ ] one\ntwo\nB\n")
+    })
+
+    it("removes every CRLF match as the LF old_text would, keeping each match's wider gap", async () => {
+      // The wider gap sits below the first match, so measuring the gaps with
+      // the unconverted old_text, which is longer, would change the output.
+      await writeTestNote(
+        "gaps.md",
+        "---\r\ntitle: Gaps\r\n---\r\nA\r\n\r\nX\r\nY\r\n\r\n\r\n\r\nB\r\n\r\nX\r\nY\r\n\r\nC\r\n",
+      )
+      const result = await replaceInNote(
+        {
+          vaultPath: vault,
+          path: "gaps.md",
+          oldText: "X\r\nY\r\n",
+          newText: "",
+          replaceAllOccurrences: true,
+        },
+        logger,
+      )
+
+      expect(result).toEqual({ message: "Replaced 2 occurrences in gaps.md", count: 2 })
+      expect(await readTestNote("gaps.md")).toBe("---\ntitle: Gaps\n---\nA\n\n\n\nB\n\nC\n")
+    })
+
+    it("quotes old_text as sent, CRLF line breaks included, when it matches nothing", async () => {
+      await writeTestNote("crlf.md", CRLF_NOTE)
+
+      await expect(
+        replaceInNote(
+          { vaultPath: vault, path: "crlf.md", oldText: "missing\r\n", newText: "" },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('text not found in "crlf.md": "missing\r\n"'))
+      expect(await readTestNote("crlf.md")).toBe(CRLF_NOTE)
+    })
+
+    it("still finds no match for a lone carriage return", async () => {
+      await writeTestNote("crlf.md", CRLF_NOTE)
+
+      await expect(
+        replaceInNote({ vaultPath: vault, path: "crlf.md", oldText: "\r", newText: "" }, logger),
+      ).rejects.toThrow(new Error('text not found in "crlf.md": "\r"'))
+      expect(await readTestNote("crlf.md")).toBe(CRLF_NOTE)
+    })
+  })
+
+  describe("content with CRLF line breaks", () => {
+    it.each(NOTES)("appends it to $label with LF line breaks", async ({ note }) => {
+      await writeTestNote("note.md", note)
+      await patchNote(
+        { vaultPath: vault, path: "note.md", operation: "append", content: CRLF_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nB\n\nX1\nX2\n",
+      )
+    })
+
+    it.each(NOTES)(
+      "prepends it under a heading of $label with LF line breaks",
+      async ({ note }) => {
+        await writeTestNote("note.md", note)
+        await patchNote(
+          {
+            vaultPath: vault,
+            path: "note.md",
+            operation: "prepend",
+            heading: "H",
+            content: CRLF_CONTENT,
+          },
+          logger,
+        )
+
+        expect(await readTestNote("note.md")).toBe(
+          "---\ntitle: C\n---\n# H\nX1\nX2\nA\n- [ ] task\nB\n",
+        )
+      },
+    )
+
+    it.each(NOTES)("replaces a span of $label with it, using LF line breaks", async ({ note }) => {
+      await writeTestNote("note.md", note)
+      await replaceSpan(
+        { vaultPath: vault, path: "note.md", startAnchor: "task", content: CRLF_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\nX1\nX2\nB\n")
+    })
+
+    it.each(NOTES)("inserts it into $label with LF line breaks", async ({ note }) => {
+      await writeTestNote("note.md", note)
+      await insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          anchor: "task",
+          position: "after",
+          content: CRLF_CONTENT,
+        },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nX1\nX2\nB\n",
+      )
+    })
+
+    it("counts the blank CRLF lines at the edges of replacement content as empty lines", async () => {
+      await writeTestNote("gaps.md", "---\ntitle: Gaps\n---\n\nA\n\nX\n\nB\n")
+      await replaceSpan(
+        { vaultPath: vault, path: "gaps.md", startAnchor: "X", content: "\r\n\r\nY\r\n\r\n" },
+        logger,
+      )
+
+      expect(await readTestNote("gaps.md")).toBe("---\ntitle: Gaps\n---\n\nA\n\n\nY\n\n\nB\n")
+    })
+
+    it("still refuses content that repeats the target heading with a CRLF line break", async () => {
+      await writeTestNote("note.md", "---\r\ntitle: C\r\n---\r\n## H\r\nA\r\n")
+
+      await expect(
+        patchNote(
+          {
+            vaultPath: vault,
+            path: "note.md",
+            operation: "append",
+            heading: "H",
+            content: "## H\r\nX",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error(
+          'content begins with the heading "## H", which would duplicate it — heading-targeted ops keep the matched heading, so omit the heading line from content.',
+        ),
+      )
+    })
+  })
+
+  it("edits a CRLF note whose last property is a list of quoted links, keeping its properties", async () => {
+    await writeTestNote(
+      "related.md",
+      '---\r\ntitle: "C"\r\nrelated:\r\n  - "[[Note]]"\r\n---\r\nA\r\n',
+    )
+    await patchNote(
+      { vaultPath: vault, path: "related.md", operation: "append", content: "Z" },
+      logger,
+    )
+
+    expect(await readTestNote("related.md")).toBe(
+      '---\ntitle: C\nrelated:\n  - "[[Note]]"\n---\nA\n\nZ\n',
+    )
+  })
+})
+
 describe("hidden paths", () => {
   // The note exists on disk so a removed guard would make the operations
   // succeed — the tests then fail because the edit went through, never via

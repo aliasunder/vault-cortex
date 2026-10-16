@@ -55,21 +55,14 @@ type PatchNoteResult = Readonly<{
 // ── Internal helpers ────────────────────────────────────────────
 
 /** The heading a content block begins with — the heading on its first non-blank
- *  line — or null when it starts with anything else. parseHeadings makes this
- *  fence-aware, so a `## foo` inside an opening code fence is not a heading.
- *
- *  Strips a trailing CR before parsing: HEADING_REGEX uses `(.*)` where `.`
- *  excludes CR, so a CRLF-authored `## New\r` would otherwise read as ordinary
- *  text and report nothing. Detection only — callers insert the caller's own
- *  lines verbatim, line endings untouched. */
+ *  line (blank: empty or whitespace only) — or null when that line is not a
+ *  heading or every line is blank. parseHeadings makes this fence-aware, so a
+ *  `## foo` inside an opening code fence is not a heading. */
 const leadingHeadingOfContent = (contentLines: readonly string[]): HeadingInfo | null => {
-  const normalizedLines = contentLines.map((line) => {
-    return line.endsWith("\r") ? line.slice(0, -1) : line
-  })
-  const firstContentLineIndex = normalizedLines.findIndex((line) => line.trim() !== "")
+  const firstNonBlankLineIndex = contentLines.findIndex((line) => line.trim() !== "")
   return (
-    parseHeadings(normalizedLines).find(
-      (contentHeading) => contentHeading.startLine === firstContentLineIndex,
+    parseHeadings(contentLines).find(
+      (contentHeading) => contentHeading.startLine === firstNonBlankLineIndex,
     ) ?? null
   )
 }
@@ -232,6 +225,8 @@ type LineBreakRun = Readonly<{ start: number; end: number }>
 
 /** Edit points for a `replaceInNote` deletion. `bodyParts` is the body split at
  *  every removed match, so `bodyParts.join(removedText)` is the original body.
+ *  - Every line break is a single `\n`: the body comes from splitIntoLines, and
+ *    replaceInNote converts the caller's `\r\n` before matching.
  *  - Only a match whose removal leaves an empty line where it sat gets an edit
  *    point; any other removal is written exactly as asked.
  *  - Each gap counts the empty lines between the match's text and the nearest
@@ -278,6 +273,8 @@ const listTextDeletionEdits = (params: {
     updatedBodyOffset += partBeforeMatch.length
     updatedLineIndex += partBeforeMatch.split("\n").length - 1
 
+    // The removal leaves an empty line when a line break or the body's edge
+    // sits on both sides of the point where the match was.
     const startsLine = updatedBodyOffset === 0 || updatedBody[updatedBodyOffset - 1] === "\n"
     const endsLine =
       updatedBodyOffset === updatedBody.length || updatedBody[updatedBodyOffset] === "\n"
@@ -329,6 +326,8 @@ const resolveAnchorLine = (params: {
 }): number => {
   const { lines, anchor, fromLine, firstMatch, path, role } = params
   const anchorLabel = role ? `${role} anchor` : "anchor"
+  // Anchors get no line-break conversion, unlike old_text: an anchor is part
+  // of one line, so a line break in it would match no line either way.
   const matchingLineIndices = lines.flatMap((line, index) => {
     return index >= fromLine && line.includes(anchor) ? [index] : []
   })
@@ -405,7 +404,9 @@ const patchNote = async (
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
-    const contentLines = content.split("\n")
+    // The control-character check allows `\r`, so content may hold `\r\n`
+    // breaks; splitIntoLines turns them into the LF lines the body uses.
+    const contentLines = splitIntoLines(content)
 
     // File-level operation (no heading target)
     if (!heading) {
@@ -467,6 +468,8 @@ const patchNote = async (
     // Replace on a section with child headings requires explicit opt-in —
     // without it, the caller may not realize children will be destroyed.
     if (operation === "replace" && !includeChildren) {
+      // A section's body runs to the next heading of the same or higher level,
+      // so every heading inside that range is a child of the target.
       const childHeadings = headings.filter((candidate) => {
         return (
           candidate.startLine >= target.bodyStartLine && candidate.startLine < target.bodyEndLine
@@ -512,36 +515,46 @@ const replaceInNote = async (
 ): Promise<{ message: string; count: number }> => {
   const { path, oldText, newText, replaceAllOccurrences } = params
 
-  if (oldText.length === 0) {
+  if (oldText === "") {
     throw new Error("oldText cannot be empty")
   }
+  // Only new_text is written to the note; old_text is only matched against it
   assertNoControlCharacters(newText, "new_text")
+
+  // The body is matched with LF line breaks (readNoteForPatch splits it with
+  // splitIntoLines), so the caller's `\r\n` breaks become `\n` too:
+  // - text copied from a raw read of a CRLF note then matches;
+  // - replaceAll never empties a non-empty string, unlike splitIntoLines, which
+  //   would turn old_text "\r" into "", a search text that matches at offset 0.
+  const searchText = oldText.replaceAll("\r\n", "\n")
+  const replacementText = newText.replaceAll("\r\n", "\n")
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
 
     const body = lines.join("\n")
-    const firstMatchOffset = body.indexOf(oldText)
+    const firstMatchOffset = body.indexOf(searchText)
 
+    // The message quotes the text the caller sent, before line-break conversion
     if (firstMatchOffset === -1) {
       throw new Error(`text not found in "${path}": "${truncateForMessage(oldText)}"`)
     }
 
     const bodyParts = replaceAllOccurrences
-      ? body.split(oldText)
-      : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + oldText.length)]
+      ? body.split(searchText)
+      : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + searchText.length)]
     const count = bodyParts.length - 1
-    const updatedLines = bodyParts.join(newText).split("\n")
+    const updatedLines = bodyParts.join(replacementText).split("\n")
 
     // A deletion stacks the empty lines from both sides of each match into one
     // run, so that run is shrunk back. A replacement keeps new text between
-    // them, and its line breaks are the caller's, written exactly as given.
-    const isDeletion = newText.length === 0
+    // them, and its line breaks are written where the caller put them.
+    const isDeletion = replacementText === ""
     const writtenLines = isDeletion
       ? collapseEmptyLineRunsAtEdits({
           lines: updatedLines,
-          edits: listTextDeletionEdits({ body, bodyParts, removedText: oldText }),
+          edits: listTextDeletionEdits({ body, bodyParts, removedText: searchText }),
         })
       : updatedLines
 
@@ -574,7 +587,7 @@ const deleteSpan = async (
 ): Promise<string> => {
   const { path, startAnchor, endAnchor, firstMatch } = params
 
-  if (startAnchor.length === 0) {
+  if (startAnchor === "") {
     throw new Error("startAnchor cannot be empty")
   }
   if (endAnchor === "") {
@@ -640,13 +653,13 @@ const replaceSpan = async (
 ): Promise<string> => {
   const { path, startAnchor, endAnchor, content, firstMatch } = params
 
-  if (startAnchor.length === 0) {
+  if (startAnchor === "") {
     throw new Error("startAnchor cannot be empty")
   }
   if (endAnchor === "") {
     throw new Error("endAnchor cannot be empty")
   }
-  if (content.length === 0) {
+  if (content === "") {
     throw new Error("content cannot be empty")
   }
   assertNoControlCharacters(content, "content")
@@ -664,13 +677,15 @@ const replaceSpan = async (
     })
 
     const replacedLineCount = endLine - startLine + 1
-    const contentLines = content.split("\n")
+    // splitIntoLines turns content's `\r\n` breaks into the LF lines the body uses
+    const contentLines = splitIntoLines(content)
     const updatedLines = lines.toSpliced(startLine, replacedLineCount, ...contentLines)
 
     // Content is a side of both edits: its leading empty lines meet the note's
     // empty lines above the old span, and its trailing ones meet those below.
     // Each joined run keeps the wider side's count, and the content's interior
-    // is written as given.
+    // is written as given. Both boundaries index updatedLines before any run
+    // is collapsed.
     const writtenLines = collapseEmptyLineRunsAtEdits({
       lines: updatedLines,
       edits: [
@@ -719,10 +734,10 @@ const insertAtAnchor = async (
 ): Promise<string> => {
   const { path, anchor, position, content, firstMatch } = params
 
-  if (anchor.length === 0) {
+  if (anchor === "") {
     throw new Error("anchor cannot be empty")
   }
-  if (content.length === 0) {
+  if (content === "") {
     throw new Error("content cannot be empty")
   }
   assertNoControlCharacters(content, "content")
@@ -739,10 +754,14 @@ const insertAtAnchor = async (
       path,
     })
 
-    const contentLines = content.split("\n")
+    // splitIntoLines turns content's `\r\n` breaks into the LF lines the body uses
+    const contentLines = splitIntoLines(content)
     const insertIndex = position === "before" ? anchorLine : anchorLine + 1
     const updatedLines = lines.toSpliced(insertIndex, 0, ...contentLines)
 
+    // No empty-line collapse, unlike the span edits: no text is removed, so no
+    // two runs of the note's empty lines end up touching, and the content's
+    // own empty lines are written as given.
     const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
 
     logger.info("inserted at anchor", {
