@@ -4967,7 +4967,7 @@ describe("Windows line breaks (CRLF)", () => {
           vaultPath: vault,
           path: "crlf.md",
           oldText: "- [ ] task\r\n",
-          newText: "- [x] task\r\n",
+          newText: "- [x] task\n",
         },
         logger,
       )
@@ -5006,6 +5006,18 @@ describe("Windows line breaks (CRLF)", () => {
 
       expect(result).toEqual({ message: "Replaced 2 occurrences in gaps.md", count: 2 })
       expect(await readTestNote("gaps.md")).toBe("---\ntitle: Gaps\n---\nA\n\n\n\nB\n\nC\n")
+    })
+
+    it("quotes old_text as sent, CRLF line breaks included, when it matches nothing", async () => {
+      await writeTestNote("crlf.md", CRLF_NOTE)
+
+      await expect(
+        replaceInNote(
+          { vaultPath: vault, path: "crlf.md", oldText: "missing\r\n", newText: "" },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('text not found in "crlf.md": "missing\r\n"'))
+      expect(await readTestNote("crlf.md")).toBe(CRLF_NOTE)
     })
 
     it("still finds no match for a lone carriage return", async () => {

@@ -2276,6 +2276,18 @@ describe("updateProperties", () => {
     expect(written).toBe("---\ntitle: Original\nstatus: active\n---\n---\nbody after rule\n")
   })
 
+  it("keeps a CRLF note's last property without a carriage return and its body's bytes", async () => {
+    await writeFile(join(vault, "crlf.md"), "---\r\ntitle: C\r\ntype: x\r\n---\r\nbody\r\n", "utf8")
+    await updateProperties(
+      { vaultPath: vault, path: "crlf.md", properties: { status: "active" } },
+      logger,
+    )
+
+    // The new block uses LF; the body keeps its CRLF line breaks
+    const written = await readFile(join(vault, "crlf.md"), "utf8")
+    expect(written).toBe("---\ntitle: C\ntype: x\nstatus: active\n---\nbody\r\n")
+  })
+
   it("merges new keys without changing body", async () => {
     await writeFile(join(vault, "test.md"), "---\ntitle: Original\n---\nBody content\n", "utf8")
     await updateProperties(
@@ -3235,6 +3247,17 @@ describe("readNoteSection", () => {
 
     const section = await readNoteSection(
       { vaultPath: vault, path: "list-block.md", heading: "Plan" },
+      logger,
+    )
+    expect(section).toBe("## Plan\nStep one\n")
+  })
+
+  it("returns a section of a CRLF note with LF line breaks", async () => {
+    const content = "---\r\ntitle: C\r\n---\r\n## Plan\r\nStep one\r\n\r\n## Later\r\nStep two\r\n"
+    await writeFile(join(vault, "crlf.md"), content, "utf8")
+
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "crlf.md", heading: "Plan" },
       logger,
     )
     expect(section).toBe("## Plan\nStep one\n")
