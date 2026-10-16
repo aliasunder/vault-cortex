@@ -99,8 +99,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 
     await waitFor(() => index.fullTextSearch({ query: "watcher" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "watcher" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("test.md")
+    expect(results.map((result) => result.path)).toEqual(["test.md"])
   })
 
   it("re-indexes a modified file", { timeout: 15000 }, async () => {
@@ -116,7 +115,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     await waitFor(() => index.fullTextSearch({ query: "updated" }, logger).length > 0)
 
     const results = index.fullTextSearch({ query: "updated" }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["modify.md"])
   })
 
   it("removes a deleted file from index", { timeout: 15000 }, async () => {
@@ -220,6 +219,8 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     const paths = index
       .fullTextSearch({ query: "symlink watcher" }, logger)
       .map((result) => result.path)
+    // On macOS a late event for real.md, written just before the watcher
+    // started, can index it too, so only the link's presence is asserted.
     expect(paths).toContain("linked.md")
   })
 
@@ -275,8 +276,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 
       await waitFor(() => index.fullTextSearch({ query: "raced" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "raced" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("brand-new/nested/note.md")
+      expect(results.map((result) => result.path)).toEqual(["brand-new/nested/note.md"])
     },
   )
 
@@ -294,8 +294,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 
     await waitFor(() => index.fullTextSearch({ query: "polled" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "polled" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("polled.md")
+    expect(results.map((result) => result.path)).toEqual(["polled.md"])
   })
 })
 
@@ -2209,8 +2208,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
 
     await waitFor(() => index.fullTextSearch({ query: "missed" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "missed" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("new-folder/missed.md")
+    expect(results.map((result) => result.path)).toEqual(["new-folder/missed.md"])
     // The file must also be registered with chokidar — indexed but
     // untracked, its later deletion would emit no unlink (ghost entry).
     expect(addedPaths).toEqual([missedPath])
@@ -2293,8 +2291,14 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
     // The untracked sibling getting indexed proves the rescan ran — the
     // tracked file being skipped can't be a silent no-op.
     await waitFor(() => index.fullTextSearch({ query: "sibling" }, logger).length > 0)
-    expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-    expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/missed.md")
+    expect(upsertNoteSpy).toHaveBeenCalledExactlyOnceWith(
+      {
+        filePath: "new-folder/missed.md",
+        rawContent: "missed sibling note\n",
+        fileStat: { mtimeMs: expect.any(Number), size: 20 },
+      },
+      logger,
+    )
     // Only the missed file is registered — the tracked one is not re-added.
     expect(addedPaths).toEqual([missedPath])
   })
@@ -2343,8 +2347,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
 
     await waitFor(() => index.fullTextSearch({ query: "nested" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "nested" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("new-folder/missed-subdir/nested.md")
+    expect(results.map((result) => result.path)).toEqual(["new-folder/missed-subdir/nested.md"])
     // The subdirectory and the missed file are both handed back to chokidar
     // so they gain watches and future events (unlink included) fire.
     expect(addedPaths).toEqual([missedSubdirectory, nestedPath])
@@ -2390,9 +2393,8 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
 
     await waitFor(() => index.fullTextSearch({ query: "symlinked" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "symlinked" }, logger)
-    expect(results).toHaveLength(1)
     // Indexed under the link path, matching chokidar's followSymlinks view.
-    expect(results[0]?.path).toBe("new-folder/linked-dir/inside.md")
+    expect(results.map((result) => result.path)).toEqual(["new-folder/linked-dir/inside.md"])
     // The inner file registers during the recursion, then the link itself.
     expect(addedPaths).toEqual([join(linkedDirectory, "inside.md"), linkedDirectory])
   })
@@ -2428,8 +2430,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
 
       await waitFor(() => index.fullTextSearch({ query: "symlinked" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "symlinked" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("new-folder/linked-dir/inside.md")
+      expect(results.map((result) => result.path)).toEqual(["new-folder/linked-dir/inside.md"])
       // Registration order proves the retry ran: the symlinked directory
       // registered during the rescan; the file only after its retry settled.
       expect(addedPaths).toEqual([linkedDirectory, join(linkedDirectory, "inside.md")])
@@ -2459,8 +2460,14 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
       // Give a (broken) unbounded recursion time to produce extra upserts
       // before asserting the exact count.
       await new Promise((finished) => setTimeout(finished, 300))
-      expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-      expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/settled.md")
+      expect(upsertNoteSpy).toHaveBeenCalledExactlyOnceWith(
+        {
+          filePath: "new-folder/settled.md",
+          rawContent: "settled beside a cycle\n",
+          fileStat: { mtimeMs: expect.any(Number), size: 23 },
+        },
+        logger,
+      )
       // readdir order isn't guaranteed, so compare sorted ("loop" < "settled.md").
       expect([...addedPaths].sort()).toEqual([loopLink, settledPath])
     },
@@ -2489,10 +2496,16 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
     // swallowed — not merely absent from the listing.
     expect(debugSpy).toHaveBeenCalledWith("rescan skipped unreadable entry", {
       path: "new-folder/dangling.md",
-      error: expect.stringContaining("ENOENT"),
+      error: `[Error]: ENOENT: no such file or directory, stat '${danglingLink}'`,
     })
-    expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-    expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/settled.md")
+    expect(upsertNoteSpy).toHaveBeenCalledExactlyOnceWith(
+      {
+        filePath: "new-folder/settled.md",
+        rawContent: "settled beside a broken link\n",
+        fileStat: { mtimeMs: expect.any(Number), size: 29 },
+      },
+      logger,
+    )
     expect(addedPaths).toEqual([settledPath])
   })
 
@@ -2617,8 +2630,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
 
       await waitFor(() => index.fullTextSearch({ query: "skew" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "skew" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("new-folder/skewed.md")
+      expect(results.map((result) => result.path)).toEqual(["new-folder/skewed.md"])
       expect(addedPaths).toEqual([skewedPath])
     },
   )
