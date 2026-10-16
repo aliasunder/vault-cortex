@@ -56,19 +56,11 @@ type PatchNoteResult = Readonly<{
 
 /** The heading a content block begins with — the heading on its first non-blank
  *  line — or null when it starts with anything else. parseHeadings makes this
- *  fence-aware, so a `## foo` inside an opening code fence is not a heading.
- *
- *  Strips a trailing CR before parsing: HEADING_REGEX uses `(.*)` where `.`
- *  excludes CR, so a CRLF-authored `## New\r` would otherwise read as ordinary
- *  text and report nothing. Detection only — callers insert the caller's own
- *  lines verbatim, line endings untouched. */
+ *  fence-aware, so a `## foo` inside an opening code fence is not a heading. */
 const leadingHeadingOfContent = (contentLines: readonly string[]): HeadingInfo | null => {
-  const normalizedLines = contentLines.map((line) => {
-    return line.endsWith("\r") ? line.slice(0, -1) : line
-  })
-  const firstContentLineIndex = normalizedLines.findIndex((line) => line.trim() !== "")
+  const firstContentLineIndex = contentLines.findIndex((line) => line.trim() !== "")
   return (
-    parseHeadings(normalizedLines).find(
+    parseHeadings(contentLines).find(
       (contentHeading) => contentHeading.startLine === firstContentLineIndex,
     ) ?? null
   )
@@ -405,7 +397,7 @@ const patchNote = async (
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
-    const contentLines = content.split("\n")
+    const contentLines = splitIntoLines(content)
 
     // File-level operation (no heading target)
     if (!heading) {
@@ -517,31 +509,39 @@ const replaceInNote = async (
   }
   assertNoControlCharacters(newText, "new_text")
 
+  // The body is matched with LF line breaks (readNoteForPatch splits it with
+  // splitIntoLines), so the caller's Windows line breaks are converted too:
+  // - text copied from a raw read of a CRLF note then matches;
+  // - replaceAll, unlike splitIntoLines, keeps a lone `\r` at the end, so
+  //   old_text "\r" never becomes an empty search text matching the note's top.
+  const searchText = oldText.replaceAll("\r\n", "\n")
+  const replacementText = newText.replaceAll("\r\n", "\n")
+
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
     const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
 
     const body = lines.join("\n")
-    const firstMatchOffset = body.indexOf(oldText)
+    const firstMatchOffset = body.indexOf(searchText)
 
     if (firstMatchOffset === -1) {
       throw new Error(`text not found in "${path}": "${truncateForMessage(oldText)}"`)
     }
 
     const bodyParts = replaceAllOccurrences
-      ? body.split(oldText)
-      : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + oldText.length)]
+      ? body.split(searchText)
+      : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + searchText.length)]
     const count = bodyParts.length - 1
-    const updatedLines = bodyParts.join(newText).split("\n")
+    const updatedLines = bodyParts.join(replacementText).split("\n")
 
     // A deletion stacks the empty lines from both sides of each match into one
     // run, so that run is shrunk back. A replacement keeps new text between
-    // them, and its line breaks are the caller's, written exactly as given.
-    const isDeletion = newText.length === 0
+    // them, and its line breaks are written where the caller put them.
+    const isDeletion = replacementText.length === 0
     const writtenLines = isDeletion
       ? collapseEmptyLineRunsAtEdits({
           lines: updatedLines,
-          edits: listTextDeletionEdits({ body, bodyParts, removedText: oldText }),
+          edits: listTextDeletionEdits({ body, bodyParts, removedText: searchText }),
         })
       : updatedLines
 
@@ -664,7 +664,7 @@ const replaceSpan = async (
     })
 
     const replacedLineCount = endLine - startLine + 1
-    const contentLines = content.split("\n")
+    const contentLines = splitIntoLines(content)
     const updatedLines = lines.toSpliced(startLine, replacedLineCount, ...contentLines)
 
     // Content is a side of both edits: its leading empty lines meet the note's
@@ -739,7 +739,7 @@ const insertAtAnchor = async (
       path,
     })
 
-    const contentLines = content.split("\n")
+    const contentLines = splitIntoLines(content)
     const insertIndex = position === "before" ? anchorLine : anchorLine + 1
     const updatedLines = lines.toSpliced(insertIndex, 0, ...contentLines)
 
