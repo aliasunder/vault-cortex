@@ -2,6 +2,12 @@ import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
 import { readDailyNotesConfig, readProtectedDailyNotesFolder } from "./daily-notes.js"
 
+/** False for null (a vault-root or blank setting) and for a whitespace-only
+ *  setting: neither names a daily folder to add. */
+const isDailyFolderSet = (dailyFolder: string | null): dailyFolder is string => {
+  return Boolean(dailyFolder?.trim())
+}
+
 /** The folders that delete and move refuse to touch.
  *  - PROTECTED_PATHS, when set, replaces the defaults entirely, so only the
  *    folders it lists are protected.
@@ -26,10 +32,11 @@ export const resolveEffectiveProtectedPaths = async (
 
   const dailyFolder = await readProtectedDailyNotesFolder(vaultPath, logger)
 
-  // A whitespace-only folder in daily-notes.json protects nothing.
-  return dailyFolder?.trim() ? [config.memoryDir, dailyFolder] : [config.memoryDir]
+  return isDailyFolderSet(dailyFolder) ? [config.memoryDir, dailyFolder] : [config.memoryDir]
 }
 
+/** The folders orphan results leave out: ORPHAN_EXCLUDE_FOLDERS when set,
+ *  otherwise the daily notes folder, "Templates", and the memory dir. */
 export const resolveEffectiveOrphanExcludeFolders = ({
   orphanExcludeFoldersOverride,
   memoryDir,
@@ -42,19 +49,22 @@ export const resolveEffectiveOrphanExcludeFolders = ({
 }): readonly string[] => {
   if (orphanExcludeFoldersOverride) return orphanExcludeFoldersOverride
 
-  /** Whitespace-only settings exclude no daily folder; spaces in a nonblank folder name stay. */
-  return dailyNotesFolder?.trim()
+  return isDailyFolderSet(dailyNotesFolder)
     ? [dailyNotesFolder, "Templates", memoryDir]
     : ["Templates", memoryDir]
 }
 
-/** Only the daily folder affects orphan exclusions, so its env override skips file I/O. */
+/** resolveEffectiveOrphanExcludeFolders for callers holding only the config:
+ *  reads .obsidian/daily-notes.json unless ORPHAN_EXCLUDE_FOLDERS or
+ *  DAILY_NOTES_FOLDER already settles the list. */
 export const readEffectiveOrphanExcludeFolders = async (
   { config, vaultPath }: { config: VaultConfig; vaultPath: string },
   logger: Logger,
 ): Promise<readonly string[]> => {
   if (config.orphanExcludeFoldersOverride) return config.orphanExcludeFoldersOverride
 
+  // The daily folder is the only default that varies, so an env value for
+  // it means no file read.
   if (config.dailyNotesFolder) {
     return resolveEffectiveOrphanExcludeFolders({
       orphanExcludeFoldersOverride: null,

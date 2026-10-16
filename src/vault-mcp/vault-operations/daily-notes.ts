@@ -10,10 +10,13 @@ import { isRecord } from "../../utils/is-record.js"
 
 // ── Config reading ──────────────────────────────────────────────
 //
-// Three readers, each wrapping readDailyNotesFile:
-//   readProtectedDailyNotesFolder — strict: throws on an unreadable file (for the delete/move guard)
+// File readers:
+//   readDailyNotesFile            — parses .obsidian/daily-notes.json; throws on an unreadable file
+//   readNewNoteFolder             — Obsidian's new-note folder from .obsidian/app.json; warns + falls back
+// Their callers:
+//   readProtectedDailyNotesFolder — strict: rethrows an unreadable daily-notes.json (for the delete/move guard)
 //   readDailyNotesFileOrFallback  — tolerant: warns + falls back (for reads and prompts)
-//   readDailyNotesConfig          — public: env → file → fallbacks, uses the tolerant reader
+//   readDailyNotesConfig          — public: env → file → fallbacks, through the tolerant reader
 
 type DailyNotesConfig = {
   /** Where daily notes are read from: vault-relative, with no leading or
@@ -28,7 +31,8 @@ type DailyNotesConfig = {
 }
 
 /** The folder setting in daily-notes.json:
- *  - `no-file`: the file does not exist.
+ *  - `no-file`: no usable file. It does not exist, or the tolerant reader
+ *    could not read or parse it.
  *  - `blank`: the file exists with a missing or empty folder, so Obsidian
  *    puts daily notes in its location for new notes.
  *  - `named`: the normalized folder; "" is the vault root. */
@@ -41,19 +45,23 @@ type DailyNotesFileSettings = {
 }
 
 /** Per-field settings from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env
- *  vars; each set field takes precedence over .obsidian/daily-notes.json. */
+ *  vars; each set field takes precedence over .obsidian/daily-notes.json.
+ *  loadConfig never yields a blank folder, so `folder: ""` arrives only from
+ *  a resolved DailyNotesConfig passed back in, and means the vault root. */
 export type DailyNotesEnvSettings = {
   folder?: string | undefined
   format?: string | undefined
 }
 
+// The server's own choice for a vault with no daily-notes.json. Obsidian then
+// uses its location for new notes, which is not a sensible folder to assume.
 export const DEFAULT_DAILY_NOTES_FOLDER = "Daily Notes"
 
+// Obsidian's own default format.
 const DEFAULT_DAILY_NOTES_FORMAT = "YYYY-MM-DD"
 
-// The format matches Obsidian's default; the folder is this server's own
-// choice — Obsidian with no daily-notes.json creates dailies in its location
-// for new notes, which is not a sensible folder for the server to assume.
+/** The settings when daily-notes.json is missing, and when the tolerant
+ *  reader cannot read it. */
 const FALLBACK_FILE_SETTINGS: DailyNotesFileSettings = {
   folderSetting: { kind: "no-file" },
   format: DEFAULT_DAILY_NOTES_FORMAT,
@@ -75,7 +83,9 @@ const normalizeFolderSetting = (folderSetting: string): string => {
 const readDailyNotesFile = async (vaultPath: string): Promise<DailyNotesFileSettings> => {
   try {
     // Read on every call, so a folder or format change in Obsidian applies
-    // to the next operation rather than after a restart.
+    // to the next operation rather than after a restart. readFile, not
+    // readFileOrNull: that helper returns null for a folder at this path,
+    // which the delete guard must refuse as unreadable, not treat as missing.
     const configFileContent = await readFile(
       join(vaultPath, ".obsidian", "daily-notes.json"),
       "utf8",
@@ -83,6 +93,8 @@ const readDailyNotesFile = async (vaultPath: string): Promise<DailyNotesFileSett
     const parsedConfig: unknown = JSON.parse(configFileContent)
     // Valid JSON can be `null` or a bare value, which has no keys to read.
     const settings = isRecord(parsedConfig) ? parsedConfig : {}
+    // A whitespace-only folder stays `named`: reads use it as written, while
+    // the delete guard and orphan exclusion treat it as no folder.
     const folderSetting: DailyNotesFolderSetting =
       typeof settings.folder === "string" && settings.folder.length > 0
         ? { kind: "named", folder: normalizeFolderSetting(settings.folder) }
@@ -102,10 +114,60 @@ const readDailyNotesFile = async (vaultPath: string): Promise<DailyNotesFileSett
   }
 }
 
+/** Obsidian's location for new notes, read from `newFileLocation` and
+ *  `newFileFolderPath` in .obsidian/app.json.
+ *  - Returns the folder when new notes go to a set folder, else the vault
+ *    root (""). "Same folder as current file" also means the root, since a
+ *    daily note has no current file.
+ *  - A missing or unreadable app.json means Obsidian's default, the root.
+ *  - Unlike Obsidian, a set folder that no longer exists is not swapped for
+ *    the root; the daily note then reads as missing. */
+const readNewNoteFolder = async (vaultPath: string, logger: Logger): Promise<string> => {
+  try {
+    const appConfigContent = await readFileOrNull(join(vaultPath, ".obsidian", "app.json"))
+
+    if (appConfigContent === null) return ""
+
+    const parsedConfig: unknown = JSON.parse(appConfigContent)
+    const settings = isRecord(parsedConfig) ? parsedConfig : {}
+    const { newFileLocation, newFileFolderPath } = settings
+
+    if (newFileLocation === "folder" && typeof newFileFolderPath === "string") {
+      return normalizeFolderSetting(newFileFolderPath)
+    }
+    return ""
+  } catch (error) {
+    // Reads and prompts only, so a wrong folder costs a missed note.
+    logger.warn("cannot read new note location, using the vault root", {
+      error: describeError(error),
+    })
+    return ""
+  }
+}
+
+/** The folder daily notes are read from; a blank setting follows Obsidian to
+ *  its new-note folder. */
+const resolveDailyNotesFolder = async (
+  { folderSetting, vaultPath }: { folderSetting: DailyNotesFolderSetting; vaultPath: string },
+  logger: Logger,
+): Promise<string> => {
+  if (folderSetting.kind === "no-file") return DEFAULT_DAILY_NOTES_FOLDER
+  if (folderSetting.kind === "blank") return readNewNoteFolder(vaultPath, logger)
+  return folderSetting.folder
+}
+
+/** The folder that holds daily notes apart from other notes, or null. Unlike
+ *  resolveDailyNotesFolder, a blank or vault-root setting gives null, because
+ *  that folder also holds other new notes. */
 const resolveDedicatedFolder = (folderSetting: DailyNotesFolderSetting): string | null => {
   if (folderSetting.kind === "no-file") return DEFAULT_DAILY_NOTES_FOLDER
   if (folderSetting.kind === "blank") return null
-  return folderSetting.folder || null
+
+  // A vault-root setting ("/") normalizes to "".
+  const isVaultRoot = folderSetting.folder === ""
+
+  if (isVaultRoot) return null
+  return folderSetting.folder
 }
 
 /** Reads the daily notes folder the delete and move guard protects, from
@@ -148,46 +210,6 @@ const readDailyNotesFileOrFallback = async (
   }
 }
 
-/** Obsidian's location for new notes, read from `newFileLocation` and
- *  `newFileFolderPath` in .obsidian/app.json.
- *  - Returns the folder when new notes go to a set folder, else the vault
- *    root (""). "Same folder as current file" also means the root, since a
- *    daily note has no current file.
- *  - A missing or unreadable app.json means Obsidian's default, the root.
- *  - Unlike Obsidian, a set folder that no longer exists is not swapped for
- *    the root; the daily note then reads as missing. */
-const readNewNoteFolder = async (vaultPath: string, logger: Logger): Promise<string> => {
-  try {
-    const appConfigContent = await readFileOrNull(join(vaultPath, ".obsidian", "app.json"))
-
-    if (appConfigContent === null) return ""
-
-    const parsedConfig: unknown = JSON.parse(appConfigContent)
-    const settings = isRecord(parsedConfig) ? parsedConfig : {}
-    const { newFileLocation, newFileFolderPath } = settings
-
-    if (newFileLocation === "folder" && typeof newFileFolderPath === "string") {
-      return normalizeFolderSetting(newFileFolderPath)
-    }
-    return ""
-  } catch (error) {
-    // Reads and prompts only, so a wrong folder costs a missed note.
-    logger.warn("cannot read new note location, using the vault root", {
-      error: describeError(error),
-    })
-    return ""
-  }
-}
-
-const resolveDailyNotesFolder = async (
-  { folderSetting, vaultPath }: { folderSetting: DailyNotesFolderSetting; vaultPath: string },
-  logger: Logger,
-): Promise<string> => {
-  if (folderSetting.kind === "no-file") return DEFAULT_DAILY_NOTES_FOLDER
-  if (folderSetting.kind === "blank") return readNewNoteFolder(vaultPath, logger)
-  return folderSetting.folder
-}
-
 /** Resolves the vault's daily note folder and filename format with
  *  per-field precedence: env setting → .obsidian/daily-notes.json →
  *  the fallbacks ("Daily Notes", "YYYY-MM-DD").
@@ -204,21 +226,25 @@ export const readDailyNotesConfig = async (
   logger: Logger,
 ): Promise<DailyNotesConfig> => {
   const { vaultPath, envSettings } = params
-  const envFolder = envSettings?.folder
+  const envFormat = envSettings?.format
 
-  // Both fields set — the files can't contribute anything, skip I/O. A
-  // resolved config passed back in can carry "" (the vault root) as its folder.
-  if (envFolder !== undefined && envSettings?.format) {
-    return { folder: envFolder, format: envSettings.format, dedicatedFolder: envFolder || null }
+  // "" is a set folder here, the vault root (see DailyNotesEnvSettings), so
+  // this checks for undefined; `|| null` below then marks the root as shared.
+  const envFolder = envSettings?.folder
+  const hasEnvFolder = envFolder !== undefined
+
+  // Both fields set — the files can't contribute anything, skip I/O.
+  if (hasEnvFolder && envFormat) {
+    return { folder: envFolder, format: envFormat, dedicatedFolder: envFolder || null }
   }
 
   const { folderSetting, format: fileFormat } = await readDailyNotesFileOrFallback(
     vaultPath,
     logger,
   )
-  const format = envSettings?.format ?? fileFormat
+  const format = envFormat ?? fileFormat
 
-  if (envFolder !== undefined) {
+  if (hasEnvFolder) {
     return { folder: envFolder, format, dedicatedFolder: envFolder || null }
   }
 

@@ -540,18 +540,19 @@ that file when settings syncing is turned on in two places:
 
 - **Server side** — `SYNC_CONFIGS` defaults to
   `core-plugin-data,community-plugin-data`, the two categories the server
-  reads: daily notes settings and community plugin settings (e.g. the Tasks
-  plugin's format). It takes a comma-separated list of Obsidian's settings
-  categories (`app`, `appearance`, `appearance-data`, `hotkey`,
-  `core-plugin`, `core-plugin-data`, `community-plugin`,
+  reads: daily notes settings (Obsidian's **Core plugin settings** toggle)
+  and community plugin settings, such as the Tasks plugin's format
+  (**Installed community plugins**). It takes a comma-separated list of
+  Obsidian's settings categories (`app`, `appearance`, `appearance-data`,
+  `hotkey`, `core-plugin`, `core-plugin-data`, `community-plugin`,
   `community-plugin-data`); set `SYNC_CONFIGS=none` in `.env` to disable.
 - **Desktop side** — Obsidian Settings → Sync → **Vault configuration sync**,
   enabled per device. Obsidian only pushes categories you enable there.
 
 Some community plugins keep API keys in their settings. Server tools never
-read `.obsidian/`, and the server itself opens only the two config files
-above, plus `app.json` when the `app` category is synced — synced settings
-otherwise just sit in the config volume.
+read `.obsidian/`, and the server itself opens only `daily-notes.json`, the
+Tasks plugin's settings, and `app.json` when the `app` category is synced —
+other synced settings just sit in the vault's `.obsidian/` folder.
 
 If you turn on **Core plugin settings** syncing after the server is
 already running, `daily-notes.json` is picked up automatically once it
@@ -560,16 +561,27 @@ lands; no restart needed.
 If the folder box in Obsidian's Daily notes options is empty, Obsidian puts
 daily notes where **Default location for new notes** says, a setting stored
 in `.obsidian/app.json`. The default `SYNC_CONFIGS` leaves that file out, so
-the server then looks in the vault root. If your new notes go to a set
-folder, add `app` to `SYNC_CONFIGS` and turn on **Main settings** under
-Vault configuration sync, or set `DAILY_NOTES_FOLDER` as described below.
+the server then looks in the vault root. **Same folder as current file** also
+means the vault root, as it does in Obsidian for daily notes. If your new
+notes go to a set folder, either:
+
+- add `app` to `SYNC_CONFIGS` and turn on **Main settings** under Vault
+  configuration sync — a `.env` edit, so re-create the container as described
+  below; or
+- set `DAILY_NOTES_FOLDER`, as described below.
+
+Daily notes in the vault root, or in the new-note folder because the folder
+box is empty, aren't protected from delete and move and can appear in orphan
+results; the [main README's Daily notes section](../../README.md#daily-notes)
+explains why.
 
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any
 vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT`
 (same tokens as Obsidian's date format setting) in `.env`. You can set one
-or both — a set value always wins over the config file. Without either
-source, the server falls back to the `Daily Notes` folder and `YYYY-MM-DD`.
+or both — a set value always wins over the config file. A value you leave
+unset while `daily-notes.json` hasn't reached the server comes from the
+fallbacks: the `Daily Notes` folder and `YYYY-MM-DD`.
 
 `.env` edits take effect when the container is re-created: set up with the
 CLI, run `npx vault-cortex@latest restart`; with Compose, `docker compose up -d`;
