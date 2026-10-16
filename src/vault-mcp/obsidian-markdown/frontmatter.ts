@@ -84,10 +84,10 @@ const SPLIT_ONLY_OPTIONS = {
 export const splitPropertiesBlock = (
   content: string,
 ): {
-  /** The text between the `---` lines. It starts with the opener line's own
-   *  line break, so its line numbers match the note's. Its lines keep the
-   *  note's line breaks, `\r\n` included; only the `\r` before the closer is
-   *  dropped, so the last line reads as in an LF note. */
+  /** The text between the `---` lines. It starts with the end of the opener
+   *  line, line break included, so its line numbers match the note's. Its
+   *  lines keep the note's line breaks, `\r\n` included; only the `\r` before
+   *  the closer is dropped, so the last line reads as in an LF note. */
   blockText: string | null
   body: string
 } => {
@@ -218,10 +218,11 @@ const convertDocumentToValue = (
  * that would stringify back as UTC-Z.
  */
 const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
-  // Each call gets its own counter, because a shared one keeps counting
-  // across parses and reports later errors on the wrong line. The block text
-  // from splitPropertiesBlock starts with the opener's own line break and
-  // keeps the note's line breaks, so line N of the block is line N of the note.
+  // - Each call gets its own counter, because a shared one keeps counting
+  //   across parses and reports later errors on the wrong line.
+  // - The block text from splitPropertiesBlock starts with the end of the
+  //   opener line, line break included, and keeps the note's line breaks, so
+  //   line N of the block is line N of the note.
   const lineCounter = new LineCounter()
   // prettyErrors would append its own position and a multi-line excerpt of
   // the block to each message; the message below states the position itself
