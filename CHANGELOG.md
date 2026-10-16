@@ -118,6 +118,23 @@
 
 
 
+
+## [0.54.14] — 2026-10-16
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.13
+
+### Maintenance
+
+- **deps:** Bump github/codeql-action/upload-sarif from 4.38.2 to 4.38.3 (#675)
+- **deps-dev:** Bump the development group with 8 updates (#674)
+- **deps:** Bump the production group with 4 updates (#673)
+- **deps:** Bump ossf/scorecard-action from 2.4.4 to 2.5.0 (#672)
+- **deps:** Bump actions/setup-node from 7.0.0 to 7.1.0 (#671)
+- **deps:** Bump actions/create-github-app-token from 3.2.0 to 3.3.0 (#676)
+- **tests:** Skip the permission tests as root, and remove the root-test hook (#670)
+
 ## [0.54.13] — 2026-10-11
 
 ### Bug Fixes
