@@ -186,7 +186,7 @@ Unlike a read that parses the block, such as `vault_read_note` with `properties_
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 
-- **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes
+- **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes; daily notes in the vault root or in the new-note folder through a blank setting add no folder
 - **Unreadable `daily-notes.json`:** a file that exists but cannot be read or parsed refuses the delete or move, because the folder to protect is unknown; setting `DAILY_NOTES_FOLDER` skips the file
 - **Override:** `PROTECTED_PATHS` replaces the default set entirely, and `daily-notes.json` is not read
 
@@ -246,8 +246,11 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 **Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`).
 
 - **Read on every call:** a folder or format change in Obsidian applies to the next call, and a config file that arrives after boot needs no restart
+- **Folder normalized like Obsidian:** runs of `/` or `\` become one `/` and leading and trailing slashes are dropped, so Obsidian's `"/"` is the vault root
+- **Blank folder in the file:** Obsidian's new-note location (`newFileLocation: "folder"` plus `newFileFolderPath` in `.obsidian/app.json`), otherwise the vault root
 - **Missing file:** takes the fallbacks
 - **Unparseable file:** takes the fallbacks and logs a `warn`
+- **Shared folder:** daily notes in the vault root, or in the new-note folder through a blank setting, add no folder to the delete and move guard, the orphan exclusion, or the forward-reference counts
 
 ### Memory
 
@@ -314,7 +317,7 @@ Link queries use a `links` table populated during indexing:
 - **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (`DAILY_NOTES_FOLDER` → `.obsidian/daily-notes.json` → `Daily Notes`), `Templates`, and the memory dir.
   - `ORPHAN_EXCLUDE_FOLDERS` replaces that list; a tool call's `exclude_folders` replaces it for that call.
   - An unreadable or malformed config logs a warning and uses `Daily Notes`; a missing file uses that fallback without a warning.
-  - An empty Obsidian folder setting uses the `Daily Notes` fallback. A whitespace-only folder adds no daily-folder exclusion. Neither excludes the whole vault, so root-level daily notes remain eligible.
+  - Daily notes in the vault root or in Obsidian's new-note folder (a blank folder setting), and a whitespace-only folder, add no daily-folder exclusion, so those daily notes remain eligible.
 
 ### Files
 
