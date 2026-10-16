@@ -1922,6 +1922,142 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
   })
 })
 
+describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCHER_RETRY, () => {
+  it(
+    "indexes edits, creations and deletions that land while the rebuild reads the vault",
+    { timeout: 20000 },
+    async () => {
+      const testVault = await mkdtemp(join(tmpdir(), "watcher-startup-real-"))
+      const dataDirectory = await mkdtemp(join(tmpdir(), "watcher-startup-real-data-"))
+      onTestFinished(async () => {
+        await rm(testVault, { recursive: true })
+        await rm(dataDirectory, { recursive: true })
+      })
+      const databasePath = join(dataDirectory, "index.db")
+      const search = createSearchIndex(databasePath, undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const database = new Database(databasePath, { readonly: true })
+      onTestFinished(() => {
+        database.close()
+      })
+      const modifiedPath = join(testVault, "modified.md")
+      const deletedPath = join(testVault, "deleted.md")
+      const deletedTextPath = join(testVault, "deleted.txt")
+      await writeFile(deletedPath, "ghostquartz links [[modified]]\n")
+      await writeFile(modifiedPath, "oldtext\n")
+      await writeFile(deletedTextPath, "ghostquartz")
+      const { mtime: modifiedTimeTheRebuildSaw } = await stat(modifiedPath)
+
+      // The rebuild's read of modified.md is held after it read "oldtext";
+      // deleted.md's read is only observed, so the test deletes the file
+      // after the rebuild has read it.
+      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      const modifiedReadReached = Promise.withResolvers<undefined>()
+      const releaseModifiedRead = Promise.withResolvers<undefined>()
+      const deletedNoteRead = Promise.withResolvers<undefined>()
+      const gatedPaths = new Set<string>()
+      vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+        const content = await actualFs.readFile(requestedPath, options)
+
+        if (requestedPath === deletedPath) deletedNoteRead.resolve(undefined)
+        if (requestedPath === modifiedPath && !gatedPaths.has(modifiedPath)) {
+          gatedPaths.add(modifiedPath)
+          modifiedReadReached.resolve(undefined)
+          await releaseModifiedRead.promise
+        }
+        return content
+      })
+      onTestFinished(() => vi.mocked(readFile).mockRestore())
+
+      // A path counts as delivered once the watcher either holds its event
+      // (the intended path) or writes it to the index at once (a broken hold),
+      // so the state assertions below decide which happened.
+      const deliveredPaths = new Set<string>()
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation((message, fields) => {
+        const isHeldLine = message.startsWith("held a ")
+        const heldPath = fields?.path
+
+        if (isHeldLine && typeof heldPath === "string") deliveredPaths.add(heldPath)
+      })
+      const infoSpy = vi.spyOn(logger, "info")
+      onTestFinished(() => {
+        debugSpy.mockRestore()
+        infoSpy.mockRestore()
+      })
+      const recordDeliveredPath = <Arguments extends unknown[], Result>(
+        operation: (...operationArguments: Arguments) => Result,
+        pathOf: (...operationArguments: Arguments) => string,
+      ) => {
+        return (...operationArguments: Arguments): Result => {
+          deliveredPaths.add(pathOf(...operationArguments))
+          return operation(...operationArguments)
+        }
+      }
+      // The real functions are captured before spying, because inside
+      // mockImplementation's argument the property already holds the spy,
+      // and wrapping the spy would recurse.
+      const { upsertNote, upsertNonMdFile, removeNote, removeNonMdFile } = search
+      vi.spyOn(search, "upsertNote").mockImplementation(
+        recordDeliveredPath(upsertNote, (params) => params.filePath),
+      )
+      vi.spyOn(search, "upsertNonMdFile").mockImplementation(
+        recordDeliveredPath(upsertNonMdFile, (filePath) => filePath),
+      )
+      vi.spyOn(search, "removeNote").mockImplementation(
+        recordDeliveredPath(removeNote, (filePath) => filePath),
+      )
+      vi.spyOn(search, "removeNonMdFile").mockImplementation(
+        recordDeliveredPath(removeNonMdFile, (filePath) => filePath),
+      )
+
+      const startup = watchVaultAndBuildIndex(testVault, search, {
+        stabilityThreshold: 100,
+        pollInterval: 25,
+      })
+      await modifiedReadReached.promise
+      await deletedNoteRead.promise
+      await writeFile(modifiedPath, "newopal is longer than the old text\n")
+      // Sync writes with equal access and modification times; the old
+      // modification time shows the outcome does not depend on it changing.
+      await utimes(modifiedPath, modifiedTimeTheRebuildSaw, modifiedTimeTheRebuildSaw)
+      await unlink(deletedPath)
+      await unlink(deletedTextPath)
+      await writeFile(join(testVault, "created.md"), "newjade\n")
+      await vi.waitFor(
+        () => {
+          expect([...deliveredPaths].toSorted()).toEqual([
+            "created.md",
+            "deleted.md",
+            "deleted.txt",
+            "modified.md",
+          ])
+        },
+        { timeout: 8000 },
+      )
+      releaseModifiedRead.resolve(undefined)
+      await startup
+
+      const pathsFor = (query: string) => {
+        return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+      }
+      expect(pathsFor("newopal")).toEqual(["modified.md"])
+      expect(pathsFor("oldtext")).toEqual([])
+      expect(pathsFor("newjade")).toEqual(["created.md"])
+      expect(pathsFor("ghostquartz")).toEqual([])
+      expect(
+        database.prepare("SELECT source FROM links WHERE source = 'deleted.md'").all(),
+      ).toEqual([])
+      expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+      expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+      expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+        batchPaths: 4,
+        replayedEvents: 0,
+      })
+    },
+  )
+})
+
 describe("file watcher — chokidar watch options", () => {
   registerSharedVaultHooks()
 
@@ -2002,13 +2138,10 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
     addedPaths: string[]
   }
 
-  /** Stubs chokidar.watch with a fake exposing what the rescan consumes, then
-   *  starts the file watcher against it. mockRestore (via onTestFinished)
-   *  hands the real, spied watch back to the integration tests. */
-  const startWatcherWithFakeChokidar = async (
-    watchedChildren: Record<string, string[]>,
-    watcherOptions: Parameters<typeof watchVaultAndBuildIndex>[2],
-  ): Promise<RescanFakeWatcher> => {
+  /** Stubs chokidar.watch with a fake exposing what the rescan consumes.
+   *  mockRestore (via onTestFinished) hands the real, spied watch back to the
+   *  integration tests. */
+  const installFakeChokidar = (watchedChildren: Record<string, string[]>): RescanFakeWatcher => {
     const handlers = new Map<string, (path: string) => void>()
     const addedPaths: string[] = []
     const fakeWatcher = {
@@ -2026,7 +2159,6 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
     watchMock.mockReset()
     watchMock.mockImplementation(() => fakeWatcher as unknown as ReturnType<typeof watch>)
     onTestFinished(() => watchMock.mockRestore())
-    await startWatcherWithoutRebuild(vault, index, watcherOptions)
 
     const fireAddDir = (dirPath: string): void => {
       const addDirHandler = handlers.get("addDir")
@@ -2037,6 +2169,16 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
       addDirHandler(dirPath)
     }
     return { fireAddDir, addedPaths }
+  }
+
+  /** Starts the file watcher against a fake chokidar (see installFakeChokidar). */
+  const startWatcherWithFakeChokidar = async (
+    watchedChildren: Record<string, string[]>,
+    watcherOptions: Parameters<typeof watchVaultAndBuildIndex>[2],
+  ): Promise<RescanFakeWatcher> => {
+    const fakeChokidar = installFakeChokidar(watchedChildren)
+    await startWatcherWithoutRebuild(vault, index, watcherOptions)
+    return fakeChokidar
   }
 
   /** Backdates a file's mtime (10 minutes) so the rescan's "still being
@@ -2064,6 +2206,63 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
     // untracked, its later deletion would emit no unlink (ghost entry).
     expect(addedPaths).toEqual([missedPath])
   })
+
+  it(
+    "holds a rescan's indexing until the startup rebuild returns",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const missedPath = join(newDirectory, "missed.md")
+      await writeFile(missedPath, "missed during startup\n", "utf8")
+      await backdateMtime(missedPath)
+      const rebuildGate = Promise.withResolvers<undefined>()
+      vi.spyOn(index, "rebuildFromVault").mockImplementation(async () => {
+        await rebuildGate.promise
+        return { count: 0, embedding: Promise.resolve() }
+      })
+      // Resolves when the rescan reaches the missed file, whether it holds the
+      // change (the intended path) or indexes it at once (a broken hold), so the
+      // state assertion below decides which happened.
+      const missedFileReached = Promise.withResolvers<undefined>()
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation((message, fields) => {
+        const isMissedFileHeld =
+          message === "held a change until startup indexing ends" &&
+          fields?.path === "new-folder/missed.md"
+
+        if (isMissedFileHeld) missedFileReached.resolve(undefined)
+      })
+      const realUpsertNote = index.upsertNote
+      vi.spyOn(index, "upsertNote").mockImplementation((params, requestLogger) => {
+        missedFileReached.resolve(undefined)
+        return realUpsertNote(params, requestLogger)
+      })
+      const infoSpy = vi.spyOn(logger, "info")
+      onTestFinished(() => {
+        debugSpy.mockRestore()
+        infoSpy.mockRestore()
+      })
+      const { fireAddDir } = installFakeChokidar({})
+      const startup = watchVaultAndBuildIndex(vault, index, RESCAN_TEST_OPTIONS)
+      await vi.waitFor(() => {
+        expect(index.rebuildFromVault).toHaveBeenCalledTimes(1)
+      })
+
+      fireAddDir(newDirectory)
+      await missedFileReached.promise
+
+      expect(index.fullTextSearch({ query: "missed" }, logger)).toEqual([])
+      rebuildGate.resolve(undefined)
+      await startup
+      expect(index.fullTextSearch({ query: "missed" }, logger).map((hit) => hit.path)).toEqual([
+        "new-folder/missed.md",
+      ])
+      expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+        batchPaths: 1,
+        replayedEvents: 0,
+      })
+    },
+  )
 
   it("does not re-index a file chokidar already tracks", { timeout: 15000 }, async () => {
     const newDirectory = join(vault, "new-folder")
