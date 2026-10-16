@@ -523,7 +523,7 @@ Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
-- append: add content at end of section (or end of file if no heading)
+- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so a row appended to a table followed by a blank line starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
 - prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.
 - replace: replace section body (requires heading)
 - insert_before: insert content above the heading line (requires heading)
@@ -663,7 +663,7 @@ When to use: Targeted text changes within a single location — fixing typos, up
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
-- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") that leaves an empty line where the match was joins the empty lines above and below it into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); where matches empty their lines, the gap keeps at least one empty line unless it ends the note, so include the line break in old_text to remove the line. Any other deletion, such as text inside a line or a line break that joins two lines, is written exactly as asked. Empty lines outside the joined gaps never change. A line holding only spaces or tabs counts as text, not as an empty line.
+- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") never doubles blank lines. A line it empties joins the empty lines above and below into one gap as wide as the wider of the two and at least one line wide, except at the end of the note, where one fewer stays. So include the line break in old_text to remove a table row or list item, or the empty line left behind splits the table or list. Other deletions (inside a line, or a line break) are written exactly as asked, and no other empty line changes. A line of only spaces or tabs counts as text.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
@@ -687,12 +687,7 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
           .describe(
             'Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md"). Use the exact letter case.',
           ),
-        old_text: z
-          .string()
-          .min(1)
-          .describe(
-            "Exact text to find (case-sensitive). Matches in the body only — text inside frontmatter properties is not searched.",
-          ),
+        old_text: z.string().min(1).describe("Exact text to find (case-sensitive)."),
         new_text: z
           .string()
           .describe('Replacement text. Empty string ("") deletes the matched text.'),
@@ -773,9 +768,9 @@ Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${deleteSpanAlternativesLine}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Omit end_anchor for a single-line delete. The empty lines above and below the removed lines join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
+- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Blank lines never double: the empty lines above and below the removed lines join into one gap as wide as the wider of the two (one fewer at the end of the note), so removing a table row leaves the table whole. No other empty line changes, and a line of only spaces or tabs counts as text.
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
-- first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
+- first_match applies to both anchors independently.
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
@@ -788,7 +783,7 @@ ${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Returns: Confirmation with the number of lines the span covered and a preview of them, cut at 80 characters.`,
+Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed lines joined by line breaks, cut at 80 characters with "…".`,
       inputSchema: {
         path: z
           .string()
@@ -800,14 +795,14 @@ Returns: Confirmation with the number of lines the span covered and a preview of
           .string()
           .min(1)
           .describe(
-            "Short, unique substring that identifies the first line of the block (case-sensitive). The entire line is selected, not just the substring. Pick a brief fragment — do not paste the whole block.",
+            "Short, unique substring that identifies the first line of the block (case-sensitive). Pick a brief fragment — do not paste the whole block.",
           ),
         end_anchor: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Short substring that identifies the LAST line of the block. The entire line is selected. Omit to delete just the single line containing start_anchor.",
+            "Short substring that identifies the LAST line of the block. Omit to delete just the single line containing start_anchor.",
           ),
         first_match: z
           .boolean()
@@ -872,8 +867,9 @@ Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning]
 When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${replaceSpanAlternativesLine}
 
 Parameters:
+- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line).
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
-- content: empty lines at its start and end join the empty lines around the replaced lines, and each joined gap keeps the larger of the two counts (only at the end of the note, the count above drops by one). So content can widen a gap but not narrow it: a trailing newline leaves at least one empty line after the new block unless the block ends the note. Content made only of empty lines joins both sides into one gap. Empty lines inside content are written as given, and no other empty line in the note changes. A line holding only spaces or tabs counts as text, not as an empty line.
+- content: empty lines at its start or end can widen the gap beside the span but never narrow it. Each edge joins the note's empty lines on that side into one gap as wide as the wider of the two (one fewer at the end of the note). So content without edge newlines keeps the gaps as they were, and a trailing newline adds an empty line after the block, which splits a table. Content made only of empty lines joins both sides into one gap. Empty lines inside content are written as given, no other empty line changes, and a line of only spaces or tabs counts as text.
 - first_match applies to both anchors independently.
 
 Errors:
@@ -902,14 +898,14 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
           .string()
           .min(1)
           .describe(
-            "Short, unique substring that identifies the first line of the block (case-sensitive). The entire line is selected, not just the substring. Pick a brief fragment — do not paste the whole block.",
+            "Short, unique substring that identifies the first line of the block (case-sensitive). Pick a brief fragment — do not paste the whole block.",
           ),
         end_anchor: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Short substring that identifies the LAST line of the block. The entire line is selected. Omit to replace just the single line containing start_anchor.",
+            "Short substring that identifies the LAST line of the block. Omit to replace just the single line containing start_anchor.",
           ),
         content: z
           .string()

@@ -89,7 +89,7 @@ export const registerAssetTools = ({
 Example: vault_read_file({ path: "attachments/diagram.png" }) — the image itself, shrunk when too large
 Example: vault_read_file({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
 Example: vault_read_file({ path: "exports/data.json" }) — the file content as text
-Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines, preceded by a metadata line stating the window and total line count
+Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines
 Example: vault_read_file({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 
 What each file type returns:
@@ -110,17 +110,17 @@ Errors:
 - "not a file" — the path ends in .md; read notes with vault_read_note
 - "file not found" / "ENAMETOOLONG: …" — nothing exists at that path, or the path (or a name in it) is longer than the filesystem allows; discover valid paths via vault_list_files
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable, matching Obsidian)
-- "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB)
+- "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB); the server's owner can raise MAX_FILE_BYTES
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
 - "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input; paging applies only to text results, and an image always comes back as its image block
-- "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
+- "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content; ask for a UTF-8 copy
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
 - "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
 - "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; replace or re-export the file
 - "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead. If that read also finds no text, this tool can't read the PDF
-- "image cannot be fitted" — the image could not be compressed under the image output budget
+- "image cannot be fitted" — the image could not be compressed under the image output budget; ask for a smaller export
 - "EACCES: …" or another filesystem error code — the file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
@@ -130,7 +130,7 @@ Returns: for images, an image content block plus a one-line metadata text block;
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the file, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md" — notes are read with vault_read_note. Use the exact letter case.',
+            'Vault-relative path to the file, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md". Use the exact letter case.',
           ),
         raw: z
           .boolean()

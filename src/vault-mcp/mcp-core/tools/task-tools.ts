@@ -479,7 +479,7 @@ Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Ac
 When to use: Any change to an existing task — completing, starting, re-prioritizing, editing text, setting or clearing dates, adding checklist items, assigning block_ids, moving between headings, or reordering within a lane.${whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks first to get identification fields (path + block_id or line).")}${whenToolEnabledText("vault_create_task", " For creating a new task, use vault_create_task instead.")}
 
 Parameters:
-- Exactly one of block_id or line is required to identify the task. A sub-task on a Kanban board has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line: each save by the Kanban plugin rewrites the board${whenToolEnabledText("vault_list_tasks", ", and the listing can take a few seconds to catch up with a save")}.
+- Exactly one of block_id or line is required to identify the task. A Kanban sub-task this server created has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line: each save by the Kanban plugin rewrites the board${whenToolEnabledText("vault_list_tasks", ", and the listing can take a few seconds to catch up with a save")}.
 - At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
 - status side effects:
   Kanban: "done" moves the card and everything nested under it to the done lane (nested checkboxes left as they are); a sub-task stays under its parent.
