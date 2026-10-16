@@ -2028,9 +2028,31 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(notePaths()).toEqual(expectedPaths.map((path) => ({ path })))
   })
 
-  it("keeps the watcher closed when a folder rescan scheduled before a failed rebuild runs", async () => {
+  it("skips a folder rescan that was scheduled before a failed rebuild closed the watcher", async () => {
     const { testVault, watcher, fire, startup, failRebuild } = await createControlledStartup({
       newDirectoryRescanDelay: 50,
+    })
+    const debugSpy = spyOnLogger("debug")
+    const freshFolder = join(testVault, "fresh")
+    await mkdir(freshFolder)
+    await writeFile(join(freshFolder, "note.md"), "freshtext\n")
+    const addSpy = vi.spyOn(watcher, "add")
+
+    await fire("addDir", "fresh")
+    failRebuild(new Error("controlled rebuild failure"))
+    await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    await vi.waitFor(() => {
+      expect(debugSpy).toHaveBeenCalledWith("rescan skipped, watcher closed", { path: "fresh" })
+    })
+
+    expect(vi.mocked(readdirOrNull)).not.toHaveBeenCalledWith(freshFolder)
+    expect(addSpy).not.toHaveBeenCalled()
+    expect(watcher.closed).toBe(true)
+  })
+
+  it("indexes and watches nothing from a rescan that was running when the watcher closed", async () => {
+    const { testVault, watcher, fire, startup, failRebuild } = await createControlledStartup({
+      newDirectoryRescanDelay: 20,
     })
     const debugSpy = spyOnLogger("debug")
     const freshNote = join(testVault, "fresh", "note.md")
@@ -2039,19 +2061,66 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     // Older than the stability window, so the rescan watches and indexes it at once.
     const settledSeconds = DateTime.now().minus({ minutes: 10 }).toUnixInteger()
     await utimes(freshNote, settledSeconds, settledSeconds)
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const statReached = Promise.withResolvers<undefined>()
+    const statRelease = Promise.withResolvers<undefined>()
+    // Holds the rescan's stat of the note until the watcher has closed.
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === freshNote) {
+        statReached.resolve(undefined)
+        await statRelease.promise
+      }
+      return actualFs.stat(requestedPath, options)
+    })
+    onTestFinished(() => vi.mocked(stat).mockRestore())
     const addSpy = vi.spyOn(watcher, "add")
 
     await fire("addDir", "fresh")
+    await statReached.promise
     failRebuild(new Error("controlled rebuild failure"))
     await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    statRelease.resolve(undefined)
     await vi.waitFor(() => {
       expect(debugSpy).toHaveBeenCalledWith("rescan indexing missed file", {
         path: join("fresh", "note.md"),
       })
     })
 
+    // The rescan logs just before handleChange, which would read the note
+    // before its first await.
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(freshNote, "utf8")
     expect(addSpy).not.toHaveBeenCalled()
     expect(watcher.closed).toBe(true)
+  })
+
+  it("returns 10 seconds after the rebuild by default while held changes are still applied", async () => {
+    const { testVault, fire, startup, finishRebuild } = await createControlledStartup()
+    const infoSpy = spyOnLogger("info")
+    const slowPath = join(testVault, "slow.md")
+    await writeFile(slowPath, "slowtext\n")
+    const readGate = await gateFirstRead(slowPath, "before-disk")
+    onTestFinished(() => readGate.release())
+    // Fake only setTimeout, so the batch's real filesystem work still runs.
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+
+    await fire("change", "slow.md")
+    finishRebuild()
+    await readGate.reached
+    await vi.advanceTimersByTimeAsync(9_999)
+
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      "startup continues while the changes held during it are still applied",
+      { heldPaths: 1, heldChangesDeadline: 10_000 },
+    )
+    await vi.advanceTimersByTimeAsync(1)
+    expect(infoSpy).toHaveBeenCalledWith(
+      "startup continues while the changes held during it are still applied",
+      { heldPaths: 1, heldChangesDeadline: 10_000 },
+    )
+    await startup
   })
 
   it("extracts at most 4 held PDFs at once", async () => {
