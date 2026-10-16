@@ -315,7 +315,10 @@ export const getDailyNotePath = async (
     throw new Error(describeNonCalendarDate(date))
   }
 
-  const filename = dateTime.toFormat(luxonFormat)
+  // Obsidian trims the formatted date before building the path, so a format
+  // with a space at either end still names "2026-05-13.md".
+  const filename = dateTime.toFormat(luxonFormat).trim()
+
   return config.folder ? `${config.folder}/${filename}.md` : `${filename}.md`
 }
 

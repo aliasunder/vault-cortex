@@ -541,6 +541,15 @@ describe("getDailyNotePath", () => {
     expect(path).toBe("13-05-2026.md")
   })
 
+  it("trims spaces the format leaves at either end of the filename, as Obsidian does", async () => {
+    const vaultDir = await createVault()
+    await writeDailyNotesConfig(vaultDir, { folder: "Journal", format: " YYYY-MM-DD " })
+
+    const path = await getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }, logger)
+
+    expect(path).toBe("Journal/2026-05-13.md")
+  })
+
   it("uses a resolved config as is, reading no config file", async () => {
     const vaultDir = await createVault()
     // A different folder and format on disk, so a file read would change the path
