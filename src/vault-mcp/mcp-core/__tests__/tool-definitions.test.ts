@@ -1103,6 +1103,8 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   // or file results. Both embedding variants share this wording.
   const FILE_RESULT_WORDING = {
     searchedScope: "search across vault notes and file content (canvas, PDF, and text files)",
+    filtersLeadIn:
+      "Filters — all conditions AND-combine with each other and the text query; any filter but folder limits results to notes:",
     resultFields:
       "results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes",
     kindSentence:
@@ -1110,6 +1112,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   }
   const NOTE_ONLY_WORDING = {
     searchedScope: "search across vault notes",
+    filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
     resultFields:
       "results array (path, title, snippet, score, tags, folder, type, kind, created, modified, bytes",
     kindSentence: 'kind is always "note".',
@@ -1148,6 +1151,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
 
     expect({
       searchedScope: searchSection({ startMarker: "search across ", endMarker: ", ranked by" }),
+      filtersLeadIn: searchSection({ startMarker: "Filters — ", endMarker: "\n- folder:" }),
       resultFields: searchSection({ startMarker: "results array (", endMarker: "), total" }),
       kindSentence: searchSection({ startMarker: "kind is ", endMarker: " created is omitted" }),
     }).toEqual(expectedWording)
