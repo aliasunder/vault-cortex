@@ -374,8 +374,7 @@ export const stringifyNote = (body: string, data: object): string => {
  * body's bytes exactly, adding no newline; only a leading BOM is dropped,
  * as on every split. The old block is never parsed, so a block the server
  * cannot read or keep can still be replaced. `{}` removes the block. The new
- * block always uses LF, so a CRLF note comes back with mixed line endings,
- * as Obsidian's own property edits leave it.
+ * block always uses LF, so a CRLF note comes back with mixed line endings.
  */
 export const replacePropertiesBlock = (content: string, properties: object): string => {
   const { body } = splitPropertiesBlock(content)
