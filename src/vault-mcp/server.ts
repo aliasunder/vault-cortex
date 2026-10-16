@@ -10,7 +10,7 @@ import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { readTaskFormatConfig } from "./vault-operations/task-format-config.js"
 import { trashSweeper } from "./vault-operations/trash-sweeper.js"
-import { startFileWatcher } from "./search/file-watcher.js"
+import { watchVaultAndBuildIndex } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./oauth/oauth-provider.js"
 import { createOAuthRoutes } from "./oauth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-core/mcp-router.js"
@@ -146,13 +146,12 @@ const startServer = async (): Promise<void> => {
     fileToolsEnabled: config.fileToolsEnabled,
     statusRegistry,
   })
+  // Before the watcher starts, so its template writes are not held and re-read.
   await bootstrapMemoryIfEnabled(config, vaultPath)
-  const { count } = await search.rebuildFromVault({ vaultPath }, logger)
-  logger.info("initial index built", { count })
-
-  await startFileWatcher(vaultPath, search, {
+  const { count } = await watchVaultAndBuildIndex(vaultPath, search, {
     usePolling: config.windowsBindMount,
   })
+  logger.info("initial index built", { count })
 
   const oauthProvider = createOAuthProvider({
     authToken,
