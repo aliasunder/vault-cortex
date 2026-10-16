@@ -58,6 +58,20 @@ describe("resolveEffectiveProtectedPaths", () => {
     ).toEqual(["About Me"])
   })
 
+  it.each([
+    { label: "daily notes in the vault root", settings: '{"folder":"/"}' },
+    { label: "daily notes in Obsidian's new-note folder", settings: '{"folder":""}' },
+  ])("protects only memory for $label", async ({ settings }) => {
+    const vaultPath = await createVault(settings)
+    await writeFile(
+      join(vaultPath, ".obsidian/app.json"),
+      '{"newFileLocation":"folder","newFileFolderPath":"Inbox"}',
+    )
+    expect(
+      await resolveEffectiveProtectedPaths({ config: loadConfig({}), vaultPath }, logger),
+    ).toEqual(["About Me"])
+  })
+
   it("preserves spaces in a nonblank file-configured daily folder", async () => {
     const vaultPath = await createVault('{"folder":" Journal "}')
     expect(
@@ -143,6 +157,16 @@ describe("resolveEffectiveOrphanExcludeFolders", () => {
     ).toEqual(["Templates", "About Me"])
   })
 
+  it("omits the daily folder when daily notes share a folder with other notes", () => {
+    expect(
+      resolveEffectiveOrphanExcludeFolders({
+        orphanExcludeFoldersOverride: null,
+        memoryDir: "About Me",
+        dailyNotesFolder: null,
+      }),
+    ).toEqual(["Templates", "About Me"])
+  })
+
   it("preserves an explicit empty list", () => {
     expect(
       resolveEffectiveOrphanExcludeFolders({
@@ -186,8 +210,25 @@ describe("readEffectiveOrphanExcludeFolders", () => {
       env: {},
       expected: ["Templates", "About Me"],
     },
+    {
+      label: "vault-root file folder",
+      settings: '{"folder":"/"}',
+      env: {},
+      expected: ["Templates", "About Me"],
+    },
+    {
+      label: "empty file folder, which follows the new-note folder",
+      settings: '{"folder":""}',
+      env: {},
+      expected: ["Templates", "About Me"],
+    },
   ])("uses $label", async ({ settings, env, expected }) => {
     const vaultPath = await createVault(settings)
+    // The new-note folder is where a blank daily folder resolves; it must not be excluded
+    await writeFile(
+      join(vaultPath, ".obsidian/app.json"),
+      '{"newFileLocation":"folder","newFileFolderPath":"Inbox"}',
+    )
     expect(
       await readEffectiveOrphanExcludeFolders({ config: loadConfig(env), vaultPath }, logger),
     ).toEqual(expected)

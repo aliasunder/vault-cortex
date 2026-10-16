@@ -221,7 +221,7 @@ export const registerDailyReviewPrompt = ({
           ? search.getOutgoingLinks(
               {
                 path: dailyNote.path,
-                dailyNotesFolder: dailyNotesConfig.folder,
+                dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
               },
               reqLogger,
             )

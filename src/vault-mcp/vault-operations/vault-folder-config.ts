@@ -1,6 +1,6 @@
 import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
-import { readDailyNotesConfig, readDailyNotesFileConfig } from "./daily-notes.js"
+import { readDailyNotesConfig, readProtectedDailyNotesFolder } from "./daily-notes.js"
 
 /** The folders that delete and move refuse to touch.
  *  - PROTECTED_PATHS, when set, replaces the defaults entirely, so only the
@@ -9,6 +9,9 @@ import { readDailyNotesConfig, readDailyNotesFileConfig } from "./daily-notes.js
  *    plus the daily notes folder, resolved on each call (DAILY_NOTES_FOLDER →
  *    .obsidian/daily-notes.json → "Daily Notes") so a folder configured only
  *    in the vault is protected too.
+ *  - Daily notes kept in the vault root or Obsidian's new-note folder are not
+ *    protected, since protecting either folder would cover every other note
+ *    in it.
  *  Throws when daily-notes.json exists but cannot be read, since the folder
  *  it names is then unknown; DAILY_NOTES_FOLDER or PROTECTED_PATHS bypasses
  *  the file. */
@@ -21,11 +24,10 @@ export const resolveEffectiveProtectedPaths = async (
   // loadConfig trims DAILY_NOTES_FOLDER, so a set value is never blank.
   if (config.dailyNotesFolder) return [config.memoryDir, config.dailyNotesFolder]
 
-  const dailyNotesConfig = await readDailyNotesFileConfig(vaultPath, logger)
+  const dailyFolder = await readProtectedDailyNotesFolder(vaultPath, logger)
 
   // A whitespace-only folder in daily-notes.json protects nothing.
-  const dailyFolder = dailyNotesConfig.folder.replace(/\/+$/, "")
-  return dailyFolder.trim() ? [config.memoryDir, dailyFolder] : [config.memoryDir]
+  return dailyFolder?.trim() ? [config.memoryDir, dailyFolder] : [config.memoryDir]
 }
 
 export const resolveEffectiveOrphanExcludeFolders = ({
@@ -35,12 +37,13 @@ export const resolveEffectiveOrphanExcludeFolders = ({
 }: {
   orphanExcludeFoldersOverride: readonly string[] | null
   memoryDir: string
-  dailyNotesFolder: string
+  /** Null when daily notes share the vault root or the new-note folder with other notes. */
+  dailyNotesFolder: string | null
 }): readonly string[] => {
   if (orphanExcludeFoldersOverride) return orphanExcludeFoldersOverride
 
   /** Whitespace-only settings exclude no daily folder; spaces in a nonblank folder name stay. */
-  return dailyNotesFolder.trim()
+  return dailyNotesFolder?.trim()
     ? [dailyNotesFolder, "Templates", memoryDir]
     : ["Templates", memoryDir]
 }
@@ -64,6 +67,6 @@ export const readEffectiveOrphanExcludeFolders = async (
   return resolveEffectiveOrphanExcludeFolders({
     orphanExcludeFoldersOverride: null,
     memoryDir: config.memoryDir,
-    dailyNotesFolder: dailyNotesConfig.folder,
+    dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
   })
 }

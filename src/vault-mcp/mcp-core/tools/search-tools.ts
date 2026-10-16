@@ -620,7 +620,7 @@ Errors:
             reqLogger,
           )
           return search.getOutgoingLinks(
-            { path, dailyNotesFolder: dailyNotesConfig.folder },
+            { path, dailyNotesFolder: dailyNotesConfig.dedicatedFolder },
             reqLogger,
           )
         },
@@ -641,7 +641,7 @@ Errors:
     : `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`
   const orphanDefaultDescription = config.orphanExcludeFoldersOverride
     ? "With exclude_folders omitted, the server's configured list (the schema default) is used."
-    : 'With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable).'
+    : 'With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). It is skipped when daily notes share the vault root or Obsidian\'s new-note folder.'
   // An override list may not include the daily notes folder, so the hint only
   // accompanies the built-in defaults.
   const dailyNotesFolderHint = config.orphanExcludeFoldersOverride

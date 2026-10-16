@@ -185,7 +185,7 @@ export const registerVaultOrientationPrompt = ({
             excludeFolders: resolveEffectiveOrphanExcludeFolders({
               orphanExcludeFoldersOverride: config.orphanExcludeFoldersOverride,
               memoryDir: config.memoryDir,
-              dailyNotesFolder: dailyNotesConfig.folder,
+              dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
             }),
             limit: ORIENTATION_ORPHAN_LIMIT + 1,
           },
@@ -194,7 +194,7 @@ export const registerVaultOrientationPrompt = ({
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
         const brokenLinkResult = search.brokenLinkCount(
-          { dailyNotesFolder: dailyNotesConfig.folder },
+          { dailyNotesFolder: dailyNotesConfig.dedicatedFolder },
           reqLogger,
         )
         const stats = search.vaultStats({}, reqLogger)
