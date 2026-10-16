@@ -67,9 +67,7 @@ export const registerVaultCrudTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  const filesystemErrorEntry = describeFilesystemErrorEntry(
-    whenToolEnabledText("vault_move_note", " with vault_move_note"),
-  )
+  const filesystemErrorEntry = describeFilesystemErrorEntry(whenToolEnabledText)
 
   registerTool(
     TOOL_NAMES.VAULT_READ_NOTE,
@@ -1003,7 +1001,7 @@ ${OPENING_BLOCK_ERROR_ENTRY}
 
 Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block.
 
-Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path>" — N counts the lines content supplied.`,
+Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <path>" — N counts the lines content supplied.`,
       inputSchema: {
         path: z
           .string()

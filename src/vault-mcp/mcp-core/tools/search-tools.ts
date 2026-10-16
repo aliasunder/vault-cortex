@@ -21,12 +21,12 @@ export const registerSearchTools = ({
   // vault_search description variants share them
   const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.`
 
-  // File content has no properties or dates, so the file legs are skipped
-  // whenever a filter other than folder is set
-  const fileResultsFilterText = config.fileToolsEnabled
+  // File-content search applies only the folder filter, so hybrid search
+  // drops file results whenever any other filter is set
+  const searchFiltersNoteOnlyClause = config.fileToolsEnabled
     ? "; any filter but folder limits results to notes"
     : ""
-  const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${fileResultsFilterText}:
+  const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${searchFiltersNoteOnlyClause}:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
 - properties: values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
@@ -604,7 +604,7 @@ Errors:
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes (vault-relative paths embedded in the canvas), not links inside text cards. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it.
+      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes (vault-relative paths embedded in the canvas), not links inside text cards. Links inside code blocks are ignored; self-links are included. Each existing target is listed once, however often the note links to it.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })

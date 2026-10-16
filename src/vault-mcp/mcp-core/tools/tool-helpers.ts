@@ -208,19 +208,23 @@ export const OPENING_BLOCK_ERROR_ENTRY =
 /** The Errors entry of a tool that saves a note, for a file the server
  *  cannot read or write; the message is Node's, with the path made
  *  vault-relative.
- *  - One grouped bullet names each remedy: the caller shortens a too-long
- *    name, and the vault's owner fixes permissions or the disk. A save first
- *    writes a temp file named after the note plus ".<UUID>.tmp", 41 bytes
- *    longer, so a note can read fine and still fail to save. A rename writes
- *    that temp file beside the new name too, which is why the bullet asks for
- *    a name at least 41 bytes shorter.
- *  - Every such tool can return these, but each lists the bullet only when
- *    its own description is next revised, because a grader re-scores every
- *    description whose text changes.
- *  - `renameToolClause` names the rename tool while it is served, and is
- *    empty otherwise. */
-export const describeFilesystemErrorEntry = (renameToolClause: string): string => {
-  return `- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the file and the cause. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter${renameToolClause}. Permissions or a full or read-only disk need the vault's owner`
+ *  - One bullet names each remedy: the caller shortens a too-long name, and
+ *    the vault's owner fixes permissions or the disk.
+ *  - A save first writes a temp file named after the note plus
+ *    ".<UUID>.tmp", 41 bytes longer, so a note can read fine and still fail
+ *    to save. A rename writes that temp file beside the new name too, which
+ *    is why the bullet asks for a name at least 41 bytes shorter.
+ *  - A write that fails after the file is open (a full disk) gets a Node
+ *    message with no path, so the bullet says the file is usually named.
+ *  - Every tool that saves a note can raise these errors, but each lists the
+ *    bullet only when its own description is next revised, because a grader
+ *    re-scores every description whose text changes. */
+export const describeFilesystemErrorEntry = (
+  whenToolEnabledText: ToolRegistrationContext["whenToolEnabledText"],
+): string => {
+  const renameToolClause = whenToolEnabledText("vault_move_note", " with vault_move_note")
+
+  return `- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter${renameToolClause}. Permissions or a full or read-only disk need the vault's owner`
 }
 
 /** The Errors entry of every tool that rewrites a note, led by when the tool

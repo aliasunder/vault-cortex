@@ -3006,6 +3006,8 @@ describe("DISABLED_TOOLS", () => {
     },
   ])("the filesystem Errors entry's rename remedy $label", ({ disabledTools, expectedRemedy }) => {
     const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
+    // One tool from each module that builds the entry: vault-crud-tools shares
+    // one const, task-tools builds it inline
     const renameRemedies = [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_UPDATE_TASK].map(
       (toolName) => {
         return extractDescriptionSection({
