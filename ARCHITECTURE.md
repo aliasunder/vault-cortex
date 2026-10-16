@@ -246,7 +246,7 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 **Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`).
 
 - **Read on every call:** a folder or format change in Obsidian applies to the next call, and a config file that arrives after boot needs no restart
-- **Folder normalized like Obsidian:** runs of `/` or `\` become one `/` and leading and trailing slashes are dropped, so Obsidian's `"/"` is the vault root; no-break spaces become plain spaces and the name is NFC-normalized
+- **File folder normalized like Obsidian:** in `daily-notes.json`, runs of `/` or `\` become one `/` and leading and trailing slashes are dropped, so Obsidian's `"/"` is the vault root; no-break spaces become plain spaces and the name is NFC-normalized. `DAILY_NOTES_FOLDER` takes `/` for the vault root and is otherwise validated as a vault folder name
 - **Blank folder in the file:** Obsidian's new-note location (`newFileLocation: "folder"` plus `newFileFolderPath` in `.obsidian/app.json`), otherwise the vault root
 - **Missing file:** takes the fallbacks
 - **Unparseable file:** takes the fallbacks and logs a `warn`
