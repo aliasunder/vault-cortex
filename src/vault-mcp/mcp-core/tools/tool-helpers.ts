@@ -217,7 +217,7 @@ export const OPENING_BLOCK_ERROR_ENTRY =
  *    description is next revised, because a grader re-scores every
  *    description whose text changes. */
 export const FILESYSTEM_ERROR_ENTRIES = [
-  '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path. If the quoted name ends in ".tmp", the note exists but its name is too long to save; rename it at least 41 bytes shorter',
+  '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path. If the quoted name ends in ".tmp", the note exists but saving it needs a temp file name 41 bytes longer; rename the note at least 41 bytes shorter',
   "- \"EACCES: …\" or another filesystem error code — the note's file can't be read or written (permissions, a full or read-only disk); ask the vault's owner to fix it",
 ].join("\n")
 

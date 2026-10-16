@@ -513,7 +513,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
-      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Frontmatter values are preserved; YAML formatting may be normalized to block style on first edit.
+      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Properties are preserved, but saving may rewrite their YAML in block style.
 
 Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })
@@ -523,14 +523,14 @@ Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
-- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so a row appended to a table followed by a blank line starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
+- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so appending a row to a table that a blank line follows starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
 - prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.
-- replace: replace section body (requires heading)
+- replace: replace section body (requires heading)${whenToolEnabledText("vault_delete_span", "; to empty it, use vault_delete_span on its lines")}
 - insert_before: insert content above the heading line (requires heading)
 
-Heading-targeted ops keep the matched heading and write content verbatim. No separator is added around the content — end it with a newline to leave a blank line after the inserted block.
+Heading-targeted ops keep the matched heading. Every operation writes content verbatim as whole lines with no separator: end content with a newline to leave a blank line after it; without one, the next line follows directly.
 
-Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, the pre-existing content becomes the new section's body. The write still succeeds.
+Limitation: If a no-heading prepend's content starts with a heading and the note has content above its first heading, that content becomes the new section's body. The write still succeeds.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
@@ -563,7 +563,10 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
           .describe("append | prepend | replace | insert_before."),
-        content: z.string().min(1).describe("Markdown content to insert."),
+        content: z
+          .string()
+          .min(1)
+          .describe("Markdown content to insert, or the section's new body for replace."),
         heading: z
           .string()
           .min(1)
@@ -654,7 +657,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only${propertyEditClause}.
+      description: `Find and replace text in a markdown note's body. Matches exact text (case-sensitive). Properties are preserved, but saving may rewrite their YAML in block style. Operates on the body only${propertyEditClause}.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" }) — removes the whole line, line break included.
@@ -760,7 +763,7 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
-      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Each anchor locates a full line — the entire line is selected, not just the matching substring. Case-sensitive matching. Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
+      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Case-sensitive matching. Properties are preserved, but saving may rewrite their YAML in block style. Operates on the body only.
 
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
@@ -770,7 +773,7 @@ When to use: Removing a block you have already read — a table row, callout, or
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there, one fewer at the end of the note ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. No other empty line changes, and a line of only spaces or tabs is not empty.
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
-- first_match applies to both anchors independently.
+- first_match covers both anchors.
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
@@ -859,7 +862,7 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
       title: "Replace Span",
-      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Each anchor locates a full line — the entire line is selected, not just the matching substring. Case-sensitive matching. Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
+      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Case-sensitive matching. Properties are preserved, but saving may rewrite their YAML in block style. Operates on the body only.
 
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
@@ -870,7 +873,7 @@ Parameters:
 - start_anchor + end_anchor define a line range, not a text range (never cuts mid-line).
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
 - content: line breaks at its start or end merge with the note's empty lines on that side, keeping the wider run, one fewer at the end of the note. So content can widen a gap but never narrow it: content with no line break at either end keeps the gaps as they were, and content ending in one ("| X |\\n") leaves an empty line after it, which splits a table. Content made only of line breaks joins both sides into one gap. Empty lines inside content are written as given, no other empty line changes, and a line of only spaces or tabs is not empty.
-- first_match applies to both anchors independently.
+- first_match covers both anchors.
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
@@ -886,7 +889,7 @@ ${OPENING_BLOCK_ERROR_ENTRY}
 
 Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block.
 
-Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — N counts the lines the span covered, M the line breaks in content plus one.`,
+Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" — N counts the lines the span covered, M the lines in content as sent (its line breaks plus one).`,
       inputSchema: {
         path: z
           .string()
