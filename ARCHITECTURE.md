@@ -499,8 +499,8 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 1. chokidar finishes its initial scan, and the watcher holds every change it reports from then on.
 2. `rebuildFromVault` runs. The watcher is the only other writer of the index, so nothing else writes while it reads.
-3. One batch checks each held path against the disk, 16 at a time. Paths gone from disk are removed first, then the rest are read again.
-4. The watcher goes live and replays the changes reported while the batch ran: deletions at once, then the changed paths read again with the batch's limits.
+3. One batch checks each held path against the disk, 16 at a time. Paths gone from disk are removed first, then the rest are read again, 16 at a time (PDFs whose text is extracted, 4 at a time).
+4. The watcher goes live and replays the changes reported while the batch ran: deletions at once, then the changed paths read again with the same limits. A path deleted or changed again before its read starts is left to that later event.
 
 The server starts accepting requests once the step 3 batch commits and step 4 starts its replay, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background.
 

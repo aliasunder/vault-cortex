@@ -16,6 +16,7 @@ import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { watch, FSWatcher } from "chokidar"
 import Database from "better-sqlite3"
+import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 import { createSearchIndex } from "../search-index.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
@@ -1431,6 +1432,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
   const createControlledStartup = async (setup?: {
     embedder?: Parameters<typeof createSearchIndex>[1]
     heldChangesDeadline?: number
+    newDirectoryRescanDelay?: number
     rebuild?: "stubbed" | "real"
     seedNotes?: Readonly<Record<string, string>>
     /** Runs against the empty vault before the watcher starts, e.g. to write
@@ -1474,14 +1476,17 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       await watcher.close()
     })
     const heldChangesDeadline = setup?.heldChangesDeadline
-    const startup = watchVaultAndBuildIndex(
-      testVault,
-      search,
-      heldChangesDeadline ? { heldChangesDeadline } : {},
-    )
+    const newDirectoryRescanDelay = setup?.newDirectoryRescanDelay
+    const startup = watchVaultAndBuildIndex(testVault, search, {
+      ...(heldChangesDeadline ? { heldChangesDeadline } : {}),
+      ...(newDirectoryRescanDelay ? { newDirectoryRescanDelay } : {}),
+    })
     watcher.emit("ready")
 
-    const fire = async (event: "add" | "change" | "unlink", fileName: string): Promise<void> => {
+    const fire = async (
+      event: "add" | "change" | "unlink" | "addDir",
+      fileName: string,
+    ): Promise<void> => {
       const handler = watcher.listeners(event)[0]
 
       if (!handler) throw new Error(`${event} handler was not registered`)
@@ -1911,6 +1916,142 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     })
     expect(pathsFor("batchonyx")).toEqual(["batch.md"])
     expect(readCounts.peak).toBe(16)
+  })
+
+  it("does not replay a change that a later held deletion of the path replaced", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "note.md": "caseopal\n" },
+    })
+    const batchPath = join(testVault, "batch.md")
+    const oldPath = join(testVault, "note.md")
+    const renamedPath = join(testVault, "Note.md")
+    await writeFile(batchPath, "batchonyx\n")
+    await writeFile(renamedPath, "caseopal\n")
+    const readGate = await gateFirstRead(batchPath, "before-disk")
+
+    await fire("add", "batch.md")
+    finishRebuild()
+    await readGate.reached
+    // Installed while the batch's one read waits. A case-insensitive filesystem
+    // answers for the old spelling too, so reading it would index note.md again.
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const asFoundOnDisk = <RequestedPath>(requestedPath: RequestedPath): RequestedPath | string => {
+      return requestedPath === oldPath ? renamedPath : requestedPath
+    }
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      return actualFs.stat(asFoundOnDisk(requestedPath), options)
+    })
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      return actualFs.readFile(asFoundOnDisk(requestedPath), options)
+    })
+    onTestFinished(() => vi.mocked(stat).mockRestore())
+    await fire("change", "note.md")
+    await fire("unlink", "note.md")
+    await fire("add", "Note.md")
+    readGate.release()
+    await startup
+
+    await vi.waitFor(() => {
+      expect(notePaths()).toEqual([{ path: "Note.md" }, { path: "batch.md" }])
+    })
+    // The replay starts note.md's read before Note.md's, so it would have run by now.
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(oldPath, "utf8")
+  })
+
+  it("does not replay a change whose path a live deletion reached first", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "note.md": "caseopal\n" },
+    })
+    const batchPath = join(testVault, "batch.md")
+    const oldPath = join(testVault, "note.md")
+    const renamedPath = join(testVault, "Note.md")
+    await writeFile(batchPath, "batchonyx\n")
+    await writeFile(renamedPath, "caseopal\n")
+    await writeFile(join(testVault, "z-last.md"), "lastjade\n")
+    const blockerNames = Array.from(
+      { length: 16 },
+      (_unused, blockerIndex) => `blocker-${blockerIndex}.md`,
+    )
+    for (const blockerName of blockerNames) {
+      await writeFile(join(testVault, blockerName), "blockertext\n")
+    }
+    const readGate = await gateFirstRead(batchPath, "before-disk")
+
+    await fire("add", "batch.md")
+    finishRebuild()
+    await readGate.reached
+    // Installed while the batch's one read waits. The 16 blocker reads fill the
+    // replay's first group and wait for blockerGate, so note.md's read stays
+    // queued. A case-insensitive filesystem answers for the old spelling too.
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const blockerGate = Promise.withResolvers<undefined>()
+    const blockerReads = { started: 0 }
+    const blockerPathPrefix = join(testVault, "blocker-")
+    const asFoundOnDisk = <RequestedPath>(requestedPath: RequestedPath): RequestedPath | string => {
+      return requestedPath === oldPath ? renamedPath : requestedPath
+    }
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      return actualFs.stat(asFoundOnDisk(requestedPath), options)
+    })
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      const isBlockerRead =
+        typeof requestedPath === "string" && requestedPath.startsWith(blockerPathPrefix)
+
+      if (isBlockerRead) {
+        blockerReads.started += 1
+        await blockerGate.promise
+      }
+      return actualFs.readFile(asFoundOnDisk(requestedPath), options)
+    })
+    onTestFinished(() => vi.mocked(stat).mockRestore())
+    for (const blockerName of blockerNames) {
+      await fire("change", blockerName)
+    }
+    await fire("change", "note.md")
+    await fire("change", "z-last.md")
+    readGate.release()
+    await startup
+    await vi.waitFor(() => {
+      expect(blockerReads.started).toBe(16)
+    })
+
+    await fire("unlink", "note.md")
+    await fire("add", "Note.md")
+    blockerGate.resolve(undefined)
+
+    await vi.waitFor(() => {
+      expect(notePaths()).toContainEqual({ path: "z-last.md" })
+    })
+    // The replay starts note.md's read before z-last.md's, so it would have run by now.
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(oldPath, "utf8")
+    const expectedPaths = ["Note.md", "batch.md", "z-last.md", ...blockerNames].toSorted()
+    expect(notePaths()).toEqual(expectedPaths.map((path) => ({ path })))
+  })
+
+  it("keeps the watcher closed when a folder rescan scheduled before a failed rebuild runs", async () => {
+    const { testVault, watcher, fire, startup, failRebuild } = await createControlledStartup({
+      newDirectoryRescanDelay: 50,
+    })
+    const debugSpy = spyOnLogger("debug")
+    const freshNote = join(testVault, "fresh", "note.md")
+    await mkdir(join(testVault, "fresh"))
+    await writeFile(freshNote, "freshtext\n")
+    // Older than the stability window, so the rescan watches and indexes it at once.
+    const settledSeconds = DateTime.now().minus({ minutes: 10 }).toUnixInteger()
+    await utimes(freshNote, settledSeconds, settledSeconds)
+    const addSpy = vi.spyOn(watcher, "add")
+
+    await fire("addDir", "fresh")
+    failRebuild(new Error("controlled rebuild failure"))
+    await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    await vi.waitFor(() => {
+      expect(debugSpy).toHaveBeenCalledWith("rescan indexing missed file", {
+        path: join("fresh", "note.md"),
+      })
+    })
+
+    expect(addSpy).not.toHaveBeenCalled()
+    expect(watcher.closed).toBe(true)
   })
 
   it("extracts at most 4 held PDFs at once", async () => {
