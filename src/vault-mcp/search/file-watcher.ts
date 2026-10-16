@@ -96,7 +96,8 @@ type HoldingWatcher = Readonly<{
    *  distinct paths that is. `applied` resolves once their index writes commit
    *  and the watcher is live. */
   applyHeldChanges: () => { heldPathCount: number; applied: Promise<void> }
-  /** Stops watching. Used only when startup fails before the held changes apply. */
+  /** Stops watching. Used only when startup fails before the held changes
+   *  apply. Never rejects, so the startup failure stays the error reported. */
   close: () => Promise<void>
 }>
 
@@ -918,7 +919,11 @@ const startHoldingWatcher = (
   })
 
   const close = async (): Promise<void> => {
-    await watcher.close()
+    try {
+      await watcher.close()
+    } catch (error) {
+      logger.error("failed to close the file watcher", { error: describeError(error) })
+    }
   }
 
   return { ready, applyHeldChanges, close }

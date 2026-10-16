@@ -2205,6 +2205,19 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(watcher.closed).toBe(true)
   })
 
+  it("keeps the rebuild's error when closing the watcher also fails", async () => {
+    const { watcher, startup, failRebuild } = await createControlledStartup()
+    const errorSpy = spyOnLogger("error")
+    vi.spyOn(watcher, "close").mockRejectedValueOnce(new Error("controlled close failure"))
+
+    failRebuild(new Error("controlled rebuild failure"))
+
+    await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    expect(errorSpy).toHaveBeenCalledWith("failed to close the file watcher", {
+      error: "[Error]: controlled close failure",
+    })
+  })
+
   it("lets a held change win over the rebuild's older read of the same note", async () => {
     const readGates: Array<Awaited<ReturnType<typeof gateFirstRead>>> = []
     const { testVault, search, fire, startup } = await createControlledStartup({
