@@ -1725,11 +1725,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
       embedder,
     })
-    const errorLogged = Promise.withResolvers<undefined>()
-    const errorSpy = vi.spyOn(logger, "error").mockImplementation((message) => {
-      if (message === "failed to process file change") errorLogged.resolve(undefined)
-    })
-    onTestFinished(() => errorSpy.mockRestore())
+    const errorSpy = spyOnLogger("error")
     const slowPath = join(testVault, "slow.md")
     await writeFile(join(testVault, "failing.md"), "failingtext\n")
     await writeFile(slowPath, "slowtext\n")
@@ -1739,7 +1735,12 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     await fire("change", "slow.md")
     finishRebuild()
     await readGate.reached
-    await errorLogged.promise
+    await vi.waitFor(() => {
+      expect(embedder.embedText).toHaveBeenCalledWith("failing\n\nfailingtext")
+    })
+    // One macrotask lets Node report the rejection as unhandled if nothing
+    // caught it while the other path's read is still held open.
+    await new Promise((resolve) => setImmediate(resolve))
     readGate.release()
     await startup
 
@@ -1843,8 +1844,16 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
 
     await fire("change", "slow.md")
     finishRebuild()
-    await startup
+    const waitForStartup = async (): Promise<string> => {
+      await startup
+      return "resolved"
+    }
+    const startupOutcome = await Promise.race([
+      waitForStartup(),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 1000)),
+    ])
 
+    expect(startupOutcome).toBe("resolved")
     expect(infoSpy).toHaveBeenCalledWith(
       "startup continues while the changes held during it are still applied",
       { heldPaths: 1, heldChangesDeadline: 50 },
