@@ -523,7 +523,7 @@ Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
-- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so a row appended to a table followed by a blank line starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
+- append: add content at end of section (or end of file if no heading), below any empty lines that end it (at the end of the note, its final line break counts as one), so a row appended to a table followed by a blank line or by that final line break starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
 - prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.
 - replace: replace section body (requires heading)
 - insert_before: insert content above the heading line (requires heading)
@@ -869,7 +869,7 @@ When to use: Replacing a block you have already read — a table row, callout, o
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range (never cuts mid-line).
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
-- content: empty lines at its start or end can widen the gap beside the span but never narrow it. Each edge joins the note's empty lines on that side into one gap as wide as the wider of the two (one fewer at the end of the note). So content without edge newlines keeps the gaps as they were, and a trailing newline adds an empty line after the block, which splits a table. Content made only of empty lines joins both sides into one gap. Empty lines inside content are written as given, no other empty line changes, and a line of only spaces or tabs counts as text.
+- content: empty lines at its start or end can widen the gap beside the span but never narrow it. Each edge joins the note's empty lines on that side into one gap as wide as the wider of the two (one fewer at the end of the note). So content without edge newlines keeps the gaps as they were, and a trailing newline leaves an empty line after the block, which splits a table. Content made only of empty lines joins both sides into one gap. Empty lines inside content are written as given, no other empty line changes, and a line of only spaces or tabs counts as text.
 - first_match applies to both anchors independently.
 
 Errors:
