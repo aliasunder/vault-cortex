@@ -663,7 +663,7 @@ When to use: Targeted text changes within a single location — fixing typos, up
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
-- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") never doubles blank lines. A line it empties joins the empty lines above and below into one gap as wide as the wider of the two and at least one line wide, except at the end of the note, where one fewer stays. So include the line break in old_text to remove a table row or list item, or the empty line left behind splits the table or list. Other deletions (inside a line, or a line break) are written exactly as asked, and no other empty line changes. A line of only spaces or tabs counts as text.
+- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") that leaves text on its line is written exactly as asked. One that empties its line never doubles blank lines: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one, one fewer at the end of the note ("A\\n\\nB\\n" without "B" → "A\\n"). So include the line break in old_text to remove a table row or list item, or the empty line left behind splits the table or list. No other empty line changes, and a line of only spaces or tabs is not empty.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
@@ -768,7 +768,7 @@ Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.${deleteSpanAlternativesLine}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Blank lines never double: the empty lines above and below the removed lines join into one gap as wide as the wider of the two (one fewer at the end of the note), so removing a table row leaves the table whole. No other empty line changes, and a line of only spaces or tabs counts as text.
+- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there, one fewer at the end of the note ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. No other empty line changes, and a line of only spaces or tabs is not empty.
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
 - first_match applies to both anchors independently.
 
@@ -869,7 +869,7 @@ When to use: Replacing a block you have already read — a table row, callout, o
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range (never cuts mid-line).
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
-- content: empty lines at its start or end can widen the gap beside the span but never narrow it. Each edge joins the note's empty lines on that side into one gap as wide as the wider of the two (one fewer at the end of the note). So content without edge newlines keeps the gaps as they were, and a trailing newline leaves an empty line after the block, which splits a table. Content made only of empty lines joins both sides into one gap. Empty lines inside content are written as given, no other empty line changes, and a line of only spaces or tabs counts as text.
+- content: line breaks at its start or end merge with the note's empty lines on that side, keeping the wider run, one fewer at the end of the note. So content can widen a gap but never narrow it: content with no line break at either end keeps the gaps as they were, and content ending in one ("| X |\\n") leaves an empty line after it, which splits a table. Content made only of line breaks joins both sides into one gap. Empty lines inside content are written as given, no other empty line changes, and a line of only spaces or tabs is not empty.
 - first_match applies to both anchors independently.
 
 Errors:
