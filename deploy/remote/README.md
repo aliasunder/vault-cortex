@@ -539,13 +539,13 @@ in `.obsidian/daily-notes.json`, and in remote mode the server only receives
 that file when settings syncing is turned on in two places:
 
 - **Server side** — `SYNC_CONFIGS` defaults to
-  `core-plugin-data,community-plugin-data`, the two categories the server
-  reads: daily notes settings (Obsidian's **Core plugin settings** toggle)
-  and community plugin settings, such as the Tasks plugin's format
-  (**Installed community plugins**). It takes a comma-separated list of
-  Obsidian's settings categories (`app`, `appearance`, `appearance-data`,
-  `hotkey`, `core-plugin`, `core-plugin-data`, `community-plugin`,
-  `community-plugin-data`); set `SYNC_CONFIGS=none` in `.env` to disable.
+  `core-plugin-data,community-plugin-data`: daily notes settings (Obsidian's
+  **Core plugin settings** toggle) and community plugin settings, such as
+  the Tasks plugin's format (**Installed community plugins**). It takes a
+  comma-separated list of Obsidian's settings categories (`app`,
+  `appearance`, `appearance-data`, `hotkey`, `core-plugin`,
+  `core-plugin-data`, `community-plugin`, `community-plugin-data`); set
+  `SYNC_CONFIGS=none` in `.env` to disable.
 - **Desktop side** — Obsidian Settings → Sync → **Vault configuration sync**,
   enabled per device. Obsidian only pushes categories you enable there.
 
@@ -565,9 +565,9 @@ the server then looks in the vault root. **Same folder as current file** also
 means the vault root, as it does in Obsidian for daily notes. If your new
 notes go to a set folder, either:
 
-- add `app` to `SYNC_CONFIGS` and turn on **Main settings** under Vault
-  configuration sync — a `.env` edit, so re-create the container as described
-  below; or
+- set `SYNC_CONFIGS=core-plugin-data,community-plugin-data,app`, the default
+  list plus `app`, and turn on **Main settings** under Vault configuration
+  sync — a `.env` edit, so re-create the container as described below; or
 - set `DAILY_NOTES_FOLDER`, as described below.
 
 Daily notes in the vault root, or in the new-note folder because the folder
