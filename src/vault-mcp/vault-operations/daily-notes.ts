@@ -130,12 +130,14 @@ const readDailyNotesFile = async (vaultPath: string): Promise<DailyNotesFileSett
   }
 }
 
-/** Obsidian's location for new notes, read from `newFileLocation` and
- *  `newFileFolderPath` in .obsidian/app.json.
- *  - Returns the folder when new notes go to a set folder, else the vault
- *    root (""). "Same folder as current file" also means the root, since a
- *    daily note has no current file.
- *  - A missing or unreadable app.json means Obsidian's default, the root.
+/** Where Obsidian's "Default location for new notes" setting puts a daily
+ *  note, read from `newFileLocation` and `newFileFolderPath` in
+ *  .obsidian/app.json. "" is the vault root.
+ *  - "In the folder specified below": that folder.
+ *  - "Vault folder": the root.
+ *  - "Same folder as current file": the root. Obsidian creates a daily note
+ *    without reference to an open note, so it has no folder to follow.
+ *  - A missing or unreadable app.json: the root, Obsidian's default.
  *  - Unlike Obsidian, a set folder that no longer exists is not swapped for
  *    the root; the daily note then reads as missing. */
 const readNewNoteFolder = async (vaultPath: string, logger: Logger): Promise<string> => {
