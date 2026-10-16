@@ -44,7 +44,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -94,7 +94,7 @@ jobs:
         with:
           persist-credentials: false # job only builds and runs the CLI; no git pushes
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -106,7 +106,7 @@ jobs:
 
       - run: npx tsc -p cli/tsconfig.json
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
 
@@ -120,7 +120,7 @@ jobs:
       # The refusal branch never executes on supported majors, so the floor
       # row re-runs the built CLI on EOL Node 20 and asserts the refusal
       # shape: nonzero exit, the floor in the message, both setup pointers.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: matrix.label == '22'
         with:
           node-version: 20
