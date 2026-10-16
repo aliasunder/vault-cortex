@@ -1712,6 +1712,33 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     ])
   })
 
+  it("goes live and resolves startup when the batch throws unexpectedly", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "gone.md": "ghostquartz text\n" },
+    })
+    const errorSpy = spyOnLogger("error")
+    // No batch step catches its own debug line, so a throw here escapes the batch.
+    spyOnLogger("debug").mockImplementation((message) => {
+      if (message === "removing a held path that is gone from disk") {
+        throw new Error("controlled batch failure")
+      }
+    })
+
+    await fire("unlink", "gone.md")
+    finishRebuild()
+    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+      "failed to apply the changes held during startup",
+      { error: "[Error]: controlled batch failure" },
+    )
+
+    await writeFile(join(testVault, "live.md"), "livetopaz\n")
+    await fire("add", "live.md")
+    expect(search.fullTextSearch({ query: "livetopaz" }, logger).map((hit) => hit.path)).toEqual([
+      "live.md",
+    ])
+  })
+
   it("reports a note embedding that fails during the batch once, with no unhandled rejection", async () => {
     const vector = new Float32Array(384).fill(0.1)
     const embedder = {

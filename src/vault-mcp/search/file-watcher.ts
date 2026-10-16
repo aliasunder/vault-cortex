@@ -680,19 +680,11 @@ const startHoldingWatcher = (
     })
   }
 
-  /**
-   * Brings the index up to date with the held paths, in one batch, then goes live:
-   *
-   * 1. Each path is checked against the disk; missing ones are removed first,
-   *    so a rename seen whole in the batch resolves incoming links to the new path.
-   * 2. The rest are read and indexed, 16 at a time; one that vanished by its read is removed.
-   * 3. Events held while steps 1 and 2 ran are replayed live.
-   *
-   * Removing a path because its check found it missing is safe only while
-   * holding: once live, the removal could clear the event token of an `add`
-   * that started during the check, and the added note would stay unindexed.
-   */
-  const applyHeldBatch = async (batchPaths: ReadonlyArray<string>): Promise<void> => {
+  /** Steps 1 and 2 of applyHeldBatch. Removing a path because its check found
+   *  it missing is safe only while holding: once live, the removal could clear
+   *  the event token of an `add` that started during the check, and the added
+   *  note would stay unindexed. */
+  const reconcileHeldPaths = async (batchPaths: ReadonlyArray<string>): Promise<void> => {
     const folderListings = new Map<string, Promise<FolderListing>>()
 
     /** Lists each folder once per batch, however many held paths sit in it. */
@@ -727,6 +719,27 @@ const startHoldingWatcher = (
       concurrency: HELD_CHANGES_CONCURRENCY,
       mapper: indexHeldPath,
     })
+  }
+
+  /**
+   * Brings the index up to date with the held paths, in one batch, then goes live:
+   *
+   * 1. Each path is checked against the disk; missing ones are removed first,
+   *    so a rename seen whole in the batch resolves incoming links to the new path.
+   * 2. The rest are read and indexed, 16 at a time; one that vanished by its read is removed.
+   * 3. Events held while steps 1 and 2 ran are replayed live.
+   *
+   * Never rejects, and step 3 runs even if an earlier step threw: a watcher
+   * left holding would drop every later change.
+   */
+  const applyHeldBatch = async (batchPaths: ReadonlyArray<string>): Promise<void> => {
+    try {
+      await reconcileHeldPaths(batchPaths)
+    } catch (error) {
+      logger.error("failed to apply the changes held during startup", {
+        error: describeError(error),
+      })
+    }
     goLiveAndReplay(batchPaths.length)
   }
 
@@ -795,12 +808,6 @@ export const watchVaultAndBuildIndex = async (
     logger.info("startup continues while the changes held during it are still applied", {
       heldPaths: heldPathCount,
       heldChangesDeadline,
-    })
-    // Nothing awaits the batch from here, so its last-resort failure is logged.
-    applied.catch((error) => {
-      logger.error("failed to apply the changes held during startup", {
-        error: describeError(error),
-      })
     })
   }
   return rebuildResult
