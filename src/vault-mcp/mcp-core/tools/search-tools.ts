@@ -59,7 +59,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     {
       title: "Search Notes",
       description: config.embeddingEnabled
-        ? `Hybrid search across ${searchedContentText}, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion. Results are refined by a cross-encoder reranker when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only ranking while embeddings are being built. ${searchSyntaxText}
+        ? `Hybrid search across ${searchedContentText}, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion. Results are refined by a cross-encoder reranker when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only ranking before any embeddings exist. ${searchSyntaxText}
 
 ${searchFiltersSection}
 
