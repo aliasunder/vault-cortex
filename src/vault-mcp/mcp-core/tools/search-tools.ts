@@ -648,7 +648,7 @@ Errors:
     ? ""
     : whenToolEnabledText(
         "vault_get_daily_note",
-        " (vault_get_daily_note's path starts with the daily notes folder)",
+        " (vault_get_daily_note's path starts with the daily notes folder, unless that setting is blank)",
       )
 
   registerTool(
