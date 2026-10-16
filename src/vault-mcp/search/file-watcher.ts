@@ -807,9 +807,13 @@ const startHoldingWatcher = (
     const pathsToRead = presenceChecks
       .filter((check) => check.presence !== "missing")
       .map((check) => check.filePath)
-    const isPdf = (filePath: string): boolean => extname(filePath) === ".pdf"
-    const pdfPathsToRead = pathsToRead.filter(isPdf)
-    const otherPathsToRead = pathsToRead.filter((filePath) => !isPdf(filePath))
+    // indexChangedNonMdFile extracts a PDF's text only when file content
+    // indexing is on; otherwise a PDF is only statted and keeps the general bound.
+    const needsPdfExtraction = (filePath: string): boolean => {
+      return search.fileContentIndexingEnabled && extname(filePath) === ".pdf"
+    }
+    const pdfPathsToRead = pathsToRead.filter(needsPdfExtraction)
+    const otherPathsToRead = pathsToRead.filter((filePath) => !needsPdfExtraction(filePath))
 
     // Removals run before reads. upsertNote re-resolves only links whose target
     // is not indexed, so when a renamed note's old path is removed first, the
@@ -836,8 +840,8 @@ const startHoldingWatcher = (
    *
    * 1. Each path is checked against the disk, and missing ones are removed.
    * 2. The rest are read and indexed, INDEXING_FILE_READ_CONCURRENCY at a time
-   *    (PDFs PDF_EXTRACTION_CONCURRENCY at a time, after the others); one that
-   *    vanished by its read is removed.
+   *    (PDFs whose text is extracted PDF_EXTRACTION_CONCURRENCY at a time, after
+   *    the others); one that vanished by its read is removed.
    * 3. Events held while steps 1 and 2 ran are replayed live.
    *
    * Never rejects, and step 3 runs even if an earlier step threw: a watcher
