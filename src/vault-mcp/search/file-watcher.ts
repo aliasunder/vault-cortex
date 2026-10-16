@@ -96,13 +96,15 @@ type HoldingWatcher = Readonly<{
    *  distinct paths that is. `applied` resolves once their index writes commit
    *  and the watcher is live. */
   applyHeldChanges: () => { heldPathCount: number; applied: Promise<void> }
+  /** Stops watching. Used only when startup fails before the held changes apply. */
+  close: () => Promise<void>
 }>
 
 /**
  * Watches the vault and mirrors every file add/change/delete into the search
- * index, holding every change from the moment chokidar starts until the batch
- * applyHeldChanges starts has finished. The watcher then runs for the process
- * lifetime — there is no shutdown path.
+ * index. Every change is held from the moment chokidar starts until the
+ * startup batch that applyHeldChanges runs has finished. After a successful
+ * startup the watcher runs for the process lifetime.
  */
 const startHoldingWatcher = (
   vaultPath: string,
@@ -331,8 +333,7 @@ const startHoldingWatcher = (
     const relativePath = relative(vaultPath, filePath)
 
     // Taken before the first await, so events take their tokens in the order
-    // their handlers start. goLiveAndReplay relies on this: a replayed event
-    // must take its token before a newer live event for the same path does.
+    // their handlers start, and the read that starts last is the one indexed.
     const eventToken = Symbol()
     currentEvents.set(relativePath, eventToken)
 
@@ -733,7 +734,10 @@ const startHoldingWatcher = (
     removeFromIndex(filePath)
   }
 
-  /** Re-reads one held path for the startup batch, without waiting for its embedding. */
+  /** Re-reads one held path for the startup batch or its replay, without
+   *  waiting for its embedding. A path that vanished by its read is removed:
+   *  a live event for it that arrived during the read would have taken the
+   *  token and made the read "superseded" instead, so nothing newer is lost. */
   const indexHeldPath = async (filePath: string): Promise<void> => {
     const indexResult = await indexChangedFile(filePath)
 
@@ -751,25 +755,64 @@ const startHoldingWatcher = (
     })
   }
 
-  /** Ends holding and replays the events held while the batch ran, in arrival order. */
+  /** Reads and indexes paths at the rebuild's bounds: PDFs whose text is
+   *  extracted PDF_EXTRACTION_CONCURRENCY at a time, after the others, which go
+   *  INDEXING_FILE_READ_CONCURRENCY at a time. */
+  const indexPathsWithinBounds = async (filePaths: ReadonlyArray<string>): Promise<void> => {
+    // indexChangedNonMdFile extracts a PDF's text only when file content
+    // indexing is on; otherwise a PDF is only statted and keeps the general bound.
+    const needsPdfExtraction = (filePath: string): boolean => {
+      return search.fileContentIndexingEnabled && extname(filePath) === ".pdf"
+    }
+    const pdfPaths = filePaths.filter(needsPdfExtraction)
+    const otherPaths = filePaths.filter((filePath) => !needsPdfExtraction(filePath))
+
+    await mapWithConcurrency({
+      items: otherPaths,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
+      mapper: indexHeldPath,
+    })
+    await mapWithConcurrency({
+      items: pdfPaths,
+      concurrency: PDF_EXTRACTION_CONCURRENCY,
+      mapper: indexHeldPath,
+    })
+  }
+
+  /** Reads the paths changed while the startup batch ran. Nothing awaits it,
+   *  so it logs its own failure. */
+  const replayChangedPaths = async (changedPaths: ReadonlyArray<string>): Promise<void> => {
+    try {
+      await indexPathsWithinBounds(changedPaths)
+    } catch (error) {
+      logger.error("failed to replay the changes held during the startup batch", {
+        error: describeError(error),
+      })
+    }
+  }
+
+  /** Ends holding and replays the events held while the batch ran: deletions
+   *  at once, then each changed path read again at the batch's bounds. Startup
+   *  does not wait for those reads, as it does not wait for later live events. */
   const goLiveAndReplay = (batchPathCount: number): void => {
     // Already live only when applyHeldChanges ran twice and the first batch
     // replayed everything.
     const eventsDuringBatch = watcherState.mode === "holding" ? watcherState.heldEvents : []
     watcherState = { mode: "live" }
 
-    // Every replayed event starts in this one tick, before any newer live
-    // event for the same path, so that newer event takes the path's token and
-    // wins. indexChangedFile takes the token before its first await, and
-    // chokidar delivers a burst the same way.
+    // Deletions apply in this tick, before any live event arrives, so none can
+    // remove what a newer event for the same path indexes. The reads index each
+    // file as it is on disk; when a live event reads the same path, the read
+    // that starts last wins, and it sees the newer content.
+    const changedPaths = new Set<string>()
     for (const heldEvent of eventsDuringBatch) {
       if (heldEvent.kind === "unlink") {
         handleDelete(heldEvent.filePath)
         continue
       }
-      // As with chokidar's own emit, nothing awaits it; it logs its own failures.
-      void handleChange(heldEvent.filePath)
+      changedPaths.add(heldEvent.filePath)
     }
+    void replayChangedPaths([...changedPaths])
     logger.info("applied the changes held during startup indexing", {
       batchPaths: batchPathCount,
       replayedEvents: eventsDuringBatch.length,
@@ -807,13 +850,6 @@ const startHoldingWatcher = (
     const pathsToRead = presenceChecks
       .filter((check) => check.presence !== "missing")
       .map((check) => check.filePath)
-    // indexChangedNonMdFile extracts a PDF's text only when file content
-    // indexing is on; otherwise a PDF is only statted and keeps the general bound.
-    const needsPdfExtraction = (filePath: string): boolean => {
-      return search.fileContentIndexingEnabled && extname(filePath) === ".pdf"
-    }
-    const pdfPathsToRead = pathsToRead.filter(needsPdfExtraction)
-    const otherPathsToRead = pathsToRead.filter((filePath) => !needsPdfExtraction(filePath))
 
     // Removals run before reads. upsertNote re-resolves only links whose target
     // is not indexed, so when a renamed note's old path is removed first, the
@@ -822,27 +858,18 @@ const startHoldingWatcher = (
       removeHeldPath(filePath)
     }
 
-    await mapWithConcurrency({
-      items: otherPathsToRead,
-      concurrency: INDEXING_FILE_READ_CONCURRENCY,
-      mapper: indexHeldPath,
-    })
-    // PDFs go last at the rebuild's lower bound, since each extraction is CPU-heavy.
-    await mapWithConcurrency({
-      items: pdfPathsToRead,
-      concurrency: PDF_EXTRACTION_CONCURRENCY,
-      mapper: indexHeldPath,
-    })
+    await indexPathsWithinBounds(pathsToRead)
   }
 
   /**
    * Brings the index up to date with the held paths, in one batch, then goes live:
    *
    * 1. Each path is checked against the disk, and missing ones are removed.
-   * 2. The rest are read and indexed, INDEXING_FILE_READ_CONCURRENCY at a time
-   *    (PDFs whose text is extracted PDF_EXTRACTION_CONCURRENCY at a time, after
-   *    the others); one that vanished by its read is removed.
-   * 3. Events held while steps 1 and 2 ran are replayed live.
+   * 2. The rest are read and indexed within the rebuild's bounds; one that
+   *    vanished by its read is removed.
+   * 3. The watcher goes live, and the events held while steps 1 and 2 ran are
+   *    replayed: deletions at once, then the changed paths read again in the
+   *    background.
    *
    * Never rejects, and step 3 runs even if an earlier step threw: a watcher
    * left holding would drop every later change.
@@ -890,7 +917,11 @@ const startHoldingWatcher = (
     })
   })
 
-  return { ready, applyHeldChanges }
+  const close = async (): Promise<void> => {
+    await watcher.close()
+  }
+
+  return { ready, applyHeldChanges, close }
 }
 
 /**
@@ -911,7 +942,20 @@ export const watchVaultAndBuildIndex = async (
   const holdingWatcher = startHoldingWatcher(vaultPath, search, options)
   await holdingWatcher.ready
 
-  const rebuildResult = await search.rebuildFromVault({ vaultPath }, logger)
+  // A failed rebuild closes the watcher rather than leave it holding every
+  // later change; the caller sees the rebuild's error.
+  const rebuildIndexOrCloseWatcher = async (): Promise<{
+    count: number
+    embedding: Promise<void>
+  }> => {
+    try {
+      return await search.rebuildFromVault({ vaultPath }, logger)
+    } catch (error) {
+      await holdingWatcher.close()
+      throw error
+    }
+  }
+  const rebuildResult = await rebuildIndexOrCloseWatcher()
 
   // `applied` never rejects, so past the deadline it can finish unawaited.
   const { heldPathCount, applied } = holdingWatcher.applyHeldChanges()

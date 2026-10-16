@@ -1494,6 +1494,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       testVault,
       search,
       database,
+      watcher,
       fire,
       notePaths,
       startup,
@@ -1623,7 +1624,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
   })
 
-  it("replays events from during the batch in arrival order, so the later state wins", async () => {
+  it("replays events from during the batch, so the latest state on disk wins", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
       seedNotes: { "P.md": "oldamber\n", "Q.md": "quartzrow\n" },
     })
@@ -1863,6 +1864,53 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       .fullTextSearch({ query: "bulktopaz", limit: 50 }, logger)
       .map((hit) => hit.path)
     expect(indexedPaths.toSorted()).toEqual(fileNames.toSorted())
+  })
+
+  it("reads at most 16 files at once when replaying the changes from during the batch", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
+    const infoSpy = spyOnLogger("info")
+    const batchPath = join(testVault, "batch.md")
+    await writeFile(batchPath, "batchonyx\n")
+    const fileNames = Array.from({ length: 40 }, (_unused, noteIndex) => `late-${noteIndex}.md`)
+    for (const fileName of fileNames) {
+      await writeFile(join(testVault, fileName), "latetopaz\n")
+    }
+    const readGate = await gateFirstRead(batchPath, "before-disk")
+    const pathsFor = (query: string) => {
+      return search.fullTextSearch({ query, limit: 50 }, logger).map((hit) => hit.path)
+    }
+
+    await fire("add", "batch.md")
+    finishRebuild()
+    await readGate.reached
+    // Installed while the batch's one read waits, so only the replay's reads count.
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const readCounts = { inFlight: 0, peak: 0 }
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      readCounts.inFlight += 1
+      readCounts.peak = Math.max(readCounts.peak, readCounts.inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      try {
+        return await actualFs.readFile(requestedPath, options)
+      } finally {
+        readCounts.inFlight -= 1
+      }
+    })
+    for (const fileName of fileNames) {
+      await fire("add", fileName)
+    }
+    readGate.release()
+    await startup
+
+    expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+      batchPaths: 1,
+      replayedEvents: 40,
+    })
+    await vi.waitFor(() => {
+      expect(pathsFor("latetopaz").toSorted()).toEqual(fileNames.toSorted())
+    })
+    expect(pathsFor("batchonyx")).toEqual(["batch.md"])
+    expect(readCounts.peak).toBe(16)
   })
 
   it("extracts at most 4 held PDFs at once", async () => {
@@ -2147,12 +2195,14 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(fileRows()).toEqual({ assets: [], contents: [] })
   })
 
-  it("rejects with the rebuild's error when the rebuild fails", async () => {
-    const { startup, failRebuild } = await createControlledStartup()
+  it("closes the watcher and rejects with the rebuild's error when the rebuild fails", async () => {
+    const { watcher, startup, failRebuild } = await createControlledStartup()
+    expect(watcher.closed).toBe(false)
 
     failRebuild(new Error("controlled rebuild failure"))
 
     await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    expect(watcher.closed).toBe(true)
   })
 
   it("lets a held change win over the rebuild's older read of the same note", async () => {
