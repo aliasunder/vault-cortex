@@ -10,6 +10,7 @@ import {
   symlink,
   utimes,
   readFile,
+  readdir,
 } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
@@ -1497,10 +1498,11 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       notePaths,
       startup,
       finishRebuild: () => rebuildGate.resolve(undefined),
+      failRebuild: (error: Error) => rebuildGate.reject(error),
     }
   }
 
-  const spyOnLogger = (level: "debug" | "info" | "error") => {
+  const spyOnLogger = (level: "debug" | "info" | "warn" | "error") => {
     const levelSpy = vi.spyOn(logger, level)
     onTestFinished(() => levelSpy.mockRestore())
     return levelSpy
@@ -1566,6 +1568,9 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       seedNotes: { "back.md": "oldtext\n" },
     })
     await writeFile(join(testVault, "back.md"), "returnedopal\n")
+    expect(search.fullTextSearch({ query: "oldtext" }, logger).map((hit) => hit.path)).toEqual([
+      "back.md",
+    ])
 
     await fire("change", "back.md")
     await fire("unlink", "back.md")
@@ -1630,6 +1635,8 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     const pathsFor = (query: string) => {
       return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
     }
+    expect(pathsFor("oldamber")).toEqual(["P.md"])
+    expect(pathsFor("quartzrow")).toEqual(["Q.md"])
 
     await fire("change", "P.md")
     finishRebuild()
@@ -1852,7 +1859,10 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     await startup
 
     expect(readCounts.peak).toBe(16)
-    expect(search.fullTextSearch({ query: "bulktopaz", limit: 50 }, logger)).toHaveLength(40)
+    const indexedPaths = search
+      .fullTextSearch({ query: "bulktopaz", limit: 50 }, logger)
+      .map((hit) => hit.path)
+    expect(indexedPaths.toSorted()).toEqual(fileNames.toSorted())
   })
 
   it("returns at the deadline and finishes the held changes in the background", async () => {
@@ -1928,6 +1938,150 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     await startup
 
     expect(notePaths()).toEqual([{ path: "Note.md" }])
+  })
+
+  it("removes a held note whose path is now a folder", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "shape.md": "shapeopal\n" },
+    })
+    const errorSpy = spyOnLogger("error")
+    await mkdir(join(testVault, "shape.md"))
+    expect(notePaths()).toEqual([{ path: "shape.md" }])
+
+    await fire("change", "shape.md")
+    finishRebuild()
+    await startup
+
+    expect(notePaths()).toEqual([])
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it("removes a held note whose folder is gone, with no listing warning", async () => {
+    const { notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "gone-folder/note.md": "folderopal\n" },
+    })
+    const warnSpy = spyOnLogger("warn")
+    expect(notePaths()).toEqual([{ path: "gone-folder/note.md" }])
+
+    await fire("unlink", "gone-folder/note.md")
+    finishRebuild()
+    await startup
+
+    expect(notePaths()).toEqual([])
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it("reads a held note whose folder cannot be listed", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
+    const warnSpy = spyOnLogger("warn")
+    const lockedFolder = join(testVault, "locked")
+    await mkdir(lockedFolder)
+    await writeFile(join(lockedFolder, "note.md"), "listedopal\n")
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const listingFailure = Object.assign(new Error("controlled listing failure"), {
+      code: "EACCES",
+    })
+    vi.mocked(readdir).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === lockedFolder) throw listingFailure
+      return actualFs.readdir(requestedPath, options)
+    })
+    onTestFinished(() => vi.mocked(readdir).mockRestore())
+
+    await fire("change", "locked/note.md")
+    finishRebuild()
+    await startup
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "could not list a folder of held changes, so its files are read instead",
+      { path: "locked", error: "[Error]: controlled listing failure" },
+    )
+    expect(search.fullTextSearch({ query: "listedopal" }, logger).map((hit) => hit.path)).toEqual([
+      "locked/note.md",
+    ])
+  })
+
+  it("keeps a held file's rows when its stat fails during the batch", async () => {
+    const { testVault, search, database, fire, startup, finishRebuild } =
+      await createControlledStartup()
+    const errorSpy = spyOnLogger("error")
+    const imagePath = join(testVault, "image.png")
+    await writeFile(imagePath, "image data")
+    await writeFile(join(testVault, "fine.md"), "finetext\n")
+    search.upsertNonMdFile("image.png", 10)
+    const assetPaths = () => database.prepare("SELECT path FROM non_md_files").all()
+    expect(assetPaths()).toEqual([{ path: "image.png" }])
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const statFailure = Object.assign(new Error("controlled stat failure"), { code: "EACCES" })
+    vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      if (requestedPath === imagePath) throw statFailure
+      return actualFsUtils.statOrNull(requestedPath)
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+
+    await fire("change", "image.png")
+    await fire("change", "fine.md")
+    finishRebuild()
+    await startup
+
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to stat non-md file", {
+      path: "image.png",
+      error: "[Error]: controlled stat failure",
+    })
+    expect(assetPaths()).toEqual([{ path: "image.png" }])
+    expect(search.fullTextSearch({ query: "finetext" }, logger).map((hit) => hit.path)).toEqual([
+      "fine.md",
+    ])
+  })
+
+  it("removes a held file's rows when it is deleted between its check and its read", async () => {
+    const { testVault, search, database, fire, startup, finishRebuild } =
+      await createControlledStartup()
+    const contentPath = join(testVault, "content.txt")
+    await writeFile(contentPath, "vanishjade")
+    search.upsertNonMdFile("content.txt", 10)
+    search.upsertFileContent(
+      { filePath: "content.txt", rawContent: "vanishjade", fileStat: { mtimeMs: 0, size: 10 } },
+      logger,
+    )
+    const fileRows = () => ({
+      assets: database.prepare("SELECT path FROM non_md_files").all(),
+      contents: database.prepare("SELECT path FROM file_content").all(),
+    })
+    expect(fileRows()).toEqual({
+      assets: [{ path: "content.txt" }],
+      contents: [{ path: "content.txt" }],
+    })
+    // The batch's check sees the file, which is deleted before the check
+    // returns, so only the read that follows can find it gone.
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const checkedPaths = new Set<string>()
+    vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      const fileStat = await actualFsUtils.statOrNull(requestedPath)
+
+      if (requestedPath === contentPath && !checkedPaths.has(contentPath)) {
+        checkedPaths.add(contentPath)
+        await unlink(contentPath)
+      }
+      return fileStat
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+
+    await fire("change", "content.txt")
+    finishRebuild()
+    await startup
+
+    expect(checkedPaths).toEqual(new Set([contentPath]))
+    expect(fileRows()).toEqual({ assets: [], contents: [] })
+  })
+
+  it("rejects with the rebuild's error when the rebuild fails", async () => {
+    const { startup, failRebuild } = await createControlledStartup()
+
+    failRebuild(new Error("controlled rebuild failure"))
+
+    await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
   })
 
   it("lets a held change win over the rebuild's older read of the same note", async () => {
