@@ -1940,6 +1940,48 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(notePaths()).toEqual([{ path: "Note.md" }])
   })
 
+  it("does not index the old path again after a case-only rename of its folder", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "notes/x.md": "folderjade\n" },
+    })
+    const oldFolder = join(testVault, "notes")
+    const renamedFolder = join(testVault, "Notes")
+    await mkdir(renamedFolder)
+    await writeFile(join(renamedFolder, "x.md"), "folderjade\n")
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    // A case-insensitive filesystem answers for the old folder spelling too;
+    // only the vault root's listing holds the new one.
+    const asFoundOnDisk = <RequestedPath>(requestedPath: RequestedPath): RequestedPath | string => {
+      if (typeof requestedPath !== "string") return requestedPath
+      if (requestedPath !== oldFolder && !requestedPath.startsWith(`${oldFolder}/`)) {
+        return requestedPath
+      }
+      return `${renamedFolder}${requestedPath.slice(oldFolder.length)}`
+    }
+    vi.mocked(readdir).mockImplementation(async (requestedPath, options) => {
+      return actualFs.readdir(asFoundOnDisk(requestedPath), options)
+    })
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      return actualFs.stat(asFoundOnDisk(requestedPath), options)
+    })
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      return actualFs.readFile(asFoundOnDisk(requestedPath), options)
+    })
+    onTestFinished(() => {
+      vi.mocked(readdir).mockRestore()
+      vi.mocked(stat).mockRestore()
+      vi.mocked(readFile).mockRestore()
+    })
+    expect(notePaths()).toEqual([{ path: "notes/x.md" }])
+
+    await fire("unlink", "notes/x.md")
+    await fire("add", "Notes/x.md")
+    finishRebuild()
+    await startup
+
+    expect(notePaths()).toEqual([{ path: "Notes/x.md" }])
+  })
+
   it("removes a held note whose path is now a folder", async () => {
     const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
       seedNotes: { "shape.md": "shapeopal\n" },
