@@ -25,11 +25,12 @@ const vaultFolderName = z
       .refine((value) => !value.startsWith("/"), "absolute paths not allowed"),
   )
 
-/** Matches a value made only of slashes, which Obsidian reads as the vault root. */
+/** Matches a value made only of forward or back slashes, which Obsidian reads
+ *  as the vault root. */
 const VAULT_ROOT_FOLDER_RE = /^[\\/]+$/
 
-/** Parses DAILY_NOTES_FOLDER: "/" is the vault root (""), the value Obsidian
- *  saves for it; anything else must be a vault folder name. */
+/** Parses DAILY_NOTES_FOLDER. "/", the value Obsidian saves for the vault
+ *  root, loads as ""; anything else must be a vault folder name. */
 const parseDailyNotesFolder = (folder: string): string => {
   return VAULT_ROOT_FOLDER_RE.test(folder) ? "" : vaultFolderName.parse(folder)
 }
@@ -121,8 +122,8 @@ export type VaultConfig = Readonly<{
   /** Sets the daily notes folder, taking precedence over
    *  .obsidian/daily-notes.json.
    *  Per-field precedence: env setting → daily-notes.json → fallback
-   *  ("Daily Notes"). Set via DAILY_NOTES_FOLDER; "/" (Obsidian's spelling of
-   *  the vault root) loads as "", so a set value is any defined one. */
+   *  ("Daily Notes"). Set via DAILY_NOTES_FOLDER; "/" (the vault root) loads
+   *  as "", so test `!== undefined`, not truthiness, for a set value. */
   dailyNotesFolder?: string | undefined
   /** Sets the daily notes filename format (moment tokens, matching
    *  Obsidian's setting), taking precedence over .obsidian/daily-notes.json.

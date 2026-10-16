@@ -15,10 +15,10 @@ const pickDailyFolderToAdd = (dailyFolder: string | null): string | null => {
  *    plus the daily notes folder, resolved on each call (DAILY_NOTES_FOLDER →
  *    .obsidian/daily-notes.json → "Daily Notes") so a folder configured only
  *    in the vault is protected too.
- *  - A folder setting that is the vault root (in DAILY_NOTES_FOLDER or
- *    daily-notes.json) or blank in daily-notes.json (Obsidian's new-note
- *    folder) protects no daily folder, since protecting either would cover
- *    every other note in it.
+ *  - No daily folder is protected when the setting is the vault root, from
+ *    DAILY_NOTES_FOLDER or daily-notes.json, or is blank in daily-notes.json,
+ *    which means Obsidian's new-note folder. Protecting either folder would
+ *    cover every other note in it.
  *  Throws when daily-notes.json exists but cannot be read, since the folder
  *  it names is then unknown; DAILY_NOTES_FOLDER or PROTECTED_PATHS bypasses
  *  the file. */
@@ -29,7 +29,8 @@ export const resolveEffectiveProtectedPaths = async (
   if (config.protectedPathsOverride) return config.protectedPathsOverride
 
   // DAILY_NOTES_FOLDER="/" loads as "" (the vault root), which protects no
-  // daily folder; any other set value is never blank.
+  // daily folder. loadConfig trims and rejects blank values, so any other set
+  // value needs no pickDailyFolderToAdd check.
   if (config.dailyNotesFolder !== undefined) {
     return config.dailyNotesFolder
       ? [config.memoryDir, config.dailyNotesFolder]

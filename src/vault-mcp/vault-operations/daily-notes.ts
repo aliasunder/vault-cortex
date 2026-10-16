@@ -245,8 +245,9 @@ export const readDailyNotesConfig = async (
   const envFolder = envSettings?.folder
   const envFormat = envSettings?.format
 
-  // DAILY_NOTES_FOLDER="/" arrives as "" (the vault root), so a set folder is
-  // any defined value, and the root is shared rather than dedicated.
+  // DAILY_NOTES_FOLDER="/" arrives as "" (the vault root). That is still a set
+  // folder, so test for undefined; its dedicatedFolder is null, as for a
+  // vault-root setting in daily-notes.json.
   const hasEnvFolder = envFolder !== undefined
   const envDedicatedFolder = envFolder || null
 
