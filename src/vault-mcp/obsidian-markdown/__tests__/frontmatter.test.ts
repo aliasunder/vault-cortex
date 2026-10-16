@@ -139,13 +139,19 @@ describe("parseNote", () => {
     })
   })
 
-  it("parses CRLF frontmatter", () => {
-    // The \r inside the value is gray-matter's pre-existing CRLF
-    // handling, pinned as-is — the opener gate must not reject the file
-    expect(parseNote("---\r\ntitle: x\r\n---\r\nbody\r\n")).toEqual({
-      data: { title: "x\r" },
-      content: "body\r\n",
-    })
+  it.each([
+    { label: "a plain value", block: "title: C", data: { title: "C" } },
+    { label: "a quoted value", block: 'title: "C"', data: { title: "C" } },
+    { label: "a flow list", block: "tags: [a, b]", data: { tags: ["a", "b"] } },
+    { label: "a block list", block: "tags:\r\n  - a\r\n  - b", data: { tags: ["a", "b"] } },
+    { label: "an empty value", block: "due:", data: { due: null } },
+    {
+      label: "the second of two properties",
+      block: "title: C\r\ntype: x",
+      data: { title: "C", type: "x" },
+    },
+  ])("reads $label last in a CRLF block as the LF block reads it", ({ block, data }) => {
+    expect(parseNote(`---\r\n${block}\r\n---\r\nbody\r\n`)).toEqual({ data, content: "body\r\n" })
   })
 
   it("strips a BOM before an ordinary frontmatter block", () => {
@@ -196,6 +202,11 @@ describe("parseNote", () => {
     {
       label: "an unbalanced quote",
       note: '---\ntitle: "abc\n---\nbody\n',
+      message: 'properties block is not valid YAML at line 2, column 12: Missing closing "quote',
+    },
+    {
+      label: "an unbalanced quote on the last line of a CRLF block",
+      note: '---\r\ntitle: "abc\r\n---\r\nbody\r\n',
       message: 'properties block is not valid YAML at line 2, column 12: Missing closing "quote',
     },
     {
@@ -399,6 +410,13 @@ describe("parseNoteForRewrite", () => {
   ])("accepts $label", ({ note, data }) => {
     expect(parseNoteForRewrite(note)).toEqual({ data, content: "body\n" })
   })
+
+  it("accepts an empty CRLF block as no properties", () => {
+    expect(parseNoteForRewrite("---\r\n---\r\nbody\r\n")).toEqual({
+      data: {},
+      content: "body\r\n",
+    })
+  })
 })
 
 // ── splitPropertiesBlock ─────────────────────────────────────────
@@ -448,9 +466,15 @@ describe("splitPropertiesBlock", () => {
       body: "---text\ntitle: x\n---\nbody\n",
     },
     {
-      label: "CRLF line endings",
+      label: "CRLF line endings, without the carriage return before the closer",
       note: "---\r\ntitle: x\r\n---\r\nbody\r\n",
-      blockText: "\r\ntitle: x\r",
+      blockText: "\r\ntitle: x",
+      body: "body\r\n",
+    },
+    {
+      label: "an empty CRLF block",
+      note: "---\r\n---\r\nbody\r\n",
+      blockText: "",
       body: "body\r\n",
     },
     {
@@ -617,6 +641,14 @@ describe("stringifyNote", () => {
   it.each([
     { label: "a valid block", body: "---\ntitle: ok\n---\nbody\n" },
     { label: "a CRLF block", body: "---\r\ntitle: ok\r\n---\r\nbody\r\n" },
+    {
+      label: "a CRLF block ending in a quoted value",
+      body: '---\r\ntitle: "ok"\r\n---\r\nbody\r\n',
+    },
+    {
+      label: "a CRLF block ending in a list of quoted links",
+      body: '---\r\ntitle: ok\r\nrelated:\r\n  - "[[Note]]"\r\n---\r\nbody\r\n',
+    },
     { label: "a Multi Column opener", body: "--- start-multi-column: X\ntext\n" },
     { label: "a horizontal rule with no closer", body: "---\nno closer here\n" },
   ])("writes an empty-data body that opens with $label verbatim", ({ body }) => {

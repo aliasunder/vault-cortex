@@ -75,7 +75,7 @@ const SPLIT_ONLY_OPTIONS = {
  * line is a bare `---` AND a later line starts with `---` — the rule
  * Obsidian's metadata cache follows. Otherwise `blockText` is null and the
  * body is the whole note. A leading BOM is stripped on both paths, as
- * gray-matter does.
+ * gray-matter does. The body keeps its bytes, line endings included.
  *
  * `tasks.findBodyStartLine` finds where the body starts by its own,
  * stricter rule: a first line and a later line that are exactly `---`.
@@ -84,7 +84,8 @@ export const splitPropertiesBlock = (
   content: string,
 ): {
   /** The text between the `---` lines. It starts with the opener line's own
-   *  newline, so its line numbers match the note's. */
+   *  newline, so its line numbers match the note's, and ends without the
+   *  line break before the closer, as in an LF note. */
   blockText: string | null
   body: string
 } => {
@@ -92,7 +93,13 @@ export const splitPropertiesBlock = (
 
   if (hasFrontmatterFences) {
     const file = matter(content, SPLIT_ONLY_OPTIONS)
-    return { blockText: file.matter, body: file.content }
+
+    // gray-matter closes the block at `\n---`, so in a note with Windows line
+    // endings the `\r` of the last line's break stays at the end of the
+    // block. The YAML parser would read it as part of the last value
+    // (`title: "C\r"`), or refuse the block when that value is quoted.
+    const blockText = file.matter.endsWith("\r") ? file.matter.slice(0, -1) : file.matter
+    return { blockText, body: file.content }
   }
   const contentWithoutBom = content.startsWith("\uFEFF") ? content.slice(1) : content
   return { blockText: null, body: contentWithoutBom }
