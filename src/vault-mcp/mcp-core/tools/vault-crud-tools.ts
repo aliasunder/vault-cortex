@@ -662,7 +662,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" }) — removes the whole line, line break included.
-Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "Q3", new_text: "Q4", replace_all_occurrences: true }) — replaces every occurrence.
+Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "Q3", new_text: "Q4", replace_all_occurrences: true })
 
 When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.${replaceInNoteAlternativesLine}
 
@@ -773,7 +773,7 @@ Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone.${deleteSpanAlternativesLine}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. No other empty line changes; a line of only spaces or tabs is not empty.
+- start_anchor + end_anchor define a line range, not a text range. Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. No other empty line changes; a line of only spaces or tabs is not empty.
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
 - first_match covers both anchors.
 
@@ -872,7 +872,7 @@ Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning]
 When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone.${replaceSpanAlternativesLine}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line).
+- start_anchor + end_anchor define a line range, not a text range.
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
 - content: line breaks at its start or end merge with the note's empty lines on that side, keeping the wider run (at the note's end, content's trailing line breaks count one fewer). So content can widen a gap but never narrow it: content with no line break at either end keeps the gaps as they were, and content ending in one ("| X |\\n") leaves an empty line after it, which splits a table. Content made only of line breaks joins both sides into one gap. Empty lines inside content are written as given, no other empty line changes; a line of only spaces or tabs is not empty.
 - first_match covers both anchors.
@@ -993,6 +993,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
+${FILESYSTEM_ERROR_ENTRIES}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 

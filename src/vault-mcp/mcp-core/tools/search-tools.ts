@@ -19,7 +19,7 @@ export const registerSearchTools = ({
 }: ToolRegistrationContext): void => {
   // These parts read the same with or without embeddings, so both
   // vault_search description variants share them
-  const searchSyntaxText = `Combine a text query with structured filters to narrow results by metadata. Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.`
+  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.`
 
   // File content has no properties or dates, so the file legs are skipped
   // whenever a filter other than folder is set
@@ -29,7 +29,7 @@ export const registerSearchTools = ({
   const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${fileResultsFilterText}:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
+- properties: values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days in the server's time zone (the UTC offset on returned created and modified values), so "on" matches anywhere within the day. Notes without a parseable created property never match a created filter`
 
   const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
