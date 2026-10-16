@@ -7,7 +7,7 @@ import { watch } from "chokidar"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import type { Stats } from "node:fs"
-import { basename, dirname, extname, join, relative, resolve as resolvePath } from "node:path"
+import { extname, join, relative, resolve as resolvePath, sep } from "node:path"
 import { INDEXABLE_TEXT_EXTENSIONS, INDEXING_FILE_READ_CONCURRENCY } from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
@@ -73,7 +73,9 @@ type ChangeIndexResult =
   // A newer event or a removal for the same path arrived during the read, so
   // this read's content was dropped.
   | { status: "superseded" }
-  // A read, stat, extraction or index write failed; already logged.
+  // A note's read, stat or index write failed, or a non-md file's stat or
+  // asset-table write did; already logged. A non-md file whose content alone
+  // could not be read, extracted or indexed is still "file-indexed".
   | { status: "failed" }
 
 /** Whether a held path names a file on disk. "unknown" leaves the path to its
@@ -94,9 +96,9 @@ type HoldingWatcher = Readonly<{
 
 /**
  * Watches the vault and mirrors every file add/change/delete into the search
- * index, holding every change from the moment chokidar starts until
- * applyHeldChanges runs. The watcher then runs for the process lifetime —
- * there is no shutdown path.
+ * index, holding every change from the moment chokidar starts until the batch
+ * applyHeldChanges starts has finished. The watcher then runs for the process
+ * lifetime — there is no shutdown path.
  */
 const startHoldingWatcher = (
   vaultPath: string,
@@ -229,7 +231,7 @@ const startHoldingWatcher = (
           })
       } catch (error) {
         // Warn, as the rebuild does for an unreadable file: the asset-table row
-        // above is indexed, so only the file's content search is missing.
+        // above is indexed, and content search keeps what it had for the file.
         // describeErrorForLog keeps the cause, because a PDF reader that
         // failed to start arrives wrapped.
         logger.warn("file content indexing failed", {
@@ -676,21 +678,30 @@ const startHoldingWatcher = (
   }
 
   /**
-   * Decides whether a held path still names a file. The parent folder's listing
-   * must hold the exact name: on a case-insensitive filesystem, `stat` of
-   * `note.md` still succeeds after a rename to `Note.md`, and reading it would
-   * index the old name again. `listFolderOnce` returns the batch's shared
-   * listing of a folder, so each folder is read once per batch.
+   * Decides whether a held path still names a file.
+   * - Each folder from the vault root down must list the next name in the path
+   *   exactly. On a case-insensitive filesystem, `stat` still succeeds for the
+   *   old path after a case-only rename of the file (`note.md` to `Note.md`) or
+   *   of a folder above it (`notes/` to `Notes/`), and reading it would index
+   *   the old path again.
+   * - `listFolderOnce` returns the batch's shared listing of a folder, so each
+   *   folder is read once per batch.
    */
   const checkHeldPathOnDisk = async (
     filePath: string,
     listFolderOnce: (folderPath: string) => Promise<FolderListing>,
   ): Promise<HeldPathPresence> => {
-    const folderListing = await listFolderOnce(dirname(filePath))
-    const missingFromListing =
-      folderListing.status === "listed" && !folderListing.names.has(basename(filePath))
+    const pathSegments = relative(vaultPath, filePath).split(sep)
 
-    if (folderListing.status === "missing" || missingFromListing) return "missing"
+    // Sequential, so the first folder that lacks the next name ends the check.
+    for (const [segmentIndex, segmentName] of pathSegments.entries()) {
+      const folderPath = join(vaultPath, ...pathSegments.slice(0, segmentIndex))
+      const folderListing = await listFolderOnce(folderPath)
+      const missingFromListing =
+        folderListing.status === "listed" && !folderListing.names.has(segmentName)
+
+      if (folderListing.status === "missing" || missingFromListing) return "missing"
+    }
 
     // A folder that could not be listed proves nothing either way, so the stat
     // below decides.
