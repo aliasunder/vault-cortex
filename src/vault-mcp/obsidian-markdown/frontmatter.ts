@@ -78,14 +78,16 @@ const SPLIT_ONLY_OPTIONS = {
  * gray-matter does. The body keeps its bytes, line endings included.
  *
  * `tasks.findBodyStartLine` finds where the body starts by its own,
- * stricter rule: a first line and a later line that are exactly `---`.
+ * stricter rule: a first line and a later line that are exactly `---`. It
+ * reads lines from `splitIntoLines`, so a CRLF note's `---\r` counts as `---`.
  */
 export const splitPropertiesBlock = (
   content: string,
 ): {
   /** The text between the `---` lines. It starts with the opener line's own
-   *  newline, so its line numbers match the note's, and ends without the
-   *  line break before the closer, as in an LF note. */
+   *  line break, so its line numbers match the note's. Its lines keep the
+   *  note's line breaks, `\r\n` included; only the `\r` before the closer is
+   *  dropped, so the last line reads as in an LF note. */
   blockText: string | null
   body: string
 } => {
@@ -94,13 +96,20 @@ export const splitPropertiesBlock = (
   if (hasFrontmatterFences) {
     const file = matter(content, SPLIT_ONLY_OPTIONS)
 
-    // gray-matter closes the block at `\n---`, so in a note with Windows line
-    // endings the `\r` of the last line's break stays at the end of the
-    // block. The YAML parser would read it as part of the last value
-    // (`title: "C\r"`), or refuse the block when that value is quoted.
+    // gray-matter closes the block at `\n---`, which splits the last line's
+    // `\r\n` break in two and leaves its `\r` at the end of the block:
+    // - earlier lines need nothing, because the YAML parser reads `\r\n` as a
+    //   line break;
+    // - this `\r` has no `\n` after it, so the parser would read it as part of
+    //   the last value (`title: "C\r"`), or refuse the block when that value
+    //   is quoted.
+    // A `\r` here is always half of that break, whatever line endings the
+    // rest of the note uses, so it is dropped in every note.
     const blockText = file.matter.endsWith("\r") ? file.matter.slice(0, -1) : file.matter
     return { blockText, body: file.content }
   }
+
+  // gray-matter strips the BOM on the path above; this path does it here
   const contentWithoutBom = content.startsWith("\uFEFF") ? content.slice(1) : content
   return { blockText: null, body: contentWithoutBom }
 }
@@ -210,8 +219,9 @@ const convertDocumentToValue = (
  */
 const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
   // Each call gets its own counter, because a shared one keeps counting
-  // across parses and reports later errors on the wrong line. The block
-  // text starts with the opener's own newline, so its lines are the note's.
+  // across parses and reports later errors on the wrong line. The block text
+  // from splitPropertiesBlock starts with the opener's own line break and
+  // keeps the note's line breaks, so line N of the block is line N of the note.
   const lineCounter = new LineCounter()
   // prettyErrors would append its own position and a multi-line excerpt of
   // the block to each message; the message below states the position itself
@@ -363,7 +373,9 @@ export const stringifyNote = (body: string, data: object): string => {
  * Replaces a note's whole properties block with `properties` and keeps the
  * body's bytes exactly, adding no newline; only a leading BOM is dropped,
  * as on every split. The old block is never parsed, so a block the server
- * cannot read or keep can still be replaced. `{}` removes the block.
+ * cannot read or keep can still be replaced. `{}` removes the block. The new
+ * block always uses LF, so a CRLF note comes back with mixed line endings,
+ * as Obsidian's own property edits leave it.
  */
 export const replacePropertiesBlock = (content: string, properties: object): string => {
   const { body } = splitPropertiesBlock(content)
