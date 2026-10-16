@@ -8,7 +8,11 @@ import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import type { Stats } from "node:fs"
 import { extname, join, relative, resolve as resolvePath, sep } from "node:path"
-import { INDEXABLE_TEXT_EXTENSIONS, INDEXING_FILE_READ_CONCURRENCY } from "./search-index.js"
+import {
+  INDEXABLE_TEXT_EXTENSIONS,
+  INDEXING_FILE_READ_CONCURRENCY,
+  PDF_EXTRACTION_CONCURRENCY,
+} from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { logger } from "../../logger.js"
@@ -803,6 +807,9 @@ const startHoldingWatcher = (
     const pathsToRead = presenceChecks
       .filter((check) => check.presence !== "missing")
       .map((check) => check.filePath)
+    const isPdf = (filePath: string): boolean => extname(filePath) === ".pdf"
+    const pdfPathsToRead = pathsToRead.filter(isPdf)
+    const otherPathsToRead = pathsToRead.filter((filePath) => !isPdf(filePath))
 
     // Removals run before reads. upsertNote re-resolves only links whose target
     // is not indexed, so when a renamed note's old path is removed first, the
@@ -812,8 +819,14 @@ const startHoldingWatcher = (
     }
 
     await mapWithConcurrency({
-      items: pathsToRead,
+      items: otherPathsToRead,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
+      mapper: indexHeldPath,
+    })
+    // PDFs go last at the rebuild's lower bound, since each extraction is CPU-heavy.
+    await mapWithConcurrency({
+      items: pdfPathsToRead,
+      concurrency: PDF_EXTRACTION_CONCURRENCY,
       mapper: indexHeldPath,
     })
   }
@@ -822,8 +835,9 @@ const startHoldingWatcher = (
    * Brings the index up to date with the held paths, in one batch, then goes live:
    *
    * 1. Each path is checked against the disk, and missing ones are removed.
-   * 2. The rest are read and indexed, INDEXING_FILE_READ_CONCURRENCY at a time; one
-   *    that vanished by its read is removed.
+   * 2. The rest are read and indexed, INDEXING_FILE_READ_CONCURRENCY at a time
+   *    (PDFs PDF_EXTRACTION_CONCURRENCY at a time, after the others); one that
+   *    vanished by its read is removed.
    * 3. Events held while steps 1 and 2 ran are replayed live.
    *
    * Never rejects, and step 3 runs even if an earlier step threw: a watcher
