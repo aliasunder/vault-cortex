@@ -159,6 +159,16 @@ describe("loadConfig", () => {
         "absolute paths not allowed",
       )
     })
+
+    it.each([
+      { label: "a lone slash", input: "/" },
+      { label: "a slash with surrounding spaces", input: "  /  " },
+      { label: "repeated slashes", input: "//" },
+      { label: "a backslash", input: "\\" },
+    ])("reads $label as the vault root", ({ input }) => {
+      const config = loadConfig({ DAILY_NOTES_FOLDER: input })
+      expect(config.dailyNotesFolder).toBe("")
+    })
   })
 
   describe("DAILY_NOTES_FORMAT", () => {

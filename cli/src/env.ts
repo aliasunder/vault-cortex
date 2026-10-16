@@ -98,7 +98,7 @@ MEMORY_DIR=About Me
 # .obsidian/daily-notes.json, or "Daily Notes" and YYYY-MM-DD when that file
 # is missing or unreadable. An empty folder in that file means Obsidian's
 # location for new notes. Folder is any vault-relative path (Journal,
-# Planner/Daily); format takes the same tokens as Obsidian's date format setting.
+# Planner/Daily), or / for the vault root; format takes the same tokens as Obsidian's date format setting.
 # DAILY_NOTES_FOLDER=Journal
 # DAILY_NOTES_FORMAT=YYYY-MM-DD
 
@@ -250,8 +250,9 @@ MEMORY_DIR=About Me
 # "Daily Notes" and YYYY-MM-DD when that file is missing or unreadable. An
 # empty folder in that file means Obsidian's location for new notes, which
 # syncs only when SYNC_CONFIGS includes app; without it, the server uses the
-# vault root. Folder is any vault-relative path (Journal, Planner/Daily);
-# format takes the same tokens as Obsidian's date format setting.
+# vault root. Folder is any vault-relative path (Journal, Planner/Daily), or
+# / for the vault root; format takes the same tokens as Obsidian's date format
+# setting.
 # DAILY_NOTES_FOLDER=Journal
 # DAILY_NOTES_FORMAT=YYYY-MM-DD
 

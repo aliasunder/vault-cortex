@@ -390,6 +390,22 @@ describe("readDailyNotesConfig", () => {
       })
     })
 
+    it.each([
+      { label: "alone", envSettings: { folder: "" } },
+      { label: "with a format", envSettings: { folder: "", format: "DD-MM-YYYY" } },
+    ])(
+      "treats a vault-root folder override ($label) as the shared root",
+      async ({ envSettings }) => {
+        const vaultDir = await createVault()
+        // A named folder on disk, so falling through to the file would show
+        await writeDailyNotesConfig(vaultDir, { folder: "Journal", format: "DD-MM-YYYY" })
+
+        const config = await readDailyNotesConfig({ vaultPath: vaultDir, envSettings }, logger)
+
+        expect(config).toEqual({ folder: "", format: "DD-MM-YYYY", dedicatedFolder: null })
+      },
+    )
+
     it("folder-only override without a config file falls back to the default format", async () => {
       const vaultDir = await createVault()
 

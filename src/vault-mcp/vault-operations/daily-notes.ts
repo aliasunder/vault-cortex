@@ -45,7 +45,8 @@ type DailyNotesFileSettings = {
 }
 
 /** Per-field settings from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env
- *  vars; each set field takes precedence over .obsidian/daily-notes.json. */
+ *  vars; each set field takes precedence over .obsidian/daily-notes.json.
+ *  A folder of "" is the vault root. */
 export type DailyNotesEnvSettings = {
   folder?: string | undefined
   format?: string | undefined
@@ -244,9 +245,14 @@ export const readDailyNotesConfig = async (
   const envFolder = envSettings?.folder
   const envFormat = envSettings?.format
 
+  // DAILY_NOTES_FOLDER="/" arrives as "" (the vault root), so a set folder is
+  // any defined value, and the root is shared rather than dedicated.
+  const hasEnvFolder = envFolder !== undefined
+  const envDedicatedFolder = envFolder || null
+
   // Both fields set — the files can't contribute anything, skip I/O.
-  if (envFolder && envFormat) {
-    return { folder: envFolder, format: envFormat, dedicatedFolder: envFolder }
+  if (hasEnvFolder && envFormat) {
+    return { folder: envFolder, format: envFormat, dedicatedFolder: envDedicatedFolder }
   }
 
   const { folderSetting, format: fileFormat } = await readDailyNotesFileOrFallback(
@@ -255,9 +261,8 @@ export const readDailyNotesConfig = async (
   )
   const format = envFormat ?? fileFormat
 
-  // loadConfig trims DAILY_NOTES_FOLDER, so a set value is never blank.
-  if (envFolder) {
-    return { folder: envFolder, format, dedicatedFolder: envFolder }
+  if (hasEnvFolder) {
+    return { folder: envFolder, format, dedicatedFolder: envDedicatedFolder }
   }
 
   const folder = await resolveDailyNotesFolder({ folderSetting, vaultPath }, logger)

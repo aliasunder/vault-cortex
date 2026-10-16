@@ -114,6 +114,14 @@ describe("resolveEffectiveProtectedPaths", () => {
     expect(requestLogger.warn).not.toHaveBeenCalled()
   })
 
+  it("protects only memory for DAILY_NOTES_FOLDER=/ without reading the file", async () => {
+    const vaultPath = await createVault('{"folder":"Journal"}')
+    const config = loadConfig({ DAILY_NOTES_FOLDER: "/" })
+    expect(await resolveEffectiveProtectedPaths({ config, vaultPath }, logger)).toEqual([
+      "About Me",
+    ])
+  })
+
   it("reads the file folder when only DAILY_NOTES_FORMAT is set", async () => {
     const vaultPath = await createVault('{"folder":"Journal"}')
     const config = loadConfig({ DAILY_NOTES_FORMAT: "DD-MM-YYYY" })
@@ -239,6 +247,11 @@ describe("readEffectiveOrphanExcludeFolders", () => {
       label: "daily folder override",
       env: { DAILY_NOTES_FOLDER: "Env/Journal" },
       expected: ["Env/Journal", "Templates", "About Me"],
+    },
+    {
+      label: "vault-root daily folder override",
+      env: { DAILY_NOTES_FOLDER: "/" },
+      expected: ["Templates", "About Me"],
     },
     {
       label: "explicit orphan override",

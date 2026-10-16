@@ -118,7 +118,7 @@
         },
         {
           "name": "DAILY_NOTES_FOLDER",
-          "description": "Vault folder for daily notes. Overrides the folder configured in Obsidian's daily-notes plugin. When unset, read from the vault's .obsidian/daily-notes.json (an empty folder there follows Obsidian's new-note location), falling back to \"Daily Notes\" when that file is missing.",
+          "description": "Vault folder for daily notes. Overrides the folder configured in Obsidian's daily-notes plugin. When unset, read from the vault's .obsidian/daily-notes.json (an empty folder there follows Obsidian's new-note location), falling back to \"Daily Notes\" when that file is missing. Set to / for the vault root.",
           "default": "Daily Notes"
         },
         {

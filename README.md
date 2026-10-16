@@ -415,7 +415,7 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 
 When the file isn't available — or if you use the Periodic Notes plugin, whose settings `daily-notes.json` doesn't hold — set the values yourself:
 
-- `DAILY_NOTES_FOLDER` — any vault-relative path: `Journal`, `Planner/Daily`
+- `DAILY_NOTES_FOLDER` — any vault-relative path: `Journal`, `Planner/Daily`, or `/` for the vault root
 - `DAILY_NOTES_FORMAT` — same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, `MMM D, YYYY`, …
 
 You can set one or both — a set value always wins over the config file. A value you leave unset comes from `daily-notes.json`; when that file is missing, the server uses `Daily Notes` and `YYYY-MM-DD`.
