@@ -1117,6 +1117,10 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry'
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
     '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
+  const FILESYSTEM_ERROR_ENTRY_LINES = [
+    '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path. If the quoted name ends in ".tmp", the note exists but its name is too long to save; rename it at least 41 bytes shorter',
+    "- \"EACCES: …\" or another filesystem error code — the note's file can't be read or written (permissions, a full or read-only disk); ask the vault's owner to fix it",
+  ]
 
   it("lists the trash-move and trash-setting errors when the server does not sync", () => {
     expect(deleteNoteErrors({})).toBe(
@@ -1126,6 +1130,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry',
         '- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
         OTHER_DELETE_ERROR_ENTRY,
+        ...FILESYSTEM_ERROR_ENTRY_LINES,
         "- \"cannot read trash config from .obsidian/app.json\" — the file exists but can't be read or parsed, and guessing the setting could let the server's trash cleanup delete a note Obsidian keeps forever; ask the vault owner to repair it, then retry",
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
@@ -1138,6 +1143,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
         OTHER_DELETE_ERROR_ENTRY,
+        ...FILESYSTEM_ERROR_ENTRY_LINES,
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -2712,7 +2718,7 @@ describe("DISABLED_TOOLS", () => {
       '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder, unless that folder is blank)${ENTRY_END}`,
+      `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder, unless the daily notes folder setting is the vault root or blank)${ENTRY_END}`,
     )
     expect(excludeFoldersEntry("vault_get_daily_note")).toBe(`${ENTRY_START}${ENTRY_END}`)
   })
