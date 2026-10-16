@@ -433,6 +433,44 @@ describe("daily-review handler", () => {
     )
   })
 
+  it("reads a blank-folder daily note from the new-note folder and counts its missing links there as broken", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-daily-blank-folder-"))
+    onTestFinished(() => rm(vault, { recursive: true, force: true }))
+    await mkdir(join(vault, ".obsidian"))
+    await mkdir(join(vault, "Inbox"))
+    await mkdir(join(vault, "About Me"))
+    await writeFile(join(vault, ".obsidian", "daily-notes.json"), '{"folder":""}')
+    // The new-note folder also holds other notes, so a missing note there is
+    // not taken for a daily note that has not been created yet
+    await writeFile(
+      join(vault, ".obsidian", "app.json"),
+      '{"newFileLocation":"folder","newFileFolderPath":"Inbox"}',
+    )
+    const dailyContent = "# 2026-06-16\n\n[[Inbox/2026-06-17]]\n"
+    await writeFile(join(vault, "Inbox", "2026-06-16.md"), dailyContent)
+    const search = createSearchIndex(":memory:")
+    search.upsertNote(
+      {
+        filePath: "Inbox/2026-06-16.md",
+        rawContent: dailyContent,
+        fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: Buffer.byteLength(dailyContent) },
+      },
+      logger,
+    )
+    const handler = findCall(registerWithSearch(vault, search), PROMPT_NAMES.DAILY_REVIEW)[2]
+
+    const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
+
+    expect({
+      leadLine: reviewLeadLine(text),
+      outgoingLinks: reviewSection(text, "Outgoing links"),
+    }).toEqual({
+      leadLine: "Daily note: `Inbox/2026-06-16.md`",
+      outgoingLinks:
+        "- Inbox/2026-06-17 (**broken** — target does not exist)\n\n1 broken link — the target note does not exist yet.",
+    })
+  })
+
   it("shows backlinks when other notes reference the daily note", async () => {
     const vault = await mkdtemp(join(tmpdir(), "prompt-daily-back-"))
     onTestFinished(async () => {

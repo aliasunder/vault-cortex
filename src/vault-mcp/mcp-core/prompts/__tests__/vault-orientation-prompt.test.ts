@@ -116,6 +116,26 @@ describe("vault-orientation live orphan folders", () => {
     )
   })
 
+  it("neither excludes nor counts forward-refs in the new-note folder a blank daily folder resolves to", async () => {
+    const { vault, readSurveySections } = await setupOrphanPrompt({
+      settings: '{"folder":""}',
+      paths: ["source.md", "Inbox/idea.md", "Templates/template.md"],
+      noteContents: { "source.md": "[[Inbox/2026-10-07]] [[missing]]" },
+    })
+    // Daily notes then go to Inbox alongside other new notes, so Inbox is not
+    // a daily-only folder
+    await writeFile(
+      join(vault, ".obsidian/app.json"),
+      '{"newFileLocation":"folder","newFileFolderPath":"Inbox"}',
+    )
+
+    expect(await readSurveySections()).toEqual({
+      orphans: "2 orphan notes (no incoming links):\n- source.md — source\n- Inbox/idea.md — idea",
+      stats:
+        "3 notes across 0 folders, 0 tags, 0 property keys. 3 untagged. 3 without properties. 2 broken links.",
+    })
+  })
+
   it("keeps ordinary orphans visible behind more than five newer excluded daily candidates", async () => {
     const dailyPaths = Array.from({ length: 7 }, (_, index) => `Journal/nested/day-${index}.md`)
     const { orphanSection } = await setupOrphanPrompt({

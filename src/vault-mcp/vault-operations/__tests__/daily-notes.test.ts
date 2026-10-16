@@ -127,10 +127,14 @@ describe("readDailyNotesConfig", () => {
     it("uses the vault root when app.json does not exist, as Obsidian's default", async () => {
       const vaultDir = await createVault()
       await writeDailyNotesConfig(vaultDir, { folder: "", format: "YYYY-MM-DD" })
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
 
       const config = await readDailyNotesConfig({ vaultPath: vaultDir }, logger)
 
       expect(config).toEqual({ folder: "", format: "YYYY-MM-DD", dedicatedFolder: null })
+      // The unreadable-app.json fallback also gives the root, but with a warn
+      expect(warnSpy).not.toHaveBeenCalled()
     })
 
     it("uses the folder app.json sets for new notes, without treating it as daily-only", async () => {
@@ -147,10 +151,49 @@ describe("readDailyNotesConfig", () => {
       const vaultDir = await createVault()
       await writeDailyNotesConfig(vaultDir, { folder: "" })
       await writeAppConfig(vaultDir, { newFileLocation: "current", newFileFolderPath: "Inbox" })
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
 
       const config = await readDailyNotesConfig({ vaultPath: vaultDir }, logger)
 
       expect(config).toEqual({ folder: "", format: "YYYY-MM-DD", dedicatedFolder: null })
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      {
+        label: "a non-string folder path",
+        appConfig: { newFileLocation: "folder", newFileFolderPath: 42 },
+      },
+      { label: "no folder path", appConfig: { newFileLocation: "folder" } },
+      { label: "the JSON literal null", appConfig: null },
+    ])(
+      "uses the vault root, without a warn, for an app.json with $label",
+      async ({ appConfig }) => {
+        const vaultDir = await createVault()
+        await writeDailyNotesConfig(vaultDir, { folder: "" })
+        await writeAppConfig(vaultDir, appConfig)
+        const warnSpy = vi.spyOn(logger, "warn")
+        onTestFinished(() => warnSpy.mockRestore())
+
+        const config = await readDailyNotesConfig({ vaultPath: vaultDir }, logger)
+
+        expect(config).toEqual({ folder: "", format: "YYYY-MM-DD", dedicatedFolder: null })
+        expect(warnSpy).not.toHaveBeenCalled()
+      },
+    )
+
+    it("uses the vault root, without a warn, when app.json is a directory", async () => {
+      const vaultDir = await createVault()
+      await writeDailyNotesConfig(vaultDir, { folder: "" })
+      await mkdir(join(vaultDir, ".obsidian", "app.json"))
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+
+      const config = await readDailyNotesConfig({ vaultPath: vaultDir }, logger)
+
+      expect(config).toEqual({ folder: "", format: "YYYY-MM-DD", dedicatedFolder: null })
+      expect(warnSpy).not.toHaveBeenCalled()
     })
 
     it("reads a file holding the JSON literal null as a blank folder, without a warn", async () => {
