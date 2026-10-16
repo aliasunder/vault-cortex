@@ -45,13 +45,19 @@ type DailyNotesFileSettings = {
 }
 
 /** Per-field settings from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env
- *  vars; each set field takes precedence over .obsidian/daily-notes.json.
- *  loadConfig never yields a blank folder, so `folder: ""` arrives only from
- *  a resolved DailyNotesConfig passed back in, and means the vault root. */
+ *  vars; each set field takes precedence over .obsidian/daily-notes.json. */
 export type DailyNotesEnvSettings = {
   folder?: string | undefined
   format?: string | undefined
 }
+
+/** Where a daily note's folder and format come from:
+ *  - `env`: the env settings, with unset fields read from the vault's config.
+ *  - `resolved`: a config readDailyNotesConfig already returned, used as is,
+ *    so a caller that needs the config itself reads the files only once. */
+type DailyNotesSettings =
+  | { source: "env"; envSettings: DailyNotesEnvSettings }
+  | { source: "resolved"; config: DailyNotesConfig }
 
 // The server's own choice for a vault with no daily-notes.json. Obsidian then
 // uses its location for new notes, which is not a sensible folder to assume.
@@ -226,16 +232,12 @@ export const readDailyNotesConfig = async (
   logger: Logger,
 ): Promise<DailyNotesConfig> => {
   const { vaultPath, envSettings } = params
+  const envFolder = envSettings?.folder
   const envFormat = envSettings?.format
 
-  // "" is a set folder here, the vault root (see DailyNotesEnvSettings), so
-  // this checks for undefined; `|| null` below then marks the root as shared.
-  const envFolder = envSettings?.folder
-  const hasEnvFolder = envFolder !== undefined
-
   // Both fields set — the files can't contribute anything, skip I/O.
-  if (hasEnvFolder && envFormat) {
-    return { folder: envFolder, format: envFormat, dedicatedFolder: envFolder || null }
+  if (envFolder && envFormat) {
+    return { folder: envFolder, format: envFormat, dedicatedFolder: envFolder }
   }
 
   const { folderSetting, format: fileFormat } = await readDailyNotesFileOrFallback(
@@ -244,8 +246,9 @@ export const readDailyNotesConfig = async (
   )
   const format = envFormat ?? fileFormat
 
-  if (hasEnvFolder) {
-    return { folder: envFolder, format, dedicatedFolder: envFolder || null }
+  // loadConfig trims DAILY_NOTES_FOLDER, so a set value is never blank.
+  if (envFolder) {
+    return { folder: envFolder, format, dedicatedFolder: envFolder }
   }
 
   const folder = await resolveDailyNotesFolder({ folderSetting, vaultPath }, logger)
@@ -264,19 +267,21 @@ export const describeNonCalendarDate = (date: string): string => {
   return `"${date}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`
 }
 
-/** Resolves a date to a vault-relative daily note path using the env
- *  settings, the vault's .obsidian/daily-notes.json config, and
- *  the fallbacks — in that per-field precedence order. */
+/** Resolves a date to a vault-relative daily note path. Without settings,
+ *  the folder and format come from the vault's config and the fallbacks. */
 export const getDailyNotePath = async (
   params: {
     vaultPath: string
     date?: string | undefined
-    envSettings?: DailyNotesEnvSettings | undefined
+    settings?: DailyNotesSettings | undefined
   },
   logger: Logger,
 ): Promise<string> => {
-  const { vaultPath, date, envSettings } = params
-  const config = await readDailyNotesConfig({ vaultPath, envSettings }, logger)
+  const { vaultPath, date, settings } = params
+  const config =
+    settings?.source === "resolved"
+      ? settings.config
+      : await readDailyNotesConfig({ vaultPath, envSettings: settings?.envSettings }, logger)
 
   const unsupportedTokens = findUnsupportedTokens(config.format)
 
@@ -317,7 +322,7 @@ export const getDailyNote = async (
   params: {
     vaultPath: string
     date?: string | undefined
-    envSettings?: DailyNotesEnvSettings | undefined
+    settings?: DailyNotesSettings | undefined
   },
   logger: Logger,
 ): Promise<DailyNoteResult> => {
@@ -325,7 +330,7 @@ export const getDailyNote = async (
     {
       vaultPath: params.vaultPath,
       date: params.date,
-      envSettings: params.envSettings,
+      settings: params.settings,
     },
     logger,
   )

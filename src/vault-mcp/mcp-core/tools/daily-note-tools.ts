@@ -58,9 +58,12 @@ Returns: JSON with path (string — resolved vault-relative path), content (stri
             {
               vaultPath,
               date,
-              envSettings: {
-                folder: config.dailyNotesFolder,
-                format: config.dailyNotesFormat,
+              settings: {
+                source: "env",
+                envSettings: {
+                  folder: config.dailyNotesFolder,
+                  format: config.dailyNotesFormat,
+                },
               },
             },
             reqLogger,

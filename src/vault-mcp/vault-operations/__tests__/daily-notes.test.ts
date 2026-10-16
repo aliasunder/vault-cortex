@@ -538,16 +538,19 @@ describe("getDailyNotePath", () => {
     expect(path).toBe("13-05-2026.md")
   })
 
-  it("resolves a vault-root path from a resolved config passed back as settings", async () => {
+  it("uses a resolved config as is, reading no config file", async () => {
     const vaultDir = await createVault()
-    // A folder setting the shortcut must skip, so a file read would change the path
+    // A different folder and format on disk, so a file read would change the path
     await writeDailyNotesConfig(vaultDir, { folder: "Journal", format: "YYYY-MM-DD" })
 
     const path = await getDailyNotePath(
       {
         vaultPath: vaultDir,
         date: "2026-05-13",
-        envSettings: { folder: "", format: "DD-MM-YYYY" },
+        settings: {
+          source: "resolved",
+          config: { folder: "", format: "DD-MM-YYYY", dedicatedFolder: null },
+        },
       },
       logger,
     )
@@ -563,7 +566,10 @@ describe("getDailyNotePath", () => {
       {
         vaultPath: vaultDir,
         date: "2026-05-13",
-        envSettings: { folder: "Override Folder", format: "DD-MM-YYYY" },
+        settings: {
+          source: "env",
+          envSettings: { folder: "Override Folder", format: "DD-MM-YYYY" },
+        },
       },
       logger,
     )
