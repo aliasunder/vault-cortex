@@ -1097,6 +1097,63 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
   })
 })
 
+describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
+  // Search indexes file content only while file tools are on, so with them
+  // off the description must not mention file content, the extension field,
+  // or file results. Both embedding variants share this wording.
+  const FILE_RESULT_WORDING = {
+    searchedScope: "search across vault notes and file content (canvas, PDF, and text files)",
+    resultFields:
+      "results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes",
+    kindSentence:
+      'kind is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").',
+  }
+  const NOTE_ONLY_WORDING = {
+    searchedScope: "search across vault notes",
+    resultFields:
+      "results array (path, title, snippet, score, tags, folder, type, kind, created, modified, bytes",
+    kindSentence: 'kind is always "note".',
+  }
+
+  it.each([
+    {
+      label: "advertises file results in the hybrid variant while file tools are on",
+      env: {},
+      expectedWording: FILE_RESULT_WORDING,
+    },
+    {
+      label: "advertises notes only in the hybrid variant when file tools are off",
+      env: { FILE_TOOLS_ENABLED: "false" },
+      expectedWording: NOTE_ONLY_WORDING,
+    },
+    {
+      label: "advertises file results in the keyword-only variant while file tools are on",
+      env: { EMBEDDING_ENABLED: "false" },
+      expectedWording: FILE_RESULT_WORDING,
+    },
+    {
+      label: "advertises notes only in the keyword-only variant when file tools are off",
+      env: { EMBEDDING_ENABLED: "false", FILE_TOOLS_ENABLED: "false" },
+      expectedWording: NOTE_ONLY_WORDING,
+    },
+  ])("$label", ({ env, expectedWording }) => {
+    const registeredCalls = registerWithConfig(env)
+    const searchSection = (markers: { startMarker: string; endMarker: string }): string => {
+      return extractDescriptionSection({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_SEARCH,
+        ...markers,
+      })
+    }
+
+    expect({
+      searchedScope: searchSection({ startMarker: "search across ", endMarker: ", ranked by" }),
+      resultFields: searchSection({ startMarker: "results array (", endMarker: "), total" }),
+      kindSentence: searchSection({ startMarker: "kind is ", endMarker: " created is omitted" }),
+    }).toEqual(expectedWording)
+  })
+})
+
 describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
   const deleteNoteErrors = (env: Record<string, string>): string => {
     return extractDescriptionSection({
@@ -3272,6 +3329,54 @@ describe("DISABLED_TOOLS", () => {
       endMarker: "\n\nOperations:",
     })
     expect(whenToUse).toBe(expectedSection)
+  })
+
+  const PATCH_NOTE_APPEND_LINE =
+    "- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so appending a row to a table that a blank line follows starts a new table"
+  const PATCH_NOTE_APPEND_INSERT_AT_ANCHOR_ADVICE =
+    "; to extend a table, use vault_insert_at_anchor after its last row"
+  const PATCH_NOTE_REPLACE_LINE = "- replace: replace section body (requires heading)"
+  const PATCH_NOTE_REPLACE_DELETE_SPAN_ADVICE = "; to empty it, use vault_delete_span on its lines"
+
+  it.each([
+    {
+      label: "names both tools while both are served",
+      disabledTools: "",
+      expectedLines: {
+        appendLine: `${PATCH_NOTE_APPEND_LINE}${PATCH_NOTE_APPEND_INSERT_AT_ANCHOR_ADVICE}`,
+        replaceLine: `${PATCH_NOTE_REPLACE_LINE}${PATCH_NOTE_REPLACE_DELETE_SPAN_ADVICE}`,
+      },
+    },
+    {
+      label: "drops only the append advice when vault_insert_at_anchor is disabled",
+      disabledTools: "vault_insert_at_anchor",
+      expectedLines: {
+        appendLine: PATCH_NOTE_APPEND_LINE,
+        replaceLine: `${PATCH_NOTE_REPLACE_LINE}${PATCH_NOTE_REPLACE_DELETE_SPAN_ADVICE}`,
+      },
+    },
+    {
+      label: "drops only the replace advice when vault_delete_span is disabled",
+      disabledTools: "vault_delete_span",
+      expectedLines: {
+        appendLine: `${PATCH_NOTE_APPEND_LINE}${PATCH_NOTE_APPEND_INSERT_AT_ANCHOR_ADVICE}`,
+        replaceLine: PATCH_NOTE_REPLACE_LINE,
+      },
+    },
+  ])("vault_patch_note's operation lines $label", ({ disabledTools, expectedLines }) => {
+    const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
+    const operationLine = (linePrefix: string): string | undefined => {
+      return findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+        linePrefix,
+      })
+    }
+
+    expect({
+      appendLine: operationLine("- append:"),
+      replaceLine: operationLine("- replace:"),
+    }).toEqual(expectedLines)
   })
 
   it.each([
