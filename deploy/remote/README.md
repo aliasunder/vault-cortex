@@ -551,8 +551,9 @@ that file when settings syncing is turned on in two places:
 
 Some community plugins keep API keys in their settings. Server tools never
 read `.obsidian/`, and the server itself opens only `daily-notes.json`, the
-Tasks plugin's settings, and `app.json` when the `app` category is synced —
-other synced settings just sit in the vault's `.obsidian/` folder.
+Tasks plugin's settings, and `app.json` (for the new-note location, when the
+daily notes folder is blank) — other synced settings just sit in the vault's
+`.obsidian/` folder.
 
 If you turn on **Core plugin settings** syncing after the server is
 already running, `daily-notes.json` is picked up automatically once it
