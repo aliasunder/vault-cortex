@@ -2560,7 +2560,7 @@ describe("DISABLED_TOOLS", () => {
       " Prefer vault_get_memory for About Me/ files (returns content without properties). To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links."
 
     expect(readNoteRoutingLine("")).toBe(
-      `${ROUTING_LINE_START} For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's verbatim Markdown.${ROUTING_LINE_END}`,
+      `${ROUTING_LINE_START} For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's Markdown.${ROUTING_LINE_END}`,
     )
     expect(readNoteRoutingLine("vault_list_tasks")).toBe(`${ROUTING_LINE_START}${ROUTING_LINE_END}`)
   })
