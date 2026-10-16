@@ -18,12 +18,12 @@ export const registerDailyNoteTools = ({
     TOOL_NAMES.VAULT_GET_DAILY_NOTE,
     {
       title: "Get Daily Note",
-      description: `Read a daily note by date, using the vault's configured Daily Notes folder and filename date format. Each setting comes from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env vars, falling back to the vault's .obsidian/daily-notes.json (a blank folder there means Obsidian's new-note folder, the vault root by default), then to "Daily Notes" and YYYY-MM-DD.
+      description: `Read a daily note by date, using the vault's configured Daily Notes folder and filename date format. Each setting comes from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env vars, falling back to the vault's .obsidian/daily-notes.json (a blank folder there means Obsidian's new-note folder from .obsidian/app.json, the vault root by default; an unreadable file counts as absent), then to "Daily Notes" and YYYY-MM-DD.
 
 Example: vault_get_daily_note({ date: "2026-05-13" })
 Example: vault_get_daily_note({}) — returns today's daily note
 
-When to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. ${whenToolEnabledText("vault_patch_note", "To append content to a daily note section, use the returned path with vault_patch_note. ")}Use vault_recent_notes to review recent vault activity around a date (not date-filtered — returns globally recent notes).
+When to use: When you need today's or a specific date's daily note. ${whenToolEnabledText("vault_patch_note", "To append content to a daily note section, use the returned path with vault_patch_note. ")}Use vault_recent_notes to review recent vault activity around a date (not date-filtered — returns globally recent notes).
 
 Parameters:
 - date: past and future dates are both valid — the tool resolves the configured path for any date and reports exists: false if the note hasn't been created yet.
