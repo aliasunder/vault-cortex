@@ -2,10 +2,10 @@ import type { VaultConfig } from "../config.js"
 import type { Logger } from "../../logger.js"
 import { readDailyNotesConfig, readProtectedDailyNotesFolder } from "./daily-notes.js"
 
-/** False for null (a vault-root or blank setting) and for a whitespace-only
- *  setting: neither names a daily folder to add. */
-const isDailyFolderSet = (dailyFolder: string | null): dailyFolder is string => {
-  return Boolean(dailyFolder?.trim())
+/** The daily folder to add to a default list, or null when there is none to
+ *  add: a vault-root or blank setting (null) and a whitespace-only one. */
+const pickDailyFolderToAdd = (dailyFolder: string | null): string | null => {
+  return dailyFolder?.trim() ? dailyFolder : null
 }
 
 /** The folders that delete and move refuse to touch.
@@ -30,9 +30,10 @@ export const resolveEffectiveProtectedPaths = async (
   // loadConfig trims DAILY_NOTES_FOLDER, so a set value is never blank.
   if (config.dailyNotesFolder) return [config.memoryDir, config.dailyNotesFolder]
 
-  const dailyFolder = await readProtectedDailyNotesFolder(vaultPath, logger)
+  const protectedDailyFolder = await readProtectedDailyNotesFolder(vaultPath, logger)
+  const dailyFolder = pickDailyFolderToAdd(protectedDailyFolder)
 
-  return isDailyFolderSet(dailyFolder) ? [config.memoryDir, dailyFolder] : [config.memoryDir]
+  return dailyFolder ? [config.memoryDir, dailyFolder] : [config.memoryDir]
 }
 
 /** The folders orphan results leave out: ORPHAN_EXCLUDE_FOLDERS when set,
@@ -49,9 +50,9 @@ export const resolveEffectiveOrphanExcludeFolders = ({
 }): readonly string[] => {
   if (orphanExcludeFoldersOverride) return orphanExcludeFoldersOverride
 
-  return isDailyFolderSet(dailyNotesFolder)
-    ? [dailyNotesFolder, "Templates", memoryDir]
-    : ["Templates", memoryDir]
+  const dailyFolder = pickDailyFolderToAdd(dailyNotesFolder)
+
+  return dailyFolder ? [dailyFolder, "Templates", memoryDir] : ["Templates", memoryDir]
 }
 
 /** resolveEffectiveOrphanExcludeFolders for callers holding only the config:

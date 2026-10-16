@@ -76,12 +76,21 @@ const FALLBACK_FILE_SETTINGS: DailyNotesFileSettings = {
 /** Matches each run of forward or back slashes in a folder setting. */
 const SLASH_RUN_RE = /[\\/]+/g
 
-/** Normalizes a folder setting the way Obsidian does before using it:
- *  slash runs (either direction) become one "/", and leading and trailing
- *  slashes are dropped. Obsidian saves the vault root as "/", which
- *  becomes "". */
+/** Matches the no-break space (U+00A0) and the narrow no-break space
+ *  (U+202F), which Obsidian turns into plain spaces in a path. */
+const NO_BREAK_SPACE_RE = /[\u00A0\u202F]/g
+
+/** Normalizes a folder setting the way Obsidian's normalizePath does before
+ *  using it:
+ *  - Slash runs (either direction) become one "/", and leading and trailing
+ *    slashes are dropped. Obsidian saves the vault root as "/", which becomes "".
+ *  - No-break spaces become plain spaces, and the result is NFC-normalized. */
 const normalizeFolderSetting = (folderSetting: string): string => {
-  return folderSetting.replace(SLASH_RUN_RE, "/").replace(/^\/|\/$/g, "")
+  return folderSetting
+    .replace(SLASH_RUN_RE, "/")
+    .replace(/^\/|\/$/g, "")
+    .replace(NO_BREAK_SPACE_RE, " ")
+    .normalize("NFC")
 }
 
 /** Reads and parses .obsidian/daily-notes.json. A missing file gives the

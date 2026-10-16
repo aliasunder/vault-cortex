@@ -110,6 +110,9 @@ describe("readDailyNotesConfig", () => {
     { label: "leading and trailing slashes", setting: "/Journal/", expected: "Journal" },
     { label: "repeated slashes", setting: "Journal//2026", expected: "Journal/2026" },
     { label: "backslashes", setting: "Journal\\2026", expected: "Journal/2026" },
+    { label: "no-break spaces", setting: "Daily\u00A0Notes\u202FLog", expected: "Daily Notes Log" },
+    // "e" plus a combining acute accent, composed into "é"
+    { label: "decomposed accents", setting: "Journe\u0301es", expected: "Journ\u00E9es" },
   ])("normalizes $label in the folder the way Obsidian does", async ({ setting, expected }) => {
     const vaultDir = await createVault()
     await writeDailyNotesConfig(vaultDir, { folder: setting, format: "YYYY-MM-DD" })
