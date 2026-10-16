@@ -523,7 +523,7 @@ Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
-- append: add content at end of section (or end of file if no heading), below any empty lines that end it (at the end of the note, its final line break counts as one), so a row appended to a table followed by a blank line or by that final line break starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
+- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so a row appended to a table followed by a blank line starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
 - prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.
 - replace: replace section body (requires heading)
 - insert_before: insert content above the heading line (requires heading)
