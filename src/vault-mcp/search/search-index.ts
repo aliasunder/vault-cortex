@@ -44,6 +44,10 @@ import { hybridSearch } from "./hybrid-search.js"
  *  at once. */
 export const INDEXING_FILE_READ_CONCURRENCY = 16
 
+/** PDFs whose text is extracted at once while indexing. Extraction is
+ *  CPU-heavy, so fewer run together than other file reads. */
+export const PDF_EXTRACTION_CONCURRENCY = 4
+
 /** Extensions whose content is indexed into file_content_fts for vault_search.
  *  Excludes .canvas (own path with link extraction) and .md (notes_fts). */
 export const INDEXABLE_TEXT_EXTENSIONS = new Set([
@@ -2274,7 +2278,7 @@ export const createSearchIndex = (
     }
     const pdfResults = await mapWithConcurrency({
       items: pdfFiles,
-      concurrency: 4,
+      concurrency: PDF_EXTRACTION_CONCURRENCY,
       mapper: extractPdfContent,
     })
     const pdfContents = pdfResults.filter((entry) => entry !== null)

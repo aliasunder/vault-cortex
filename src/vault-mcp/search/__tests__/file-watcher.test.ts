@@ -1865,6 +1865,35 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(indexedPaths.toSorted()).toEqual(fileNames.toSorted())
   })
 
+  it("extracts at most 4 held PDFs at once", async () => {
+    const { testVault, database, fire, startup, finishRebuild } = await createControlledStartup()
+    const fileNames = Array.from({ length: 10 }, (_unused, pdfIndex) => `doc-${pdfIndex}.pdf`)
+    // Extraction is stubbed, so the bytes only need to exist.
+    for (const fileName of fileNames) {
+      await writeFile(join(testVault, fileName), "controlled PDF bytes")
+    }
+    const extractionCounts = { inFlight: 0, peak: 0 }
+    const extractionSpy = vi.mocked(extractPdfText).mockImplementation(async () => {
+      extractionCounts.inFlight += 1
+      extractionCounts.peak = Math.max(extractionCounts.peak, extractionCounts.inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      extractionCounts.inFlight -= 1
+      return { text: "pdftopaz", totalPages: 1 }
+    })
+    onTestFinished(() => extractionSpy.mockRestore())
+
+    for (const fileName of fileNames) {
+      await fire("add", fileName)
+    }
+    finishRebuild()
+    await startup
+
+    expect(extractionCounts.peak).toBe(4)
+    expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual(
+      fileNames.toSorted().map((path) => ({ path })),
+    )
+  })
+
   it("returns at the deadline and finishes the held changes in the background", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
       heldChangesDeadline: 50,
