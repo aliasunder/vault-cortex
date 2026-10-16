@@ -2383,8 +2383,9 @@ export const createSearchIndex = (
         const pathList = allPaths.map((row) => row.path)
         cachedCanvasNotePaths = pathList
 
-        // Cleared again because the first clear ran before the file reads
-        // above, so every link left in the table is written by this transaction.
+        // No source write may run during a rebuild, so this second clear
+        // normally finds nothing. It stays so that a link written during the
+        // file reads above, against that rule, cannot outlive the rebuild.
         db.exec("DELETE FROM links")
         for (const note of noteContents) {
           if (skippedNotePaths.has(note.relativePath)) continue
