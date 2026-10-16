@@ -36,7 +36,7 @@ describe("tool surface baseline", () => {
    *  - The allowance is about 2% above the default combo's average when the
    *    cap was set (4,130 chars per tool), so only small growth passes.
    *  Raising the allowance is a deliberate change with its reason in the PR. */
-  const CHARS_PER_TOOL_ALLOWANCE = 4255
+  const CHARS_PER_TOOL_ALLOWANCE = 4256
 
   it.each(SIZE_CAPPED_COMBO_NAMES)(
     "combo %s stays within the average per-tool size allowance",

@@ -2716,7 +2716,7 @@ describe("DISABLED_TOOLS", () => {
       '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder when one is excluded)${ENTRY_END}`,
+      `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)${ENTRY_END}`,
     )
     expect(excludeFoldersEntry("vault_get_daily_note")).toBe(`${ENTRY_START}${ENTRY_END}`)
   })
