@@ -572,14 +572,14 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .nullable()
           .optional()
           .describe(
-            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every month on the 15th", "every 2 weeks when done") to set, or null to remove it. Completing the task spawns its next occurrence.',
+            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every month on the 15th", "every 2 weeks when done") to set, or null to remove it.',
           ),
         on_completion: z
           .enum(["delete", "keep"])
           .nullable()
           .optional()
           .describe(
-            'Tasks plugin 🏁 onCompletion action to set, or null to remove it. "delete" removes the task line and its children on completion; "keep" leaves it in place (which is also the behavior when no 🏁 field exists on the task). Omitting this parameter leaves the field unchanged.',
+            'Tasks plugin 🏁 onCompletion action to set, or null to remove it. "keep" leaves the task in place on completion, as having no 🏁 field does.',
           ),
         description: z
           .string()

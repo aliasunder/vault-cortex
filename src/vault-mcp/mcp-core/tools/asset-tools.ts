@@ -102,7 +102,7 @@ raw: true switches a canvas or PDF to its other form:
 - Canvas: the exact JSON source (geometry, ids, colors — full fidelity) instead of the outline.
 - PDF: each page rendered and returned as an image block instead of extracted text, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Only the first ${config.maxPdfRenderPages} pages are rendered; later pages are readable only as text, without raw.
 
-Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a 1-based line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; an unpaged read of a text format returns the file byte-exact.
+Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; an unpaged read of a text format returns the file byte-exact.
 
 When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. vault_search also indexes canvas, PDF, and text-format content, but not images or other files. For .md notes use vault_read_note. To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
@@ -136,7 +136,7 @@ Returns: for images, an image content block plus a one-line metadata text block;
           .boolean()
           .optional()
           .describe(
-            "Return the file's alternative form: JSON source for .canvas, page images for .pdf. Changes nothing for text formats, which already return their source. Rejected for images.",
+            "Return a canvas's or PDF's alternative form. Changes nothing for text formats, which already return their source.",
           ),
         start_line: z
           .number()

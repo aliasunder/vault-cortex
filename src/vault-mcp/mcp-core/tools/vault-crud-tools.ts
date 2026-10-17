@@ -660,17 +660,17 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace exact text in a markdown note's body. Properties are preserved, but saving may rewrite their YAML in block style. Operates on the body only${propertyEditClause}.
+      description: `Find and replace exact text in a markdown note's body. Properties are preserved, but saving may rewrite their YAML in block style${propertyEditClause}.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
-Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" }) — removes the whole line, line break included.
+Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "Q3", new_text: "Q4", replace_all_occurrences: true })
 
 When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.${replaceInNoteAlternativesLine}
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
-- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") that leaves text on its line is written exactly as asked. One that empties its line never doubles blank lines: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So include the line break in old_text to remove a table row or list item, or the empty line left behind splits the table or list. No other empty line changes; a line of only spaces or tabs is not empty.
+- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") that leaves text on its line is written exactly as asked. One that empties its line never doubles blank lines: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So include the line break in old_text to remove a table row or list item, or the empty line left behind splits the table or list. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
@@ -767,7 +767,7 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
-      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Case-sensitive matching. Properties are preserved, but saving may rewrite their YAML in block style. Operates on the body only.
+      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Properties are preserved, but saving may rewrite their YAML in block style.
 
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
@@ -775,7 +775,7 @@ Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone.${deleteSpanAlternativesLine}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range. Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. No other empty line changes; a line of only spaces or tabs is not empty.
+- start_anchor + end_anchor define a line range, not a text range. Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
 - first_match covers both anchors.
 
@@ -809,7 +809,7 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
           .min(1)
           .optional()
           .describe(
-            "Short substring that identifies the LAST line of the block. Omit to delete just the single line containing start_anchor.",
+            "Short substring that identifies the LAST line of the block (case-sensitive). Omit to delete just the single line containing start_anchor.",
           ),
         first_match: z
           .boolean()
@@ -866,7 +866,7 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
       title: "Replace Span",
-      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Case-sensitive matching. Properties are preserved, but saving may rewrite their YAML in block style. Operates on the body only.
+      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Properties are preserved, but saving may rewrite their YAML in block style.
 
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
@@ -876,7 +876,7 @@ When to use: Replacing a block you have already read — a table row, callout, o
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range.
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
-- content: line breaks at its start or end merge with the note's empty lines on that side, keeping the wider run (at the note's end, content's trailing line breaks count one fewer). So content can widen a gap but never narrow it: content with no line break at either end keeps the gaps as they were, and content ending in one ("| X |\\n") leaves an empty line after it, which splits a table. Content made only of line breaks joins both sides into one gap. Empty lines inside content are written as given, no other empty line changes; a line of only spaces or tabs is not empty.
+- content: line breaks at its start or end merge with the note's empty lines on that side, keeping the wider run (at the note's end, content's trailing line breaks count one fewer). So content can widen a gap but never narrow it: content with no line break at either end keeps the gaps as they were, and content ending in one ("| X |\\n") leaves an empty line after it, which splits a table. Content made only of line breaks joins both sides into one gap. Empty lines inside content are written as given. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 - first_match covers both anchors.
 
 Errors:
@@ -912,7 +912,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
           .min(1)
           .optional()
           .describe(
-            "Short substring that identifies the LAST line of the block. Omit to replace just the single line containing start_anchor.",
+            "Short substring that identifies the LAST line of the block (case-sensitive). Omit to replace just the single line containing start_anchor.",
           ),
         content: z
           .string()
@@ -976,7 +976,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines before or after a specific line identified by a short anchor substring. Case-sensitive matching; an anchor matching more than one line is an error unless first_match is set.${whenToolEnabledText("vault_delete_span", " Same anchor resolution as vault_delete_span.")} Properties are preserved, but saving may rewrite their YAML in block style. Operates on the body only.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are preserved, but saving may rewrite their YAML in block style.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
@@ -1001,7 +1001,7 @@ ${OPENING_BLOCK_ERROR_ENTRY}
 
 Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block.
 
-Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <path>" — N counts the lines content supplied.`,
+Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <path>" — N counts the lines in content as sent (its line breaks plus one).`,
       inputSchema: {
         path: z
           .string()

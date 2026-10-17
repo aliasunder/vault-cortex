@@ -3419,33 +3419,32 @@ describe("DISABLED_TOOLS", () => {
       label: "names both property editors while they are served",
       disabledTools: "",
       expectedLine:
-        "Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
+        "in block style — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
       expectedLine:
-        "Operates on the body only — properties must be edited via vault_write_note's properties parameter.",
+        "in block style — properties must be edited via vault_write_note's properties parameter.",
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine:
-        "Operates on the body only — properties must be edited via vault_update_properties.",
+      expectedLine: "in block style — properties must be edited via vault_update_properties.",
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: "Operates on the body only.",
+      expectedLine: "in block style.",
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
-    const bodyOnlyLine = extractDescriptionSection({
+    const propertyEditLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-      startMarker: "Operates on the body only",
+      startMarker: "in block style",
       endMarker: "\n\nExample:",
     })
-    expect(bodyOnlyLine).toBe(expectedLine)
+    expect(propertyEditLine).toBe(expectedLine)
   })
 
   it.each([
