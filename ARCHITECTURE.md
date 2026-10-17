@@ -489,11 +489,22 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs three passes, then returns so the server can start accepting requests:
+**Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 runs in the background:
 
 1. **Pass 1** — index notes (FTS5 + metadata)
 2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
 3. **Pass 3 (background)** — embed notes, then file content. Search works with FTS-only until vectors are ready
+
+**Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
+
+1. chokidar finishes its initial scan, and the watcher holds every change it reports from then on.
+2. `rebuildFromVault` runs. The watcher is the only other writer of the index, so nothing else writes while it reads.
+3. One batch checks each held path against the disk, 16 at a time. Paths gone from disk are removed first, then the rest are read again, 16 at a time (PDFs whose text is extracted, 4 at a time).
+4. The watcher goes live and replays the changes reported while the batch ran: deletions at once, then the changed paths read again with the same limits. A path deleted or changed again before its read starts is left to that later event.
+
+The server starts accepting requests once the step 3 batch commits and step 4 starts its replay, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background.
+
+A file that is created after step 1 and deleted within chokidar's 2 s write-stability window emits no event, so if the rebuild read it, it stays searchable until the next restart.
 
 **Startup cleanup:** before resetting the source tables, the rebuild removes vectors whose parent chunk or memory-entry row is missing and retains vectors with surviving parents.
 
@@ -925,8 +936,9 @@ graph LR
    both processes read/write the shared `/vault` volume. On startup: bootstraps
    memory templates if the memory folder
    doesn't exist, `MEMORY_ENABLED` is not `false`, and the server is not in
-   `READONLY_MODE`, builds the FTS5 search index including those templates,
-   then starts the file watcher.
+   `READONLY_MODE`, starts the file watcher, builds the FTS5 search index
+   including those templates, then applies the changes the watcher saw while
+   the index was built (see **Startup order** under [Indexing](#indexing)).
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after the full init chain has finished and the sync

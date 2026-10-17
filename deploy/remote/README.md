@@ -437,8 +437,10 @@ starts. The server then runs these startup tasks:
 
 1. Create memory template files if the memory folder doesn't exist (skipped
    when `MEMORY_ENABLED=false` or `READONLY_MODE=true`).
-2. Rebuild the search index, including any new memory template files.
-3. Start the file watcher.
+2. Start the file watcher, which holds the changes it sees until step 4.
+3. Rebuild the search index, including any new memory template files.
+4. Apply the changes the watcher held, so search reflects notes added, edited
+   or deleted while the server started.
 
 Restarting the container re-runs this flow (useful when testing bootstrap
 behavior). The command is the same for every setup
