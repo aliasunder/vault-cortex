@@ -152,9 +152,10 @@ const startServer = async (): Promise<void> => {
   await bootstrapMemoryIfEnabled(config, vaultPath)
 
   // The returned embedding promise is not awaited: the rebuild logs its failure itself.
-  const { count } = await watchVaultAndBuildIndex(vaultPath, search, {
-    usePolling: config.windowsBindMount,
-  })
+  const { count } = await watchVaultAndBuildIndex(
+    { vaultPath, search, watcherOptions: { usePolling: config.windowsBindMount } },
+    logger,
+  )
   logger.info("initial index built", { notesIndexedByRebuild: count })
 
   const oauthProvider = createOAuthProvider({

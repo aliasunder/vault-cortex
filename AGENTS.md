@@ -343,8 +343,9 @@ root logger (src/logger.ts)
 - Data-layer functions (`vault-filesystem`, `vault-patcher`,
   `note-mover`, `memory-store`, `search-index`) take the logger as a
   **required** second argument (two-arg pattern: `(params, logger)`)
-- Background callers (file-watcher, startup) use the root logger
-  directly — no request context available
+- Background modules (`file-watcher`) take the logger the same way,
+  through their entry point. Startup wiring in `server.ts` has no
+  request context, so it passes the root logger
 
 **Two-arg `(params, logger)` pattern:**
 
