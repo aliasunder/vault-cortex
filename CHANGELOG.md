@@ -119,6 +119,18 @@
 
 
 
+
+## [0.54.15] — 2026-10-17
+
+### Bug Fixes
+
+- **daily-notes:** Read the vault-root and blank folder settings the way Obsidian does (#677)
+- Read and edit notes with Windows line endings without a stray carriage return (#680)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.14
+
 ## [0.54.14] — 2026-10-16
 
 ### Documentation
