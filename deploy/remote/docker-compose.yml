@@ -33,10 +33,11 @@ services:
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
       SYNC_EXCLUDED_FOLDERS: ${SYNC_EXCLUDED_FOLDERS:-}
       SYNC_FILE_TYPES: ${SYNC_FILE_TYPES:-}
-      # Obsidian settings categories to sync (default: core and community plugin
-      # settings, such as daily notes and the Tasks plugin format, plus Obsidian's
-      # main settings, which hold the new-note location). "none" disables; the
-      # category values are listed in .env.example.
+      # Obsidian settings categories to sync. Unset or empty uses the default:
+      # core-plugin-data (core plugin settings, including daily notes),
+      # community-plugin-data (community plugin settings, such as the Tasks
+      # plugin's format), and app (main settings, which hold the new-note
+      # folder). "none" syncs no settings; .env.example lists every category.
       SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data,app}
       # --- MCP server ---
       PORT: "8000"
