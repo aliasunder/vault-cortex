@@ -15,7 +15,7 @@ import {
 } from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
-import { logger } from "../../logger.js"
+import type { Logger } from "../../logger.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { isMissingPathError, readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js"
@@ -55,6 +55,12 @@ type FileWatcherOptions = Readonly<{
   /** ms startup waits for the changes held during the rebuild before returning
    *  anyway (default 10000); the rest are applied in the background. */
   heldChangesDeadline?: number
+}>
+
+type WatchVaultParams = Readonly<{
+  vaultPath: string
+  search: SearchIndex
+  watcherOptions?: FileWatcherOptions
 }>
 
 /** A change chokidar reported while the watcher held it. `add` and `change`
@@ -110,11 +116,9 @@ type HoldingWatcher = Readonly<{
  * startup batch that applyHeldChanges runs has finished. After a successful
  * startup the watcher runs for the process lifetime.
  */
-const startHoldingWatcher = (
-  vaultPath: string,
-  search: SearchIndex,
-  options?: FileWatcherOptions,
-): HoldingWatcher => {
+const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingWatcher => {
+  const { vaultPath, search, watcherOptions } = params
+
   // Each path's latest embedding job. A new job for the path waits for this one,
   // so a note edited many times runs one model job at a time. A job that still
   // finishes after a newer edit writes nothing: the index checks the source
@@ -466,8 +470,8 @@ const startHoldingWatcher = (
     removeFromIndex(filePath)
   }
 
-  const stabilityThreshold = options?.stabilityThreshold ?? DEFAULT_STABILITY_THRESHOLD_MS
-  const newDirectoryRescanDelay = options?.newDirectoryRescanDelay ?? 2 * stabilityThreshold
+  const stabilityThreshold = watcherOptions?.stabilityThreshold ?? DEFAULT_STABILITY_THRESHOLD_MS
+  const newDirectoryRescanDelay = watcherOptions?.newDirectoryRescanDelay ?? 2 * stabilityThreshold
 
   /** True when the file's last write falls inside the stability window —
    *  plausibly still being written. A negative age (mtime in the future —
@@ -490,16 +494,16 @@ const startHoldingWatcher = (
     persistent: true,
     ignoreInitial: true,
     // Poll across the Docker Desktop ↔ WSL2 bridge, where inotify is dropped.
-    usePolling: options?.usePolling ?? false,
+    usePolling: watcherOptions?.usePolling ?? false,
     // interval only drives chokidar's polling backend. Pass it only when
     // polling, so we never depend on how chokidar treats an interval set
     // without usePolling (today it's ignored — a future release needn't be).
-    ...(options?.usePolling ? { interval: POLLING_INTERVAL_MS } : {}),
+    ...(watcherOptions?.usePolling ? { interval: POLLING_INTERVAL_MS } : {}),
     // Obsidian Sync writes files in chunks — wait for write stability before
     // indexing to avoid reading partial content
     awaitWriteFinish: {
       stabilityThreshold,
-      pollInterval: options?.pollInterval ?? 100,
+      pollInterval: watcherOptions?.pollInterval ?? 100,
     },
   })
 
@@ -1003,11 +1007,11 @@ const startHoldingWatcher = (
  * in the background.
  */
 export const watchVaultAndBuildIndex = async (
-  vaultPath: string,
-  search: SearchIndex,
-  options?: FileWatcherOptions,
+  params: WatchVaultParams,
+  logger: Logger,
 ): Promise<{ count: number; embedding: Promise<void> }> => {
-  const holdingWatcher = startHoldingWatcher(vaultPath, search, options)
+  const { vaultPath, search, watcherOptions } = params
+  const holdingWatcher = startHoldingWatcher(params, logger)
   await holdingWatcher.ready
 
   // A failed rebuild closes the watcher rather than leave it holding every
@@ -1027,7 +1031,8 @@ export const watchVaultAndBuildIndex = async (
 
   // `applied` never rejects, so past the deadline it can finish unawaited.
   const { heldPathCount, applied } = holdingWatcher.applyHeldChanges()
-  const heldChangesDeadline = options?.heldChangesDeadline ?? DEFAULT_HELD_CHANGES_DEADLINE_MS
+  const heldChangesDeadline =
+    watcherOptions?.heldChangesDeadline ?? DEFAULT_HELD_CHANGES_DEADLINE_MS
   const { promise: deadlinePassed, resolve: passDeadline } = Promise.withResolvers<"deadline">()
   const deadlineTimer = setTimeout(() => passDeadline("deadline"), heldChangesDeadline)
 
