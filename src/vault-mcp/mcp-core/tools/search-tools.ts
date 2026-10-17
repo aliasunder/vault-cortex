@@ -17,56 +17,79 @@ export const registerSearchTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  // Filters and errors are the same with or without embeddings, so both
-  // vault_search description variants share these two sections
-  const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query:
+  // These parts read the same with or without embeddings, so both
+  // vault_search description variants share them
+  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.`
+
+  // File-content search applies only the folder filter, so hybrid search
+  // drops file results whenever any other filter is set
+  const searchFiltersNoteOnlyClause = config.fileToolsEnabled
+    ? "; any filter but folder limits results to notes"
+    : ""
+  const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${searchFiltersNoteOnlyClause}:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
-- created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter`
+- properties: values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
+- created / modified: bounds compare whole calendar days in the server's time zone (the UTC offset on returned created and modified values), so "on" matches anywhere within the day. Notes without a parseable created property never match a created filter`
+
+  const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
+Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
+Example: vault_search({ query: "decision", filters: { modified: { after: "2026-06-30" } } }) — matching notes touched in July or later`
+
+  const searchAlternativesLine =
+    "Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing."
+
+  // File content is searched only while FILE_TOOLS_ENABLED is on, so the text
+  // that mentions file results follows that setting, not any one tool
+  const searchedContentText = config.fileToolsEnabled
+    ? "vault notes and file content (canvas, PDF, and text files)"
+    : "vault notes"
+  const searchResultFieldsText = config.fileToolsEnabled
+    ? "path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes"
+    : "path, title, snippet, score, tags, folder, type, kind, created, modified, bytes"
+  const searchResultKindText = config.fileToolsEnabled
+    ? `kind is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").`
+    : `kind is always "note".`
+  const searchResultDetailsText = `${searchResultKindText} created is omitted, not null, when a result has none. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
 
   const searchErrorsSection = `Errors:
 - No matches returns { results: [], total: 0 }, not an error
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
-- "… is not a calendar date" — the bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
-- tag must not be empty after its leading "#" — a tags entry is only "#"; pass the tag name`
+- "… is not a calendar date" — a created/modified bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
+- "tag must not be empty …" — a tags entry is only "#"; pass the tag name`
 
   registerTool(
     TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
       description: config.embeddingEnabled
-        ? `Hybrid search across all vault notes, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. Results are refined by a cross-encoder reranker using position-aware score blending when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only (FTS5 BM25) transparently while embeddings are being built. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
+        ? `Hybrid search across ${searchedContentText}, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion. Results are refined by a cross-encoder reranker when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only ranking before any embeddings exist. ${searchSyntaxText}
 
 ${searchFiltersSection}
 
-Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
-Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
-Example: vault_search({ query: "decision", filters: { modified: { after: "2026-06-30" } } }) — matching notes touched in July or later
+${searchSharedExamples}
 Example: vault_search({ query: "how the server watches for file changes" }) — semantic: finds notes about chokidar and file watchers even without those exact terms
 
-When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Semantic matching bridges vocabulary gaps — try natural-language queries, not just keywords.
-Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
+When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Try natural-language queries, not just keywords.
+${searchAlternativesLine}
 
 ${searchErrorsSection}
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
-        : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("hybrid" when vector embeddings contributed, "fts" when only keyword matching ran), and reranked (boolean — true when cross-encoder reranking refined the ordering). score reflects combined relevance (higher = more relevant). ${searchResultDetailsText}`
+        : `Full-text search across ${searchedContentText}, ranked by relevance. ${searchSyntaxText}
 
 ${searchFiltersSection}
 
-Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
-Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
-Example: vault_search({ query: "decision", filters: { modified: { after: "2026-06-30" } } }) — matching notes touched in July or later
+${searchSharedExamples}
 Example: vault_search({ query: "deployment", filters: { properties: { status: "active" } } })
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.
-Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
+${searchAlternativesLine}
 
 ${searchErrorsSection}
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). A higher score is more relevant. ${searchResultDetailsText}`,
       inputSchema: {
         query: z.string().min(1).describe("Search query text"),
         filters: z
@@ -79,12 +102,16 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             related: z
               .array(z.string().min(1))
               .optional()
-              .describe("Require all listed related links"),
+              .describe(
+                'Require all listed related links, each written exactly as in the note\'s related property, brackets and alias included (e.g. "[[Projects/alpha|Alpha]]")',
+              ),
             type: z
               .string()
               .min(1)
               .optional()
-              .describe('Match the frontmatter type field (exact match, e.g. "person", "meeting")'),
+              .describe(
+                'Match the frontmatter type field (exact, case-sensitive match, e.g. "person", "meeting")',
+              ),
             properties: z
               .record(z.string().min(1), z.union([z.string().min(1), z.number(), z.boolean()]))
               .optional()
@@ -95,7 +122,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
               'Created date bounds (YYYY-MM-DD) on the frontmatter "created" property',
             ),
             modified: dateFilterSchema.describe(
-              "Modified date bounds (YYYY-MM-DD) on filesystem modified time, server-local day boundaries",
+              "Modified date bounds (YYYY-MM-DD) on filesystem modified time",
             ),
           })
           .optional()
@@ -107,7 +134,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           .min(1)
           .optional()
           .default(30)
-          .describe("Snippet length in words (default 30)"),
+          .describe("Snippet length in words, not model tokens (default 30)"),
         include_leading_callout: z
           .boolean()
           .optional()
@@ -518,10 +545,9 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_LIST_NOTES,
     TOOL_NAMES.VAULT_LIST_FILES,
   ])
-  const backlinksEmptyResultRemedy =
-    backlinksPathFinders.length > 0
-      ? `find valid paths with ${backlinksPathFinders}`
-      : "check the path's spelling and letter case"
+  const backlinksEmptyResultRemedy = backlinksPathFinders
+    ? `find valid paths with ${backlinksPathFinders}`
+    : "check the path's spelling and letter case"
 
   registerTool(
     TOOL_NAMES.VAULT_GET_BACKLINKS,
@@ -578,7 +604,7 @@ Errors:
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note or canvas links to. For notes: outgoing [[wikilinks]] and [markdown](links). For canvas files: file-node references (vault-relative paths embedded in the canvas). Links inside code blocks are ignored; self-links are included.
+      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes (vault-relative paths embedded in the canvas), not links inside text cards. Links inside code blocks are ignored; self-links are included. Each existing target is listed once, however often the note links to it; a broken one, once per target text, used as its path: the text before any #heading or |alias, letter case kept, a markdown link's %-escapes decoded.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
@@ -587,9 +613,9 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 For incoming links (what links TO a note), use vault_get_backlinks.
 
 Parameters:
-- path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
+- path: matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"). When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken (kind is always "note"). daily_note_forward_ref is true on broken links into the vault's daily notes folder, unless the daily notes folder setting is the vault root or blank — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on broken links into the vault's daily notes folder, false otherwise and whenever that folder setting is the vault root or blank — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension

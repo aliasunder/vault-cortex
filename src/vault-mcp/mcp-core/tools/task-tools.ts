@@ -5,6 +5,7 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   dateFilterSchema,
+  describeFilesystemErrorEntry,
   describePropertiesBlockErrorEntry,
   OPENING_BLOCK_ERROR_ENTRY,
 } from "./tool-helpers.js"
@@ -468,9 +469,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
       title: "Update Task",
       description: `Update a task's status, priority, description, dates, dependencies, block_id, checklist items, or heading placement in one call. Any combination of these can change together — every field passed is written in a single edit.
 
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane; a recurring task (🔁) spawns its next occurrence
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring (null removes the rule)
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading (lands at the top of the lane by default; the checkbox is unchanged)
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading (the checkbox is unchanged)
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01", scheduled: null }) — change the description, set one date, and clear another
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtasks: ["Design", "Implement", "Test"] }) — start working and add checklist stages
 Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-task" }) — add a block_id to a task that lacks one
@@ -479,15 +480,15 @@ Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Ac
 When to use: Any change to an existing task — completing, starting, re-prioritizing, editing text, setting or clearing dates, adding checklist items, assigning block_ids, moving between headings, or reordering within a lane.${whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks first to get identification fields (path + block_id or line).")}${whenToolEnabledText("vault_create_task", " For creating a new task, use vault_create_task instead.")}
 
 Parameters:
-- Exactly one of block_id or line is required to identify the task. A sub-task on a Kanban board has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line: each save by the Kanban plugin rewrites the board${whenToolEnabledText("vault_list_tasks", ", and the listing can take a few seconds to catch up with a save")}.
+- Exactly one of block_id or line is required to identify the task. A Kanban sub-task this server created has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line: each save by the Kanban plugin rewrites the board${whenToolEnabledText("vault_list_tasks", ". The listing lags each save by a few seconds, so wait that long after a write before re-reading")}.
 - At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
 - status side effects:
-  Kanban: "done" moves the card and everything nested under it to the done lane (nested checkboxes left as they are); a sub-task stays under its parent.
-  Recurring (🔁), on "done" only: spawns the next occurrence above the completed one, dates advanced per the rule; when the Tasks plugin puts the next recurrence on the line below, the spawn goes there and the completed task's nested lines stay with it. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line, except on an indented line of a Kanban board. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
+  Kanban: "done" moves the card and everything nested under it to the done lane (the lane holding a **Complete** line, else the heading "Done", exact case), leaving nested checkboxes as they are; a sub-task stays under its parent.
+  Recurring (🔁), on "done" only: spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes directly below instead, and the nested lines then belong to the spawn. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line, except on an indented line of a Kanban board. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
   Delete (🏁 delete / [onCompletion:: delete]), on "done": removes the task line and its children instead of moving to done. With 🔁 + 🏁, the spawn is created first, then the completed task is removed. Result carries on_completion_applied: "delete".
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the spawn. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
-- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitting position performs no reorder. Ignored when the task is deleted on completion. Not valid on sub-tasks.
+- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, an unmoved task stays put. Ignored when the task is deleted on completion. Not valid on sub-tasks.
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}
@@ -496,7 +497,7 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
 - "blockId ... not found" — no task line in the note ends with ^block_id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
 - "blockId ... is inside a fenced code block or comment" — the only lines ending in that ^id sit inside a fenced code block or %% %% comment, which hold no tasks; check the id, or target by line
-- "blockId ... matches N task lines" — more than one task line ends in the id (the message lists their line numbers); target the intended task by line. To repair on a regular note, give all but one line a new id with assign_block_id. On a Kanban board, where the plugin copied a sub-task's id onto its card, remove the id from the sub-task's line (assign_block_id: null, by line). The card still holds the copied id, so then assign the card's line its original id (links to the card still name it) or a new one
+- "blockId ... matches N task lines" — more than one task line ends in the id (the message lists their line numbers); target the intended task by line. To repair on a regular note, give all but one line a new id with assign_block_id. On a Kanban board, where the plugin copied a sub-task's id onto its card, remove the id from the sub-task's line (assign_block_id: null, by line). The card's line still ends in the copied id, so then assign it the card's own id (the id in links to the card) or a new one
 - "no task at line N" — line doesn't contain a task checkbox; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by block_id
 - "line N is inside a fenced code block or comment" — the line is inside a fenced code block or %% %% comment; target a line outside the fence
 - "checkbox "[c]" is a NON_TASK status" — the task's checkbox character (c) is typed NON_TASK in the Tasks plugin's status settings, so it is not a task; the user must change its type there, then restart the server
@@ -508,16 +509,17 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "cannot reorder within "X" — the heading appears N times" — same-lane reorder on a card whose heading name is duplicated in the note; rename one section to make it unique
 - "cannot place at position P under "X" — the heading appears N times" — cross-lane move with an integer position to a heading name that appears more than once; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 - "heading "X" not found; available: ..." — target heading doesn't exist; the error lists the note's headings
-- "multiple done lanes detected" — status "done" on a Kanban board with more than one lane marked complete (a **Complete** line under its heading); pass heading to pick the lane
+- "multiple done lanes detected" — status "done" on a Kanban board with more than one lane holding a **Complete** line; pass heading to pick the lane
 - "no done lane detected" — status "done" on a Kanban board with no **Complete** line and no "Done" heading; pass heading explicitly
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "assignBlockId is not allowed" / "description ends in a block ID" / "subtask ... ends in a block ID" — a new ^id on an indented line of a Kanban board; leave the line without an id and target it by line, and drop any trailing ^id from the text
-- "invalid date" — a date param fails calendar validation; pass a real YYYY-MM-DD date
+- "invalid date: …" — a date param isn't in YYYY-MM-DD form or names a day that doesn't exist; pass a real YYYY-MM-DD date
 - "description cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only description or checklist item; pass visible text
 - "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads; remove the line breaks
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur; use a rule such as "every week" or "every 2 weeks when done"
 - "concurrent write in progress" — another write to this note is in flight; retry
+${describeFilesystemErrorEntry(whenToolEnabledText)}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -570,14 +572,14 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .nullable()
           .optional()
           .describe(
-            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every month on the 15th", "every 2 weeks when done") to set, or null to remove it. Completing the task spawns its next occurrence.',
+            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every month on the 15th", "every 2 weeks when done") to set, or null to remove it.',
           ),
         on_completion: z
           .enum(["delete", "keep"])
           .nullable()
           .optional()
           .describe(
-            'Tasks plugin 🏁 onCompletion action to set, or null to remove it. "delete" removes the task line on completion; "keep" leaves it in place (which is also the behavior when no 🏁 field exists on the task). Omitting this parameter leaves the field unchanged.',
+            'Tasks plugin 🏁 onCompletion action to set, or null to remove it. "keep" leaves the task in place on completion, as having no 🏁 field does.',
           ),
         description: z
           .string()
