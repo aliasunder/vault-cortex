@@ -565,9 +565,13 @@ daily notes where **Default location for new notes** says, a setting stored
 in `.obsidian/app.json`. The server reads that setting once you turn on
 **Main settings** under Vault configuration sync; until `app.json` arrives,
 the server looks in the vault root. **Same folder as current file** also
-means the vault root, as it does in Obsidian for daily notes. If your `.env`
-sets `SYNC_CONFIGS` without `app`, the server never receives `app.json`; to
-follow a set new-note folder, either:
+means the vault root, as it does in Obsidian for daily notes.
+
+If your `.env` sets `SYNC_CONFIGS` without `app`, the server never receives
+`app.json`. A `.env` written by an earlier `npx vault-cortex init`, or copied
+from an earlier `.env.example`, sets
+`SYNC_CONFIGS=core-plugin-data,community-plugin-data`, which leaves `app`
+out. To follow a set new-note folder, either:
 
 - add `app` to `SYNC_CONFIGS` — a `.env` edit, so re-create the container as
   described below; or

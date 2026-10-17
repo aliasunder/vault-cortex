@@ -33,9 +33,10 @@ services:
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
       SYNC_EXCLUDED_FOLDERS: ${SYNC_EXCLUDED_FOLDERS:-}
       SYNC_FILE_TYPES: ${SYNC_FILE_TYPES:-}
-      # Obsidian config-category sync (default: core plugin data, so the
-      # vault's daily-notes settings reach the server). "none" disables;
-      # the category values are listed in .env.example.
+      # Obsidian settings categories to sync (default: core and community plugin
+      # settings, such as daily notes and the Tasks plugin format, plus Obsidian's
+      # main settings, which hold the new-note location). "none" disables; the
+      # category values are listed in .env.example.
       SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data,app}
       # --- MCP server ---
       PORT: "8000"
