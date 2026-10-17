@@ -34,7 +34,7 @@ shift
 exec "$@"
 `
 
-const DEFAULT_SYNC_CONFIGS_CALL = "sync-config --configs core-plugin-data,community-plugin-data"
+const DEFAULT_SYNC_CONFIGS_CALL = "sync-config --configs core-plugin-data,community-plugin-data,app"
 
 /** The folder and attachment filters are applied on every boot, empty meaning
  *  "clear" — the stub logs `"$*"`, so an empty argument shows as a trailing

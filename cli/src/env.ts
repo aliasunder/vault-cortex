@@ -250,10 +250,10 @@ MEMORY_DIR=About Me
 # .obsidian/daily-notes.json, synced to the server via SYNC_CONFIGS below, or
 # "Daily Notes" and YYYY-MM-DD when that file is missing or unreadable. An
 # empty folder in that file means Obsidian's location for new notes, which
-# syncs only when SYNC_CONFIGS includes app; without it, the server uses the
-# vault root. Folder is any vault-relative path (Journal, Planner/Daily), or
-# / for the vault root; format takes the same tokens as Obsidian's date format
-# setting.
+# syncs when SYNC_CONFIGS includes app (the default); without it, the server
+# uses the vault root. Folder is any vault-relative path (Journal,
+# Planner/Daily), or / for the vault root; format takes the same tokens as
+# Obsidian's date format setting.
 # DAILY_NOTES_FOLDER=Journal
 # DAILY_NOTES_FORMAT=YYYY-MM-DD
 
@@ -356,15 +356,16 @@ SYNC_EXCLUDED_FOLDERS=
 SYNC_FILE_TYPES=
 
 # Obsidian settings categories to sync into the server's .obsidian/ folder
-# (default: daily notes settings and community plugin settings such as the
-# Tasks plugin's format; "none" disables).
+# (default: daily notes settings, community plugin settings such as the
+# Tasks plugin's format, and Obsidian's main settings, which hold the
+# location for new notes; "none" disables).
 # A category only syncs after your desktop pushes it: Obsidian Settings →
 # Sync → "Vault configuration sync" (per device). Some community plugins
 # keep API keys in their settings — server tools never read .obsidian/,
 # but synced settings do live on the server volume. Values: app,
 # appearance, appearance-data, hotkey, core-plugin, core-plugin-data,
 # community-plugin, community-plugin-data — comma-separated.
-SYNC_CONFIGS=core-plugin-data,community-plugin-data
+SYNC_CONFIGS=core-plugin-data,community-plugin-data,app
 `
 
 // sync:remote-optional:end

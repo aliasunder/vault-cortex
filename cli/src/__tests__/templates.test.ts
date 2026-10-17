@@ -303,7 +303,7 @@ describe("SYNC_CONFIGS default", () => {
       // the explicit "none" sentinel handled by the init script, never an
       // empty/unset value.
       expect(readRepoFile(composePath)).toContain(
-        "SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}",
+        "SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data,app}",
       )
     },
   )

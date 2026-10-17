@@ -34,7 +34,7 @@ services:
       # Obsidian config-category sync (default: core and community plugin data,
       # including daily-note settings and the Tasks plugin format). "none" disables;
       # the category values are listed in .env.example.
-      SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}
+      SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data,app}
       # --- MCP server (svc-vault-mcp) ---
       NODE_ENV: production
       PORT: "8000"
