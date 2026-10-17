@@ -186,7 +186,7 @@ Unlike a read that parses the block, such as `vault_read_note` with `properties_
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 
-- **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes
+- **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes; a vault-root or blank folder setting adds no folder
 - **Unreadable `daily-notes.json`:** a file that exists but cannot be read or parsed refuses the delete or move, because the folder to protect is unknown; setting `DAILY_NOTES_FOLDER` skips the file
 - **Override:** `PROTECTED_PATHS` replaces the default set entirely, and `daily-notes.json` is not read
 
@@ -246,8 +246,11 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 **Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`).
 
 - **Read on every call:** a folder or format change in Obsidian applies to the next call, and a config file that arrives after boot needs no restart
+- **File folder normalized like Obsidian:** in `daily-notes.json`, runs of `/` or `\` become one `/` and leading and trailing slashes are dropped, so Obsidian's `"/"` is the vault root; no-break spaces become plain spaces and the name is NFC-normalized. `DAILY_NOTES_FOLDER` takes `/` for the vault root and is otherwise validated as a vault folder name
+- **Blank folder in the file:** Obsidian's new-note location (`newFileLocation: "folder"` plus `newFileFolderPath` in `.obsidian/app.json`), otherwise the vault root
 - **Missing file:** takes the fallbacks
 - **Unparseable file:** takes the fallbacks and logs a `warn`
+- **Shared folder:** a vault-root or blank folder setting puts daily notes beside other notes, so it adds no folder to the delete and move guard, the orphan exclusion, or forward-reference handling (broken links into the daily folder, flagged `daily_note_forward_ref` by `vault_get_outgoing_links` and left out of `vault-orientation`'s broken-link count)
 
 ### Memory
 
@@ -311,10 +314,10 @@ Link queries use a `links` table populated during indexing:
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness.
-- **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (`DAILY_NOTES_FOLDER` → `.obsidian/daily-notes.json` → `Daily Notes`), `Templates`, and the memory dir.
+- **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (resolved as [Daily notes](#property-discovery--daily-notes) describes), `Templates`, and the memory dir.
   - `ORPHAN_EXCLUDE_FOLDERS` replaces that list; a tool call's `exclude_folders` replaces it for that call.
   - An unreadable or malformed config logs a warning and uses `Daily Notes`; a missing file uses that fallback without a warning.
-  - An empty Obsidian folder setting uses the `Daily Notes` fallback. A whitespace-only folder adds no daily-folder exclusion. Neither excludes the whole vault, so root-level daily notes remain eligible.
+  - A vault-root, blank, or whitespace-only folder setting adds no daily-folder exclusion, so those daily notes remain eligible.
 
 ### Files
 
@@ -1254,7 +1257,8 @@ Docker hardening, and durability seatbelts above.
   `join`, bypassing `resolveSafePath`'s hidden-path guard).
 - **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus the
   daily notes folder, from `DAILY_NOTES_FOLDER`, then
-  `.obsidian/daily-notes.json`, then `Daily Notes`) blocks deleting
+  `.obsidian/daily-notes.json`, then `Daily Notes`; none for a vault-root or
+  blank folder setting) blocks deleting
   notes in, moving notes out of, and moving notes into configured
   folders. The check (`isProtectedPath()`, shared by delete and move)
   runs on the canonical vault-relative path with a case-folded

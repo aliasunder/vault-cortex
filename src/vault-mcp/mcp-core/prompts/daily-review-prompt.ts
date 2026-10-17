@@ -198,8 +198,7 @@ export const registerDailyReviewPrompt = ({
         }
 
         // Resolved once so the note path and the link classification below
-        // see the same settings; passing both fields makes getDailyNote skip
-        // its own read of daily-notes.json.
+        // see the same settings.
         const dailyNotesConfig = await readDailyNotesConfig(
           {
             vaultPath,
@@ -208,7 +207,11 @@ export const registerDailyReviewPrompt = ({
           reqLogger,
         )
         const dailyNote = await getDailyNote(
-          { vaultPath, date: resolvedDate, envSettings: dailyNotesConfig },
+          {
+            vaultPath,
+            date: resolvedDate,
+            settings: { source: "resolved", config: dailyNotesConfig },
+          },
           reqLogger,
         )
         // One note past the cap tells the review whether it lists every note
@@ -221,7 +224,7 @@ export const registerDailyReviewPrompt = ({
           ? search.getOutgoingLinks(
               {
                 path: dailyNote.path,
-                dailyNotesFolder: dailyNotesConfig.folder,
+                dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
               },
               reqLogger,
             )

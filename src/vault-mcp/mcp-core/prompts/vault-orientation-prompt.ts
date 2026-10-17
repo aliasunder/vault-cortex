@@ -104,9 +104,12 @@ const formatExcludedForwardRefs = (params: {
 }): string => {
   const { excludedFolder, excludedCount } = params
 
-  if (excludedCount === 0) return ""
+  // brokenLinkCount excludes nothing without a folder, so a null folder
+  // always comes with a zero count.
+  if (excludedFolder === null || excludedCount === 0) return ""
 
-  // Collapses a trailing slash the folder name may already carry
+  // brokenLinkCount echoes the folder as its caller passed it, which may end
+  // in a slash; the label shows exactly one.
   const excludedFolderLabel = `${excludedFolder}/`.replace(/\/+$/, "/")
   const forwardReferenceLabel = excludedCount === 1 ? "forward-ref" : "forward-refs"
   return `excludes ${excludedCount} ${forwardReferenceLabel} in ${excludedFolderLabel}`
@@ -173,6 +176,8 @@ export const registerVaultOrientationPrompt = ({
         const memoryFiles = memoryStore
           ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
           : []
+        // Read once rather than through readEffectiveOrphanExcludeFolders,
+        // because the broken-link count below needs the same daily folder.
         const dailyNotesConfig = await readDailyNotesConfig(
           {
             vaultPath,
@@ -185,7 +190,7 @@ export const registerVaultOrientationPrompt = ({
             excludeFolders: resolveEffectiveOrphanExcludeFolders({
               orphanExcludeFoldersOverride: config.orphanExcludeFoldersOverride,
               memoryDir: config.memoryDir,
-              dailyNotesFolder: dailyNotesConfig.folder,
+              dailyNotesFolder: dailyNotesConfig.dedicatedFolder,
             }),
             limit: ORIENTATION_ORPHAN_LIMIT + 1,
           },
@@ -194,7 +199,7 @@ export const registerVaultOrientationPrompt = ({
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
         const brokenLinkResult = search.brokenLinkCount(
-          { dailyNotesFolder: dailyNotesConfig.folder },
+          { dailyNotesFolder: dailyNotesConfig.dedicatedFolder },
           reqLogger,
         )
         const stats = search.vaultStats({}, reqLogger)

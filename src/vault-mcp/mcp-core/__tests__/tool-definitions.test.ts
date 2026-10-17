@@ -517,7 +517,7 @@ describe("config interpolation in descriptions", () => {
       linePrefix: "- Links to the note",
     })
     expect(linksEntry).toBe(
-      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/).",
+      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank).",
     )
   })
 
@@ -1114,9 +1114,11 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     '- "note not found: …" — verify path with vault_list_notes',
   ]
   const OTHER_DELETE_ERROR_ENTRY =
-    '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry'
+    '- "cannot delete …" (other than a protected path), "EACCES: …" or another filesystem error code — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry'
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
     '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
+  const NAME_TOO_LONG_ERROR_ENTRY =
+    '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path'
 
   it("lists the trash-move and trash-setting errors when the server does not sync", () => {
     expect(deleteNoteErrors({})).toBe(
@@ -1126,6 +1128,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry',
         '- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
         OTHER_DELETE_ERROR_ENTRY,
+        NAME_TOO_LONG_ERROR_ENTRY,
         "- \"cannot read trash config from .obsidian/app.json\" — the file exists but can't be read or parsed, and guessing the setting could let the server's trash cleanup delete a note Obsidian keeps forever; ask the vault owner to repair it, then retry",
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
@@ -1138,6 +1141,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
         OTHER_DELETE_ERROR_ENTRY,
+        NAME_TOO_LONG_ERROR_ENTRY,
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -1158,7 +1162,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     })
   }
   const LINKS_AND_PROTECTED_PATHS_ENTRY =
-    "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)."
+    "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank)."
 
   it("describes the Deleted files outcomes when the server does not sync", () => {
     expect(deleteNoteOpener({})).toBe(
@@ -1838,7 +1842,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- With exclude_folders"))
     expect(defaultsLine).toBe(
-      '- With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable).',
+      '- With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). When that folder is the vault root or blank, no daily folder is excluded.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
@@ -1872,6 +1876,65 @@ describe("vault_find_orphans live folder defaults", () => {
       '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.',
     )
   })
+})
+
+describe("vault_get_outgoing_links daily forward references", () => {
+  // Obsidian puts daily notes in the new-note folder (Inbox here) when the
+  // daily-notes.json folder is blank; that folder also holds other notes.
+  const NEW_NOTE_LOCATION = '{"newFileLocation":"folder","newFileFolderPath":"Inbox"}'
+
+  it.each([
+    { label: "a folder set to Inbox", settings: '{"folder":"Inbox"}', isForwardRef: true },
+    {
+      label: "a blank folder that resolves to Inbox",
+      settings: '{"folder":""}',
+      isForwardRef: false,
+    },
+  ])(
+    "sets daily_note_forward_ref to $isForwardRef on a missing Inbox note for $label",
+    async ({ settings, isForwardRef }) => {
+      const vaultPath = await mkdtemp(join(tmpdir(), "outgoing-links-handler-"))
+      onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
+      await mkdir(join(vaultPath, ".obsidian"))
+      await writeFile(join(vaultPath, ".obsidian/daily-notes.json"), settings)
+      await writeFile(join(vaultPath, ".obsidian/app.json"), NEW_NOTE_LOCATION)
+      const search = createSearchIndex(":memory:")
+      search.upsertNote(
+        {
+          filePath: "Inbox/2026-06-16.md",
+          rawContent: "[[Inbox/2026-06-17]]\n",
+          fileStat: { mtimeMs: 1000, size: 21 },
+        },
+        logger,
+      )
+      const outgoingLinksCall = registerWithConfig({}, { vaultPath, search }).find(
+        ([name]) => name === TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
+      )
+
+      if (!outgoingLinksCall) throw new Error("vault_get_outgoing_links not registered")
+
+      const result = z
+        .object({ content: z.array(z.object({ text: z.string() })) })
+        .parse(
+          await outgoingLinksCall[2]({ path: "Inbox/2026-06-16.md" }, { requestId: "links-1" }),
+        )
+
+      expect(JSON.parse(requireTextContent(result))).toEqual({
+        path: "Inbox/2026-06-16.md",
+        outgoing_links: [
+          {
+            path: "Inbox/2026-06-17",
+            title: null,
+            exists: false,
+            kind: "note",
+            bytes: null,
+            daily_note_forward_ref: isForwardRef,
+          },
+        ],
+        count: 1,
+      })
+    },
+  )
 })
 
 describe("vault_list_tasks handler", () => {
@@ -2629,7 +2692,7 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const PROTECTED_PATHS_SENTENCE =
-      " Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)."
+      " Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank)."
 
     expect(linksEntry("")).toBe(
       `- Links to the note from other notes become broken; list them first with vault_get_backlinks.${PROTECTED_PATHS_SENTENCE}`,
@@ -2653,7 +2716,7 @@ describe("DISABLED_TOOLS", () => {
       '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder)${ENTRY_END}`,
+      `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)${ENTRY_END}`,
     )
     expect(excludeFoldersEntry("vault_get_daily_note")).toBe(`${ENTRY_START}${ENTRY_END}`)
   })

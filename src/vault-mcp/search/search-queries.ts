@@ -1462,9 +1462,10 @@ export const getBacklinks = (
  *  "file" for resolved non-markdown files (.canvas, .base, images, etc.),
  *  defaulting to "note" for unresolved (broken) links. Accepts both
  *  .md and .canvas paths — canvas file-node references appear as outgoing.
- *  When the caller passes the vault's daily notes folder (resolved fresh
- *  via readDailyNotesConfig), broken links under it are flagged
- *  daily_note_forward_ref — expected "create on click" navigation. */
+ *  When the caller passes the vault's daily notes folder (readDailyNotesConfig's
+ *  dedicatedFolder), broken links under it are flagged
+ *  daily_note_forward_ref — expected "create on click" navigation. Null, for a
+ *  vault-root or blank setting, flags none. */
 export const getOutgoingLinks = (
   context: SearchQueryContext,
   params: { path: string; dailyNotesFolder?: string | null },
@@ -1585,10 +1586,11 @@ type BrokenLinkResult = {
 
 /** Counts unique broken link targets — links whose targets exist in
  *  neither the notes table nor the non_md_files table. When the caller
- *  passes the vault's daily notes folder (resolved fresh via
- *  readDailyNotesConfig), broken links under it are excluded — they are
+ *  passes the vault's daily notes folder (readDailyNotesConfig's
+ *  dedicatedFolder), broken links under it are excluded — they are
  *  forward-references (intentional "create on click" navigation), not
- *  genuinely broken. Returns the count plus exclusion metadata so
+ *  genuinely broken. Null, for a vault-root or blank setting, excludes none.
+ *  Returns the count plus exclusion metadata so
  *  callers can communicate what was filtered. */
 export const brokenLinkCount = (
   context: SearchQueryContext,

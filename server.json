@@ -118,7 +118,7 @@
         },
         {
           "name": "DAILY_NOTES_FOLDER",
-          "description": "Vault folder for daily notes. Overrides the folder configured in Obsidian's daily-notes plugin. When unset, read from the vault's .obsidian/daily-notes.json, falling back to \"Daily Notes\".",
+          "description": "Vault folder for daily notes. Overrides the folder configured in Obsidian's daily-notes plugin. When unset, read from the vault's .obsidian/daily-notes.json (an empty folder there follows Obsidian's new-note location), falling back to \"Daily Notes\" when that file is missing. Set to / for the vault root.",
           "default": "Daily Notes"
         },
         {
@@ -160,11 +160,11 @@
         },
         {
           "name": "PROTECTED_PATHS",
-          "description": "Comma-separated vault folder names blocked from vault_delete_note and vault_move_note. Default: MEMORY_DIR plus the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json (default Daily Notes). When set, overrides the default entirely."
+          "description": "Comma-separated vault folder names blocked from vault_delete_note and vault_move_note. Default: MEMORY_DIR plus the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json (default Daily Notes; none when that setting is the vault root or empty). When set, overrides the default entirely."
         },
         {
           "name": "ORPHAN_EXCLUDE_FOLDERS",
-          "description": "Comma-separated vault folder names excluded from vault_find_orphans. Default: the daily notes folder, \"Templates\", and MEMORY_DIR. DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is read per query (fallback \"Daily Notes\"). When set, replaces the defaults entirely. Set to a comma (,) to exclude nothing; an empty value uses the defaults."
+          "description": "Comma-separated vault folder names excluded from vault_find_orphans. Default: the daily notes folder, \"Templates\", and MEMORY_DIR. DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is read per query (fallback \"Daily Notes\"; no daily folder when that setting is the vault root or empty). When set, replaces the defaults entirely. Set to a comma (,) to exclude nothing; an empty value uses the defaults."
         },
         {
           "name": "SERVICE_DOCUMENTATION_URL",

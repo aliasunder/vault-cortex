@@ -611,6 +611,15 @@ describe("DAILY_NOTES_FOLDER validate callback", () => {
     ])
     expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Journal" })
   })
+
+  it("accepts / as the vault root", async () => {
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "/"])
+
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+
+    expect(scripted.errors).toEqual([])
+    expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "/" })
+  })
 })
 
 describe("DAILY_NOTES_FORMAT validate callback", () => {
