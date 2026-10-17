@@ -155,7 +155,9 @@ const readNewNoteFolder = async (vaultPath: string, logger: Logger): Promise<str
     }
     return ""
   } catch (error) {
-    // Reads and prompts only, so a wrong folder costs a missed note.
+    // The vault root is a safe default: this folder only locates daily notes,
+    // and the delete and move guard never protects a blank folder setting, so
+    // a wrong folder can only make a daily note read as missing.
     logger.warn("cannot read new note location, using the vault root", {
       error: describeError(error),
     })
@@ -212,8 +214,9 @@ export const readProtectedDailyNotesFolder = async (
 }
 
 /** The file settings, or the fallbacks with a `warn` when the file exists but
- *  cannot be read or parsed — for reads and prompts, where a wrong folder
- *  costs a missed note, not a deleted one. */
+ *  cannot be read or parsed. Only reads and prompts use it, where a wrong
+ *  folder can only make a daily note read as missing; the delete and move
+ *  guard throws instead (readProtectedDailyNotesFolder). */
 const readDailyNotesFileOrFallback = async (
   vaultPath: string,
   logger: Logger,
