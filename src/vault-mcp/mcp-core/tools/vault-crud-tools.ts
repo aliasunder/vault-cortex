@@ -1225,7 +1225,7 @@ Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
 - "note not found: …" — old_path does not exist; verify it with vault_list_notes.
 - "source and destination are the same path" — old_path and new_path name the same note, so there is nothing to move.
-- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder; pick a path outside it.
+- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry.
 - "path must end in …" — both old_path and new_path must end in .md.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them (notes cannot move from or into hidden paths, matching Obsidian).
