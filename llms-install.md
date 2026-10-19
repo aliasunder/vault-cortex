@@ -163,6 +163,8 @@ docker compose down -v         # stop and delete the index (rebuilds on next sta
 docker compose pull && docker compose up -d --force-recreate   # update to the latest image
 ```
 
+To serve a second vault from the same machine, set it up in a separate folder with its own `.env` that sets `INSTANCE_NAME` (for example `INSTANCE_NAME=work`) and a free `PORT`, then register it in the client under its own name. `INSTANCE_NAME` names that install's container and index volume, so the commands in this guide use that name in place of `vault-cortex` (`docker exec work …`).
+
 ## More
 
 - Full configuration (memory folder, protected paths, timezone, logging): [README → Configuration](./README.md#configuration)

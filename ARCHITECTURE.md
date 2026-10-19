@@ -927,8 +927,11 @@ graph LR
    `init-check-auth` (looks for the Sync token in the env var, then in the
    Sync client's own credential file on the config volume; with neither,
    the boot switches to [setup mode](#setup-mode) instead of stopping) →
-   `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
-   with `--device-name`, plus optional sync-config; fails fast when
+   `init-obsidian-login` (`ob login`) → `init-setup-vault` (first
+   `check-sync-vault`, which stops the boot before anything is written when
+   the volume's Sync setup is for a different vault than `VAULT_NAME`; then
+   `ob sync-setup` with `--device-name`, a check that the client now uses
+   `VAULT_NAME`'s vault, and optional sync-config; fails fast when
    `VAULT_NAME` is missing or `SYNC_MODE` fails to apply) → `init-first-sync`
    (one-shot `ob sync` run to _completion_, with retries; its four steps,
    failure branches included, are listed below). Any

@@ -953,9 +953,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
-  `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes), and the hook's and release scripts'
-  tests in `src/__tests__/` (`install-deps.test.ts`,
+  `check-sync-vault.test.ts`, which covers the vault check
+  `init-setup-vault` runs, and `print-derived-env.test.ts`, which covers
+  the derivation that `init-derive-env` publishes), and the hook's and
+  release scripts' tests in `src/__tests__/` (`install-deps.test.ts`,
   `generate-notes.test.ts`, `update-changelog.test.ts`). These script
   tests run the real script under its own shell (`sh` for the init
   scripts, `bash` for the others) with stub binaries on `PATH` or, for
@@ -1194,10 +1195,22 @@ of `obsidian-headless/package.json` as a potential regression and
 re-verify each contract against the new source before merging:
 
 - Verbs and flags the scripts call: `login`, `sync-config` (including
-  `--mode` and `--json`), `sync`, `sync --continuous`, and
-  `sync-setup --vault --device-name`. `sync-config --json` prints `vaultId`
+  `--mode` and `--json`), `sync`, `sync --continuous`,
+  `sync-setup --vault --device-name`, `sync-list-remote --json` and
+  `sync-list-local --json`. `sync-config --json` prints `vaultId`
   and `syncMode` (`bidirectional` when unset), and an unknown `--mode`
   value exits non-zero, which `init-setup-vault` treats as fatal.
+- Each vault's setup is `obsidian-headless/sync/<vaultId>/config.json`, and
+  every command uses the first setup, in folder-name order, whose
+  `path.resolve(vaultPath)` is the working folder. `check-sync-vault` relies
+  on these outputs, captured as vectors in its test file:
+  - `sync-config --json` exits 3 when no setup matches the folder and 1 when
+    a setup without `vaultPath` sorts first, and it skips a setup file it
+    can't read or parse;
+  - `sync-list-local --json` lists `{ id, path, host }` per setup;
+  - `sync-list-remote --json` lists owned and shared vaults with `id` and
+    `name`, and needs the token;
+  - `sync-setup` resolves `--vault` by ID first, then by a unique name.
 - `sync-setup` rewrites the whole config on every boot without the filter
   fields or `syncMode`. `sync-config --file-types` / `--excluded-folders` /
   `--configs` then queue only the recorded server files that the new value

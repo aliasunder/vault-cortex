@@ -59,9 +59,17 @@ What it does:
 
 Re-running init where a setup already exists asks first — declining leaves
 everything unchanged and points you at [`configure`](#configure), the right
-tool for changing settings in place. Existing files are never overwritten
-without asking. During a remote setup, init offers to generate your
+tool for changing settings in place. A re-run keeps the setup's instance
+name and port. Existing files are never overwritten without asking. During a
+remote setup, init offers to generate your
 [Obsidian Sync token](#get-sync-token) as part of the flow.
+
+To run a second vault on the same machine, run init again with its own
+`--dir`. When the default name `vault-cortex` is already in use, init asks
+you to give the new install its own name and port. That name (`INSTANCE_NAME`
+in its `.env`) names the install's container and data, and every command run
+with that `--dir` acts only on it. Each install gets its own connector in
+your MCP client.
 
 Flags:
 
@@ -69,7 +77,12 @@ Flags:
 - `--vault-path <path>` — absolute path to your vault (local mode)
 - `--dir <path>` — directory to write config files into (default
   `./vault-cortex`)
-- `--yes` — non-interactive local setup with defaults; requires `--vault-path`
+- `--instance-name <name>` — name for this install's container and data
+  (default `vault-cortex`); lowercase letters, digits, `-` and `_`. Naming an
+  install that already exists reuses its data, for the same vault set up again
+- `--port <port>` — host port for this install (default `8000`)
+- `--yes` — non-interactive local setup with defaults; requires `--vault-path`,
+  and `--instance-name` when the name is already in use
 
 Non-interactive example:
 

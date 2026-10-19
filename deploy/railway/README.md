@@ -347,7 +347,24 @@ again, like a first deploy.
 **A redeploy took as long as the first deploy and downloaded the whole vault
 again.** The volume was replaced, or `/persist/config` was removed, so the
 container started over with a fresh Obsidian Sync connection. Nothing needs
-cleaning up.
+cleaning up, unless `VAULT_NAME` now names a different vault than before: see
+the next entry.
+
+**`This install is set up to sync a different vault than VAULT_NAME.`** The
+container refused to start because the volume holds the Obsidian Sync setup
+for another vault, usually after `VAULT_NAME` was changed. Starting would
+merge the two vaults' notes. Nothing was changed, and the log line after it
+names both vaults. Then do one of these:
+
+- If `VAULT_NAME` is a mistake, set it back under **Variables** and apply the
+  staged change.
+- To serve the other vault as well, deploy it as a separate Railway service
+  with its own volume, and leave this one on its original vault.
+- To switch this service to the new vault, delete the volume
+  (**Settings → Volumes**), add a new one at `/persist`, then **Redeploy**.
+  The container downloads the new vault like a first deploy, and the old
+  vault stays in Obsidian Sync. Removing only `/persist/config` would upload
+  the old vault's notes into the new one.
 
 **`The vault is empty but this device has previously synced.`** The
 container refused to start because the vault directory on the volume is
