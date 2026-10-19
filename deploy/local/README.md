@@ -27,7 +27,7 @@ What happens on first start:
 - The image is pulled (~150MB)
 - The keyword index builds in seconds — search works right away
 - The semantic (embedding) index builds in the background — expect a few
-  minutes on a large vault. Keyword search works meanwhile, and semantic
+  minutes on a large vault; keyword search works meanwhile, and semantic
   matches appear as each note is embedded
 
 > **On Windows?** Set `WINDOWS_MODE=true` in your `.env` — then `VAULT_PATH` can point
