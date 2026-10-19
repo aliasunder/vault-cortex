@@ -1710,29 +1710,39 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
   })
 
-  it("points incoming links at a renamed note whose new path arrives live during the batch", async () => {
-    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
-      seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
-    })
-    await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
-    const listingGate = await gateRootListing(testVault)
-    const linkFromSource = () => {
-      const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
-      return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
-    }
-    expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
+  // A path's latest held event decides what going live does, so a change held
+  // before B.md's deletion must not keep B.md indexed.
+  it.each([
+    { label: "its deletion", heldEvents: ["unlink"] },
+    { label: "a change then its deletion", heldEvents: ["change", "unlink"] },
+  ] as const)(
+    "points incoming links at a renamed note whose new path arrives live during the batch, after $label was held",
+    async ({ heldEvents }) => {
+      const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+        seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
+      })
+      await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
+      const listingGate = await gateRootListing(testVault)
+      const linkFromSource = () => {
+        const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+        return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
+      }
+      expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
 
-    await fire("unlink", "B.md")
-    finishRebuild()
-    await listingGate.reached
-    await mkdir(join(testVault, "folder"))
-    await writeFile(join(testVault, "folder", "B.md"), "new home\n")
-    await fire("add", "folder/B.md")
-    listingGate.release()
-    await startup
+      for (const heldEvent of heldEvents) {
+        await fire(heldEvent, "B.md")
+      }
+      finishRebuild()
+      await listingGate.reached
+      await mkdir(join(testVault, "folder"))
+      await writeFile(join(testVault, "folder", "B.md"), "new home\n")
+      await fire("add", "folder/B.md")
+      listingGate.release()
+      await startup
 
-    expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
-  })
+      expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
+    },
+  )
 
   it("keeps a note that a live add indexed while the batch checked its held deletion", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
