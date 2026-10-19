@@ -892,8 +892,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   }
 
   /**
-   * Goes live and starts the startup batch over the distinct held paths. These
-   * three steps run in one synchronous step, before any live event can start:
+   * Goes live and starts the startup batch over the distinct held paths. The
+   * first three steps run with no await between them, before any live event
+   * can start:
    *
    * 1. The watcher goes live.
    * 2. Each path whose latest held event is a deletion is removed, so a renamed

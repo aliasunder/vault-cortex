@@ -2308,10 +2308,10 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     // batch's read is still gated is indexed at once.
     await writeFile(join(testVault, "S.md"), "aftertext\n")
     await fire("change", "S.md")
+    expect(pathsFor("aftertext")).toEqual(["S.md"])
     expect(debugSpy).not.toHaveBeenCalledWith("held a change until startup indexing ends", {
       path: "S.md",
     })
-    expect(pathsFor("aftertext")).toEqual(["S.md"])
     readGate.release()
     await vi.waitFor(() => {
       expect(pathsFor("slowtext")).toEqual(["slow.md"])
