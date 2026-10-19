@@ -19,6 +19,7 @@
  *       attempt runs under a multi-file lock; the lock releases and
  *       reacquires when verification widens the source set. */
 
+import type { Stats } from "node:fs"
 import { readFile, mkdir, rename, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
 import {
@@ -81,8 +82,8 @@ type RewriteContext = {
   newSourcePath: string
   oldTargetPath: string
   newTargetPath: string
-  allNotePaths: string[]
-  allNotePathsAfter: string[]
+  allNotePaths: readonly string[]
+  allNotePathsAfter: readonly string[]
   /** Every non-.md path in the vault. Assets never move (moveNote is
    *  .md-only), so unlike the note lists there is no "after" variant. */
   allAssetPaths: readonly string[]
@@ -277,37 +278,6 @@ const applyLinkEdits = (text: string, edits: LinkEdit[]): string => {
   return result + text.slice(cursor)
 }
 
-/** Rewrites link targets in a single body line, skipping links inside
- *  inline-code spans. */
-const rewriteBodyLine = (
-  line: string,
-  rewriteLink: RewriteLink,
-): { line: string; linksRewritten: number } => {
-  const codeSpans = links.inlineCodeSpans(line)
-  const isInsideCode = (position: number): boolean =>
-    codeSpans.some((span) => position >= span.start && position < span.end)
-
-  const edits = collectLineEdits(line, rewriteLink, isInsideCode)
-  return { line: applyLinkEdits(line, edits), linksRewritten: edits.length }
-}
-
-/** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
-const collectLineEdits = (
-  line: string,
-  rewriteLink: RewriteLink,
-  isInsideCode: (position: number) => boolean,
-): LinkEdit[] =>
-  links.matchLinksInLine(line).flatMap((linkMatch) => {
-    if (isInsideCode(linkMatch.start)) return []
-    const replacement =
-      linkMatch.kind === "wikilink"
-        ? rewriteWikilinkText(linkMatch.text, rewriteLink)
-        : rewriteMarkdownLinkText(linkMatch.text, rewriteLink)
-
-    if (replacement === null) return []
-    return [{ start: linkMatch.start, end: linkMatch.end, replacement }]
-  })
-
 /** Rewrites one matched wikilink, preserving the embed marker, heading, and
  *  alias; null when the target needs no change. */
 const rewriteWikilinkText = (linkText: string, rewriteLink: RewriteLink): string | null => {
@@ -338,7 +308,42 @@ const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): st
   })
 
   if (newTarget === null) return null
+  // prefix is the verbatim "[text](" opener and closeParen the ")" that ends
+  // the link, so only the path between them changes.
   return `${parts.prefix}${encodeMarkdownLinkPath(newTarget)}${parts.heading}${parts.closeParen}`
+}
+
+/** Gathers wikilink and markdown-link edits for one line, excluding code spans. */
+const collectLineEdits = (
+  line: string,
+  rewriteLink: RewriteLink,
+  isInsideCode: (position: number) => boolean,
+): LinkEdit[] => {
+  return links.matchLinksInLine(line).flatMap((linkMatch) => {
+    if (isInsideCode(linkMatch.start)) return []
+    const replacement =
+      linkMatch.kind === "wikilink"
+        ? rewriteWikilinkText(linkMatch.text, rewriteLink)
+        : rewriteMarkdownLinkText(linkMatch.text, rewriteLink)
+
+    if (replacement === null) return []
+    return [{ start: linkMatch.start, end: linkMatch.end, replacement }]
+  })
+}
+
+/** Rewrites link targets in a single body line, skipping links inside
+ *  inline-code spans. */
+const rewriteBodyLine = (
+  line: string,
+  rewriteLink: RewriteLink,
+): { line: string; linksRewritten: number } => {
+  const codeSpans = links.inlineCodeSpans(line)
+  const isInsideCode = (position: number): boolean => {
+    return codeSpans.some((span) => position >= span.start && position < span.end)
+  }
+
+  const edits = collectLineEdits(line, rewriteLink, isInsideCode)
+  return { line: applyLinkEdits(line, edits), linksRewritten: edits.length }
 }
 
 /** Rewrites every link in a note body, skipping fenced code blocks. */
@@ -428,10 +433,10 @@ const rewriteNoteContent = (
 
   if (linksRewritten === 0) return null
 
-  // Called only for its refusal; its result matches `parsed`. parseNote above
-  // reads a list, single-value or tagged block, but the stringifyNote below
-  // would drop it. A note with no link to change returned earlier and moves
-  // byte-for-byte, block and all.
+  // Called only for the error it throws. parseNote above accepts a properties
+  // block that is a YAML list, a single value, or a value with an explicit
+  // tag, but stringifyNote below would drop or change that block. A note with
+  // no link to change returned earlier and moves byte-for-byte, block and all.
   parseNoteForRewrite(rawContent)
 
   const rewrittenData = frontmatterResult.value
@@ -443,12 +448,13 @@ const rewriteNoteContent = (
   return { content, linksRewritten }
 }
 
-/** Matches the index, which reads links from a file as a Canvas only when its
- *  extension is exactly ".canvas". */
+/** Case-sensitive, like the search index: only a lowercase ".canvas"
+ *  extension marks a file as a Canvas. */
 const isCanvasPath = (path: string): boolean => posix.extname(path) === ".canvas"
 
 /** Rewrites the links in a Canvas source: text cards through the body
- *  rewriter, file cards through rewriteFilePath. Null when nothing changed. */
+ *  rewriter, file cards through rewriteFilePath. Returns null when nothing
+ *  changed. */
 const rewriteCanvasContent = (params: {
   rawContent: string
   rewriteLink: RewriteLink
@@ -482,20 +488,28 @@ const buildMoveAbortError = (params: { subject: string; error: unknown }): Error
       { cause: error },
     )
   }
-  if (!(error instanceof UnsupportedPropertiesBlockError)) {
-    return new Error(`move aborted: could not read ${subject}. Nothing was written.`, {
+  if (error instanceof UnsupportedPropertiesBlockError) {
+    const failedStep = error.kind === "invalid-yaml" ? "read" : "rewrite"
+    return new UnsupportedPropertiesBlockError({
+      message: `move aborted: could not ${failedStep} ${subject}: ${error.message}. Nothing was written.`,
+      kind: error.kind,
       cause: error,
     })
   }
-  const failedStep = error.kind === "invalid-yaml" ? "read" : "rewrite"
-  return new UnsupportedPropertiesBlockError({
-    message: `move aborted: could not ${failedStep} ${subject}: ${error.message}. Nothing was written.`,
-    kind: error.kind,
+  return new Error(`move aborted: could not read ${subject}. Nothing was written.`, {
     cause: error,
   })
 }
 
 // ── Orchestration ───────────────────────────────────────────────
+
+/** True when two stats describe one file. ino is the file's identity on disk,
+ *  independent of its name; dev is the filesystem it lives on. Both must
+ *  match — inode numbers repeat across filesystems, so ino alone can name two
+ *  different files. */
+const isSameFile = (statsA: Stats, statsB: Stats): boolean => {
+  return statsA.ino === statsB.ino && statsA.dev === statsB.dev
+}
 
 /** The filesystem listing's spelling for a path it does not contain verbatim.
  *
@@ -525,11 +539,7 @@ const listedSpellingForAliasedPath = async (params: {
   if (!listedSpelling) return params.path
 
   const listedStats = await statOrNull(resolveSafePath(params.vaultPath, listedSpelling))
-  // ino is the file's identity on disk, independent of its name; dev is the
-  // filesystem it lives on. Both must match — inode numbers repeat across
-  // filesystems, so ino alone can name two different files.
-  const namesSameFile =
-    listedStats !== null && listedStats.ino === inputStats.ino && listedStats.dev === inputStats.dev
+  const namesSameFile = listedStats !== null && isSameFile(listedStats, inputStats)
   return namesSameFile ? listedSpelling : params.path
 }
 
@@ -544,12 +554,7 @@ const namesSameFileOnDisk = async (params: {
     statOrNull(resolveSafePath(params.vaultPath, params.pathA)),
     statOrNull(resolveSafePath(params.vaultPath, params.pathB)),
   ])
-  // ino is the file's identity on disk, independent of its name; dev is the
-  // filesystem it lives on. Both must match — inode numbers repeat across
-  // filesystems, so ino alone can name two different files.
-  return (
-    statsA !== null && statsB !== null && statsA.ino === statsB.ino && statsA.dev === statsB.dev
-  )
+  return statsA !== null && statsB !== null && isSameFile(statsA, statsB)
 }
 
 /** Caps concurrent file handles during rewriting and filesystem scanning. */
@@ -564,7 +569,11 @@ const MAX_BACKLINK_VERIFY_RETRIES = 3
 const extractLinkTargets = (params: { path: string; content: string }): string[] => {
   if (isCanvasPath(params.path)) {
     const cardTexts = extractCanvasCardTexts(params.content)
-    const cardLinkTargets = cardTexts.flatMap((cardText) => links.extractAll(cardText, {}))
+    // A text card is plain Markdown with no properties block.
+    const noFrontmatter = {}
+    const cardLinkTargets = cardTexts.flatMap((cardText) => {
+      return links.extractAll(cardText, noFrontmatter)
+    })
     return [...extractCanvasFileLinks(params.content), ...cardLinkTargets]
   }
 
@@ -583,6 +592,8 @@ const discoverBacklinksFromFilesystem = async (
     vaultPath: string
     targetPath: string
     allNotePaths: readonly string[]
+    /** Read only to pick out the Canvas files to scan; links resolve against
+     *  allNotePaths alone. */
     allAssetPaths: readonly string[]
     knownPaths: ReadonlySet<string>
   },
@@ -601,8 +612,13 @@ const discoverBacklinksFromFilesystem = async (
   // produces a markdown link the first two forms can't match.
   const lowercaseParenEncodedStem = lowercaseEncodedStem.replace(/\(/g, "%28").replace(/\)/g, "%29")
   // A Canvas stores its links inside JSON strings, which escape `"` and `\`.
+  // JSON.stringify applies that escaping; the slice drops the quotes it adds
+  // around the string.
   const lowercaseJsonEscapedStem = JSON.stringify(targetStem).slice(1, -1).toLowerCase()
+
   const candidatePaths = [...params.allNotePaths, ...params.allAssetPaths.filter(isCanvasPath)]
+  // The target itself is never its own backlink source: moveNote rewrites the
+  // moved note's own links separately.
   const isUnknownSource = (candidatePath: string): boolean => {
     return candidatePath !== params.targetPath && !params.knownPaths.has(candidatePath)
   }
@@ -613,10 +629,10 @@ const discoverBacklinksFromFilesystem = async (
     concurrency: REWRITE_CONCURRENCY,
     mapper: async (candidatePath): Promise<string | null> => {
       try {
-        // Skip files whose text can't contain a link — a cheap substring
-        // pre-filter before the full parse below.
         const fullPath = resolveSafePath(params.vaultPath, candidatePath)
         const content = await readFile(fullPath, "utf8")
+        // Skip files whose text can't contain a link — a cheap substring
+        // pre-filter before the full parse below.
         const lowercaseContent = content.toLowerCase()
         const couldContainLink =
           lowercaseContent.includes(lowercaseStem) ||
@@ -733,7 +749,9 @@ const moveNote = async (
     }))
 
   // Guards use canonical spelling; file operations use the listing's spelling.
-  // Ordinary moves with listed inputs lock before returning a promise; later writes observe the locks.
+  // A listed path skips the await, so an ordinary move takes its file locks
+  // before moveNote returns its promise. A write the caller starts right after
+  // then finds the files locked instead of racing the move.
   const oldPath = allNotePaths.includes(canonicalOldPath)
     ? canonicalOldPath
     : await listedSpellingForAliasedPath({
@@ -753,6 +771,9 @@ const moveNote = async (
   // MAX_BACKLINK_VERIFY_RETRIES.
 
   const backlinkSourcePaths = [...params.backlinkSources]
+  // Counts the retries made so far, so it is 0 on the first pass and the scan
+  // runs at most MAX_BACKLINK_VERIFY_RETRIES + 1 times. Mutable because the
+  // loop below advances it.
   let attempt = 0
 
   while (true) {
@@ -798,7 +819,6 @@ const moveNote = async (
       await withExclusiveMultiFileLock(lockPaths, async () => {
         // ── Filesystem verification: catch backlinks the index missed ──
         const knownPaths = new Set([
-          oldPath,
           newPath,
           ...backlinkSources.map((backlinkSource) => backlinkSource.source),
         ])
@@ -828,7 +848,6 @@ const moveNote = async (
           throw new Error(`destination exists: "${newPath}"`)
         }
 
-        const allNotePathsBefore = [...allNotePaths]
         const allNotePathsAfter = allNotePaths.map((path) => (path === oldPath ? newPath : path))
 
         // Bind rewriteTarget to a context for one source note, producing a simple
@@ -843,34 +862,38 @@ const moveNote = async (
             newSourcePath: sourceLocation.after,
             oldTargetPath: oldPath,
             newTargetPath: newPath,
-            allNotePaths: allNotePathsBefore,
+            allNotePaths,
             allNotePathsAfter,
             allAssetPaths,
           }
           return (rewriteParams) => rewriteTarget(rewriteParams, context)
         }
 
-        // A Canvas file card opens its note by exact vault path, so a card that
-        // resolves to the moved note gets the new path whatever form it had.
-        // Canvases never move, so the source location is fixed.
+        // File cards are matched with the resolver the index and the backlink
+        // scan use, so the rewrite covers exactly the cards they reported. A
+        // matching card gets the full new path whatever form it had, because
+        // Obsidian opens a file card by its exact vault path. Canvases never
+        // move, so the source location is fixed.
         const rewriteCanvasFilePathForSource = (
           canvasPath: string,
         ): ((filePath: string) => string | null) => {
           return (filePath) => {
             const resolvedNote = links.resolve({
               target: filePath,
-              allPaths: allNotePathsBefore,
+              allPaths: allNotePaths,
               sourcePath: canvasPath,
             })
             return resolvedNote === oldPath ? newPath : null
           }
         }
 
-        const rewriteBacklinkSource = (params: {
+        const rewriteBacklinkSource = ({
+          source,
+          rawContent,
+        }: {
           source: string
           rawContent: string
         }): { content: string; linksRewritten: number } | null => {
-          const { source, rawContent } = params
           const rewriteLink = rewriteLinkForSource({ before: source, after: source })
 
           if (isCanvasPath(source)) {

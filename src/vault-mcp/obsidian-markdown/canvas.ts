@@ -27,10 +27,14 @@ import { posix } from "node:path"
  * occasionally partial entries, so unknown props are ignored and entries
  * missing their required fields are skipped rather than thrown. Only
  * unparseable JSON throws.
+ *
+ * The module also extracts and rewrites the links a canvas holds, for the
+ * search index and the note mover. Obsidian calls nodes "cards": a text card
+ * is a `text` node, and a file card is a `file` node.
  */
 
-/** The JSON Canvas 1.0 node shape this linearizer consumes. Only the fields
- *  it reads — unknown properties pass through untouched. */
+/** The JSON Canvas 1.0 node shape this module reads. parseNode drops every
+ *  other property; rewriteCanvasLinks keeps them by spreading the raw entry. */
 type CanvasNode = Readonly<{
   id: string
   type: string
@@ -118,7 +122,8 @@ const smallestContainingGroup = (
     // so one nests under the other. Content nodes are exempt — they never
     // become parents, so mutual containment is harmless there.
     const mutuallyContained = node.type === "group" && isContainedIn(group, node)
-    return !mutuallyContained || group.id > node.id
+    const groupWinsTie = group.id > node.id
+    return !mutuallyContained || groupWinsTie
   })
 
   if (containing.length === 0) return undefined
@@ -177,6 +182,7 @@ const renderGroup = (
   membersByGroupId: ReadonlyMap<string | undefined, CanvasNode[]>,
   childGroupsByParentId: ReadonlyMap<string | undefined, CanvasNode[]>,
 ): string => {
+  // H1 is the canvas overview line, so top-level groups (depth 0) start at H2.
   const heading = "#".repeat(Math.min(2 + depth, 6))
   const members = membersByGroupId.get(group.id) ?? []
   const childGroups = childGroupsByParentId.get(group.id) ?? []
@@ -254,6 +260,8 @@ export const linearizeCanvas = (canvasJson: string): string => {
     return node ? displayName(node) : `(missing node "${id}")`
   }
 
+  // A node outside every group has no containing group id, so groupBy filed
+  // it under the key undefined.
   const ungroupedNodes = membersByGroupId.get(undefined) ?? []
   const topLevelGroups = childGroupsByParentId.get(undefined) ?? []
   const edgeLines = edges.map((edge) => {
@@ -280,15 +288,9 @@ export const extractCanvasFileLinks = (canvasJson: string): string[] => {
   const parsed = parseCanvasJson(canvasJson)
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
-  const filePaths: string[] = []
-  for (const rawNode of rawNodes) {
-    const node = parseNode(rawNode)
-
-    if (node !== null && node.type === "file" && node.file) {
-      filePaths.push(node.file)
-    }
-  }
-
+  const filePaths = rawNodes
+    .map(parseNode)
+    .flatMap((node) => (node?.type === "file" && node.file ? [node.file] : []))
   return [...new Set(filePaths)]
 }
 
@@ -306,12 +308,24 @@ export const extractCanvasCardTexts = (canvasJson: string): string[] => {
     .flatMap((node) => (node?.type === "text" && node.text ? [node.text] : []))
 }
 
-/** Serializes canvas data the way Obsidian saves a .canvas file: tab
- *  indentation, each top-level key on its own line, and each array entry
- *  (one node or edge) as compact JSON on its own line. */
+/**
+ * Serializes canvas data the way Obsidian saves a .canvas file: tab
+ * indentation, each top-level key on its own line, and each array entry (one
+ * node or edge) as compact JSON on its own line. With the tabs shown as
+ * spaces:
+ *
+ *     {
+ *       "nodes":[
+ *         {"id":"a1","type":"text","text":"Hi","x":0,"y":0,"width":250,"height":60},
+ *         {"id":"b2","type":"file","file":"Plan.md","x":300,"y":0,"width":400,"height":400}
+ *       ],
+ *       "edges":[]
+ *     }
+ */
 const stringifyCanvas = (canvasData: Readonly<Record<string, unknown>>): string => {
   const renderValue = (value: unknown): string => {
     if (!Array.isArray(value) || value.length === 0) return JSON.stringify(value)
+
     const entryLines = value.map((entry) => `\t\t${JSON.stringify(entry)}`)
     return `[\n${entryLines.join(",\n")}\n\t]`
   }
@@ -327,12 +341,13 @@ const stringifyCanvas = (canvasData: Readonly<Record<string, unknown>>): string 
 type NodeRewrite = { node: unknown; linksRewritten: number }
 
 /**
- * Rewrites the links in a Canvas: each text card's Markdown through
- * `rewriteCardText`, and each file card's `file` path through
- * `rewriteFilePath` (null keeps the path). Returns the canvas re-serialized in
- * Obsidian's format with the count of changed links, or null when no link
- * changed, so an unaffected canvas keeps its exact bytes. Every other node,
- * edge, and property is written back as parsed. Throws on unparseable JSON.
+ * Rewrites the links in a Canvas and re-serializes it in Obsidian's format:
+ * - Text cards: the Markdown goes through `rewriteCardText`.
+ * - File cards: the `file` path goes through `rewriteFilePath`; null keeps it.
+ * - Every other node, edge, and property is written back as parsed.
+ *
+ * Returns null when no link changed, so an unaffected canvas keeps its exact
+ * bytes. Throws on unparseable JSON.
  */
 export const rewriteCanvasLinks = (params: {
   canvasJson: string
@@ -343,25 +358,31 @@ export const rewriteCanvasLinks = (params: {
 
   if (!isRecord(parsed) || !Array.isArray(parsed.nodes)) return null
 
-  // Nodes are validated with the same rules the index uses for file-card
-  // links, so the mover rewrites exactly the links the index reports.
+  // Nodes pass through parseNode, the same check extractCanvasFileLinks and
+  // extractCanvasCardTexts apply, so the rewrite touches exactly the links
+  // those two report.
   const rewriteNode = (rawNode: unknown): NodeRewrite => {
     const node = parseNode(rawNode)
     const unchanged = { node: rawNode, linksRewritten: 0 }
 
+    // parseNode already returns null for a non-object; isRecord narrows
+    // rawNode's type so the spreads below compile.
     if (node === null || !isRecord(rawNode)) return unchanged
+
     if (node.type === "text" && node.text) {
       const rewrite = params.rewriteCardText(node.text)
 
       if (rewrite.linksRewritten === 0) return unchanged
       return { node: { ...rawNode, text: rewrite.text }, linksRewritten: rewrite.linksRewritten }
     }
+
     if (node.type === "file" && node.file) {
       const newFilePath = params.rewriteFilePath(node.file)
 
       if (newFilePath === null) return unchanged
       return { node: { ...rawNode, file: newFilePath }, linksRewritten: 1 }
     }
+
     return unchanged
   }
 
