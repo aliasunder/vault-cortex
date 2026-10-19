@@ -340,6 +340,14 @@ describe("SYNC_CONFIGS default", () => {
 
     expect(syncConfigsLines).toEqual(["SYNC_CONFIGS=core-plugin-data,community-plugin-data,app"])
   })
+
+  // The root template documents the default on a commented line; operators
+  // who uncomment it pin whatever it says.
+  it("the root .env.example documents the compose default", () => {
+    const syncConfigsLines = readRepoFile(".env.example").match(SYNC_CONFIGS_ASSIGNMENT_LINE)
+
+    expect(syncConfigsLines).toEqual(["# SYNC_CONFIGS=core-plugin-data,community-plugin-data,app"])
+  })
 })
 
 describe("cli dependency pinning", () => {
