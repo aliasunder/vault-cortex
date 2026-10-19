@@ -31,10 +31,18 @@ const POLLING_INTERVAL_MS = 300
 /** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
 const DEFAULT_STABILITY_THRESHOLD_MS = 2000
 
-/** Default for FileWatcherOptions.heldChangesDeadline. The local compose health
- *  check's 20 s start period sets the bound: 10 s leaves the server time to
- *  listen inside it. Without a deadline, a Sync backlog arriving during startup
- *  could keep the server from listening past the CLI's 120 s health wait. */
+/** Default for FileWatcherOptions.pollInterval. */
+const DEFAULT_POLL_INTERVAL_MS = 100
+
+/**
+ * Default for FileWatcherOptions.heldChangesDeadline. The server starts
+ * listening only after watchVaultAndBuildIndex resolves, so the deadline caps
+ * how long a Sync backlog arriving during startup delays listening.
+ * - The local compose health check's 20 s start period sets the value: 10 s
+ *   leaves the server time to listen inside it.
+ * - Without a deadline, the backlog could keep the server from listening past
+ *   the CLI's 120 s health wait.
+ */
 const DEFAULT_HELD_CHANGES_DEADLINE_MS = 10_000
 
 type FileWatcherOptions = Readonly<{
@@ -52,8 +60,9 @@ type FileWatcherOptions = Readonly<{
    *  past the awaitWriteFinish window lets in-flight writes settle before the
    *  rescan reads them. */
   newDirectoryRescanDelay?: number
-  /** ms startup waits for the changes held during the rebuild before returning
-   *  anyway (default 10000); the rest are applied in the background. */
+  /** ms startup waits after the rebuild for the changes chokidar reported
+   *  meanwhile to be indexed, before returning anyway (default 10000); the
+   *  rest are applied in the background. */
   heldChangesDeadline?: number
 }>
 
@@ -76,8 +85,9 @@ type WatcherState =
   { mode: "holding"; heldPaths: Map<string, HeldEventKind> } | { mode: "live" } | { mode: "closed" }
 
 /** A held path and the event token reserved for it when the watcher went live.
- *  The startup batch's removal or read of the path goes ahead only while the
- *  reservation is still the path's token. */
+ *  An event token is a symbol stored per path in currentEvents, which each
+ *  newer event for the path replaces. The startup batch's removal or read of
+ *  the path goes ahead only while the reservation is still the path's token. */
 type ReservedPath = Readonly<{ filePath: string; reservation: symbol }>
 
 /** What indexing one changed file did. A note's embedding is still running when
@@ -109,17 +119,17 @@ type HoldingWatcher = Readonly<{
    *  returns how many distinct paths that is. `applied` resolves once the
    *  batch's index writes commit, and never rejects. */
   applyHeldChanges: () => { heldPathCount: number; applied: Promise<void> }
-  /** Stops watching, including the rescans and retries still scheduled. Used
-   *  only when startup fails before the held changes apply. Never rejects, so
-   *  the startup failure stays the error reported. */
+  /** Stops watching; a rescan or retry still scheduled fires later and does
+   *  nothing. Used only when startup fails before the held changes apply.
+   *  Never rejects, so the startup failure stays the error reported. */
   close: () => Promise<void>
 }>
 
 /**
- * Watches the vault and mirrors every file add/change/delete into the search
- * index. Every change is held from the moment chokidar starts until
- * applyHeldChanges goes live. After a successful startup the watcher runs for
- * the process lifetime.
+ * Starts a vault watcher in holding mode: from the moment chokidar starts, it
+ * records each changed path instead of indexing it. applyHeldChanges switches
+ * it live, and from then on it mirrors every file add/change/delete into the
+ * search index for the process lifetime.
  */
 const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingWatcher => {
   const { vaultPath, search, watcherOptions } = params
@@ -192,7 +202,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
 
     // Canvas files are always read — link extraction is unconditional.
-    // PDF and text files are only read when file content FTS is enabled.
+    // PDF and text files (INDEXABLE_TEXT_EXTENSIONS, which includes .pdf) are
+    // only read when file content FTS is enabled.
     const extension = extname(filePath)
     const isCanvas = extension === ".canvas"
     const isIndexableNonCanvas =
@@ -204,6 +215,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           if (extension !== ".pdf") return await readFile(filePath, "utf8")
 
           const buffer = await readFile(filePath)
+          // pdfjs throws on a Node Buffer, so it gets a plain Uint8Array view
+          // over the same bytes.
           const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
           const pdfResult = await extractPdfText(pdfData)
           return pdfResult.text
@@ -222,8 +235,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         )
 
         // Embed file content vectors — serialized per path via the same
-        // pendingEmbeds map (note paths end in .md, file paths don't).
-        // Reads the processed content from the file_content table.
+        // pendingEmbeds map. A note path ends in .md and a file path never
+        // does, so their keys never collide. Reads the processed content from
+        // the file_content table.
         const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
         const currentEmbed = previousEmbed
           .catch((previousError) => {
@@ -327,10 +341,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         })
       pendingEmbeds.set(relativePath, currentEmbed)
 
-      // The caller reports the job's failure, so it receives the promise with
-      // the queue cleanup attached rather than currentEmbed: `.finally` passes
-      // a rejection through, and a cleanup promise nobody received would reject
-      // unhandled. The cleanup leaves a newer queued job registered.
+      // The caller gets the cleanup promise, not currentEmbed, because a
+      // promise nobody holds rejects unhandled: `.finally` passes currentEmbed's
+      // rejection through to it. The cleanup leaves a newer queued job registered.
       const embedding = currentEmbed.finally(() => {
         if (pendingEmbeds.get(relativePath) === currentEmbed) {
           pendingEmbeds.delete(relativePath)
@@ -357,9 +370,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     return indexChangedNonMdFile(params)
   }
 
-  /** Releases a path's event token unless a newer event replaced it. A newer
-   *  handler may already have finished and removed its entry; only the current
-   *  event owns cleanup, and absence still invalidates older reads. */
+  /** Releases a path's event token unless a newer event replaced it: deleting
+   *  a newer event's token would make that event's read look superseded. An
+   *  older read that finds no token still fails its check. */
   const releaseEventToken = (relativePath: string, eventToken: symbol): void => {
     if (currentEvents.get(relativePath) === eventToken) currentEvents.delete(relativePath)
   }
@@ -391,7 +404,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   }
 
   /** chokidar's add and change listener. While the watcher holds, it records
-   *  the path for applyHeldChanges instead of indexing it. */
+   *  the path for applyHeldChanges instead of indexing it. chokidar ignores
+   *  the returned promise, so each step logs its own failure and the listener
+   *  never rejects. */
   const handleChange = async (filePath: string): Promise<void> => {
     if (watcherState.mode === "closed") return
     if (watcherState.mode === "holding") {
@@ -519,7 +534,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // indexing to avoid reading partial content
     awaitWriteFinish: {
       stabilityThreshold,
-      pollInterval: watcherOptions?.pollInterval ?? 100,
+      pollInterval: watcherOptions?.pollInterval ?? DEFAULT_POLL_INTERVAL_MS,
     },
   })
 
@@ -750,6 +765,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   ): Promise<HeldPathPresence> => {
     const pathSegments = relative(vaultPath, filePath).split(sep)
 
+    // Walks down from the vault root: the vault root must list the first
+    // segment, that folder the second, and so on to the file's own name.
     // Sequential, so the first folder that lacks the next name ends the check.
     for (const [segmentIndex, segmentName] of pathSegments.entries()) {
       const folderPath = join(vaultPath, ...pathSegments.slice(0, segmentIndex))
@@ -757,11 +774,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       const missingFromListing =
         folderListing.status === "listed" && !folderListing.names.has(segmentName)
 
+      // A folder that could not be listed proves nothing either way, so the
+      // walk goes on and the stat below decides.
       if (folderListing.status === "missing" || missingFromListing) return "missing"
     }
 
-    // A folder that could not be listed proves nothing either way, so the stat
-    // below decides.
     try {
       const fileStat = await statOrNull(filePath)
 
@@ -778,7 +795,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
   }
 
-  /** Removes a held path the startup batch found missing on disk. */
+  /** Removes a held path the startup batch found missing on disk. A held
+   *  deletion that applyHeldChanges already removed comes here again while its
+   *  path is still gone; the second removal finds no rows and changes nothing. */
   const removeHeldPath = (filePath: string): void => {
     logger.debug("removing a held path that is gone from disk", {
       path: relative(vaultPath, filePath),
@@ -789,7 +808,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   /**
    * Reads one held path again for the startup batch, under its reservation,
    * without waiting for its embedding.
-   * - A live event for the path since the switch replaced the reservation, so
+   * - A live event for the path since going live replaced the reservation, so
    *   the read drops what it read, as an older live read does.
    * - A path that vanished by its read is left to the `unlink` chokidar sends
    *   for every file it tracks, as a live read leaves it.
@@ -818,9 +837,13 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
   }
 
-  /** Reads held paths again at the rebuild's bounds: PDFs whose text is
-   *  extracted PDF_EXTRACTION_CONCURRENCY at a time, after the others, which go
-   *  INDEXING_FILE_READ_CONCURRENCY at a time. */
+  /**
+   * Reads held paths again within the concurrency limits the rebuild also uses.
+   * - Other files go first, INDEXING_FILE_READ_CONCURRENCY at a time, so slow
+   *   PDF extraction does not hold them back.
+   * - PDFs whose text is extracted go after, PDF_EXTRACTION_CONCURRENCY at a
+   *   time. The groups run one after the other, so the two limits never add up.
+   */
   const indexHeldPathsWithinBounds = async (
     reservedPaths: ReadonlyArray<ReservedPath>,
   ): Promise<void> => {
@@ -876,10 +899,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       .map((check) => check.reservedPath)
 
     // Removals run before reads. upsertNote re-resolves only links whose target
-    // is not indexed, so when a renamed note's old path is removed first, the
-    // new path claims the links that pointed at the old one.
+    // is not indexed, so when both a renamed note's old and new paths were
+    // held, removing the old path first lets the new path's read claim the
+    // links that pointed at the old one.
     for (const { filePath, reservation } of missingPaths) {
-      // Skips a path a live event has taken since the switch, so a live `add`
+      // Skips a path a live event has taken since going live, so a live `add`
       // that indexed it is not removed. No await sits between this check and
       // the removal, so no live event can take the path in between.
       const reservationIsCurrent = currentEvents.get(relative(vaultPath, filePath)) === reservation
@@ -897,9 +921,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    * can start:
    *
    * 1. The watcher goes live.
-   * 2. Each path whose latest held event is a deletion is removed, so a renamed
-   *    note's new path, arriving live, claims the links that pointed at the old
-   *    one. A file that came back is read again by the batch.
+   * 2. Each path whose latest held event is a deletion is removed. This covers
+   *    a renamed note whose new path arrives as a live event: the old path is
+   *    already gone, so the new path claims the links that pointed at the old
+   *    one. reconcileHeldPaths covers a rename whose two paths were both held.
+   *    A file that came back is read again by the batch.
    * 3. Each held path gets a reserved event token. It comes after step 2,
    *    because removeFromIndex deletes the path's token.
    *
