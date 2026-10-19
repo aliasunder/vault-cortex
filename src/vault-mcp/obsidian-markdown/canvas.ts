@@ -400,7 +400,8 @@ export const rewriteCanvasLinks = (params: {
 
   if (linksRewritten === 0) return null
 
-  // Spreading keeps every key in its original position, nodes included.
+  // Spreading keeps each key's position, nodes included. Only integer-like
+  // keys ("10"), which JSON Canvas never defines, move to the front.
   const rewrittenCanvas = { ...parsed, nodes: nodeRewrites.map((nodeRewrite) => nodeRewrite.node) }
   const trailingNewline = params.canvasJson.endsWith("\n") ? "\n" : ""
   return { content: `${stringifyCanvas(rewrittenCanvas)}${trailingNewline}`, linksRewritten }

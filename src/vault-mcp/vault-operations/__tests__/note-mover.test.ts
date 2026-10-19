@@ -1085,6 +1085,101 @@ describe("moveNote — Canvas sources", () => {
     )
   })
 
+  it("finds a Canvas whose JSON escapes the accented letters in the note's name", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("École.md", "# École\n")
+    // The file holds only the escape for É, as JSON writers that escape every
+    // non-ASCII character store it, so of the scan's substring checks only the
+    // escaped one can match it. A capital É also needs the stem escaped before
+    // it is lowercased.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"See [[\\u00C9cole]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: "École.md", newPath: "School.md" })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"See [[School]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "School.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      { from: "École.md", to: "School.md", additionalSources: ["Board.canvas"], attempt: 0 },
+    )
+  })
+
+  it("leaves a file card that opens a PDF alone when the moved note is named after it", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Plan.pdf", "%PDF-1.4\n")
+    await writeFixture("Plan.pdf.md", "# Notes on the plan\n")
+    // The resolver's ".md" fallback matches f1's Plan.pdf to the moved note,
+    // but Obsidian opens f1 by its exact path, the PDF. f2 opens the note.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Plan.pdf","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"f2","type":"file","file":"Plan.pdf.md","x":500,"y":0,"width":400,"height":400}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Plan.pdf.md",
+      newPath: "Archive/Plan.pdf.md",
+      backlinkSources: ["Board.canvas"],
+    })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Plan.pdf","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"f2","type":"file","file":"Archive/Plan.pdf.md","x":500,"y":0,"width":400,"height":400}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Archive/Plan.pdf.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("does not report a Canvas whose only matching card opens a PDF as a missed backlink", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Plan.pdf", "%PDF-1.4\n")
+    await writeFixture("Plan.pdf.md", "# Notes on the plan\n")
+    const pdfCardCanvas = obsidianCanvas([
+      '{"id":"f1","type":"file","file":"Plan.pdf","x":0,"y":0,"width":400,"height":400}',
+    ])
+    // Not a backlink source, so the scan reads it and must rule it out.
+    await writeFixture("Board.canvas", pdfCardCanvas)
+
+    const result = await moveNote({ oldPath: "Plan.pdf.md", newPath: "Archive/Plan.pdf.md" })
+
+    expect(result).toEqual({
+      moved_to: "Archive/Plan.pdf.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Board.canvas")).toBe(pdfCardCanvas)
+    // The rewrite leaves the card alone either way, so only this log shows
+    // the scan matching the PDF card to the moved note. It must never fire,
+    // whatever its context.
+    expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      expect.anything(),
+    )
+  })
+
   it("leaves a backlink-source Canvas with no nodes list byte-identical and completes the move", async () => {
     const { writeFixture, moveNote, readNote, noteExists } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")

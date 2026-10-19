@@ -61,7 +61,8 @@ type MoveResult = {
   /** Vault-relative destination path the note now lives at. */
   moved_to: string
   /** Total number of individual link occurrences rewritten across all notes
-   *  (backlink sources plus the moved note's own relative links). */
+   *  and Canvas files (backlink sources plus the moved note's own relative
+   *  links). */
   links_updated: number
   /** Vault-relative paths of the other notes and Canvas files whose links were
    *  rewritten, sorted. Excludes the moved note itself (conveyed by moved_to). */
@@ -452,6 +453,11 @@ const rewriteNoteContent = (
  *  extension marks a file as a Canvas. */
 const isCanvasPath = (path: string): boolean => posix.extname(path) === ".canvas"
 
+/** True when a file card's path names a note. Obsidian opens a file card by
+ *  its exact path, so a card for Plan.pdf opens the PDF even though the
+ *  resolver's ".md" fallback would match a note named Plan.pdf.md. */
+const isNoteCardPath = (cardFilePath: string): boolean => cardFilePath.endsWith(".md")
+
 /** Rewrites the links in a Canvas source: text cards through the body
  *  rewriter, file cards through rewriteFilePath. Returns null when nothing
  *  changed. */
@@ -565,7 +571,7 @@ const REWRITE_CONCURRENCY = 10
 const MAX_BACKLINK_VERIFY_RETRIES = 3
 
 /** Every link target a file holds: a note's body and frontmatter links, or a
- *  Canvas's file cards and the links in its text cards. */
+ *  Canvas's note file cards and the links in its text cards. */
 const extractLinkTargets = (params: { path: string; content: string }): string[] => {
   if (isCanvasPath(params.path)) {
     const cardTexts = extractCanvasCardTexts(params.content)
@@ -574,7 +580,8 @@ const extractLinkTargets = (params: { path: string; content: string }): string[]
     const cardLinkTargets = cardTexts.flatMap((cardText) => {
       return links.extractAll(cardText, noFrontmatter)
     })
-    return [...extractCanvasFileLinks(params.content), ...cardLinkTargets]
+    const noteCardPaths = extractCanvasFileLinks(params.content).filter(isNoteCardPath)
+    return [...noteCardPaths, ...cardLinkTargets]
   }
 
   const parsed = parseNote(params.content)
@@ -614,7 +621,18 @@ const discoverBacklinksFromFilesystem = async (
   // A Canvas stores its links inside JSON strings, which escape `"` and `\`.
   // JSON.stringify applies that escaping; the slice drops the quotes it adds
   // around the string.
-  const lowercaseJsonEscapedStem = JSON.stringify(targetStem).slice(1, -1).toLowerCase()
+  const jsonEscapedStem = JSON.stringify(targetStem).slice(1, -1)
+  const lowercaseJsonEscapedStem = jsonEscapedStem.toLowerCase()
+  // Some JSON writers (Python's json.dump by default) escape each non-ASCII
+  // UTF-16 unit, writing "Café" as "Caf\u00e9" and an emoji as two escapes;
+  // the regex has no u flag, so it matches those units one at a time. Escape
+  // before lowercasing, as with the encoded stem: É's escape is \u00c9.
+  const nonAsciiCodeUnit = /[\u0080-\uffff]/g
+  const lowercaseAsciiEscapedStem = jsonEscapedStem
+    .replace(nonAsciiCodeUnit, (codeUnit) => {
+      return `\\u${codeUnit.charCodeAt(0).toString(16).padStart(4, "0")}`
+    })
+    .toLowerCase()
 
   const candidatePaths = [...params.allNotePaths, ...params.allAssetPaths.filter(isCanvasPath)]
   // The target itself is never its own backlink source: moveNote rewrites the
@@ -638,7 +656,8 @@ const discoverBacklinksFromFilesystem = async (
           lowercaseContent.includes(lowercaseStem) ||
           lowercaseContent.includes(lowercaseEncodedStem) ||
           lowercaseContent.includes(lowercaseParenEncodedStem) ||
-          lowercaseContent.includes(lowercaseJsonEscapedStem)
+          lowercaseContent.includes(lowercaseJsonEscapedStem) ||
+          lowercaseContent.includes(lowercaseAsciiEscapedStem)
 
         if (!couldContainLink) return null
 
@@ -869,15 +888,19 @@ const moveNote = async (
           return (rewriteParams) => rewriteTarget(rewriteParams, context)
         }
 
-        // File cards are matched with the resolver the index and the backlink
-        // scan use, so the rewrite covers exactly the cards they reported. A
-        // matching card gets the full new path whatever form it had, because
-        // Obsidian opens a file card by its exact vault path. Canvases never
-        // move, so the source location is fixed.
+        // File cards are matched with the resolver the backlink scan uses, so
+        // the rewrite covers exactly the cards the scan reports. A matching
+        // card gets the full new path whatever form it had, because Obsidian
+        // opens a file card by its exact vault path. Canvases never move, so
+        // the source location is fixed.
         const rewriteCanvasFilePathForSource = (
           canvasPath: string,
         ): ((filePath: string) => string | null) => {
           return (filePath) => {
+            // The index resolves a Plan.pdf card to a Plan.pdf.md note, but
+            // the card opens the PDF; retargeting it would swap the card's file.
+            if (!isNoteCardPath(filePath)) return null
+
             const resolvedNote = links.resolve({
               target: filePath,
               allPaths: allNotePaths,
