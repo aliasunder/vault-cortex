@@ -706,9 +706,10 @@ which are the description and the input schema with each parameter's Zod
   empty-result contract worth clarifying (e.g. "returns an empty
   array, not an error"); omit it only for tools that cannot
   meaningfully fail. Include `Obsidian syntax:` on write tools.
-- **`Errors:` gets one bullet per distinct remedy, and every bullet
-  keeps its remedy.** Messages that share a remedy share one bullet,
-  which lists only the messages that tool can raise: for example
+- **`Errors:` gets one bullet per distinct remedy (errors of one kind
+  with short remedies may share one bullet that names each remedy), and
+  every bullet keeps its remedy.** Messages that share a remedy share one
+  bullet, which lists only the messages that tool can raise: for example
   `"absolute path blocked"`, `"path traversal blocked"`, and
   `"hidden path blocked"`.
 - **Split parameter facts between `.describe()` and the tool description.**

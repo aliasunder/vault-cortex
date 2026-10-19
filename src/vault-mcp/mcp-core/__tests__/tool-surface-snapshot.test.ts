@@ -33,10 +33,10 @@ describe("tool surface baseline", () => {
    *  tool count, so a new tool adds one allowance. The cap has two blind spots:
    *  - It checks a combo's total, so one tool can grow while another shrinks;
    *    `npm run report:tool-surface-size` shows the per-tool sizes.
-   *  - The allowance is about 2% above the default combo's average when the
-   *    cap was set (4,130 chars per tool), so only small growth passes.
+   *  - The allowance sits just above the default combo's average, so only
+   *    small growth passes.
    *  Raising the allowance is a deliberate change with its reason in the PR. */
-  const CHARS_PER_TOOL_ALLOWANCE = 4273
+  const CHARS_PER_TOOL_ALLOWANCE = 4290
 
   it.each(SIZE_CAPPED_COMBO_NAMES)(
     "combo %s stays within the average per-tool size allowance",

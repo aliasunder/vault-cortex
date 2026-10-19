@@ -1097,6 +1097,67 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
   })
 })
 
+describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
+  // Search indexes file content only while file tools are on, so with them
+  // off the description must not mention file content, the extension field,
+  // or file results. Both embedding variants share this wording.
+  const FILE_RESULT_WORDING = {
+    searchedScope: "search across vault notes and file content (canvas, PDF, and text files)",
+    filtersLeadIn:
+      "Filters — all conditions AND-combine with each other and the text query; any filter but folder limits results to notes:",
+    resultFields:
+      "results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes",
+    kindSentence:
+      'kind is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").',
+  }
+  const NOTE_ONLY_WORDING = {
+    searchedScope: "search across vault notes",
+    filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
+    resultFields:
+      "results array (path, title, snippet, score, tags, folder, type, kind, created, modified, bytes",
+    kindSentence: 'kind is always "note".',
+  }
+
+  it.each([
+    {
+      label: "advertises file results in the hybrid variant while file tools are on",
+      env: {},
+      expectedWording: FILE_RESULT_WORDING,
+    },
+    {
+      label: "advertises notes only in the hybrid variant when file tools are off",
+      env: { FILE_TOOLS_ENABLED: "false" },
+      expectedWording: NOTE_ONLY_WORDING,
+    },
+    {
+      label: "advertises file results in the keyword-only variant while file tools are on",
+      env: { EMBEDDING_ENABLED: "false" },
+      expectedWording: FILE_RESULT_WORDING,
+    },
+    {
+      label: "advertises notes only in the keyword-only variant when file tools are off",
+      env: { EMBEDDING_ENABLED: "false", FILE_TOOLS_ENABLED: "false" },
+      expectedWording: NOTE_ONLY_WORDING,
+    },
+  ])("$label", ({ env, expectedWording }) => {
+    const registeredCalls = registerWithConfig(env)
+    const searchSection = (markers: { startMarker: string; endMarker: string }): string => {
+      return extractDescriptionSection({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_SEARCH,
+        ...markers,
+      })
+    }
+
+    expect({
+      searchedScope: searchSection({ startMarker: "search across ", endMarker: ", ranked by" }),
+      filtersLeadIn: searchSection({ startMarker: "Filters — ", endMarker: "\n- folder:" }),
+      resultFields: searchSection({ startMarker: "results array (", endMarker: "), total" }),
+      kindSentence: searchSection({ startMarker: "kind is ", endMarker: " created is omitted" }),
+    }).toEqual(expectedWording)
+  })
+})
+
 describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
   const deleteNoteErrors = (env: Record<string, string>): string => {
     return extractDescriptionSection({
@@ -2923,10 +2984,41 @@ describe("DISABLED_TOOLS", () => {
     const routingLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_DELETE_SPAN,
-      startMarker: "the last line for end_anchor.\n",
+      startMarker: "would be error-prone.\n",
       endMarker: "\n\nParameters:",
     })
-    expect(routingLine).toBe(`the last line for end_anchor.\n${expectedLine}`)
+    expect(routingLine).toBe(`would be error-prone.\n${expectedLine}`)
+  })
+
+  const FILESYSTEM_ENTRY_RENAME_REMEDY =
+    'a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter'
+
+  it.each([
+    {
+      label: "names vault_move_note while it is served",
+      disabledTools: "",
+      expectedRemedy: `${FILESYSTEM_ENTRY_RENAME_REMEDY} with vault_move_note.`,
+    },
+    {
+      label: "drops the tool name when vault_move_note is disabled",
+      disabledTools: "vault_move_note",
+      expectedRemedy: `${FILESYSTEM_ENTRY_RENAME_REMEDY}.`,
+    },
+  ])("the filesystem Errors entry's rename remedy $label", ({ disabledTools, expectedRemedy }) => {
+    const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
+    // One tool from each module that builds the entry: vault-crud-tools shares
+    // one const, task-tools builds it inline
+    const renameRemedies = [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_UPDATE_TASK].map(
+      (toolName) => {
+        return extractDescriptionSection({
+          registeredCalls,
+          toolName,
+          startMarker: 'a quoted name ending in ".tmp"',
+          endMarker: " Permissions or a full",
+        })
+      },
+    )
+    expect(renameRemedies).toEqual([expectedRemedy, expectedRemedy])
   })
 
   const FENCED_BLOCK_WARNING =
@@ -3274,38 +3366,85 @@ describe("DISABLED_TOOLS", () => {
     expect(whenToUse).toBe(expectedSection)
   })
 
+  const PATCH_NOTE_APPEND_LINE =
+    "- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so appending a row to a table that a blank line follows starts a new table"
+  const PATCH_NOTE_APPEND_INSERT_AT_ANCHOR_ADVICE =
+    "; to extend a table, use vault_insert_at_anchor after its last row"
+  const PATCH_NOTE_REPLACE_LINE = "- replace: replace section body (requires heading)"
+  const PATCH_NOTE_REPLACE_DELETE_SPAN_ADVICE = "; to empty it, use vault_delete_span on its lines"
+
+  it.each([
+    {
+      label: "names both tools while both are served",
+      disabledTools: "",
+      expectedLines: {
+        appendLine: `${PATCH_NOTE_APPEND_LINE}${PATCH_NOTE_APPEND_INSERT_AT_ANCHOR_ADVICE}`,
+        replaceLine: `${PATCH_NOTE_REPLACE_LINE}${PATCH_NOTE_REPLACE_DELETE_SPAN_ADVICE}`,
+      },
+    },
+    {
+      label: "drops only the append advice when vault_insert_at_anchor is disabled",
+      disabledTools: "vault_insert_at_anchor",
+      expectedLines: {
+        appendLine: PATCH_NOTE_APPEND_LINE,
+        replaceLine: `${PATCH_NOTE_REPLACE_LINE}${PATCH_NOTE_REPLACE_DELETE_SPAN_ADVICE}`,
+      },
+    },
+    {
+      label: "drops only the replace advice when vault_delete_span is disabled",
+      disabledTools: "vault_delete_span",
+      expectedLines: {
+        appendLine: `${PATCH_NOTE_APPEND_LINE}${PATCH_NOTE_APPEND_INSERT_AT_ANCHOR_ADVICE}`,
+        replaceLine: PATCH_NOTE_REPLACE_LINE,
+      },
+    },
+  ])("vault_patch_note's operation lines $label", ({ disabledTools, expectedLines }) => {
+    const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
+    const operationLine = (linePrefix: string): string | undefined => {
+      return findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+        linePrefix,
+      })
+    }
+
+    expect({
+      appendLine: operationLine("- append:"),
+      replaceLine: operationLine("- replace:"),
+    }).toEqual(expectedLines)
+  })
+
   it.each([
     {
       label: "names both property editors while they are served",
       disabledTools: "",
       expectedLine:
-        "Operates on the body only — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
+        "in block style — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
       expectedLine:
-        "Operates on the body only — properties must be edited via vault_write_note's properties parameter.",
+        "in block style — properties must be edited via vault_write_note's properties parameter.",
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine:
-        "Operates on the body only — properties must be edited via vault_update_properties.",
+      expectedLine: "in block style — properties must be edited via vault_update_properties.",
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: "Operates on the body only.",
+      expectedLine: "in block style.",
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
-    const bodyOnlyLine = extractDescriptionSection({
+    const propertyEditLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-      startMarker: "Operates on the body only",
+      startMarker: "in block style",
       endMarker: "\n\nExample:",
     })
-    expect(bodyOnlyLine).toBe(expectedLine)
+    expect(propertyEditLine).toBe(expectedLine)
   })
 
   it.each([
@@ -3376,7 +3515,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const REPLACE_SPAN_WHEN_TO_USE =
-    "When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor."
+    "When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone."
   const INSERT_AT_ANCHOR_WHEN_TO_USE =
     "When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line."
 
