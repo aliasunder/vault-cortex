@@ -1692,6 +1692,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     const notePath = join(testVault, "late.md")
     await writeFile(notePath, "newer text\n")
     const readGate = await gateFirstRead(notePath, "before-disk")
+    const infoSpy = spyOnLogger("info")
     expect(notePaths()).toEqual([{ path: "late.md" }])
 
     await fire("change", "late.md")
@@ -1700,8 +1701,12 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     await unlink(notePath)
     readGate.release()
     await startup
-    // The batch's read found the file gone and changed nothing.
+    // The batch's read found the file gone and changed nothing, and the batch
+    // still completed.
     expect(notePaths()).toEqual([{ path: "late.md" }])
+    expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+      heldPaths: 1,
+    })
     await fire("unlink", "late.md")
 
     expect(notePaths()).toEqual([])
@@ -2573,16 +2578,20 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       return fileStat
     })
     onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+    const infoSpy = spyOnLogger("info")
 
     await fire("change", "content.txt")
     finishRebuild()
     await startup
     // The batch's read finds the file gone and leaves it to the unlink
-    // chokidar sends for it.
+    // chokidar sends for it, and the batch still completes.
     expect(checkedPaths).toEqual(new Set([contentPath]))
     expect(fileRows()).toEqual({
       assets: [{ path: "content.txt" }],
       contents: [{ path: "content.txt" }],
+    })
+    expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+      heldPaths: 1,
     })
     await fire("unlink", "content.txt")
 
