@@ -24,6 +24,7 @@ const expectedSectionRule = (label: string): string =>
 
 const localDefaults = {
   targetDir: "/home/user/vault-cortex",
+  instanceName: "vault-cortex",
   token: "abc123deadbeef",
   startStatus: "not-started" as const,
   port: 8000,
@@ -32,6 +33,7 @@ const localDefaults = {
 
 const remoteDefaults = {
   targetDir: "/home/user/vault-cortex",
+  instanceName: "vault-cortex",
   token: "abc123deadbeef",
   publicUrl: "https://vault.example.com",
   startStatus: "not-started" as const,
@@ -183,6 +185,24 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toContain('curl -H "Authorization: Bearer <token>"')
     expect(message).not.toMatch(/\n\n\n/)
   })
+
+  it("names a custom instance in the logs command and both connector entries", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      instanceName: "work",
+      port: 8001,
+      startStatus: "starting",
+    })
+
+    expect(message).toContain("check progress:\n  docker logs work\n")
+    expect(message).toContain(
+      "claude mcp add --scope user --transport http work http://localhost:8001/mcp\n",
+    )
+    expect(message).toContain('  "work": {\n')
+    expect(message).not.toContain("docker logs vault-cortex")
+    expect(message).not.toContain("transport http vault-cortex")
+    expect(message).not.toContain('"vault-cortex": {')
+  })
 })
 
 // ── buildRemoteConnectMessage ──────────────────────────────────────────────────
@@ -235,6 +255,21 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).toContain("docker logs vault-cortex")
     expect(message).not.toContain("Start the server:")
     expect(message).not.toContain("npx vault-cortex@latest start")
+  })
+
+  it("names a custom instance in the logs command and the connector entry", () => {
+    const message = buildRemoteConnectMessage({
+      ...remoteDefaults,
+      instanceName: "work",
+      startStatus: "starting",
+    })
+
+    expect(message).toContain("check progress:\n  docker logs work\n")
+    expect(message).toContain(
+      "claude mcp add --scope user --transport http work https://vault.example.com/mcp\n",
+    )
+    expect(message).not.toContain("docker logs vault-cortex")
+    expect(message).not.toContain("transport http vault-cortex")
   })
 
   it("shows the health check block when startStatus is starting", () => {

@@ -17,6 +17,7 @@ import {
   pollHealth,
   type DockerRunner,
 } from "./docker.js"
+import { applyInstanceIdentity, resolveInstanceIdentity } from "./instance-identity.js"
 import { reportPublicUrlProbe } from "./lifecycle.js"
 import {
   applyOptionalSettings,
@@ -25,6 +26,7 @@ import {
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
+  readEnvInstanceName,
   readEnvObsidianToken,
   readEnvPort,
   readEnvPublicUrl,
@@ -41,6 +43,10 @@ export type InitFlags = {
   mode?: string
   vaultPath?: string
   dir?: string
+  /** INSTANCE_NAME for this install, skipping the name-in-use prompt. */
+  instanceName?: string
+  /** Host PORT for this install. */
+  port?: string
   yes?: boolean
 }
 
@@ -270,6 +276,19 @@ const reportWrites = (
 }
 
 /**
+ * Reads the instance name from the .env on disk, which may be a kept file
+ * whose INSTANCE_NAME differs from this run's. Reports an invalid value and
+ * returns undefined, so init never starts or prints commands for a bad name.
+ */
+const readWrittenInstanceName = (targetDir: string, prompts: Prompts): string | undefined => {
+  const instanceNameRead = readEnvInstanceName(join(targetDir, ".env"))
+
+  if (instanceNameRead.kind === "ok") return instanceNameRead.instanceName
+  prompts.error(`${instanceNameRead.message} Fix it in ${targetDir}/.env.`)
+  return undefined
+}
+
+/**
  * Offers to start the container, walking a gate ladder where each failed
  * gate degrades to instructions instead of an error: daemon running → user
  * consents → docker run succeeds → health check passes. Returns "running"
@@ -277,10 +296,10 @@ const reportWrites = (
  * but the health check timed out, or "not-started" when a gate failed.
  */
 const offerDockerRun = async (
-  params: { targetDir: string; port: number; mode: Mode; vaultPath?: string },
+  params: { targetDir: string; instanceName: string; port: number; mode: Mode; vaultPath?: string },
   deps: InitDeps,
 ): Promise<StartStatus> => {
-  const { targetDir, port, mode, vaultPath } = params
+  const { targetDir, instanceName, port, mode, vaultPath } = params
   const { prompts, docker, fetchFn } = deps
   const daemonStatus = docker.daemonStatus()
 
@@ -302,6 +321,7 @@ const offerDockerRun = async (
   stripEnvQuotedValues(envFilePath)
   const containerStarted = docker.dockerRun({
     mode,
+    instanceName,
     envFilePath,
     port,
     vaultPath,
@@ -318,7 +338,7 @@ const offerDockerRun = async (
   const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
 
   if (!healthy) {
-    spinner.stop(healthTimeoutMessage(mode, timeoutMs))
+    spinner.stop(healthTimeoutMessage({ mode, timeoutMs, instanceName }))
     return "starting"
   }
   spinner.stop("Server is up — health check passed.")
@@ -378,6 +398,10 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
     if (!continueReinit) return 0
   }
 
+  const identityResult = await resolveInstanceIdentity({ mode: "local", targetDir, flags }, deps)
+
+  if (identityResult.kind === "exit") return 1
+
   const token = generateToken()
 
   // Guided optional settings: the chooser reads current values from the
@@ -387,7 +411,10 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // user asked for a full re-run — the answers land in the regenerated file
   // when they overwrite at the conflict prompt (keeping it discards them,
   // which the write report states). In-place edits stay configure's job.
-  const defaultEnvContent = buildLocalEnv({ mcpAuthToken: token, vaultPath })
+  const defaultEnvContent = applyInstanceIdentity(
+    buildLocalEnv({ mcpAuthToken: token, vaultPath }),
+    identityResult.identity,
+  )
   const optionalOverrides = flags.yes
     ? {}
     : await askOptionalSettings({ mode: "local", envContent: defaultEnvContent }, prompts)
@@ -421,14 +448,18 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
+  const instanceName = readWrittenInstanceName(targetDir, prompts)
+
+  if (!instanceName) return 1
 
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
     ? "not-started"
-    : await offerDockerRun({ targetDir, port, mode: "local", vaultPath }, deps)
+    : await offerDockerRun({ targetDir, instanceName, port, mode: "local", vaultPath }, deps)
   prompts.print(
     buildLocalConnectMessage({
       targetDir,
+      instanceName,
       token,
       startStatus,
       port,
@@ -462,6 +493,12 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
 
   if (!continueReinit) return 0
 
+  // Before the public URL prompt, so a second install's new port is known when
+  // its URL is typed.
+  const identityResult = await resolveInstanceIdentity({ mode: "remote", targetDir, flags }, deps)
+
+  if (identityResult.kind === "exit") return 1
+
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
 
@@ -492,13 +529,16 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // .env passed the re-init guard — a consented re-run gets the full setup,
   // chooser included (see the local flow's comment for the overwrite/keep
   // semantics).
-  const defaultEnvContent = buildRemoteEnv({
-    mcpAuthToken: token,
-    publicUrl,
-    obsidianAuthToken: capturedToken ?? existingEnvToken,
-    vaultName,
-    vaultPassword,
-  })
+  const defaultEnvContent = applyInstanceIdentity(
+    buildRemoteEnv({
+      mcpAuthToken: token,
+      publicUrl,
+      obsidianAuthToken: capturedToken ?? existingEnvToken,
+      vaultName,
+      vaultPassword,
+    }),
+    identityResult.identity,
+  )
   const optionalOverrides = await askOptionalSettings(
     { mode: "remote", envContent: defaultEnvContent },
     prompts,
@@ -525,12 +565,15 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // server only reads the file. The prompted value is the fallback for a kept
   // legacy .env that predates PUBLIC_URL.
   const effectivePublicUrl = readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
+  const instanceName = readWrittenInstanceName(targetDir, prompts)
+
+  if (!instanceName) return 1
 
   // Without the sync token the container can't start (init-check-auth fails
   // and s6 stops it), so only offer docker run when it was provided.
   const startStatus: StartStatus = !hasExistingToken
     ? "not-started"
-    : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
+    : await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
 
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.
@@ -543,6 +586,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   prompts.print(
     buildRemoteConnectMessage({
       targetDir,
+      instanceName,
       token,
       publicUrl: effectivePublicUrl,
       startStatus,

@@ -4,7 +4,6 @@ import {
   buildDockerLogsArgs,
   buildDockerRunArgs,
   classifyDaemonStatus,
-  CONTAINER_NAME,
   healthPollTimeoutMs,
   healthTimeoutMessage,
   LOCAL_IMAGE,
@@ -20,6 +19,7 @@ describe("buildDockerRunArgs", () => {
   it("produces the correct args for local mode", () => {
     const args = buildDockerRunArgs({
       mode: "local",
+      instanceName: "vault-cortex",
       envFilePath: "/home/user/vault-cortex/.env",
       port: 8000,
       vaultPath: "/home/user/MyVault",
@@ -29,7 +29,7 @@ describe("buildDockerRunArgs", () => {
       "run",
       "-d",
       "--name",
-      CONTAINER_NAME,
+      "vault-cortex",
       "--restart",
       "unless-stopped",
       "--env-file",
@@ -65,6 +65,7 @@ describe("buildDockerRunArgs", () => {
   it("produces the correct args for remote mode", () => {
     const args = buildDockerRunArgs({
       mode: "remote",
+      instanceName: "vault-cortex",
       envFilePath: "/opt/vault-cortex/.env",
       port: 8000,
     })
@@ -73,7 +74,7 @@ describe("buildDockerRunArgs", () => {
       "run",
       "-d",
       "--name",
-      CONTAINER_NAME,
+      "vault-cortex",
       "--restart",
       "unless-stopped",
       "--env-file",
@@ -89,7 +90,7 @@ describe("buildDockerRunArgs", () => {
       "-p",
       "8000:8000",
       "--hostname",
-      CONTAINER_NAME,
+      "vault-cortex",
       "-v",
       "vault-cortex_vault_data:/vault",
       "-v",
@@ -119,6 +120,7 @@ describe("buildDockerRunArgs", () => {
   it("uses a custom port for the host-side mapping", () => {
     const args = buildDockerRunArgs({
       mode: "local",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 9000,
       vaultPath: "/vault",
@@ -132,6 +134,7 @@ describe("buildDockerRunArgs", () => {
   it("overrides VAULT_PATH so the host path does not leak into the container", () => {
     const args = buildDockerRunArgs({
       mode: "local",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
       vaultPath: "/Users/me/My Vault",
@@ -146,6 +149,7 @@ describe("buildDockerRunArgs", () => {
     expect(() =>
       buildDockerRunArgs({
         mode: "local",
+        instanceName: "vault-cortex",
         envFilePath: "/tmp/.env",
         port: 8000,
       }),
@@ -155,6 +159,7 @@ describe("buildDockerRunArgs", () => {
   it("uses compose-prefixed volume names for backward compatibility", () => {
     const localArgs = buildDockerRunArgs({
       mode: "local",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
       vaultPath: "/vault",
@@ -163,6 +168,7 @@ describe("buildDockerRunArgs", () => {
 
     const remoteArgs = buildDockerRunArgs({
       mode: "remote",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
     })
@@ -171,9 +177,74 @@ describe("buildDockerRunArgs", () => {
     expect(remoteArgs).toContain("vault-cortex_obsidian_config:/home/obsidian/.config")
   })
 
+  it("names the container and every volume after a custom instance in local mode", () => {
+    const args = buildDockerRunArgs({
+      mode: "local",
+      instanceName: "work",
+      envFilePath: "/home/user/work/.env",
+      port: 8001,
+      vaultPath: "/home/user/WorkVault",
+    })
+
+    expect(args).toEqual([
+      "run",
+      "-d",
+      "--name",
+      "work",
+      "--restart",
+      "unless-stopped",
+      "--env-file",
+      "/home/user/work/.env",
+      "-e",
+      "VAULT_PATH=/vault",
+      "-e",
+      "PORT=8000",
+      "-e",
+      "HOST=0.0.0.0",
+      "-e",
+      "INDEX_DB_PATH=/data/index.db",
+      "-p",
+      "8001:8000",
+      "-v",
+      "/home/user/WorkVault:/vault:rw",
+      "-v",
+      "work_mcp_data:/data",
+      "--health-cmd",
+      expect.stringContaining("healthz"),
+      "--health-interval",
+      "15s",
+      "--health-timeout",
+      "5s",
+      "--health-retries",
+      "3",
+      "--health-start-period",
+      "20s",
+      LOCAL_IMAGE,
+    ])
+  })
+
+  it("names the container, hostname and every volume after a custom instance in remote mode", () => {
+    const args = buildDockerRunArgs({
+      mode: "remote",
+      instanceName: "work",
+      envFilePath: "/opt/work/.env",
+      port: 8001,
+    })
+
+    const volumeArgs = args.filter((_arg, index) => args[index - 1] === "-v")
+    expect(args.slice(0, 4)).toEqual(["run", "-d", "--name", "work"])
+    expect(args[args.indexOf("--hostname") + 1]).toBe("work")
+    expect(volumeArgs).toEqual([
+      "work_vault_data:/vault",
+      "work_mcp_data:/data",
+      "work_obsidian_config:/home/obsidian/.config",
+    ])
+  })
+
   it("includes remote-specific log rotation and longer healthcheck timings", () => {
     const args = buildDockerRunArgs({
       mode: "remote",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
     })
@@ -202,14 +273,24 @@ describe("healthPollTimeoutMs", () => {
 
 describe("healthTimeoutMessage", () => {
   it("renders the local budget as 2 minutes", () => {
-    expect(healthTimeoutMessage("local", 120_000)).toBe(
-      "Server did not respond within 2 minutes — check: docker logs vault-cortex",
-    )
+    expect(
+      healthTimeoutMessage({ mode: "local", timeoutMs: 120_000, instanceName: "vault-cortex" }),
+    ).toBe("Server did not respond within 2 minutes — check: docker logs vault-cortex")
   })
 
   it("adds the first-sync hint to the remote 4-minute message", () => {
-    expect(healthTimeoutMessage("remote", 240_000)).toBe(
+    expect(
+      healthTimeoutMessage({ mode: "remote", timeoutMs: 240_000, instanceName: "vault-cortex" }),
+    ).toBe(
       "Server did not respond within 4 minutes — check: docker logs vault-cortex (a long first sync may still be running — the container keeps starting in the background)",
+    )
+  })
+})
+
+describe("healthTimeoutMessage with a custom instance", () => {
+  it("points the logs command at the instance's container", () => {
+    expect(healthTimeoutMessage({ mode: "local", timeoutMs: 120_000, instanceName: "work" })).toBe(
+      "Server did not respond within 2 minutes — check: docker logs work",
     )
   })
 })
@@ -268,29 +349,39 @@ describe("pollHealth", () => {
 
 describe("buildDockerLogsArgs", () => {
   it("targets the container with no flags by default", () => {
-    expect(buildDockerLogsArgs({ follow: false })).toEqual(["logs", CONTAINER_NAME])
-  })
-
-  it("adds --follow when requested", () => {
-    expect(buildDockerLogsArgs({ follow: true })).toEqual(["logs", "--follow", CONTAINER_NAME])
-  })
-
-  it("adds --since with its value when provided", () => {
-    expect(buildDockerLogsArgs({ follow: false, since: "10m" })).toEqual([
+    expect(buildDockerLogsArgs({ instanceName: "vault-cortex", follow: false })).toEqual([
       "logs",
-      "--since",
-      "10m",
-      CONTAINER_NAME,
+      "vault-cortex",
     ])
   })
 
-  it("combines --follow and --since in flag order", () => {
-    expect(buildDockerLogsArgs({ follow: true, since: "2h" })).toEqual([
+  it("adds --follow when requested", () => {
+    expect(buildDockerLogsArgs({ instanceName: "vault-cortex", follow: true })).toEqual([
       "logs",
       "--follow",
-      "--since",
-      "2h",
-      CONTAINER_NAME,
+      "vault-cortex",
+    ])
+  })
+
+  it("adds --since with its value when provided", () => {
+    expect(
+      buildDockerLogsArgs({ instanceName: "vault-cortex", follow: false, since: "10m" }),
+    ).toEqual(["logs", "--since", "10m", "vault-cortex"])
+  })
+
+  it("combines --follow and --since in flag order", () => {
+    expect(
+      buildDockerLogsArgs({ instanceName: "vault-cortex", follow: true, since: "2h" }),
+    ).toEqual(["logs", "--follow", "--since", "2h", "vault-cortex"])
+  })
+})
+
+describe("buildDockerLogsArgs with a custom instance", () => {
+  it("targets the instance's container", () => {
+    expect(buildDockerLogsArgs({ instanceName: "work", follow: true })).toEqual([
+      "logs",
+      "--follow",
+      "work",
     ])
   })
 })

@@ -4,10 +4,11 @@ import type { Mode } from "./scaffold.js"
 
 export const LOCAL_IMAGE = "ghcr.io/aliasunder/vault-cortex:latest"
 export const REMOTE_IMAGE = "ghcr.io/aliasunder/vault-cortex:remote"
-export const CONTAINER_NAME = "vault-cortex"
 
 export type DockerRunParams = {
   mode: Mode
+  /** The install's INSTANCE_NAME: the container name and the volume prefix. */
+  instanceName: string
   envFilePath: string
   port: number
   /** Host vault path — local mode only (bind mount). */
@@ -15,10 +16,41 @@ export type DockerRunParams = {
 }
 
 export type DockerLogsParams = {
+  instanceName: string
   /** Stream new output until interrupted (`docker logs --follow`). */
   follow: boolean
   /** Passed through to `docker logs --since` (e.g. "10m", "2h", or a timestamp). */
   since?: string
+}
+
+/**
+ * Named volumes per mode, mounted in this order. The volume names are
+ * `<instance>_<volume>`, the names Compose gives a project's volumes, so a
+ * CLI install and a Compose install with the same name share their data.
+ */
+const VOLUME_MOUNTS: Readonly<Record<Mode, ReadonlyArray<{ volume: string; mountPath: string }>>> =
+  {
+    local: [{ volume: "mcp_data", mountPath: "/data" }],
+    remote: [
+      { volume: "vault_data", mountPath: "/vault" },
+      { volume: "mcp_data", mountPath: "/data" },
+      { volume: "obsidian_config", mountPath: "/home/obsidian/.config" },
+    ],
+  }
+
+const volumeName = (instanceName: string, volume: string): string => `${instanceName}_${volume}`
+
+/** The named volumes an install of this mode and name mounts. */
+export const instanceVolumeNames = (params: { mode: Mode; instanceName: string }): string[] => {
+  const { mode, instanceName } = params
+  return VOLUME_MOUNTS[mode].map(({ volume }) => volumeName(instanceName, volume))
+}
+
+const volumeMountArgs = (mode: Mode, instanceName: string): string[] => {
+  return VOLUME_MOUNTS[mode].flatMap(({ volume, mountPath }) => [
+    "-v",
+    `${volumeName(instanceName, volume)}:${mountPath}`,
+  ])
 }
 
 /**
@@ -36,10 +68,12 @@ export type DockerRunner = {
   dockerRun: (params: DockerRunParams) => boolean
   /** Pulls the latest image from the registry. */
   pullImage: (image: string) => boolean
-  /** Stops and removes the vault-cortex container (idempotent). */
-  stopAndRemoveContainer: () => boolean
-  /** True when a vault-cortex container exists, running or stopped. */
-  containerExists: () => boolean
+  /** Stops and removes the named container (idempotent). */
+  stopAndRemoveContainer: (instanceName: string) => boolean
+  /** True when a container with this name exists, running or stopped. */
+  containerExists: (instanceName: string) => boolean
+  /** True when a named volume exists. */
+  volumeExists: (volumeName: string) => boolean
   /**
    * Streams `docker logs` to the terminal; resolves with the docker
    * process's exit code once the stream ends.
@@ -68,14 +102,14 @@ const HEALTH_CMD =
  * testable without spawning processes.
  */
 export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
-  const { mode, envFilePath, port, vaultPath } = params
+  const { mode, instanceName, envFilePath, port, vaultPath } = params
   const image = mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
 
   const args = [
     "run",
     "-d",
     "--name",
-    CONTAINER_NAME,
+    instanceName,
     "--restart",
     "unless-stopped",
     "--env-file",
@@ -90,17 +124,15 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
       throw new Error("vaultPath is required for local mode")
     }
     args.push("-v", `${vaultPath}:/vault:rw`)
-    args.push("-v", "vault-cortex_mcp_data:/data")
+    args.push(...volumeMountArgs(mode, instanceName))
     args.push("--health-cmd", HEALTH_CMD)
     args.push("--health-interval", "15s")
     args.push("--health-timeout", "5s")
     args.push("--health-retries", "3")
     args.push("--health-start-period", "20s")
   } else {
-    args.push("--hostname", CONTAINER_NAME)
-    args.push("-v", "vault-cortex_vault_data:/vault")
-    args.push("-v", "vault-cortex_mcp_data:/data")
-    args.push("-v", "vault-cortex_obsidian_config:/home/obsidian/.config")
+    args.push("--hostname", instanceName)
+    args.push(...volumeMountArgs(mode, instanceName))
     args.push("--health-cmd", HEALTH_CMD)
     args.push("--health-interval", "15s")
     args.push("--health-timeout", "5s")
@@ -123,12 +155,12 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
  * testable without spawning processes.
  */
 export const buildDockerLogsArgs = (params: DockerLogsParams): string[] => {
-  const { follow, since } = params
+  const { instanceName, follow, since } = params
   return [
     "logs",
     ...(follow ? ["--follow"] : []),
     ...(since ? ["--since", since] : []),
-    CONTAINER_NAME,
+    instanceName,
   ]
 }
 
@@ -155,21 +187,31 @@ export const createDockerRunner = (): DockerRunner => ({
   // which lands as a raw hex line between the wizard's prompts. stderr stays
   // inherited — image-pull progress and error output print live, which the
   // "see output above" failure messages rely on.
-  dockerRun: (params) =>
-    spawnSync("docker", buildDockerRunArgs(params), {
-      stdio: ["ignore", "ignore", "inherit"],
-    }).status === 0,
+  dockerRun: (params) => {
+    return (
+      spawnSync("docker", buildDockerRunArgs(params), {
+        stdio: ["ignore", "ignore", "inherit"],
+      }).status === 0
+    )
+  },
   pullImage: (image) => spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
-  stopAndRemoveContainer: () => spawnSync("docker", ["rm", "-f", CONTAINER_NAME]).status === 0,
+  stopAndRemoveContainer: (instanceName) => {
+    return spawnSync("docker", ["rm", "-f", instanceName]).status === 0
+  },
   // `docker rm -f` on a missing container exits 1 on engines < 23 and 0 on
   // >= 23, so stopAndRemoveContainer's status can't distinguish "already
   // gone" from "failed" — callers needing idempotent messaging probe
   // existence first. Output stays piped (discarded): this is a boolean probe.
-  containerExists: () => spawnSync("docker", ["container", "inspect", CONTAINER_NAME]).status === 0,
+  containerExists: (instanceName) => {
+    return spawnSync("docker", ["container", "inspect", instanceName]).status === 0
+  },
+  volumeExists: (volumeName) => {
+    return spawnSync("docker", ["volume", "inspect", volumeName]).status === 0
+  },
   // Async spawn, not spawnSync: --follow streams until interrupted, and the
   // exit code must be observable after the stream closes.
-  streamLogs: (params) =>
-    new Promise((resolveExitCode) => {
+  streamLogs: (params) => {
+    return new Promise((resolveExitCode) => {
       const child = spawn("docker", buildDockerLogsArgs(params), {
         stdio: ["ignore", "inherit", "inherit"],
       })
@@ -188,7 +230,8 @@ export const createDockerRunner = (): DockerRunner => ({
       // A null code means the child died to a signal — report the shell
       // convention for ctrl-C (128 + SIGINT = 130).
       child.once("close", (code) => resolveExitCode(code ?? 130))
-    }),
+    })
+  },
 })
 
 /** Default bound on a single health request (shared by probe and poll). */
@@ -233,8 +276,13 @@ export const healthPollTimeoutMs = (mode: Mode): number => {
  *  adds a first-sync hint: the container's init chain retries the first
  *  sync with no upper time bound, so an expired poll does not mean the
  *  server failed — it may flip healthy after the CLI stops waiting. */
-export const healthTimeoutMessage = (mode: Mode, timeoutMs: number): string => {
-  const baseMessage = `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${CONTAINER_NAME}`
+export const healthTimeoutMessage = (params: {
+  mode: Mode
+  timeoutMs: number
+  instanceName: string
+}): string => {
+  const { mode, timeoutMs, instanceName } = params
+  const baseMessage = `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${instanceName}`
 
   if (mode === "remote") {
     return `${baseMessage} (a long first sync may still be running — the container keeps starting in the background)`

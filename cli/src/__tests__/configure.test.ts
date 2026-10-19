@@ -163,6 +163,26 @@ describe("runConfigure with picked settings", () => {
     expect(scripted.outros).toEqual(["Done."])
   })
 
+  it("re-creates the container a custom INSTANCE_NAME names when the restart is accepted", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    writeFileSync(envFilePath, `${LOCAL_ENV_CONTENT}INSTANCE_NAME=work\n`)
+    const { docker, dockerRunCalls } = createRecordingDocker()
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+      true, // restart now
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(dockerRunCalls.map((params) => params.instanceName)).toEqual(["work"])
+  })
+
   it("re-creates the container on the new PORT when the restart is accepted", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = writeLocalEnv(targetDir)
@@ -189,6 +209,7 @@ describe("runConfigure with picked settings", () => {
     expect(dockerRunCalls).toEqual([
       {
         mode: "local",
+        instanceName: "vault-cortex",
         envFilePath,
         port: 9100,
         vaultPath: "/home/user/MyVault",

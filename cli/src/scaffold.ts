@@ -19,8 +19,26 @@ export type FileWriteResult = {
 /** Default host port — matches the container's internal port. */
 export const DEFAULT_PORT = 8000
 
-/** Matches an active (uncommented) PORT line, with optional surrounding quotes. */
-const ENV_PORT_LINE = /^PORT=["']?(\d+)["']?\s*$/m
+/**
+ * Used when .env sets no INSTANCE_NAME: the container name and volume prefix
+ * every install had before the setting existed, so those installs keep their data.
+ */
+export const DEFAULT_INSTANCE_NAME = "vault-cortex"
+
+/**
+ * Matches every active (uncommented) PORT line, with optional surrounding
+ * quotes. Global, because `docker run --env-file` lets the last duplicate win.
+ */
+const ENV_PORT_LINES = /^PORT=["']?(\d+)["']?\s*$/gm
+
+/** Matches every active (uncommented) INSTANCE_NAME line, capturing its raw value. */
+const ENV_INSTANCE_NAME_LINES = /^INSTANCE_NAME=(.*)$/gm
+
+/**
+ * Compose's project-name rule plus Docker's two-character minimum for container
+ * names, so the container, the Compose project and the volume prefix are one string.
+ */
+const INSTANCE_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]+$/
 
 /** Matches an active (uncommented) VAULT_PATH line in a .env file. */
 const ENV_VAULT_PATH_LINE = /^VAULT_PATH=(.+)\s*$/m
@@ -55,13 +73,44 @@ export const buildFilesToWrite = (envContent: string): FileToWrite[] => [
 /**
  * Reads the host port from the .env that is actually on disk — which may be
  * a pre-existing file this run chose to keep, with a PORT override the
- * generated default doesn't have. Falls back to DEFAULT_PORT when the file
- * or an uncommented PORT line is absent.
+ * generated default doesn't have. The last active line wins, as it does for
+ * `docker run --env-file`. Falls back to DEFAULT_PORT when the file or an
+ * uncommented PORT line is absent.
  */
 export const readEnvPort = (envFilePath: string): number => {
   if (!existsSync(envFilePath)) return DEFAULT_PORT
-  const match = ENV_PORT_LINE.exec(readFileSync(envFilePath, "utf8"))
-  return match ? Number(match[1]) : DEFAULT_PORT
+  const portLines = [...readFileSync(envFilePath, "utf8").matchAll(ENV_PORT_LINES)]
+  const lastPortLine = portLines.at(-1)
+  return lastPortLine ? Number(lastPortLine[1]) : DEFAULT_PORT
+}
+
+/** Returns why a candidate instance name is invalid, or undefined when it is valid. */
+export const validateInstanceName = (candidateName: string): string | undefined => {
+  if (INSTANCE_NAME_PATTERN.test(candidateName)) return undefined
+  return `"${candidateName}" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.`
+}
+
+export type InstanceNameRead =
+  { kind: "ok"; instanceName: string } | { kind: "invalid"; message: string }
+
+/**
+ * Reads INSTANCE_NAME from a .env file:
+ * - the last active line wins, as it does for `docker run --env-file`;
+ * - a missing file, line or empty value means DEFAULT_INSTANCE_NAME;
+ * - an invalid value is reported, never corrected, because the name decides
+ *   which volumes hold the install's data.
+ */
+export const readEnvInstanceName = (envFilePath: string): InstanceNameRead => {
+  if (!existsSync(envFilePath)) return { kind: "ok", instanceName: DEFAULT_INSTANCE_NAME }
+  const instanceNameLines = [...readFileSync(envFilePath, "utf8").matchAll(ENV_INSTANCE_NAME_LINES)]
+  const rawValue = instanceNameLines.at(-1)?.[1].trim()
+  const instanceName = rawValue ? stripSurroundingQuotes(rawValue) : ""
+
+  if (!instanceName) return { kind: "ok", instanceName: DEFAULT_INSTANCE_NAME }
+  const invalidReason = validateInstanceName(instanceName)
+
+  if (invalidReason) return { kind: "invalid", message: `INSTANCE_NAME ${invalidReason}` }
+  return { kind: "ok", instanceName }
 }
 
 /**

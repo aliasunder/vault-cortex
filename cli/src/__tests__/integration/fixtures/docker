@@ -2,12 +2,22 @@
 # Fake docker binary for CLI PTY integration tests.
 # Shadows the real docker when its directory is prepended to PATH.
 # Behavior is controllable via environment variables:
-#   DOCKER_SHIM_NO_CONTAINER=1  — `container inspect` exits 1 (no container)
+#   DOCKER_SHIM_PRESENT         — space-separated container and volume names that
+#                                 exist; `container inspect` and `volume inspect`
+#                                 exit 1 for any other name (default: none exist)
 #   DOCKER_SHIM_RUN_FAIL=1      — `run` exits 1
 #   DOCKER_SHIM_HEALTH_PORT     — port for the background health server (default 8000)
 #   DOCKER_SHIM_PID_FILE        — where to write the health server PID
 
 set -euo pipefail
+
+# Exits 0 when the name is in DOCKER_SHIM_PRESENT.
+is_present() {
+  case " ${DOCKER_SHIM_PRESENT:-} " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 case "${1:-}" in
   info)
@@ -36,10 +46,18 @@ case "${1:-}" in
 
   container)
     # docker container inspect <name> — check if container exists
-    if [ "${DOCKER_SHIM_NO_CONTAINER:-}" = "1" ]; then
+    if ! is_present "${3:-}"; then
       exit 1
     fi
     echo '[{"Id":"abc123","State":{"Status":"running"}}]'
+    ;;
+
+  volume)
+    # docker volume inspect <name> — check if volume exists
+    if ! is_present "${3:-}"; then
+      exit 1
+    fi
+    echo '[{"Name":"'"${3:-}"'"}]'
     ;;
 
   stop)

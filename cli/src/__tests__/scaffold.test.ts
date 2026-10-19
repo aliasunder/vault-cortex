@@ -7,6 +7,7 @@ import {
   buildFilesToWrite,
   detectMode,
   patchEnvObsidianToken,
+  readEnvInstanceName,
   readEnvObsidianToken,
   readEnvPort,
   readEnvPublicUrl,
@@ -144,6 +145,70 @@ describe("readEnvPort", () => {
     writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPORT="9000"\n')
 
     expect(readEnvPort(envPath)).toBe(9000)
+  })
+
+  it("takes the last active PORT line, as docker --env-file does", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "PORT=8000\nMCP_AUTH_TOKEN=abc\nPORT=8001\n")
+
+    expect(readEnvPort(envPath)).toBe(8001)
+  })
+})
+
+describe("readEnvInstanceName", () => {
+  const writeEnv = (content: string): string => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, content)
+    return envPath
+  }
+
+  it("returns the default name when no .env exists", () => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(readEnvInstanceName(missingPath)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
+  })
+
+  it("returns the default name when the line is missing, commented or empty", () => {
+    const withoutLine = writeEnv("MCP_AUTH_TOKEN=abc\n")
+    const commentedLine = writeEnv("# INSTANCE_NAME=work\n")
+    const emptyLine = writeEnv("INSTANCE_NAME=\n")
+
+    expect(readEnvInstanceName(withoutLine)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
+    expect(readEnvInstanceName(commentedLine)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
+    expect(readEnvInstanceName(emptyLine)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
+  })
+
+  it("returns a valid name, with surrounding quotes dropped", () => {
+    expect(readEnvInstanceName(writeEnv("INSTANCE_NAME=work_2\n"))).toEqual({
+      kind: "ok",
+      instanceName: "work_2",
+    })
+    expect(readEnvInstanceName(writeEnv('INSTANCE_NAME="work-vault"\n'))).toEqual({
+      kind: "ok",
+      instanceName: "work-vault",
+    })
+  })
+
+  it("takes the last active line, as docker --env-file does", () => {
+    const envPath = writeEnv("INSTANCE_NAME=vault-cortex\nPORT=8001\nINSTANCE_NAME=work\n")
+
+    expect(readEnvInstanceName(envPath)).toEqual({ kind: "ok", instanceName: "work" })
+  })
+
+  it.each([
+    { label: "a one-character name", value: "a" },
+    { label: "uppercase letters", value: "Work" },
+    { label: "a space", value: "my vault" },
+    { label: "a leading hyphen", value: "-work" },
+    { label: "a dot", value: "work.vault" },
+  ])("rejects $label with the rule in the message", ({ value }) => {
+    const envPath = writeEnv(`INSTANCE_NAME=${value}\n`)
+
+    expect(readEnvInstanceName(envPath)).toEqual({
+      kind: "invalid",
+      message: `INSTANCE_NAME "${value}" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.`,
+    })
   })
 })
 

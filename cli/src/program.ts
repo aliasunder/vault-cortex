@@ -34,6 +34,11 @@ export const buildProgram = (options: ProgramOptions): Command => {
     .option("--mode <mode>", 'deployment mode: "local" (default) or "remote"')
     .option("--vault-path <path>", "absolute path to your Obsidian vault (local mode)")
     .option("--dir <path>", "directory to write config files into (default: ./vault-cortex)")
+    .option(
+      "--instance-name <name>",
+      "name for this install's container and data (default: vault-cortex); give each vault on a machine its own",
+    )
+    .option("--port <port>", "host port for this install (default: 8000)")
     .option("--yes", "non-interactive local setup with defaults; requires --vault-path")
     .action(async (flags: InitFlags) => {
       process.exitCode = await options.runInit(flags)

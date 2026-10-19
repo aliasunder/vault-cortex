@@ -1,7 +1,5 @@
 import { styleText } from "node:util"
 
-import { CONTAINER_NAME } from "./docker.js"
-
 export type StartStatus = "running" | "starting" | "not-started"
 
 // Connect instructions are printed as plain text (not a clack note box) so the
@@ -84,19 +82,20 @@ export const startCommand = (targetDir: string): string =>
 const startServerLine = (targetDir: string): string =>
   `Start the server:\n  ${startCommand(targetDir)}`
 
-const startingInBackgroundLine = (): string =>
-  `The server is starting in the background — check progress:\n  docker logs ${CONTAINER_NAME}`
+const startingInBackgroundLine = (instanceName: string): string =>
+  `The server is starting in the background — check progress:\n  docker logs ${instanceName}`
 
 /** Remote start line: running, starting, blocked on the missing sync token, or ready to start. */
 const remoteStartLine = (params: {
   targetDir: string
+  instanceName: string
   startStatus: StartStatus
   obsidianTokenMissing: boolean
 }): string => {
-  const { targetDir, startStatus, obsidianTokenMissing } = params
+  const { targetDir, instanceName, startStatus, obsidianTokenMissing } = params
 
   if (startStatus === "running") return "The server is running."
-  if (startStatus === "starting") return startingInBackgroundLine()
+  if (startStatus === "starting") return startingInBackgroundLine(instanceName)
   if (obsidianTokenMissing) {
     return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${startCommand(targetDir)}`
   }
@@ -138,11 +137,12 @@ const connectUrlBlock = (mcpUrl: string, tokenLine: string): string =>
 // a CLI (`claude mcp add`, `opencode mcp add`), a connector dialog, or a
 // config file — then approve the consent page. Claude Code is the worked
 // example. The per-mode caveats (which clients need https, the localhost
-// bridge) are appended by the builders.
-const connectGuidance = (mcpUrl: string): string =>
+// bridge) are appended by the builders. The connector is named after the
+// instance, so a second instance gets its own entry instead of replacing the first.
+const connectGuidance = (mcpUrl: string, instanceName: string): string =>
   `Add the URL above as a remote MCP server (leave Client ID/Secret empty),
 then approve the consent page with the token. For example, Claude Code:
-  1. claude mcp add --scope user --transport http vault-cortex ${mcpUrl}
+  1. claude mcp add --scope user --transport http ${instanceName} ${mcpUrl}
   2. approve the browser consent page with the token above
   3. done — the client holds auto-refreshing access tokens; the token
      never sits in client config`
@@ -181,17 +181,18 @@ const updateGuidance = (targetDir: string): string =>
  */
 export const buildLocalConnectMessage = (params: {
   targetDir: string
+  instanceName: string
   token: string
   startStatus: StartStatus
   port: number
   tokenWritten: boolean
 }): string => {
-  const { targetDir, token, startStatus, port, tokenWritten } = params
+  const { targetDir, instanceName, token, startStatus, port, tokenWritten } = params
 
   const baseUrl = `http://localhost:${port}`
 
   const nonRunningLine =
-    startStatus === "starting" ? startingInBackgroundLine() : startServerLine(targetDir)
+    startStatus === "starting" ? startingInBackgroundLine(instanceName) : startServerLine(targetDir)
   const startLine = startStatus === "running" ? "The server is running." : nonRunningLine
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
@@ -220,13 +221,13 @@ ${sectionRule("MCP client")}
 
 ${connectUrlBlock(`${baseUrl}/mcp`, tokenLine)}
 
-${connectGuidance(`${baseUrl}/mcp`)}
+${connectGuidance(`${baseUrl}/mcp`, instanceName)}
 
 Other clients (opencode, Cursor, …) take the URL above too. claude.ai
 (web) can't reach localhost — connect from a client on this machine.
 Claude Desktop only accepts https URLs in its connector dialog, so bridge
 it with mcp-remote:
-  "vault-cortex": {
+  "${instanceName}": {
     "command": "npx",
     "args": ["-y", "mcp-remote", "${baseUrl}/mcp",
       "--header", "Authorization: Bearer <token above>"]
@@ -262,16 +263,26 @@ ${bottomRule()}`
  */
 export const buildRemoteConnectMessage = (params: {
   targetDir: string
+  instanceName: string
   token: string
   publicUrl: string
   startStatus: StartStatus
   obsidianTokenMissing: boolean
   tokenWritten: boolean
 }): string => {
-  const { targetDir, token, publicUrl, startStatus, obsidianTokenMissing, tokenWritten } = params
+  const {
+    targetDir,
+    instanceName,
+    token,
+    publicUrl,
+    startStatus,
+    obsidianTokenMissing,
+    tokenWritten,
+  } = params
 
   const startLine = remoteStartLine({
     targetDir,
+    instanceName,
     startStatus,
     obsidianTokenMissing,
   })
@@ -286,11 +297,11 @@ export const buildRemoteConnectMessage = (params: {
   // input is valid and must still route to the https branch.
   const isHttps = publicUrl.toLowerCase().startsWith("https://")
   const clientGuidance = isHttps
-    ? `${connectGuidance(`${publicUrl}/mcp`)}
+    ? `${connectGuidance(`${publicUrl}/mcp`, instanceName)}
 
 Reachable over https from any MCP client — Claude Desktop, claude.ai (web
 and mobile), opencode, Cursor — from any device.`
-    : `${connectGuidance(`${publicUrl}/mcp`)}
+    : `${connectGuidance(`${publicUrl}/mcp`, instanceName)}
 
 Other clients (opencode, Cursor, …) work over http too. claude.ai and
 Claude Desktop only accept https URLs — set up HTTPS for those clients

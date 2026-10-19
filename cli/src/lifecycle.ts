@@ -1,7 +1,6 @@
 import { join, resolve } from "node:path"
 
 import {
-  CONTAINER_NAME,
   healthPollTimeoutMs,
   healthTimeoutMessage,
   pollHealth,
@@ -12,6 +11,7 @@ import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./
 import {
   detectMode,
   hasEnvPublicUrl,
+  readEnvInstanceName,
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
@@ -56,6 +56,8 @@ export type RestartDeps = {
 /** An init'd deployment on disk, reconstructed from its .env file. */
 export type Deployment = {
   mode: Mode
+  /** The .env's INSTANCE_NAME: the container this deployment owns and its volume prefix. */
+  instanceName: string
   targetDir: string
   envFilePath: string
   port: number
@@ -68,14 +70,15 @@ export type Deployment = {
 const DEFAULT_TARGET_DIR = "./vault-cortex"
 
 /**
- * Light gate for commands that operate on an existing deployment without
- * starting a container: resolves --dir and confirms an init'd .env exists.
+ * Light gate for commands that use an existing deployment without starting a container:
+ * - resolves --dir and confirms an init'd .env exists;
+ * - reads INSTANCE_NAME, so an invalid name stops every command before it touches Docker.
  * Full start-readiness validation lives in resolveDeployment.
  */
 export const requireInitializedDir = (
   dirFlag: string | undefined,
   prompts: Prompts,
-): { targetDir: string; envFilePath: string; mode: Mode } | undefined => {
+): { targetDir: string; envFilePath: string; mode: Mode; instanceName: string } | undefined => {
   const targetDir = resolve(expandTilde(dirFlag ?? DEFAULT_TARGET_DIR))
   const envFilePath = join(targetDir, ".env")
 
@@ -85,7 +88,13 @@ export const requireInitializedDir = (
     prompts.error(`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`)
     return undefined
   }
-  return { targetDir, envFilePath, mode }
+  const instanceNameRead = readEnvInstanceName(envFilePath)
+
+  if (instanceNameRead.kind === "invalid") {
+    prompts.error(`${instanceNameRead.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  return { targetDir, envFilePath, mode, instanceName: instanceNameRead.instanceName }
 }
 
 /**
@@ -101,7 +110,7 @@ export const resolveDeployment = (
   const initialized = requireInitializedDir(dirFlag, prompts)
 
   if (!initialized) return undefined
-  const { targetDir, envFilePath, mode } = initialized
+  const { targetDir, envFilePath, mode, instanceName } = initialized
 
   const port = readEnvPort(envFilePath)
   const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
@@ -121,7 +130,7 @@ export const resolveDeployment = (
   }
 
   const publicUrl = readEnvPublicUrl(envFilePath)
-  return { mode, targetDir, envFilePath, port, vaultPath, publicUrl }
+  return { mode, instanceName, targetDir, envFilePath, port, vaultPath, publicUrl }
 }
 
 /**
@@ -197,14 +206,15 @@ export const recreateContainer = async (
 ): Promise<number> => {
   const { deployment, healthTimeoutMs } = params
   const { prompts, docker, fetchFn } = deps
+  const { instanceName } = deployment
 
   // `docker rm -f` on a missing container exits non-zero on engines < 23,
   // so the bare return value can't distinguish "nothing to remove" from a
   // real failure — only treat removal as failed when a container exists.
   // Proceeding after a genuine failure would surface as a confusing
   // "container name already in use" from docker run.
-  if (docker.containerExists() && !docker.stopAndRemoveContainer()) {
-    prompts.error(`Could not remove the existing container — check: docker rm -f ${CONTAINER_NAME}`)
+  if (docker.containerExists(instanceName) && !docker.stopAndRemoveContainer(instanceName)) {
+    prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
     return 1
   }
 
@@ -212,6 +222,7 @@ export const recreateContainer = async (
   prompts.log("Starting container...")
   const containerStarted = docker.dockerRun({
     mode: deployment.mode,
+    instanceName,
     envFilePath: deployment.envFilePath,
     port: deployment.port,
     vaultPath: deployment.vaultPath,
@@ -234,7 +245,7 @@ export const recreateContainer = async (
   )
 
   if (!healthy) {
-    spinner.stop(healthTimeoutMessage(deployment.mode, timeoutMs))
+    spinner.stop(healthTimeoutMessage({ mode: deployment.mode, timeoutMs, instanceName }))
     return 1
   }
   spinner.stop("Server is up — health check passed.")
@@ -263,15 +274,16 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
 
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
+  const { instanceName } = initialized
 
-  if (!docker.containerExists()) {
-    prompts.log("No vault-cortex container found — nothing to stop.")
+  if (!docker.containerExists(instanceName)) {
+    prompts.log(`No ${instanceName} container found — nothing to stop.`)
     prompts.outro("Done.")
     return 0
   }
 
-  if (!docker.stopAndRemoveContainer()) {
-    prompts.error(`Could not remove the container — check: docker rm -f ${CONTAINER_NAME}`)
+  if (!docker.stopAndRemoveContainer(instanceName)) {
+    prompts.error(`Could not remove the container — check: docker rm -f ${instanceName}`)
     return 1
   }
 
@@ -283,7 +295,7 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
 }
 
 /**
- * Streams `docker logs` for the vault-cortex container. The stream's exit
+ * Streams `docker logs` for the deployment's container. The stream's exit
  * code passes through as the command's exit code; no outro follows the raw
  * docker output.
  */
@@ -296,15 +308,17 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
 
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
+  const { instanceName } = initialized
 
-  if (!docker.containerExists()) {
+  if (!docker.containerExists(instanceName)) {
     prompts.error(
-      `No vault-cortex container — start it with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
+      `No ${instanceName} container — start it with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
     )
     return 1
   }
 
   return await docker.streamLogs({
+    instanceName,
     follow: Boolean(flags.follow),
     since: flags.since,
   })

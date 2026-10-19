@@ -1,4 +1,4 @@
-import type { DockerRunner } from "../docker.js"
+import type { DockerLogsParams, DockerRunner, DockerRunParams } from "../docker.js"
 import type { Prompts, SelectOption } from "../prompts.js"
 
 /**
@@ -168,7 +168,55 @@ export const dockerReady: DockerRunner = {
   pullImage: () => true,
   stopAndRemoveContainer: () => true,
   containerExists: () => true,
+  volumeExists: () => true,
   streamLogs: async () => 0,
+}
+
+/**
+ * Daemon up on a host with no vault-cortex install yet: no container and no
+ * volume under any name, so init never finds a name in use.
+ */
+export const dockerReadyEmptyHost: DockerRunner = {
+  ...dockerReady,
+  containerExists: () => false,
+  volumeExists: () => false,
+}
+
+/**
+ * A ready daemon whose container exists, recording the name every inspect,
+ * remove, run and logs call targets, in call order, as `<operation>:<name>`.
+ */
+export const createRecordingDocker = (): {
+  docker: DockerRunner
+  calls: string[]
+  runParams: DockerRunParams[]
+  logsParams: DockerLogsParams[]
+} => {
+  const calls: string[] = []
+  const runParams: DockerRunParams[] = []
+  const logsParams: DockerLogsParams[] = []
+  const docker: DockerRunner = {
+    ...dockerReady,
+    containerExists: (instanceName) => {
+      calls.push(`inspect:${instanceName}`)
+      return true
+    },
+    stopAndRemoveContainer: (instanceName) => {
+      calls.push(`rm:${instanceName}`)
+      return true
+    },
+    dockerRun: (params) => {
+      calls.push(`run:${params.instanceName}`)
+      runParams.push(params)
+      return true
+    },
+    streamLogs: async (params) => {
+      calls.push(`logs:${params.instanceName}`)
+      logsParams.push(params)
+      return 0
+    },
+  }
+  return { docker, calls, runParams, logsParams }
 }
 
 /** Daemon installed but not running — every operation fails. */
@@ -178,6 +226,7 @@ export const dockerDown: DockerRunner = {
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
   containerExists: () => false,
+  volumeExists: () => false,
   streamLogs: async () => 1,
 }
 

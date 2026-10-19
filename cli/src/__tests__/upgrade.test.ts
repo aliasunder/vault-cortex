@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest"
 import type { DockerRunner } from "../docker.js"
 import { runUpgrade } from "../upgrade.js"
 import {
+  createRecordingDocker,
   createScriptedPrompts,
   dockerDown,
   dockerReady,
@@ -93,12 +94,32 @@ describe("runUpgrade", () => {
       [
         {
           mode: "local",
+          instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
           vaultPath: "/home/user/MyVault",
         },
       ],
     ])
+  })
+
+  it("re-creates the container a custom INSTANCE_NAME names", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=Work\nPUBLIC_URL=https://work.example.com\nINSTANCE_NAME=work\n",
+    )
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.calls).toEqual(["inspect:work", "rm:work", "run:work"])
+    expect(recording.runParams.map((params) => params.instanceName)).toEqual(["work"])
   })
 
   it("detects remote mode and runs without a vault path", async () => {
@@ -124,6 +145,7 @@ describe("runUpgrade", () => {
       [
         {
           mode: "remote",
+          instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
           vaultPath: undefined,

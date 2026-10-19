@@ -244,7 +244,7 @@ const isEnabledToggleValue = (value: string | undefined): boolean =>
  * it accepts "1e4"/"0x1F40"/"+9000", which readEnvPort's /^PORT=(\d+)/
  * would later fail to read back — silently falling to the default port.
  */
-const isValidPort = (value: string): boolean => {
+export const isValidPort = (value: string): boolean => {
   if (!/^\d+$/.test(value)) return false
   const port = Number(value)
   return port >= 1 && port <= 65535
@@ -264,7 +264,10 @@ const isValidTimezone = (value: string): boolean => {
 }
 
 /** Re-prompts until the answer is a valid port number. */
-const askPort = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
+export const askPort = async (
+  currentValue: string | undefined,
+  prompts: Prompts,
+): Promise<string> => {
   const answer = (
     await prompts.text("Host port for the server:", {
       defaultValue: currentValue ?? String(DEFAULT_PORT),
