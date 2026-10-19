@@ -11,7 +11,7 @@
 [![npm](https://img.shields.io/npm/v/vault-cortex?logo=npm&label=npm&cacheSeconds=43200)](https://www.npmjs.com/package/vault-cortex)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/aliasunder/vault-cortex/badge)](https://scorecard.dev/viewer/?uri=github.com/aliasunder/vault-cortex)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14162/badge)](https://www.bestpractices.dev/projects/14162)
-[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/aliasunder/vault-cortex)
+[![Ask DeepWiki](./assets/deepwiki-badge.svg)](https://deepwiki.com/aliasunder/vault-cortex)
 [![vault-cortex MCP server](https://glama.ai/mcp/servers/aliasunder/vault-cortex/badges/score.svg)](https://glama.ai/mcp/servers/aliasunder/vault-cortex)
 
 </div>
