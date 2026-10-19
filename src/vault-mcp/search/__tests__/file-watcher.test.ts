@@ -1665,29 +1665,47 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
 
   // chokidar sends an unlink for every file it tracks, so the batch leaves a
   // path that vanished by its read to that live event.
-  it.each([{ unlinkArrives: "before the read returns" }, { unlinkArrives: "after startup" }])(
-    "removes a held path deleted between its check and its read once its unlink arrives $unlinkArrives",
-    async ({ unlinkArrives }) => {
-      const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
-        seedNotes: { "late.md": "oldtext\n" },
-      })
-      const notePath = join(testVault, "late.md")
-      await writeFile(notePath, "newer text\n")
-      const readGate = await gateFirstRead(notePath, "before-disk")
-      expect(notePaths()).toEqual([{ path: "late.md" }])
+  it("removes a held path deleted between its check and its read when its unlink arrives during the read", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "late.md": "oldtext\n" },
+    })
+    const notePath = join(testVault, "late.md")
+    await writeFile(notePath, "newer text\n")
+    const readGate = await gateFirstRead(notePath, "before-disk")
+    expect(notePaths()).toEqual([{ path: "late.md" }])
 
-      await fire("change", "late.md")
-      finishRebuild()
-      await readGate.reached
-      await unlink(notePath)
-      if (unlinkArrives === "before the read returns") await fire("unlink", "late.md")
-      readGate.release()
-      await startup
-      if (unlinkArrives === "after startup") await fire("unlink", "late.md")
+    await fire("change", "late.md")
+    finishRebuild()
+    await readGate.reached
+    await unlink(notePath)
+    await fire("unlink", "late.md")
+    readGate.release()
+    await startup
 
-      expect(notePaths()).toEqual([])
-    },
-  )
+    expect(notePaths()).toEqual([])
+  })
+
+  it("leaves a held path deleted between its check and its read to its unlink after startup", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "late.md": "oldtext\n" },
+    })
+    const notePath = join(testVault, "late.md")
+    await writeFile(notePath, "newer text\n")
+    const readGate = await gateFirstRead(notePath, "before-disk")
+    expect(notePaths()).toEqual([{ path: "late.md" }])
+
+    await fire("change", "late.md")
+    finishRebuild()
+    await readGate.reached
+    await unlink(notePath)
+    readGate.release()
+    await startup
+    // The batch's read found the file gone and changed nothing.
+    expect(notePaths()).toEqual([{ path: "late.md" }])
+    await fire("unlink", "late.md")
+
+    expect(notePaths()).toEqual([])
+  })
 
   it("removes a renamed note before reading its new path, so incoming links follow", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
@@ -1704,6 +1722,30 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
 
     await fire("add", "folder/B.md")
     await fire("unlink", "B.md")
+    finishRebuild()
+    await startup
+
+    expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
+  })
+
+  it("removes a renamed note's old path before reading its new one when the old path's latest held event is a change", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
+    })
+    await mkdir(join(testVault, "folder"))
+    await writeFile(join(testVault, "folder", "B.md"), "new home\n")
+    await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
+    const linkFromSource = () => {
+      const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+      return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
+    }
+    expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
+
+    // The held change makes B.md's latest event a change, so going live does
+    // not remove it; the batch's removal step does, before the reads.
+    await fire("unlink", "B.md")
+    await fire("change", "B.md")
+    await fire("add", "folder/B.md")
     finishRebuild()
     await startup
 
@@ -2538,6 +2580,10 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     // The batch's read finds the file gone and leaves it to the unlink
     // chokidar sends for it.
     expect(checkedPaths).toEqual(new Set([contentPath]))
+    expect(fileRows()).toEqual({
+      assets: [{ path: "content.txt" }],
+      contents: [{ path: "content.txt" }],
+    })
     await fire("unlink", "content.txt")
 
     expect(fileRows()).toEqual({ assets: [], contents: [] })
