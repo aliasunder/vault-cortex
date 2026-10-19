@@ -1551,16 +1551,17 @@ describe("moveNote — failure safety", () => {
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
       "note move aborted: could not resolve a backlink source path",
-      expect.objectContaining({
+      {
         source: "../escape.md",
         from: "Foo.md",
         to: "Bar.md",
-      }),
+        error: '[Error]: path traversal blocked: "../escape.md" escapes vault root',
+      },
     )
   })
 
   it("logs the offending source and destination when a rewrite aborts the move", async () => {
-    const { writeFixture, moveNote, logger } = setupVault()
+    const { vault, writeFixture, moveNote, logger } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")
 
@@ -1576,11 +1577,12 @@ describe("moveNote — failure safety", () => {
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
       "note move aborted: could not read/plan a backlink source",
-      expect.objectContaining({
+      {
         source: "Ghost.md",
         from: "Foo.md",
         to: "Bar.md",
-      }),
+        error: `[Error]: ENOENT: no such file or directory, open '${join(vault, "Ghost.md")}'`,
+      },
     )
   })
 
@@ -2379,12 +2381,11 @@ describe("moveNote — filesystem backlink verification", () => {
     // The retry log must NOT have fired with Prose.md — a scan that
     // false-positives on prose would still produce the same result (the
     // preflight finds no links, planned rewrite is filtered out), so the
-    // result assertion alone can't catch the regression.
+    // result assertion alone can't catch the regression. No other note links
+    // Foo.md, so the log must never fire, whatever its context.
     expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
       "backlink verification discovered sources the index missed",
-      expect.objectContaining({
-        additionalSources: expect.arrayContaining(["Prose.md"]),
-      }),
+      expect.anything(),
     )
   })
 
@@ -2422,7 +2423,10 @@ describe("moveNote — filesystem backlink verification", () => {
     // The ghost note should have been logged as a warning
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
       "backlink scan: skipping a file that could not be read or parsed",
-      expect.objectContaining({ path: "Ghost.md" }),
+      {
+        path: "Ghost.md",
+        error: `[Error]: ENOENT: no such file or directory, open '${join(vault, "Ghost.md")}'`,
+      },
     )
   })
 
@@ -2450,11 +2454,7 @@ describe("moveNote — filesystem backlink verification", () => {
     // The retry loop fires because Unknown.md was not in backlinkSources
     expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
       "backlink verification discovered sources the index missed",
-      expect.objectContaining({
-        from: "Foo.md",
-        to: "Bar.md",
-        additionalSources: ["Unknown.md"],
-      }),
+      { from: "Foo.md", to: "Bar.md", additionalSources: ["Unknown.md"], attempt: 0 },
     )
   })
 
