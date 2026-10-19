@@ -1208,7 +1208,7 @@ Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any 
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Moving a note any other way can silently break its backlinks.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). Canvas file cards and text-card links to the note are updated too. A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Moving a note any other way can silently break its backlinks.
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
@@ -1240,7 +1240,7 @@ Errors:
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.
 
-Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten, including the moved note's own relative links), updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of empty parent folders removed — 0 unless prune_empty_folders was set).`,
+Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten, including the moved note's own relative links), updated_notes (sorted paths of the other notes and Canvas files that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of empty parent folders removed — 0 unless prune_empty_folders was set).`,
       inputSchema: {
         old_path: z
           .string()
