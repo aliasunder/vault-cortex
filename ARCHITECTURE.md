@@ -1214,8 +1214,10 @@ Docker hardening, and durability seatbelts above.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans notes and Canvas files for backlinks the
   search index missed (closing a lag race) or never records (links in
-  Canvas text cards); then reads every affected file and computes every
-  rewrite _before_ touching anything. If any read fails, no
+  Canvas text cards). The scan skips a file it cannot read or parse, with
+  a warning, so an unreadable file aborts the move only when the index
+  lists it as a backlink. The move then reads every affected file and
+  computes every rewrite _before_ touching anything. If any read fails, no
   file is mutated. Destination is written first via exclusive create;
   source is deleted last — a failure at any step leaves both copies rather
   than losing content.
