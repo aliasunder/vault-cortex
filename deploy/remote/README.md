@@ -540,7 +540,7 @@ that file when settings syncing is turned on in two places:
 
 - **Server side** — `SYNC_CONFIGS` defaults to
   `core-plugin-data,community-plugin-data,app`: daily notes settings
-  (Obsidian's **Core plugin settings** toggle), community plugin settings,
+  (Obsidian's **Core plugin settings** toggle), community plugin settings
   such as the Tasks plugin's format (**Installed community plugins**), and
   the new-note location (**Main settings**). It takes a
   comma-separated list of Obsidian's settings categories (`app`,
