@@ -17,19 +17,29 @@ import {
   UnsupportedPropertiesBlockError,
 } from "../../obsidian-markdown/frontmatter.js"
 
-/** Registers one tool through the enabled-set gate: skips silently when the
- *  config disables the tool, and injects the registry's annotations so group
- *  modules never restate them — the config type carries no annotations key,
- *  making an inline block a compile error. Throws on a name missing from the
- *  registry (a typo'd registration would otherwise be invisible forever).
- *  inputSchema is required because the SDK validates nothing for a tool
- *  without one, so unknown keys would pass. */
+/** Registers one tool through the enabled-set gate. `createGatedRegisterTool`
+ *  in tool-definitions.ts implements it:
+ *  - It skips the tool silently when the config disables it.
+ *  - It injects the registry's annotations so group modules never restate
+ *    them; the config type carries no annotations key, so an inline block is
+ *    a compile error.
+ *  - It throws on a name missing from the registry, because a typo'd
+ *    registration would otherwise be invisible forever.
+ *  - It hands the SDK the object `createStrictInputObject` builds from the raw
+ *    `inputSchema` shape, so the handler's args are typed from that object
+ *    (`ToolInputObject`). inputSchema is required, as `{}` for a tool with no
+ *    parameters, because the SDK validates nothing for a tool registered
+ *    without one; `createStrictInputObject` decides which keys to reject. */
 export type RegisterGatedTool = <InputShape extends z.ZodRawShape>(
   name: ToolName,
   config: { title: string; description: string; inputSchema: InputShape },
   handler: ToolCallback<ToolInputObject<InputShape>>,
 ) => void
 
+/** The object type `createStrictInputObject` returns. It takes Zod's base
+ *  object config rather than the strict one, so one type fits both the
+ *  `z.object` an empty shape gets and the `z.strictObject` every other shape
+ *  gets. */
 export type ToolInputObject<Shape extends z.ZodRawShape> = z.ZodObject<
   Shape,
   z.core.$ZodObjectConfig
@@ -39,8 +49,9 @@ export type ToolInputObject<Shape extends z.ZodRawShape> = z.ZodObject<
  *  `z.object` drops them and the call succeeds without the misspelled option.
  *  - The rejection names the unknown keys and the accepted ones, so the caller
  *    can correct the name in one retry.
- *  - An empty shape is the exception: it accepts and drops any key, and its
- *    schema leaves out `additionalProperties: false` to match.
+ *  - An empty shape is the exception: it accepts and drops any key, and the
+ *    JSON Schema clients see for it leaves out `additionalProperties: false`,
+ *    so that schema and the server's check agree.
  *  - Every tool input object is built with it: the registerTool wrapper wraps
  *    each top-level shape, and nested objects are declared with it. */
 export const createStrictInputObject = <Shape extends z.ZodRawShape>(
@@ -77,13 +88,13 @@ export type ToolRegistrationContext = ToolAvailability &
     config: VaultConfig
   }
 
-// Five frontmatter keys are promoted to top-level fields on NoteMetadata and
-// so are stripped from additional_properties, which would otherwise repeat
-// them. Four have one fixed spelling. The fifth, `tags`, is spelled per note:
-// the index reads the first key spelled `tags` in any letter case (`tags`,
-// `Tags`, `TAGS`), as Obsidian does, so that key is the one stripped, and a
-// later tags-spelled key, which the index ignores, stays in
-// additional_properties.
+// NoteMetadata promotes five frontmatter keys to top-level fields, so
+// additional_properties leaves them out instead of repeating them:
+// - `title`, `type`, `created`, and `related` have one fixed spelling.
+// - `tags` is spelled per note. The index reads the first key spelled `tags`
+//   in any letter case (`tags`, `Tags`, `TAGS`), as Obsidian does, and that
+//   key is left out. A later tags-spelled key, which the index ignores, stays
+//   in additional_properties.
 const FIXED_PROMOTED_KEYS = new Set(["title", "type", "created", "related"])
 
 /** The promoted keys of one note: the fixed four plus the tags key its
@@ -100,8 +111,6 @@ export const formatNoteMetadata = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
 }): Record<string, unknown> => {
-  // Drop a null `leading_callout` so notes without one don't carry the key;
-  // keep it (the { type, title, body } block) when present.
   const { properties, leading_callout: leadingCallout, ...fields } = meta
 
   const promotedKeys = promotedKeysOfNote(properties)
@@ -111,6 +120,8 @@ export const formatNoteMetadata = (meta: {
 
   return {
     ...fields,
+    // Drop a null `leading_callout` so notes without one don't carry the key;
+    // keep it (the { type, title, body } block) when present
     ...(leadingCallout ? { leading_callout: leadingCallout } : {}),
     ...(Object.keys(additional_properties).length > 0 ? { additional_properties } : {}),
   }
@@ -248,14 +259,16 @@ export const OPENING_BLOCK_ERROR_ENTRY =
  *  - One bullet names each remedy: the caller shortens a too-long name, and
  *    the vault's owner fixes permissions or the disk.
  *  - A save first writes a temp file named after the note plus
- *    ".<UUID>.tmp", 41 bytes longer, so a note can read fine and still fail
- *    to save. A rename writes that temp file beside the new name too, which
- *    is why the bullet asks for a name at least 41 bytes shorter.
+ *    ".<UUID>.tmp", 41 bytes longer (1 for the dot, 36 for the UUID, 4 for
+ *    ".tmp"), so a note can read fine and still fail to save. A rename
+ *    writes that temp file beside the new name too, which is why the bullet
+ *    asks for a name at least 41 bytes shorter.
  *  - A write that fails after the file is open (a full disk) gets a Node
  *    message with no path, so the bullet says the file is usually named.
  *  - Every tool that saves a note can raise these errors, but each lists the
- *    bullet only when its own description is next revised, because a grader
- *    re-scores every description whose text changes. */
+ *    bullet only when its own description is next revised, because
+ *    tool-definition graders such as Glama's re-score every description
+ *    whose text changes. */
 export const describeFilesystemErrorEntry = (
   whenToolEnabledText: ToolRegistrationContext["whenToolEnabledText"],
 ): string => {
@@ -264,9 +277,10 @@ export const describeFilesystemErrorEntry = (
   return `- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter${renameToolClause}. Permissions or a full or read-only disk need the vault's owner`
 }
 
-/** The Errors entry of every tool that rewrites a note, led by when the tool
- *  rewrites it for tools that do so only sometimes. The error itself carries
- *  the repair steps, so the entry points at them and names no tool. */
+/** The Errors entry of every tool that rewrites a note. A tool that rewrites
+ *  the note only in one mode passes that mode as rewriteCondition
+ *  (`"with overwrite: true"`), and the entry opens with it. The error itself
+ *  carries the repair steps, so the entry points at them and names no tool. */
 export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): string => {
   const conditionClause = rewriteCondition ? `${rewriteCondition}, ` : ""
   return `- "properties block …" — ${conditionClause}the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it`

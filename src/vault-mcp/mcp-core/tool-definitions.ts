@@ -56,8 +56,10 @@ const createGatedRegisterTool = (
       throw new Error(`tool is not in the registry: ${name}`)
     }
     if (!enabledToolNames.has(name)) return
-    // Left to inference, TypeScript resolves the SDK's input type to the raw
-    // shape rather than the strict object, so the type arguments are spelled out
+    // Left to inference, TypeScript resolves the SDK's InputArgs to the raw
+    // shape rather than the strict object, so the type arguments are spelled
+    // out. Spelling InputArgs means spelling OutputArgs before it too; it gets
+    // its constraint, ZodRawShapeCompat, because no tool has an output schema
     server.registerTool<ZodRawShapeCompat, ToolInputObject<typeof config.inputSchema>>(
       name,
       {
