@@ -572,13 +572,16 @@ changing them.
 
 If the folder box in Obsidian's Daily notes options is empty, Obsidian puts
 daily notes where **Default location for new notes** says, a setting stored
-in `.obsidian/app.json`. The server reads that setting once you turn on
-**Main settings** under Vault configuration sync. Until `app.json` arrives,
-the server looks in the vault root. **Same folder as current file** counts
-as the vault root, because Obsidian creates a daily note without reference
-to an open note and so has no folder to follow. Until `daily-notes.json`
+in `.obsidian/app.json`. **Same folder as current file** counts as the vault
+root, because Obsidian creates a daily note without reference to an open
+note and so has no folder to follow.
+
+The server follows the same setting once two files have arrived:
+`daily-notes.json` (**Core plugin settings**) and `app.json` (**Main
+settings**), both under Vault configuration sync. Until `daily-notes.json`
 arrives, the server can't see that the folder box is empty, so it uses the
-`Daily Notes` fallback described below.
+`Daily Notes` fallback described below. Until `app.json` arrives, it looks
+in the vault root.
 
 An older `.env` can keep `app.json` from ever reaching the server. A `.env`
 written by an earlier `npx vault-cortex init`, or copied from an earlier
