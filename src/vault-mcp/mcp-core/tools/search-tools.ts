@@ -169,8 +169,6 @@ Returns: JSON with results array (${searchResultFieldsText}), total (results ret
             searchMode: searchResult.search_mode,
             reranked: searchResult.reranked,
           })
-          // HybridSearchResult carries no total; the wire field counts the
-          // results returned, as the description's Returns line says
           return JSON.stringify({
             ...searchResult,
             total: searchResult.results.length,

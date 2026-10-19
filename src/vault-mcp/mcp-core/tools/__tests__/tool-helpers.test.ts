@@ -425,7 +425,6 @@ describe("createStrictInputObject", () => {
     })
   }
 
-  /** The issues a failed parse reports, as path and message pairs. */
   const listIssues = (schema: z.ZodType, input: unknown) => {
     const result = schema.safeParse(input)
 
@@ -450,9 +449,7 @@ describe("createStrictInputObject", () => {
     ])
   })
 
-  // Only the type check (tsc) enforces this, not the test run. An index
-  // signature in the parsed type would let a handler read a misspelled
-  // parameter name without a compile error
+  // Enforced by tsc, not by the test run
   it("types parsed input with only the declared keys", () => {
     expectTypeOf<z.output<ReturnType<typeof createListingInput>>>().toEqualTypeOf<{
       folder?: string | undefined
@@ -491,8 +488,7 @@ describe("createStrictInputObject", () => {
     ])
   })
 
-  // Unlike a wrong value for a declared key, a non-object input is an issue of
-  // the object itself, so only this case reaches the object's error callback
+  // A non-object input is the only other issue that reaches the object's error callback
   it("keeps Zod's message when the input is not an object", () => {
     expect(listIssues(createListingInput(), "Projects")).toEqual([
       { path: [], message: "Invalid input: expected object, received string" },

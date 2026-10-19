@@ -17,18 +17,13 @@ import {
   serializeSurfaceCapture,
 } from "../../../../scripts/tool-surface-capture.js"
 
-/** An object schema with a properties map: whether the map names any
- *  parameter, and whether the object rejects keys outside it
- *  (`additionalProperties: false`). */
 type ObjectSchemaNode = { path: string; declaresParameters: boolean; rejectsUnknownKeys: boolean }
 
 const isJsonRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-/** Every object schema with a properties map at or below one JSON Schema
- *  node, in document order. A record (`z.record`) has no properties map, so
- *  its open keys are not collected. */
+/** A record (`z.record`) has no properties map, so it is not collected. */
 const collectObjectSchemaNodes = (schemaNode: unknown, path: string): ObjectSchemaNode[] => {
   if (Array.isArray(schemaNode)) {
     return schemaNode.flatMap((element, index) => {
@@ -112,7 +107,6 @@ describe("tool surface baseline", () => {
     },
   )
 
-  // Pins the empty-shape exception createStrictInputObject documents
   it("leaves the input objects of tools without parameters open", async () => {
     const defaultCombo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === "default")
     const capture = defaultCombo ? await captureToolSurface(defaultCombo) : undefined

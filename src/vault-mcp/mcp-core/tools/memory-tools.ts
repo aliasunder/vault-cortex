@@ -347,9 +347,6 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
             .min(1)
             .optional()
             .describe("ISO YYYY-MM-DD date (defaults to today, server timezone)"),
-          // This default fills position only when options is sent; without
-          // options the handler passes undefined and memoryStore.updateMemory
-          // defaults it to "top" itself
           position: z
             .enum(["top", "bottom"])
             .optional()
@@ -388,9 +385,7 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
           }
           const confirmation = `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`
           // Nudge the caller to author the scope callout the new file was
-          // seeded with, so the file self-documents what belongs in it. The
-          // other two outcomes, "created-section" and "appended", get the
-          // plain confirmation.
+          // seeded with, so the file self-documents what belongs in it.
           return outcome === "created-file"
             ? `${confirmation}. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
             : confirmation
