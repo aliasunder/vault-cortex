@@ -1,4 +1,4 @@
-import { describe, it, expect, onTestFinished, vi } from "vitest"
+import { describe, it, expect, expectTypeOf, onTestFinished, vi } from "vitest"
 import { logger } from "../../../../logger.js"
 import {
   OverwriteBlockedError,
@@ -448,6 +448,16 @@ describe("createStrictInputObject", () => {
     expect(listIssues(createListingInput(), { folderr: "Projects", globb: "*.md" })).toEqual([
       { path: [], message: 'unrecognized keys "folderr", "globb" (accepted: folder, glob)' },
     ])
+  })
+
+  // Only the type check (tsc) enforces this, not the test run. An index
+  // signature in the parsed type would let a handler read a misspelled
+  // parameter name without a compile error
+  it("types parsed input with only the declared keys", () => {
+    expectTypeOf<z.output<ReturnType<typeof createListingInput>>>().toEqualTypeOf<{
+      folder?: string | undefined
+      glob?: string | undefined
+    }>()
   })
 
   it("accepts and drops any key when the shape declares none", () => {

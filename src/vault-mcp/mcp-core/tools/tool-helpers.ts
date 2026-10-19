@@ -36,14 +36,13 @@ export type RegisterGatedTool = <InputShape extends z.ZodRawShape>(
   handler: ToolCallback<ToolInputObject<InputShape>>,
 ) => void
 
-/** The object type `createStrictInputObject` returns. It takes Zod's base
- *  object config rather than the strict one, so one type fits both the
- *  `z.object` an empty shape gets and the `z.strictObject` every other shape
- *  gets. */
-export type ToolInputObject<Shape extends z.ZodRawShape> = z.ZodObject<
-  Shape,
-  z.core.$ZodObjectConfig
->
+/** The object type `createStrictInputObject` returns.
+ *  - Its `$strict` config also fits the `z.object` an empty shape gets,
+ *    because Zod's `$strip` and `$strict` configs are the same type.
+ *  - Zod's base config would add `Record<string, unknown>` to the handler's
+ *    args type, so a handler could read a misspelled parameter name without
+ *    a compile error. */
+export type ToolInputObject<Shape extends z.ZodRawShape> = z.ZodObject<Shape, z.core.$strict>
 
 /** A Zod object that rejects keys its shape does not declare, where a plain
  *  `z.object` drops them and the call succeeds without the misspelled option.
