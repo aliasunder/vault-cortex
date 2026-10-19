@@ -778,6 +778,237 @@ describe("moveNote — asset link rewriting", () => {
   })
 })
 
+/** A canvas in the layout Obsidian saves: one node per line, no edges, no
+ *  trailing newline. Each entry is a node's literal JSON. */
+const obsidianCanvas = (nodeLines: readonly string[]): string => {
+  return `{\n\t"nodes":[\n\t\t${nodeLines.join(",\n\t\t")}\n\t],\n\t"edges":[]\n}`
+}
+
+describe("moveNote — Canvas sources", () => {
+  it("points a Canvas file card at the moved note's new path and rewrites its text-card link", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    await writeFixture("Other.md", "# Other\n")
+    await writeFixture("Hub.md", "See [[Inbox/Note]].\n")
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Inbox/Note.md","subpath":"#Goals","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Inbox/Note]] and [[Other]]","x":500,"y":0,"width":250,"height":60}',
+        '{"id":"f2","type":"file","file":"Other.md","x":0,"y":500,"width":400,"height":400}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Inbox/Note.md",
+      newPath: "Projects/Note.md",
+      backlinkSources: ["Board.canvas", "Hub.md"],
+    })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Projects/Note.md","subpath":"#Goals","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Projects/Note]] and [[Other]]","x":500,"y":0,"width":250,"height":60}',
+        '{"id":"f2","type":"file","file":"Other.md","x":0,"y":500,"width":400,"height":400}',
+      ]),
+    )
+    expect(await readNote("Hub.md")).toBe("See [[Projects/Note]].\n")
+    expect(result).toEqual({
+      moved_to: "Projects/Note.md",
+      links_updated: 3,
+      updated_notes: ["Board.canvas", "Hub.md"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("points a file card at the new path on a rename, where the card's path is the only link", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Plan.md", "# Plan\n")
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Plan.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Plan.md",
+      newPath: "Roadmap.md",
+      backlinkSources: ["Board.canvas"],
+    })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Roadmap.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Roadmap.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("leaves a link inside a text card's code block unchanged", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    // In the JSON, \n is an escaped newline, so the card text holds a fence.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"[[Foo]]\\n```\\n[[Foo]]\\n```\\n`[[Foo]]`","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Board.canvas"],
+    })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"[[Bar]]\\n```\\n[[Foo]]\\n```\\n`[[Foo]]`","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result.links_updated).toBe(1)
+  })
+
+  it("leaves a Canvas whose cards open a same-named note elsewhere byte-identical", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    await writeFixture("Archive/Note.md", "# Archived note\n")
+    // Contains "Note" in a card and an exact path, so it passes the scan's
+    // substring pre-filter, but nothing in it resolves to Inbox/Note.md.
+    const decoyCanvas = obsidianCanvas([
+      '{"id":"f1","type":"file","file":"Archive/Note.md","x":0,"y":0,"width":400,"height":400}',
+      '{"id":"t1","type":"text","text":"Note to self: [[Archive/Note]]","x":500,"y":0,"width":250,"height":60}',
+    ])
+    await writeFixture("Decoy.canvas", decoyCanvas)
+
+    const result = await moveNote({
+      oldPath: "Inbox/Note.md",
+      newPath: "Projects/Note.md",
+      backlinkSources: ["Decoy.canvas"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Projects/Note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Decoy.canvas")).toBe(decoyCanvas)
+    expect(await readNote("Projects/Note.md")).toBe("# Note\n")
+    // The scan must never report a new source, whatever the log context.
+    expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      expect.anything(),
+    )
+  })
+
+  it("finds and rewrites a Canvas that links the note only from a text card", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    // The index records only file cards, so this Canvas never arrives as a
+    // backlink source; the move's own scan has to find it.
+    await writeFixture(
+      "Ideas.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Start from [[Foo]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })
+
+    expect(await readNote("Ideas.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Start from [[Bar]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Ideas.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      { from: "Foo.md", to: "Bar.md", additionalSources: ["Ideas.canvas"], attempt: 0 },
+    )
+  })
+
+  it("finds a Canvas file card the index has not recorded yet", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Foo.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Bar.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+    expect(result.updated_notes).toEqual(["Board.canvas"])
+  })
+
+  it("aborts without writing when a Canvas backlink source is not valid JSON", async () => {
+    const { writeFixture, moveNote, readNote, noteExists } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture("Hub.md", "See [[Foo]].\n")
+    const brokenCanvas = '{"nodes":[{"id":"f1","type":"file","file":"Foo.md"'
+    await writeFixture("Broken.canvas", brokenCanvas)
+
+    await expect(
+      moveNote({
+        oldPath: "Foo.md",
+        newPath: "Bar.md",
+        backlinkSources: ["Broken.canvas", "Hub.md"],
+      }),
+    ).rejects.toThrow(
+      new Error(
+        'move aborted: could not read backlink source "Broken.canvas". Nothing was written.',
+      ),
+    )
+    expect(await readNote("Foo.md")).toBe("# Foo\n")
+    expect(await noteExists("Bar.md")).toBe(false)
+    expect(await readNote("Hub.md")).toBe("See [[Foo]].\n")
+    expect(await readNote("Broken.canvas")).toBe(brokenCanvas)
+  })
+
+  it("skips a Canvas that is not valid JSON during the scan and still completes the move", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    const brokenCanvas = '{"nodes":[{"id":"f1","type":"file","file":"Foo.md"'
+    await writeFixture("Broken.canvas", brokenCanvas)
+
+    const result = await moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })
+
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Broken.canvas")).toBe(brokenCanvas)
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      "backlink scan: skipping a file that could not be read or parsed",
+      {
+        path: "Broken.canvas",
+        // The text after the prefix is the JavaScript engine's own parse message.
+        error: expect.stringMatching(/^\[Error\]: invalid \.canvas JSON: /),
+      },
+    )
+  })
+})
+
 describe("moveNote — counts and summary", () => {
   it("counts every rewritten occurrence and lists changed notes sorted", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
@@ -2190,7 +2421,7 @@ describe("moveNote — filesystem backlink verification", () => {
     expect(await readNote("Good.md")).toBe("Link: [[Bar]]\n")
     // The ghost note should have been logged as a warning
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
-      "backlink scan: skipping a note that could not be read or parsed",
+      "backlink scan: skipping a file that could not be read or parsed",
       expect.objectContaining({ path: "Ghost.md" }),
     )
   })

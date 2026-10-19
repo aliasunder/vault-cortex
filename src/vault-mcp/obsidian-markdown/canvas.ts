@@ -291,3 +291,90 @@ export const extractCanvasFileLinks = (canvasJson: string): string[] => {
 
   return [...new Set(filePaths)]
 }
+
+/** The text of every text-type node, in JSON order. Obsidian updates the
+ *  links in these cards when their target is renamed, so the note mover
+ *  reads them to find a Canvas that links to a moving note. Throws on
+ *  unparseable JSON (same contract as `linearizeCanvas`). */
+export const extractCanvasCardTexts = (canvasJson: string): string[] => {
+  const parsed = parseCanvasJson(canvasJson)
+
+  const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
+  // An empty card holds no link, so it is left out.
+  return rawNodes
+    .map(parseNode)
+    .flatMap((node) => (node?.type === "text" && node.text ? [node.text] : []))
+}
+
+/** Serializes canvas data the way Obsidian saves a .canvas file: tab
+ *  indentation, each top-level key on its own line, and each array entry
+ *  (one node or edge) as compact JSON on its own line. */
+const stringifyCanvas = (canvasData: Readonly<Record<string, unknown>>): string => {
+  const renderValue = (value: unknown): string => {
+    if (!Array.isArray(value) || value.length === 0) return JSON.stringify(value)
+    const entryLines = value.map((entry) => `\t\t${JSON.stringify(entry)}`)
+    return `[\n${entryLines.join(",\n")}\n\t]`
+  }
+
+  const keyLines = Object.entries(canvasData).map(
+    ([key, value]) => `\t${JSON.stringify(key)}:${renderValue(value)}`,
+  )
+  return `{\n${keyLines.join(",\n")}\n}`
+}
+
+/** A rewrite result for one node: the node to write back, and how many of its
+ *  links changed (0 leaves the original node object in place). */
+type NodeRewrite = { node: unknown; linksRewritten: number }
+
+/**
+ * Rewrites the links in a Canvas: each text card's Markdown through
+ * `rewriteCardText`, and each file card's `file` path through
+ * `rewriteFilePath` (null keeps the path). Returns the canvas re-serialized in
+ * Obsidian's format with the count of changed links, or null when no link
+ * changed, so an unaffected canvas keeps its exact bytes. Every other node,
+ * edge, and property is written back as parsed. Throws on unparseable JSON.
+ */
+export const rewriteCanvasLinks = (params: {
+  canvasJson: string
+  rewriteCardText: (text: string) => { text: string; linksRewritten: number }
+  rewriteFilePath: (filePath: string) => string | null
+}): { content: string; linksRewritten: number } | null => {
+  const parsed = parseCanvasJson(params.canvasJson)
+
+  if (!isRecord(parsed) || !Array.isArray(parsed.nodes)) return null
+
+  // Nodes are validated with the same rules the index uses for file-card
+  // links, so the mover rewrites exactly the links the index reports.
+  const rewriteNode = (rawNode: unknown): NodeRewrite => {
+    const node = parseNode(rawNode)
+    const unchanged = { node: rawNode, linksRewritten: 0 }
+
+    if (node === null || !isRecord(rawNode)) return unchanged
+    if (node.type === "text" && node.text) {
+      const rewrite = params.rewriteCardText(node.text)
+
+      if (rewrite.linksRewritten === 0) return unchanged
+      return { node: { ...rawNode, text: rewrite.text }, linksRewritten: rewrite.linksRewritten }
+    }
+    if (node.type === "file" && node.file) {
+      const newFilePath = params.rewriteFilePath(node.file)
+
+      if (newFilePath === null) return unchanged
+      return { node: { ...rawNode, file: newFilePath }, linksRewritten: 1 }
+    }
+    return unchanged
+  }
+
+  const nodeRewrites = parsed.nodes.map(rewriteNode)
+  const linksRewritten = nodeRewrites.reduce(
+    (runningTotal, nodeRewrite) => runningTotal + nodeRewrite.linksRewritten,
+    0,
+  )
+
+  if (linksRewritten === 0) return null
+
+  // Spreading keeps every key in its original position, nodes included.
+  const rewrittenCanvas = { ...parsed, nodes: nodeRewrites.map((nodeRewrite) => nodeRewrite.node) }
+  const trailingNewline = params.canvasJson.endsWith("\n") ? "\n" : ""
+  return { content: `${stringifyCanvas(rewrittenCanvas)}${trailingNewline}`, linksRewritten }
+}

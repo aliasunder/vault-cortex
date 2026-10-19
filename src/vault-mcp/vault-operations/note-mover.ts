@@ -11,7 +11,9 @@
  *    3. Frontmatter rewriting — rewrites wikilinks inside frontmatter values
  *       (strings, arrays, nested objects). Markdown links are body-only.
  *    4. Whole-note rewriting — combines body + frontmatter into one call; returns
- *       null when nothing changed so the caller can skip the write.
+ *       null when nothing changed so the caller can skip the write. A Canvas
+ *       source is rewritten as JSON instead: its text cards through the body
+ *       rewriter, and file cards that open the moved note get its new path.
  *    5. Orchestration (moveNote) — verify backlinks via filesystem scan,
  *       preflight all rewrites, commit writes + delete original. Each
  *       attempt runs under a multi-file lock; the lock releases and
@@ -37,6 +39,11 @@ import {
 } from "./vault-filesystem.js"
 import { links } from "../obsidian-markdown/links.js"
 import { classifyLines } from "../obsidian-markdown/lines.js"
+import {
+  extractCanvasCardTexts,
+  extractCanvasFileLinks,
+  rewriteCanvasLinks,
+} from "../obsidian-markdown/canvas.js"
 import { withExclusiveMultiFileLock } from "../../utils/file-write-lock.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
@@ -55,8 +62,8 @@ type MoveResult = {
   /** Total number of individual link occurrences rewritten across all notes
    *  (backlink sources plus the moved note's own relative links). */
   links_updated: number
-  /** Vault-relative paths of the other notes whose link text was rewritten,
-   *  sorted. Excludes the moved note itself (conveyed by moved_to). */
+  /** Vault-relative paths of the other notes and Canvas files whose links were
+   *  rewritten, sorted. Excludes the moved note itself (conveyed by moved_to). */
   updated_notes: string[]
   /** Number of now-empty source folders removed after the move. Always 0 unless
    *  pruneEmptyFolders was set. */
@@ -436,6 +443,27 @@ const rewriteNoteContent = (
   return { content, linksRewritten }
 }
 
+/** Matches the index, which reads links from a file as a Canvas only when its
+ *  extension is exactly ".canvas". */
+const isCanvasPath = (path: string): boolean => posix.extname(path) === ".canvas"
+
+/** Rewrites the links in a Canvas source: text cards through the body
+ *  rewriter, file cards through rewriteFilePath. Null when nothing changed. */
+const rewriteCanvasContent = (params: {
+  rawContent: string
+  rewriteLink: RewriteLink
+  rewriteFilePath: (filePath: string) => string | null
+}): { content: string; linksRewritten: number } | null => {
+  return rewriteCanvasLinks({
+    canvasJson: params.rawContent,
+    rewriteCardText: (text) => {
+      const { body, linksRewritten } = rewriteBody(text, params.rewriteLink)
+      return { text: body, linksRewritten }
+    },
+    rewriteFilePath: params.rewriteFilePath,
+  })
+}
+
 /** The error a move aborts with when a note it must rewrite cannot be
  *  planned. The message says which step failed:
  *  - "could not read": unreadable YAML, or any failure that is not a
@@ -531,14 +559,31 @@ const REWRITE_CONCURRENCY = 10
  *  missed — each retry expands the lock set and re-verifies. */
 const MAX_BACKLINK_VERIFY_RETRIES = 3
 
-/** Scans vault notes for links that resolve to targetPath, returning paths the
- *  caller didn't already know about. Pre-filters by basename substring before
- *  parsing. Read failures on individual notes are logged and skipped. */
+/** Every link target a file holds: a note's body and frontmatter links, or a
+ *  Canvas's file cards and the links in its text cards. */
+const extractLinkTargets = (params: { path: string; content: string }): string[] => {
+  if (isCanvasPath(params.path)) {
+    const cardTexts = extractCanvasCardTexts(params.content)
+    const cardLinkTargets = cardTexts.flatMap((cardText) => links.extractAll(cardText, {}))
+    return [...extractCanvasFileLinks(params.content), ...cardLinkTargets]
+  }
+
+  const parsed = parseNote(params.content)
+  const frontmatter: Record<string, unknown> = parsed.data
+  return links.extractAll(parsed.content, frontmatter)
+}
+
+/** Scans vault notes and Canvas files for links that resolve to targetPath,
+ *  returning paths the caller didn't already know about. The index records
+ *  only a Canvas's file cards, so a Canvas linking the note from a text card
+ *  is found here. Pre-filters by basename substring before parsing. Read
+ *  failures on individual files are logged and skipped. */
 const discoverBacklinksFromFilesystem = async (
   params: {
     vaultPath: string
     targetPath: string
     allNotePaths: readonly string[]
+    allAssetPaths: readonly string[]
     knownPaths: ReadonlySet<string>
   },
   logger: Logger,
@@ -555,16 +600,20 @@ const discoverBacklinksFromFilesystem = async (
   // encodeMarkdownLinkPath encodes them as %28/%29 — a paren-bearing name
   // produces a markdown link the first two forms can't match.
   const lowercaseParenEncodedStem = lowercaseEncodedStem.replace(/\(/g, "%28").replace(/\)/g, "%29")
-  const pathsToScan = params.allNotePaths.filter(
-    (notePath) => notePath !== params.targetPath && !params.knownPaths.has(notePath),
-  )
+  // A Canvas stores its links inside JSON strings, which escape `"` and `\`.
+  const lowercaseJsonEscapedStem = JSON.stringify(targetStem).slice(1, -1).toLowerCase()
+  const candidatePaths = [...params.allNotePaths, ...params.allAssetPaths.filter(isCanvasPath)]
+  const isUnknownSource = (candidatePath: string): boolean => {
+    return candidatePath !== params.targetPath && !params.knownPaths.has(candidatePath)
+  }
+  const pathsToScan = candidatePaths.filter(isUnknownSource)
 
   const scanResults = await mapWithConcurrency({
     items: pathsToScan,
     concurrency: REWRITE_CONCURRENCY,
     mapper: async (candidatePath): Promise<string | null> => {
       try {
-        // Skip notes whose text can't contain a link — a cheap substring
+        // Skip files whose text can't contain a link — a cheap substring
         // pre-filter before the full parse below.
         const fullPath = resolveSafePath(params.vaultPath, candidatePath)
         const content = await readFile(fullPath, "utf8")
@@ -572,15 +621,14 @@ const discoverBacklinksFromFilesystem = async (
         const couldContainLink =
           lowercaseContent.includes(lowercaseStem) ||
           lowercaseContent.includes(lowercaseEncodedStem) ||
-          lowercaseContent.includes(lowercaseParenEncodedStem)
+          lowercaseContent.includes(lowercaseParenEncodedStem) ||
+          lowercaseContent.includes(lowercaseJsonEscapedStem)
 
         if (!couldContainLink) return null
 
         // Parse and resolve in full to confirm the candidate actually links
         // to the target.
-        const parsed = parseNote(content)
-        const frontmatter: Record<string, unknown> = parsed.data
-        const linkTargets = links.extractAll(parsed.content, frontmatter)
+        const linkTargets = extractLinkTargets({ path: candidatePath, content })
         const resolvesToMovedNote = (linkTarget: string): boolean => {
           return (
             links.resolve({
@@ -593,7 +641,7 @@ const discoverBacklinksFromFilesystem = async (
         return linkTargets.some(resolvesToMovedNote) ? candidatePath : null
       } catch (error) {
         // Skipped rather than aborting the whole scan
-        logger.warn("backlink scan: skipping a note that could not be read or parsed", {
+        logger.warn("backlink scan: skipping a file that could not be read or parsed", {
           path: candidatePath,
           error: describeError(error),
         })
@@ -755,7 +803,7 @@ const moveNote = async (
           ...backlinkSources.map((backlinkSource) => backlinkSource.source),
         ])
         const additionalSources = await discoverBacklinksFromFilesystem(
-          { vaultPath, targetPath: oldPath, allNotePaths, knownPaths },
+          { vaultPath, targetPath: oldPath, allNotePaths, allAssetPaths, knownPaths },
           logger,
         )
 
@@ -802,6 +850,39 @@ const moveNote = async (
           return (rewriteParams) => rewriteTarget(rewriteParams, context)
         }
 
+        // A Canvas file card opens its note by exact vault path, so a card that
+        // resolves to the moved note gets the new path whatever form it had.
+        // Canvases never move, so the source location is fixed.
+        const rewriteCanvasFilePathForSource = (
+          canvasPath: string,
+        ): ((filePath: string) => string | null) => {
+          return (filePath) => {
+            const resolvedNote = links.resolve({
+              target: filePath,
+              allPaths: allNotePathsBefore,
+              sourcePath: canvasPath,
+            })
+            return resolvedNote === oldPath ? newPath : null
+          }
+        }
+
+        const rewriteBacklinkSource = (params: {
+          source: string
+          rawContent: string
+        }): { content: string; linksRewritten: number } | null => {
+          const { source, rawContent } = params
+          const rewriteLink = rewriteLinkForSource({ before: source, after: source })
+
+          if (isCanvasPath(source)) {
+            return rewriteCanvasContent({
+              rawContent,
+              rewriteLink,
+              rewriteFilePath: rewriteCanvasFilePathForSource(source),
+            })
+          }
+          return rewriteNoteContent(rawContent, rewriteLink)
+        }
+
         // ── Preflight: read every file and compute its rewrite, mutating nothing. ──
 
         // Rewrite the moved note's self-links and source-relative links so they still
@@ -838,10 +919,7 @@ const moveNote = async (
             mapper: async ({ source, fullPath }) => {
               try {
                 const rawContent = await readFile(fullPath, "utf8")
-                const rewrite = rewriteNoteContent(
-                  rawContent,
-                  rewriteLinkForSource({ before: source, after: source }),
-                )
+                const rewrite = rewriteBacklinkSource({ source, rawContent })
                 return rewrite === null
                   ? null
                   : {

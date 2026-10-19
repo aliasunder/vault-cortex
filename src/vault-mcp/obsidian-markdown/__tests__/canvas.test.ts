@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest"
-import { linearizeCanvas, extractCanvasFileLinks } from "../canvas.js"
+import {
+  linearizeCanvas,
+  extractCanvasFileLinks,
+  extractCanvasCardTexts,
+  rewriteCanvasLinks,
+} from "../canvas.js"
 
 /** Minimal node factories — geometry defaults keep tests focused on the
  *  fields under test. */
@@ -451,5 +456,158 @@ describe("extractCanvasFileLinks", () => {
 
   it("throws on unparseable JSON", () => {
     expect(() => extractCanvasFileLinks("{not json")).toThrow(/^invalid \.canvas JSON: /)
+  })
+})
+
+describe("extractCanvasCardTexts", () => {
+  it("returns the text of each text card in JSON order, skipping other node types", () => {
+    const json = canvasJson([
+      textNode({ id: "t1", text: "See [[Plan]]" }),
+      { id: "f1", type: "file", x: 0, y: 0, width: 400, height: 300, file: "Notes/Plan.md" },
+      textNode({ id: "t2", text: "Second card" }),
+    ])
+
+    expect(extractCanvasCardTexts(json)).toEqual(["See [[Plan]]", "Second card"])
+  })
+
+  it("skips empty cards and cards missing geometry", () => {
+    const json = canvasJson([
+      textNode({ id: "t1", text: "" }),
+      { id: "t2", type: "text", text: "[[No Geometry]]" },
+      textNode({ id: "t3", text: "kept" }),
+    ])
+
+    expect(extractCanvasCardTexts(json)).toEqual(["kept"])
+  })
+
+  it("throws on unparseable JSON", () => {
+    expect(() => extractCanvasCardTexts("{not json")).toThrow(/^invalid \.canvas JSON: /)
+  })
+})
+
+describe("rewriteCanvasLinks", () => {
+  /** A canvas in the exact layout Obsidian saves, with no trailing newline. */
+  const obsidianCanvas = [
+    "{",
+    '\t"nodes":[',
+    '\t\t{"id":"f1","type":"file","file":"Inbox/Note.md","subpath":"#Goals","x":0,"y":0,"width":400,"height":400,"color":"4"},',
+    '\t\t{"id":"t1","type":"text","text":"See [[Inbox/Note]]\\nand [[Other]]","x":500,"y":0,"width":250,"height":60},',
+    '\t\t{"id":"f2","type":"file","file":"Other.md","x":0,"y":500,"width":400,"height":400},',
+    '\t\t{"id":"t2","type":"text","text":"No links here","x":500,"y":500,"width":250,"height":60}',
+    "\t],",
+    '\t"edges":[',
+    '\t\t{"id":"e1","fromNode":"f1","fromSide":"right","toNode":"t1","toSide":"left","label":"see"}',
+    "\t]",
+    "}",
+  ].join("\n")
+
+  /** Rewrites only "[[Inbox/Note]]" and "Inbox/Note.md", so every other card
+   *  and path is a decoy that must come back unchanged. */
+  const rewriteCardText = (text: string): { text: string; linksRewritten: number } => {
+    const linksRewritten = text.split("[[Inbox/Note]]").length - 1
+    return { text: text.replaceAll("[[Inbox/Note]]", "[[Projects/Note]]"), linksRewritten }
+  }
+  const rewriteFilePath = (filePath: string): string | null => {
+    return filePath === "Inbox/Note.md" ? "Projects/Note.md" : null
+  }
+
+  it("rewrites the matching file card and text card and writes the canvas back in Obsidian's layout", () => {
+    const result = rewriteCanvasLinks({
+      canvasJson: obsidianCanvas,
+      rewriteCardText,
+      rewriteFilePath,
+    })
+
+    expect(result).toEqual({
+      content: [
+        "{",
+        '\t"nodes":[',
+        '\t\t{"id":"f1","type":"file","file":"Projects/Note.md","subpath":"#Goals","x":0,"y":0,"width":400,"height":400,"color":"4"},',
+        '\t\t{"id":"t1","type":"text","text":"See [[Projects/Note]]\\nand [[Other]]","x":500,"y":0,"width":250,"height":60},',
+        '\t\t{"id":"f2","type":"file","file":"Other.md","x":0,"y":500,"width":400,"height":400},',
+        '\t\t{"id":"t2","type":"text","text":"No links here","x":500,"y":500,"width":250,"height":60}',
+        "\t],",
+        '\t"edges":[',
+        '\t\t{"id":"e1","fromNode":"f1","fromSide":"right","toNode":"t1","toSide":"left","label":"see"}',
+        "\t]",
+        "}",
+      ].join("\n"),
+      linksRewritten: 2,
+    })
+  })
+
+  it("returns null when no link changes, so the caller leaves the file alone", () => {
+    const result = rewriteCanvasLinks({
+      canvasJson: obsidianCanvas,
+      rewriteCardText: (text) => ({ text: `${text} changed`, linksRewritten: 0 }),
+      rewriteFilePath: () => null,
+    })
+
+    expect(result).toBeNull()
+  })
+
+  it("keeps a card's original text when its rewrite reports no changed link", () => {
+    const result = rewriteCanvasLinks({
+      canvasJson: canvasJson([
+        textNode({ id: "t1", text: "untouched" }),
+        { id: "f1", type: "file", x: 0, y: 0, width: 400, height: 300, file: "Inbox/Note.md" },
+      ]),
+      rewriteCardText: (text) => ({ text: `${text} changed`, linksRewritten: 0 }),
+      rewriteFilePath,
+    })
+
+    expect(result).toEqual({
+      content: [
+        "{",
+        '\t"nodes":[',
+        '\t\t{"id":"t1","type":"text","x":0,"y":0,"width":200,"height":100,"text":"untouched"},',
+        '\t\t{"id":"f1","type":"file","x":0,"y":0,"width":400,"height":300,"file":"Projects/Note.md"}',
+        "\t],",
+        '\t"edges":[]',
+        "}",
+      ].join("\n"),
+      linksRewritten: 1,
+    })
+  })
+
+  it("skips nodes missing geometry, matching the links the index records", () => {
+    const result = rewriteCanvasLinks({
+      canvasJson: canvasJson([{ id: "f1", type: "file", file: "Inbox/Note.md" }]),
+      rewriteCardText,
+      rewriteFilePath,
+    })
+
+    expect(result).toBeNull()
+  })
+
+  it("keeps a trailing newline and any top-level property besides nodes and edges", () => {
+    const canvas = `{"nodes":[{"id":"f1","type":"file","file":"Inbox/Note.md","x":0,"y":0,"width":1,"height":1}],"edges":[],"metadata":{"version":"1.0"}}\n`
+
+    const result = rewriteCanvasLinks({ canvasJson: canvas, rewriteCardText, rewriteFilePath })
+
+    expect(result).toEqual({
+      content: [
+        "{",
+        '\t"nodes":[',
+        '\t\t{"id":"f1","type":"file","file":"Projects/Note.md","x":0,"y":0,"width":1,"height":1}',
+        "\t],",
+        '\t"edges":[],',
+        '\t"metadata":{"version":"1.0"}',
+        "}\n",
+      ].join("\n"),
+      linksRewritten: 1,
+    })
+  })
+
+  it("returns null for a canvas with no nodes array", () => {
+    expect(rewriteCanvasLinks({ canvasJson: "{}", rewriteCardText, rewriteFilePath })).toBeNull()
+  })
+
+  it("throws on unparseable JSON", () => {
+    const rewriteInvalidCanvas = (): void => {
+      rewriteCanvasLinks({ canvasJson: "{not json", rewriteCardText, rewriteFilePath })
+    }
+
+    expect(rewriteInvalidCanvas).toThrow(/^invalid \.canvas JSON: /)
   })
 })
