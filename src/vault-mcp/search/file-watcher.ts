@@ -63,17 +63,22 @@ type WatchVaultParams = Readonly<{
   watcherOptions?: FileWatcherOptions
 }>
 
-/** A change chokidar reported while the watcher held it. `add` and `change`
- *  both record "change", since either means "read this path again". Only the
- *  replay of events that arrive during the startup batch uses `kind`; the batch
- *  itself checks each path against the disk instead. */
-type HeldEvent = Readonly<{ kind: "change" | "unlink"; filePath: string }>
+/** The kind of the latest event chokidar reported for a held path. `add` and
+ *  `change` both record "change", since either means "read this path again".
+ *  The startup batch checks every held path against the disk; going live uses
+ *  the kind only to remove a deleted path early. */
+type HeldEventKind = "change" | "unlink"
 
-/** While holding, chokidar's events are recorded in arrival order instead of
- *  applied; once live, each event is applied as it arrives; once closed, they
- *  are ignored. */
+/** While holding, the paths chokidar reports are recorded instead of applied;
+ *  once live, each event is applied as it arrives; once closed, they are
+ *  ignored. */
 type WatcherState =
-  { mode: "holding"; heldEvents: HeldEvent[] } | { mode: "live" } | { mode: "closed" }
+  { mode: "holding"; heldPaths: Map<string, HeldEventKind> } | { mode: "live" } | { mode: "closed" }
+
+/** A held path and the event token reserved for it when the watcher went live.
+ *  The startup batch's removal or read of the path goes ahead only while the
+ *  reservation is still the path's token. */
+type ReservedPath = Readonly<{ filePath: string; reservation: symbol }>
 
 /** What indexing one changed file did. A note's embedding is still running when
  *  this returns, so whoever receives `note-indexed` reports its failure. */
@@ -100,9 +105,9 @@ type FolderListing =
 type HoldingWatcher = Readonly<{
   /** Resolves once chokidar's initial scan is done and every folder is watched. */
   ready: Promise<void>
-  /** Starts applying what chokidar reported while holding, and returns how many
-   *  distinct paths that is. `applied` resolves once their index writes commit
-   *  and the watcher is live. */
+  /** Goes live and starts applying what chokidar reported while holding, and
+   *  returns how many distinct paths that is. `applied` resolves once the
+   *  batch's index writes commit, and never rejects. */
   applyHeldChanges: () => { heldPathCount: number; applied: Promise<void> }
   /** Stops watching, including the rescans and retries still scheduled. Used
    *  only when startup fails before the held changes apply. Never rejects, so
@@ -112,9 +117,9 @@ type HoldingWatcher = Readonly<{
 
 /**
  * Watches the vault and mirrors every file add/change/delete into the search
- * index. Every change is held from the moment chokidar starts until the
- * startup batch that applyHeldChanges runs has finished. After a successful
- * startup the watcher runs for the process lifetime.
+ * index. Every change is held from the moment chokidar starts until
+ * applyHeldChanges goes live. After a successful startup the watcher runs for
+ * the process lifetime.
  */
 const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingWatcher => {
   const { vaultPath, search, watcherOptions } = params
@@ -131,15 +136,15 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    * guard the embedding that runs after it.
    * - indexChangedFile stores a fresh token before it reads the file, and drops
    *   what it read if a newer event or a removal replaced the token meanwhile.
-   * - goLiveAndReplay stores one for each path it will read again, so a later
-   *   deletion or a newer event for the path cancels that read.
+   * - applyHeldChanges reserves one for each held path as the watcher goes
+   *   live. The startup batch reads the path under it, so a later deletion or a
+   *   newer event for the path cancels the batch's removal or read.
    */
   const currentEvents = new Map<string, symbol>()
 
-  // Reassigned, so `let`: the startup batch swaps in a new held list for
-  // events that arrive while it runs, going live ends holding, and a failed
-  // startup closes the watcher.
-  let watcherState: WatcherState = { mode: "holding", heldEvents: [] }
+  // Reassigned, so `let`: going live ends holding, and a failed startup closes
+  // the watcher.
+  let watcherState: WatcherState = { mode: "holding", heldPaths: new Map() }
 
   /** Indexes an added or modified non-md file: its asset-table row, plus its
    *  content when it is a canvas or an indexable text or PDF file. */
@@ -167,8 +172,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     const nonMdStat = await readNonMdFileStat()
 
     if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
-    // Vanished between the event and the stat. Live, the unlink event that
-    // follows removes any existing row; the startup batch removes it itself.
+    // Vanished between the event and the stat: the unlink event that follows
+    // removes any existing row.
     if (nonMdStat.status === "missing") return { status: "vanished" }
     if (nonMdStat.status === "failed") return { status: "failed" }
 
@@ -341,6 +346,24 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
   }
 
+  /** Indexes an added or modified file under the token its caller stored for
+   *  the path, and reports what it did. */
+  const indexFileUnderToken = (params: {
+    filePath: string
+    relativePath: string
+    eventToken: symbol
+  }): Promise<ChangeIndexResult> => {
+    if (params.filePath.endsWith(".md")) return indexChangedNote(params)
+    return indexChangedNonMdFile(params)
+  }
+
+  /** Releases a path's event token unless a newer event replaced it. A newer
+   *  handler may already have finished and removed its entry; only the current
+   *  event owns cleanup, and absence still invalidates older reads. */
+  const releaseEventToken = (relativePath: string, eventToken: symbol): void => {
+    if (currentEvents.get(relativePath) === eventToken) currentEvents.delete(relativePath)
+  }
+
   /** Indexes an added or modified file and reports what it did. */
   const indexChangedFile = async (filePath: string): Promise<ChangeIndexResult> => {
     const relativePath = relative(vaultPath, filePath)
@@ -350,18 +373,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     const eventToken = Symbol()
     currentEvents.set(relativePath, eventToken)
 
-    const indexParams = { filePath, relativePath, eventToken }
-
     // Awaited inside the try, so the token is released only once indexing ends.
     try {
-      if (filePath.endsWith(".md")) return await indexChangedNote(indexParams)
-      return await indexChangedNonMdFile(indexParams)
+      return await indexFileUnderToken({ filePath, relativePath, eventToken })
     } finally {
-      // A newer handler may already have finished and removed its entry.
-      // Only the current event owns cleanup; absence still invalidates old reads.
-      if (currentEvents.get(relativePath) === eventToken) {
-        currentEvents.delete(relativePath)
-      }
+      releaseEventToken(relativePath, eventToken)
     }
   }
 
@@ -379,7 +395,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   const handleChange = async (filePath: string): Promise<void> => {
     if (watcherState.mode === "closed") return
     if (watcherState.mode === "holding") {
-      watcherState.heldEvents.push({ kind: "change", filePath })
+      watcherState.heldPaths.set(filePath, "change")
       logger.debug("held a change until startup indexing ends", {
         path: relative(vaultPath, filePath),
       })
@@ -461,7 +477,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   const handleDelete = (filePath: string): void => {
     if (watcherState.mode === "closed") return
     if (watcherState.mode === "holding") {
-      watcherState.heldEvents.push({ kind: "unlink", filePath })
+      watcherState.heldPaths.set(filePath, "unlink")
       logger.debug("held a deletion until startup indexing ends", {
         path: relative(vaultPath, filePath),
       })
@@ -770,120 +786,68 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     removeFromIndex(filePath)
   }
 
-  /** Re-reads one held path for the startup batch or its replay, without
-   *  waiting for its embedding. A path that vanished by its read is removed:
-   *  a live event for it that arrived during the read would have taken the
-   *  token and made the read "superseded" instead, so nothing newer is lost. */
-  const indexHeldPath = async (filePath: string): Promise<void> => {
-    const indexResult = await indexChangedFile(filePath)
+  /**
+   * Reads one held path again for the startup batch, under its reservation,
+   * without waiting for its embedding.
+   * - A live event for the path since the switch replaced the reservation, so
+   *   the read drops what it read, as an older live read does.
+   * - A path that vanished by its read is left to the `unlink` chokidar sends
+   *   for every file it tracks, as a live read leaves it.
+   */
+  const indexHeldPath = async ({ filePath, reservation }: ReservedPath): Promise<void> => {
+    const relativePath = relative(vaultPath, filePath)
 
-    if (indexResult.status === "vanished") {
-      removeHeldPath(filePath)
-      return
+    // Awaited inside the try, so the reservation is released only once indexing ends.
+    try {
+      const indexResult = await indexFileUnderToken({
+        filePath,
+        relativePath,
+        eventToken: reservation,
+      })
+
+      if (indexResult.status !== "note-indexed") return
+
+      // The batch does not wait for embeddings, so the failure handler is
+      // attached now. Attached after the batch, an embedding that rejected
+      // first would be reported as an unhandled rejection.
+      indexResult.embedding.catch((error) => {
+        reportEmbeddingFailure(filePath, error)
+      })
+    } finally {
+      releaseEventToken(relativePath, reservation)
     }
-    if (indexResult.status !== "note-indexed") return
-
-    // The batch does not wait for embeddings, so the failure handler is
-    // attached now. Attached after the batch, an embedding that rejected first
-    // would be reported as an unhandled rejection.
-    indexResult.embedding.catch((error) => {
-      reportEmbeddingFailure(filePath, error)
-    })
   }
 
-  /** Reads and indexes paths at the rebuild's bounds: PDFs whose text is
+  /** Reads held paths again at the rebuild's bounds: PDFs whose text is
    *  extracted PDF_EXTRACTION_CONCURRENCY at a time, after the others, which go
    *  INDEXING_FILE_READ_CONCURRENCY at a time. */
-  const indexPathsWithinBounds = async (params: {
-    filePaths: ReadonlyArray<string>
-    indexPath: (filePath: string) => Promise<void>
-  }): Promise<void> => {
-    const { filePaths, indexPath } = params
+  const indexHeldPathsWithinBounds = async (
+    reservedPaths: ReadonlyArray<ReservedPath>,
+  ): Promise<void> => {
     // indexChangedNonMdFile extracts a PDF's text only when file content
     // indexing is on; otherwise a PDF is only statted and keeps the general bound.
-    const needsPdfExtraction = (filePath: string): boolean => {
+    const needsPdfExtraction = ({ filePath }: ReservedPath): boolean => {
       return search.fileContentIndexingEnabled && extname(filePath) === ".pdf"
     }
-    const pdfPaths = filePaths.filter(needsPdfExtraction)
-    const otherPaths = filePaths.filter((filePath) => !needsPdfExtraction(filePath))
+    const pdfReads = reservedPaths.filter(needsPdfExtraction)
+    const otherReads = reservedPaths.filter((reservedPath) => !needsPdfExtraction(reservedPath))
 
     await mapWithConcurrency({
-      items: otherPaths,
+      items: otherReads,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
-      mapper: indexPath,
+      mapper: indexHeldPath,
     })
     await mapWithConcurrency({
-      items: pdfPaths,
+      items: pdfReads,
       concurrency: PDF_EXTRACTION_CONCURRENCY,
-      mapper: indexPath,
-    })
-  }
-
-  /** Reads again each path changed while the startup batch ran, unless a later
-   *  deletion or a newer event replaced the token goLiveAndReplay reserved for
-   *  it. Nothing awaits it, so it logs its own failure. */
-  const replayChangedPaths = async (replayTokens: ReadonlyMap<string, symbol>): Promise<void> => {
-    const indexPathIfStillReserved = async (filePath: string): Promise<void> => {
-      const reservationIsCurrent =
-        currentEvents.get(relative(vaultPath, filePath)) === replayTokens.get(filePath)
-
-      // On a case-insensitive filesystem the old spelling of a renamed file
-      // still reads, so a cancelled read would index the old path again.
-      if (!reservationIsCurrent) return
-      await indexHeldPath(filePath)
-    }
-
-    try {
-      await indexPathsWithinBounds({
-        filePaths: [...replayTokens.keys()],
-        indexPath: indexPathIfStillReserved,
-      })
-    } catch (error) {
-      logger.error("failed to replay the changes held during the startup batch", {
-        error: describeError(error),
-      })
-    }
-  }
-
-  /** Ends holding and replays the events held while the batch ran: deletions
-   *  at once, then each changed path read again at the batch's bounds unless a
-   *  later deletion or event replaced it. Startup does not wait for those
-   *  reads, as it does not wait for later live events. */
-  const goLiveAndReplay = (batchPathCount: number): void => {
-    // Unreachable today, because applyHeldChanges runs once per startup and the
-    // watcher closes only when the rebuild fails, before that call. A second
-    // call would start a second batch, and this keeps it from going live twice.
-    if (watcherState.mode !== "holding") return
-
-    const eventsDuringBatch = watcherState.heldEvents
-    watcherState = { mode: "live" }
-
-    // This loop runs in arrival order, in one tick, before any live event
-    // arrives. Each change reserves a token for its path's read and each
-    // deletion drops it, so a later deletion or newer event cancels the read.
-    const replayTokens = new Map<string, symbol>()
-    for (const heldEvent of eventsDuringBatch) {
-      if (heldEvent.kind === "unlink") {
-        handleDelete(heldEvent.filePath)
-        continue
-      }
-      const replayToken = Symbol()
-      currentEvents.set(relative(vaultPath, heldEvent.filePath), replayToken)
-      replayTokens.set(heldEvent.filePath, replayToken)
-    }
-    void replayChangedPaths(replayTokens)
-    logger.info("applied the changes held during startup indexing", {
-      batchPaths: batchPathCount,
-      replayedEvents: eventsDuringBatch.length,
+      mapper: indexHeldPath,
     })
   }
 
   /** Checks each held path against the disk, removes the missing ones, then
-   *  re-reads the rest. It must run while the watcher holds: removeFromIndex
-   *  drops the path's event token, so once live, a removal could cancel the
-   *  read of an `add` that started during the check, and the added file would
-   *  stay unindexed. */
-  const reconcileHeldPaths = async (batchPaths: ReadonlyArray<string>): Promise<void> => {
+   *  reads the rest again. The watcher is live meanwhile, so a path whose
+   *  reservation a live event replaced is skipped: that event is newer. */
+  const reconcileHeldPaths = async (reservedPaths: ReadonlyArray<ReservedPath>): Promise<void> => {
     const folderListings = new Map<string, Promise<FolderListing>>()
 
     /** Lists each folder once per batch, however many held paths sit in it. */
@@ -897,73 +861,81 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
 
     const presenceChecks = await mapWithConcurrency({
-      items: batchPaths,
+      items: reservedPaths,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
-      mapper: async (filePath) => {
-        return { filePath, presence: await checkHeldPathOnDisk(filePath, listFolderOnce) }
+      mapper: async (reservedPath) => {
+        const presence = await checkHeldPathOnDisk(reservedPath.filePath, listFolderOnce)
+        return { reservedPath, presence }
       },
     })
     const missingPaths = presenceChecks
       .filter((check) => check.presence === "missing")
-      .map((check) => check.filePath)
+      .map((check) => check.reservedPath)
     const pathsToRead = presenceChecks
       .filter((check) => check.presence !== "missing")
-      .map((check) => check.filePath)
+      .map((check) => check.reservedPath)
 
     // Removals run before reads. upsertNote re-resolves only links whose target
     // is not indexed, so when a renamed note's old path is removed first, the
     // new path claims the links that pointed at the old one.
-    for (const filePath of missingPaths) {
+    for (const { filePath, reservation } of missingPaths) {
+      // Skips a path a live event has taken since the switch, so a live `add`
+      // that indexed it is not removed. No await sits between this check and
+      // the removal, so no live event can take the path in between.
+      const reservationIsCurrent = currentEvents.get(relative(vaultPath, filePath)) === reservation
+
+      if (!reservationIsCurrent) continue
       removeHeldPath(filePath)
     }
 
-    await indexPathsWithinBounds({ filePaths: pathsToRead, indexPath: indexHeldPath })
+    await indexHeldPathsWithinBounds(pathsToRead)
   }
 
   /**
-   * Brings the index up to date with the held paths, in one batch, then goes live:
+   * Goes live and starts the startup batch over the distinct held paths. These
+   * three steps run in one synchronous step, before any live event can start:
    *
-   * 1. Each path is checked against the disk, and missing ones are removed.
-   * 2. The rest are read and indexed within the rebuild's bounds; one that
-   *    vanished by its read is removed.
-   * 3. The watcher goes live, and the events held while steps 1 and 2 ran are
-   *    replayed: deletions at once, then the changed paths read again in the
-   *    background, except those a later deletion or event replaced.
+   * 1. The watcher goes live.
+   * 2. Each path whose latest held event is a deletion is removed, so a renamed
+   *    note's new path, arriving live, claims the links that pointed at the old
+   *    one. A file that came back is read again by the batch.
+   * 3. Each held path gets a reserved event token. It comes after step 2,
+   *    because removeFromIndex deletes the path's token.
    *
-   * Never rejects, and step 3 runs even if an earlier step threw: a watcher
-   * left holding would drop every later change.
+   * `applied` never rejects: one catch logs a failure of the batch.
    */
-  const applyHeldBatch = async (batchPaths: ReadonlyArray<string>): Promise<void> => {
-    try {
-      await reconcileHeldPaths(batchPaths)
-    } catch (error) {
-      logger.error("failed to apply the changes held during startup", {
-        error: describeError(error),
-      })
-    }
-    // Its own catch, because nothing awaits `applied` once the deadline has
-    // passed, so a throw here would be an unhandled rejection.
-    try {
-      goLiveAndReplay(batchPaths.length)
-    } catch (error) {
-      logger.error("failed to start replaying the changes held during the startup batch", {
-        error: describeError(error),
-      })
-    }
-  }
-
-  /** Starts the startup batch over the distinct paths held so far. The batch
-   *  ignores each event's kind, because it checks every path against the disk. */
   const applyHeldChanges = (): { heldPathCount: number; applied: Promise<void> } => {
+    // Unreachable today, because applyHeldChanges runs once per startup and the
+    // watcher closes only when the rebuild fails, before that call.
     if (watcherState.mode !== "holding") return { heldPathCount: 0, applied: Promise.resolve() }
 
-    const batchEvents = watcherState.heldEvents
-    // Events arriving while the batch runs collect in a new list and are
-    // replayed after it.
-    watcherState = { mode: "holding", heldEvents: [] }
-    const batchPaths = [...new Set(batchEvents.map((heldEvent) => heldEvent.filePath))]
+    const { heldPaths } = watcherState
+    watcherState = { mode: "live" }
 
-    return { heldPathCount: batchPaths.length, applied: applyHeldBatch(batchPaths) }
+    for (const [filePath, latestEventKind] of heldPaths) {
+      if (latestEventKind === "unlink") removeFromIndex(filePath)
+    }
+
+    const reservedPaths: ReservedPath[] = []
+    for (const filePath of heldPaths.keys()) {
+      const reservation = Symbol()
+      currentEvents.set(relative(vaultPath, filePath), reservation)
+      reservedPaths.push({ filePath, reservation })
+    }
+
+    const applyBatch = async (): Promise<void> => {
+      try {
+        await reconcileHeldPaths(reservedPaths)
+        logger.info("applied the changes held during startup indexing", {
+          heldPaths: reservedPaths.length,
+        })
+      } catch (error) {
+        logger.error("failed to apply the changes held during startup", {
+          error: describeError(error),
+        })
+      }
+    }
+    return { heldPathCount: reservedPaths.length, applied: applyBatch() }
   }
 
   watcher
@@ -1002,9 +974,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
  * reads anything and holds every change until the rebuild returns, so a change
  * landing mid-rebuild is applied after it instead of being missed or replaced
  * by the rebuild's older read. Resolves with the rebuild's result (the note
- * count and its background embedding promise) once the held changes are
- * indexed, or at heldChangesDeadline if they take longer; the rest then apply
- * in the background.
+ * count and its background embedding promise) once the batch over the held
+ * changes commits its index writes, or at heldChangesDeadline if it takes
+ * longer; the rest then apply in the background.
  */
 export const watchVaultAndBuildIndex = async (
   params: WatchVaultParams,

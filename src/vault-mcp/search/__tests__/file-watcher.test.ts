@@ -1474,6 +1474,28 @@ const gateFirstRead = async (filePath: string, placement: "before-disk" | "after
   return { reached: reached.promise, release: () => release.resolve(undefined) }
 }
 
+/** Pauses the first readdir of the vault root after it has read the folder,
+ *  so the startup batch's presence checks use names from before whatever the
+ *  test does while the listing waits. */
+const gateRootListing = async (testVault: string) => {
+  const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+  const reached = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<undefined>()
+  const gateState = { used: false }
+  vi.mocked(readdir).mockImplementation(async (requestedPath, options) => {
+    const isGatedListing = requestedPath === testVault && !gateState.used
+
+    if (!isGatedListing) return actualFs.readdir(requestedPath, options)
+    gateState.used = true
+    const names = await actualFs.readdir(requestedPath, options)
+    reached.resolve(undefined)
+    await release.promise
+    return names
+  })
+  onTestFinished(() => vi.mocked(readdir).mockRestore())
+  return { reached: reached.promise, release: () => release.resolve(undefined) }
+}
+
 describe("watchVaultAndBuildIndex — changes during startup", () => {
   /** A controlled watcher whose startup rebuild waits for finishRebuild, unless
    *  realRebuild is set. The database lives outside the vault, so its own files
@@ -1585,8 +1607,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       "note.md",
     ])
     expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
-      batchPaths: 1,
-      replayedEvents: 0,
+      heldPaths: 1,
     })
   })
 
@@ -1642,24 +1663,31 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(search.fullTextSearch({ query: "oldtext" }, logger)).toEqual([])
   })
 
-  it("removes a held path deleted between its check and its read", async () => {
-    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
-      seedNotes: { "late.md": "oldtext\n" },
-    })
-    const notePath = join(testVault, "late.md")
-    await writeFile(notePath, "newer text\n")
-    const readGate = await gateFirstRead(notePath, "before-disk")
-    expect(notePaths()).toEqual([{ path: "late.md" }])
+  // chokidar sends an unlink for every file it tracks, so the batch leaves a
+  // path that vanished by its read to that live event.
+  it.each([{ unlinkArrives: "before the read returns" }, { unlinkArrives: "after startup" }])(
+    "removes a held path deleted between its check and its read once its unlink arrives $unlinkArrives",
+    async ({ unlinkArrives }) => {
+      const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+        seedNotes: { "late.md": "oldtext\n" },
+      })
+      const notePath = join(testVault, "late.md")
+      await writeFile(notePath, "newer text\n")
+      const readGate = await gateFirstRead(notePath, "before-disk")
+      expect(notePaths()).toEqual([{ path: "late.md" }])
 
-    await fire("change", "late.md")
-    finishRebuild()
-    await readGate.reached
-    await unlink(notePath)
-    readGate.release()
-    await startup
+      await fire("change", "late.md")
+      finishRebuild()
+      await readGate.reached
+      await unlink(notePath)
+      if (unlinkArrives === "before the read returns") await fire("unlink", "late.md")
+      readGate.release()
+      await startup
+      if (unlinkArrives === "after startup") await fire("unlink", "late.md")
 
-    expect(notePaths()).toEqual([])
-  })
+      expect(notePaths()).toEqual([])
+    },
+  )
 
   it("removes a renamed note before reading its new path, so incoming links follow", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
@@ -1682,7 +1710,121 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
   })
 
-  it("replays events from during the batch, so the latest state on disk wins", async () => {
+  it("points incoming links at a renamed note whose new path arrives live during the batch", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
+    })
+    await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
+    const listingGate = await gateRootListing(testVault)
+    const linkFromSource = () => {
+      const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+      return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
+    }
+    expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
+
+    await fire("unlink", "B.md")
+    finishRebuild()
+    await listingGate.reached
+    await mkdir(join(testVault, "folder"))
+    await writeFile(join(testVault, "folder", "B.md"), "new home\n")
+    await fire("add", "folder/B.md")
+    listingGate.release()
+    await startup
+
+    expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
+  })
+
+  it("keeps a note that a live add indexed while the batch checked its held deletion", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "P.md": "oldtext\n" },
+    })
+    const listingGate = await gateRootListing(testVault)
+    const pathsFor = (query: string) => {
+      return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+    }
+    expect(pathsFor("oldtext")).toEqual(["P.md"])
+
+    await fire("unlink", "P.md")
+    finishRebuild()
+    // The root listing was read before P.md came back, so P.md's check finds it missing.
+    await listingGate.reached
+    await writeFile(join(testVault, "P.md"), "liveopal\n")
+    await fire("add", "P.md")
+    expect(pathsFor("liveopal")).toEqual(["P.md"])
+    listingGate.release()
+    await startup
+
+    expect(pathsFor("liveopal")).toEqual(["P.md"])
+  })
+
+  it("keeps a live add for a held path whose check waits behind 16 others", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "P.md": "oldtext\n" },
+    })
+    const blockerNames = Array.from(
+      { length: 16 },
+      (_unused, blockerIndex) => `blocker-${blockerIndex}.md`,
+    )
+    for (const blockerName of blockerNames) {
+      await writeFile(join(testVault, blockerName), "blockertext\n")
+    }
+    // The 16 blocker checks fill the batch's first group and wait at their stat,
+    // so P.md's check starts only after its live add. The root listing those
+    // checks shared was read before P.md came back.
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const statGate = Promise.withResolvers<undefined>()
+    const blockerStats = { started: 0 }
+    const blockerPathPrefix = join(testVault, "blocker-")
+    vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      const isBlockerCheck =
+        requestedPath.startsWith(blockerPathPrefix) && blockerStats.started < 16
+
+      if (isBlockerCheck) {
+        blockerStats.started += 1
+        await statGate.promise
+      }
+      return actualFsUtils.statOrNull(requestedPath)
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+    for (const blockerName of blockerNames) {
+      await fire("change", blockerName)
+    }
+    await fire("unlink", "P.md")
+
+    finishRebuild()
+    await vi.waitFor(() => {
+      expect(blockerStats.started).toBe(16)
+    })
+    await writeFile(join(testVault, "P.md"), "liveopal\n")
+    await fire("add", "P.md")
+    statGate.resolve(undefined)
+    await startup
+
+    expect(search.fullTextSearch({ query: "liveopal" }, logger).map((hit) => hit.path)).toEqual([
+      "P.md",
+    ])
+  })
+
+  it("removes a held deletion of a re-created note when going live, then reads it again", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "back.md": "oldtext\n" },
+    })
+    const debugSpy = spyOnLogger("debug")
+    await writeFile(join(testVault, "back.md"), "returnedopal\n")
+
+    await fire("unlink", "back.md")
+    finishRebuild()
+    await startup
+
+    expect(debugSpy).toHaveBeenCalledWith("removed from index", { path: "back.md" })
+    expect(search.fullTextSearch({ query: "returnedopal" }, logger).map((hit) => hit.path)).toEqual(
+      ["back.md"],
+    )
+    expect(search.fullTextSearch({ query: "oldtext" }, logger)).toEqual([])
+  })
+
+  it("applies live events from during the batch, so the latest state on disk wins", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
       seedNotes: { "P.md": "oldamber\n", "Q.md": "quartzrow\n" },
     })
@@ -1711,15 +1853,12 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     await startup
 
     expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
-      batchPaths: 1,
-      replayedEvents: 4,
+      heldPaths: 1,
     })
-    await vi.waitFor(() => {
-      expect(pathsFor("newopal")).toEqual(["P.md"])
-      expect(pathsFor("oldamber")).toEqual([])
-      expect(pathsFor("quartzrow")).toEqual([])
-      expect(pathsFor("replayjade")).toEqual(["R.md"])
-    })
+    expect(pathsFor("newopal")).toEqual(["P.md"])
+    expect(pathsFor("oldamber")).toEqual([])
+    expect(pathsFor("quartzrow")).toEqual([])
+    expect(pathsFor("replayjade")).toEqual(["R.md"])
   })
 
   it("contains a failed read and keeps applying the other held paths", async () => {
@@ -1796,31 +1935,6 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
       "failed to apply the changes held during startup",
       { error: "[Error]: controlled batch failure" },
-    )
-
-    await writeFile(join(testVault, "live.md"), "livetopaz\n")
-    await fire("add", "live.md")
-    expect(search.fullTextSearch({ query: "livetopaz" }, logger).map((hit) => hit.path)).toEqual([
-      "live.md",
-    ])
-  })
-
-  it("logs a failure to start the replay instead of rejecting startup", async () => {
-    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
-    const errorSpy = spyOnLogger("error")
-    // The replay's summary line is the last step of going live, so a throw
-    // there escapes it after the watcher is live.
-    spyOnLogger("info").mockImplementation((message) => {
-      if (message === "applied the changes held during startup indexing") {
-        throw new Error("controlled replay failure")
-      }
-    })
-
-    finishRebuild()
-    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
-    expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
-      "failed to start replaying the changes held during the startup batch",
-      { error: "[Error]: controlled replay failure" },
     )
 
     await writeFile(join(testVault, "live.md"), "livetopaz\n")
@@ -1949,54 +2063,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     expect(indexedPaths.toSorted()).toEqual(fileNames.toSorted())
   })
 
-  it("reads at most 16 files at once when replaying the changes from during the batch", async () => {
-    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
-    const infoSpy = spyOnLogger("info")
-    const batchPath = join(testVault, "batch.md")
-    await writeFile(batchPath, "batchonyx\n")
-    const fileNames = Array.from({ length: 40 }, (_unused, noteIndex) => `late-${noteIndex}.md`)
-    for (const fileName of fileNames) {
-      await writeFile(join(testVault, fileName), "latetopaz\n")
-    }
-    const readGate = await gateFirstRead(batchPath, "before-disk")
-    const pathsFor = (query: string) => {
-      return search.fullTextSearch({ query, limit: 50 }, logger).map((hit) => hit.path)
-    }
-
-    await fire("add", "batch.md")
-    finishRebuild()
-    await readGate.reached
-    // Installed while the batch's one read waits, so only the replay's reads count.
-    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
-    const readCounts = { inFlight: 0, peak: 0 }
-    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
-      readCounts.inFlight += 1
-      readCounts.peak = Math.max(readCounts.peak, readCounts.inFlight)
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      try {
-        return await actualFs.readFile(requestedPath, options)
-      } finally {
-        readCounts.inFlight -= 1
-      }
-    })
-    for (const fileName of fileNames) {
-      await fire("add", fileName)
-    }
-    readGate.release()
-    await startup
-
-    expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
-      batchPaths: 1,
-      replayedEvents: 40,
-    })
-    await vi.waitFor(() => {
-      expect(pathsFor("latetopaz").toSorted()).toEqual(fileNames.toSorted())
-    })
-    expect(pathsFor("batchonyx")).toEqual(["batch.md"])
-    expect(readCounts.peak).toBe(16)
-  })
-
-  it("replays a change that follows a held deletion of the same path", async () => {
+  it("indexes a change that follows a deletion of the same path during the batch", async () => {
     const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
       seedNotes: { "note.md": "oldtext\n" },
     })
@@ -2016,63 +2083,17 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     readGate.release()
     await startup
 
-    await vi.waitFor(() => {
-      expect(pathsFor("newopal")).toEqual(["note.md"])
-    })
+    expect(pathsFor("newopal")).toEqual(["note.md"])
     expect(pathsFor("oldtext")).toEqual([])
   })
 
-  it("does not replay a change that a later held deletion of the path replaced", async () => {
+  it("drops a queued read of the old spelling when a case-only rename lands during the batch", async () => {
     const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
       seedNotes: { "note.md": "caseopal\n" },
     })
-    const batchPath = join(testVault, "batch.md")
     const oldPath = join(testVault, "note.md")
     const renamedPath = join(testVault, "Note.md")
-    await writeFile(batchPath, "batchonyx\n")
-    await writeFile(renamedPath, "caseopal\n")
-    const readGate = await gateFirstRead(batchPath, "before-disk")
-
-    await fire("add", "batch.md")
-    finishRebuild()
-    await readGate.reached
-    // Installed while the batch's one read waits. A case-insensitive filesystem
-    // answers for the old spelling too, so reading it would index note.md again.
-    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
-    const asFoundOnDisk = <RequestedPath>(requestedPath: RequestedPath): RequestedPath | string => {
-      return requestedPath === oldPath ? renamedPath : requestedPath
-    }
-    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
-      return actualFs.stat(asFoundOnDisk(requestedPath), options)
-    })
-    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
-      return actualFs.readFile(asFoundOnDisk(requestedPath), options)
-    })
-    // gateFirstRead's cleanup restores readFile.
-    onTestFinished(() => vi.mocked(stat).mockRestore())
-    await fire("change", "note.md")
-    await fire("unlink", "note.md")
-    await fire("add", "Note.md")
-    readGate.release()
-    await startup
-
-    await vi.waitFor(() => {
-      expect(notePaths()).toEqual([{ path: "Note.md" }, { path: "batch.md" }])
-    })
-    // The replay starts note.md's read before Note.md's, so it would have run by now.
-    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(oldPath, "utf8")
-  })
-
-  it("does not replay a change whose path a live deletion reached first", async () => {
-    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
-      seedNotes: { "note.md": "caseopal\n" },
-    })
-    const batchPath = join(testVault, "batch.md")
-    const oldPath = join(testVault, "note.md")
-    const renamedPath = join(testVault, "Note.md")
-    await writeFile(batchPath, "batchonyx\n")
-    await writeFile(renamedPath, "caseopal\n")
-    await writeFile(join(testVault, "z-last.md"), "lastjade\n")
+    await writeFile(oldPath, "caseopal\n")
     const blockerNames = Array.from(
       { length: 16 },
       (_unused, blockerIndex) => `blocker-${blockerIndex}.md`,
@@ -2080,20 +2101,17 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     for (const blockerName of blockerNames) {
       await writeFile(join(testVault, blockerName), "blockertext\n")
     }
-    const readGate = await gateFirstRead(batchPath, "before-disk")
-
-    await fire("add", "batch.md")
-    finishRebuild()
-    await readGate.reached
-    // Installed while the batch's one read waits. The 16 blocker reads fill the
-    // replay's first group and wait for blockerGate, so note.md's read stays
-    // queued. A case-insensitive filesystem answers for the old spelling too.
+    // The 16 blocker reads fill the batch's first group and wait for
+    // blockerGate, so note.md's read stays queued after its check saw it on
+    // disk. Once renamed, a case-insensitive filesystem still answers for the
+    // old spelling, so reading it would index note.md again.
     const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
     const blockerGate = Promise.withResolvers<undefined>()
     const blockerReads = { started: 0 }
+    const renameState = { renamed: false }
     const blockerPathPrefix = join(testVault, "blocker-")
     const asFoundOnDisk = <RequestedPath>(requestedPath: RequestedPath): RequestedPath | string => {
-      return requestedPath === oldPath ? renamedPath : requestedPath
+      return renameState.renamed && requestedPath === oldPath ? renamedPath : requestedPath
     }
     vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
       return actualFs.stat(asFoundOnDisk(requestedPath), options)
@@ -2108,29 +2126,27 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       }
       return actualFs.readFile(asFoundOnDisk(requestedPath), options)
     })
-    // gateFirstRead's cleanup restores readFile.
-    onTestFinished(() => vi.mocked(stat).mockRestore())
+    onTestFinished(() => {
+      vi.mocked(stat).mockRestore()
+      vi.mocked(readFile).mockRestore()
+    })
     for (const blockerName of blockerNames) {
       await fire("change", blockerName)
     }
     await fire("change", "note.md")
-    await fire("change", "z-last.md")
-    readGate.release()
-    await startup
+
+    finishRebuild()
     await vi.waitFor(() => {
       expect(blockerReads.started).toBe(16)
     })
-
+    await rename(oldPath, renamedPath)
+    renameState.renamed = true
     await fire("unlink", "note.md")
     await fire("add", "Note.md")
     blockerGate.resolve(undefined)
+    await startup
 
-    await vi.waitFor(() => {
-      expect(notePaths()).toContainEqual({ path: "z-last.md" })
-    })
-    // The replay starts note.md's read before z-last.md's, so it would have run by now.
-    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(oldPath, "utf8")
-    const expectedPaths = ["Note.md", "batch.md", "z-last.md", ...blockerNames].toSorted()
+    const expectedPaths = ["Note.md", ...blockerNames].toSorted()
     expect(notePaths()).toEqual(expectedPaths.map((path) => ({ path })))
   })
 
@@ -2288,16 +2304,17 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       { heldPaths: 1, heldChangesDeadline: 50 },
     )
     expect(pathsFor("slowtext")).toEqual([])
+    // The watcher went live before the batch started, so a change while the
+    // batch's read is still gated is indexed at once.
     await writeFile(join(testVault, "S.md"), "aftertext\n")
     await fire("change", "S.md")
-    expect(debugSpy).toHaveBeenCalledWith("held a change until startup indexing ends", {
+    expect(debugSpy).not.toHaveBeenCalledWith("held a change until startup indexing ends", {
       path: "S.md",
     })
-    expect(pathsFor("aftertext")).toEqual([])
+    expect(pathsFor("aftertext")).toEqual(["S.md"])
     readGate.release()
     await vi.waitFor(() => {
       expect(pathsFor("slowtext")).toEqual(["slow.md"])
-      expect(pathsFor("aftertext")).toEqual(["S.md"])
     })
   })
 
@@ -2367,7 +2384,9 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     })
     expect(notePaths()).toEqual([{ path: "notes/x.md" }])
 
-    await fire("unlink", "notes/x.md")
+    // On macOS, chokidar reports a case-only folder rename as a change to the
+    // old path, never an unlink.
+    await fire("change", "notes/x.md")
     await fire("add", "Notes/x.md")
     finishRebuild()
     await startup
@@ -2469,7 +2488,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     ])
   })
 
-  it("removes a held file's rows when it is deleted between its check and its read", async () => {
+  it("removes a held file's rows when it is deleted between its check and its read and its unlink arrives", async () => {
     const { testVault, search, database, fire, startup, finishRebuild } =
       await createControlledStartup()
     const contentPath = join(testVault, "content.txt")
@@ -2506,8 +2525,11 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     await fire("change", "content.txt")
     finishRebuild()
     await startup
-
+    // The batch's read finds the file gone and leaves it to the unlink
+    // chokidar sends for it.
     expect(checkedPaths).toEqual(new Set([contentPath]))
+    await fire("unlink", "content.txt")
+
     expect(fileRows()).toEqual({ assets: [], contents: [] })
   })
 
@@ -2694,8 +2716,7 @@ describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCH
       expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
       expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
       expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
-        batchPaths: 4,
-        replayedEvents: 0,
+        heldPaths: 4,
       })
     },
   )
@@ -2924,8 +2945,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
         "new-folder/missed.md",
       ])
       expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
-        batchPaths: 1,
-        replayedEvents: 0,
+        heldPaths: 1,
       })
     },
   )
