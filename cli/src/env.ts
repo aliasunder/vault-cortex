@@ -373,6 +373,7 @@ SYNC_FILE_TYPES=
 #                            plugin's settings, such as its task format)
 #     none                   sync no settings
 #   Unset or empty (default): core-plugin-data,community-plugin-data,app
+# An invalid value is skipped with a warning in the logs, and no settings sync.
 # Some community plugins keep API keys in their settings — server tools
 # never read .obsidian/, but synced settings do live on the server volume.
 SYNC_CONFIGS=core-plugin-data,community-plugin-data,app
