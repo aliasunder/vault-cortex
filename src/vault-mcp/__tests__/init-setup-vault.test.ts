@@ -279,6 +279,34 @@ describe("init-setup-vault script", () => {
     ])
   })
 
+  it.each<{ label: string; options: SetupRunOptions }>([
+    { label: "unset", options: { vaultName: "MyVault" } },
+    { label: "empty", options: { vaultName: "MyVault", syncConfigs: "" } },
+  ])("syncs the default settings categories when SYNC_CONFIGS is $label", ({ options }) => {
+    const run = runSetupScript(options)
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe("")
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("passes a custom SYNC_CONFIGS list to sync-config in place of the default", () => {
+    const run = runSetupScript({ vaultName: "MyVault", syncConfigs: "app,hotkey" })
+
+    expect(run.status).toBe(0)
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
+      "sync-config --configs app,hotkey",
+    ])
+  })
+
   it("clears config-category sync when SYNC_CONFIGS is none", () => {
     const run = runSetupScript({ vaultName: "MyVault", syncConfigs: "none" })
 
