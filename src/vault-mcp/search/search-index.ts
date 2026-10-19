@@ -2480,9 +2480,8 @@ export const createSearchIndex = (
     // Every note read from disk, including notes that failed to index, unlike indexedNotes
     const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
 
-    // Pass 3 runs in the background — the server can start accepting requests
-    // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
-    // progressive enhancement: search works with FTS-only until vectors are ready.
+    // Pass 3 runs in the background, so startup does not wait for it. Until a
+    // note's vectors exist, search finds that note by keyword only.
     const embeddingPromise =
       embedder && selectAllNoteChunkPathsStmt
         ? (async () => {

@@ -496,7 +496,7 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 1. **Pass 1** — index notes (FTS5 + metadata)
 2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
-3. **Pass 3 (background)** — embed notes, then file content. Search works with FTS-only until vectors are ready
+3. **Pass 3 (background)** — embed notes, then file content. Until a note's vectors exist, search finds it by keyword only
 
 **Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
 
