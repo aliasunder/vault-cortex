@@ -2,7 +2,6 @@
 
 import { z } from "zod"
 import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js"
-import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
@@ -22,12 +21,44 @@ import {
  *  config disables the tool, and injects the registry's annotations so group
  *  modules never restate them — the config type carries no annotations key,
  *  making an inline block a compile error. Throws on a name missing from the
- *  registry (a typo'd registration would otherwise be invisible forever). */
-export type RegisterGatedTool = <InputArgs extends undefined | ZodRawShapeCompat = undefined>(
+ *  registry (a typo'd registration would otherwise be invisible forever).
+ *  inputSchema is required because the SDK validates nothing for a tool
+ *  without one, so unknown keys would pass. */
+export type RegisterGatedTool = <InputShape extends z.ZodRawShape>(
   name: ToolName,
-  config: { title: string; description: string; inputSchema?: InputArgs },
-  handler: ToolCallback<InputArgs>,
+  config: { title: string; description: string; inputSchema: InputShape },
+  handler: ToolCallback<StrictInputObject<InputShape>>,
 ) => void
+
+export type StrictInputObject<Shape extends z.ZodRawShape> = z.ZodObject<Shape, z.core.$strict>
+
+/** A Zod object that rejects keys its shape does not declare, where a plain
+ *  `z.object` drops them and the call succeeds without the misspelled option.
+ *  The rejection names the unknown keys and the accepted ones, so the caller
+ *  can correct the name in one retry. Every tool input object is built with
+ *  it: the registerTool wrapper wraps each top-level shape, and nested
+ *  objects are declared with it. */
+export const createStrictInputObject = <Shape extends z.ZodRawShape>(
+  shape: Shape,
+): StrictInputObject<Shape> => {
+  const acceptedKeys = Object.keys(shape)
+  const acceptedKeysText =
+    acceptedKeys.length > 0
+      ? `accepted: ${acceptedKeys.join(", ")}`
+      : "this tool takes no parameters"
+
+  return z.strictObject(shape, {
+    error: (issue) => {
+      // Other issues raised by the object itself (a non-object value) keep
+      // Zod's default message
+      if (issue.code !== "unrecognized_keys") return undefined
+
+      const keyNoun = issue.keys.length === 1 ? "key" : "keys"
+      const quotedKeys = issue.keys.map((key) => `"${key}"`).join(", ")
+      return `unrecognized ${keyNoun} ${quotedKeys} (${acceptedKeysText})`
+    },
+  })
+}
 
 export type ToolRegistrationContext = ToolAvailability &
   SafeHandlers & {
@@ -79,21 +110,19 @@ export const formatNoteMetadata = (meta: {
 
 /** Shared Zod schema for one date filter ({ before, on, after }) — used by
  *  vault_list_tasks' task date filters and vault_search's created/modified. */
-export const dateFilterSchema = z
-  .object({
-    before: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates"),
-    on: z.string().min(1).optional().describe("Exact date match (YYYY-MM-DD)"),
-    after: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
-  })
-  .optional()
+export const dateFilterSchema = createStrictInputObject({
+  before: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates"),
+  on: z.string().min(1).optional().describe("Exact date match (YYYY-MM-DD)"),
+  after: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
+}).optional()
 
 /** One-line, model-facing summary of a paged text read: the window served,
  *  the rendition's total line count, and the next start_line when more

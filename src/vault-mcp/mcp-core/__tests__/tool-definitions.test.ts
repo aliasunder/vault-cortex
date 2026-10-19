@@ -50,7 +50,7 @@ type RegisterToolCall = [
   config: {
     title?: string
     description?: string
-    inputSchema?: Record<string, z.ZodType>
+    inputSchema?: z.ZodObject<Record<string, z.ZodType>>
     annotations?: Record<string, boolean>
   },
   handler: (...args: unknown[]) => Promise<unknown>,
@@ -220,7 +220,7 @@ describe("registerTools", () => {
   it("vault_read_note documents the outline response on the outline parameter", () => {
     // The only guard against this drifting from the actual response shape.
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
-    expect(config.inputSchema?.outline?.description).toBe(
+    expect(config.inputSchema?.shape.outline?.description).toBe(
       "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
     )
   })
@@ -332,7 +332,7 @@ describe("registerTools", () => {
 
   it("vault_write_note exposes an optional overwrite boolean in its schema", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_WRITE_NOTE)
-    const overwriteSchema = config.inputSchema?.overwrite
+    const overwriteSchema = config.inputSchema?.shape.overwrite
     expect(overwriteSchema?.safeParse(true).success).toBe(true)
     expect(overwriteSchema?.safeParse(false).success).toBe(true)
     expect(overwriteSchema?.safeParse("yes").success).toBe(false)
@@ -539,7 +539,7 @@ describe("config interpolation in descriptions", () => {
 
   it("vault_find_orphans schema references configured exclusion folders", () => {
     const [, config] = requireCustomCall(TOOL_NAMES.VAULT_FIND_ORPHANS)
-    const exclusionDescription = config.inputSchema?.exclude_folders?.description
+    const exclusionDescription = config.inputSchema?.shape.exclude_folders?.description
 
     expect(exclusionDescription).toBe(
       'Folder paths to exclude (e.g. Projects; default: the daily notes folder, "Templates", "Profile")',
@@ -792,7 +792,7 @@ describe("vault_update_memory input schema", () => {
     if (!config.inputSchema) {
       throw new Error("vault_update_memory has no input schema")
     }
-    return config.inputSchema
+    return config.inputSchema.shape
   }
 
   it.each([
@@ -817,7 +817,7 @@ describe("vault_delete_memory input schema", () => {
   // so an empty match key can only be a caller mistake.
   it("entry rejects an empty string and accepts a non-empty one", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
-    const entrySchema = config.inputSchema?.entry
+    const entrySchema = config.inputSchema?.shape.entry
     expect(entrySchema?.safeParse("").success).toBe(false)
     expect(entrySchema?.safeParse("Prefer X over Y").success).toBe(true)
   })
@@ -832,7 +832,7 @@ describe("optional selector params reject an empty string", () => {
     { tool: TOOL_NAMES.VAULT_GET_DAILY_NOTE, field: "date", validValue: "2026-05-13" },
   ])("$tool $field rejects an empty string and accepts a value", ({ tool, field, validValue }) => {
     const [, config] = requireCall(tool)
-    const fieldSchema = config.inputSchema?.[field]
+    const fieldSchema = config.inputSchema?.shape[field]
     expect(fieldSchema?.safeParse("").success).toBe(false)
     expect(fieldSchema?.safeParse(validValue).success).toBe(true)
     expect(fieldSchema?.safeParse(undefined).success).toBe(true)
@@ -852,7 +852,7 @@ describe("optional filter lists reject an empty array", () => {
     { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "heading", validValue: ["Active"] },
   ])("$tool $field rejects [] and accepts a list or no value", ({ tool, field, validValue }) => {
     const [, config] = requireCall(tool)
-    const fieldSchema = config.inputSchema?.[field]
+    const fieldSchema = config.inputSchema?.shape[field]
     expect(fieldSchema?.safeParse([]).success).toBe(false)
     expect(fieldSchema?.safeParse(validValue).success).toBe(true)
     expect(fieldSchema?.safeParse(undefined).success).toBe(true)
@@ -1646,7 +1646,7 @@ describe("vault_search_by_tag handler", () => {
 
     if (!searchByTagCall?.[1].inputSchema) throw new Error("vault_search_by_tag not registered")
 
-    const parsedArgs = z.object(searchByTagCall[1].inputSchema).parse(args)
+    const parsedArgs = searchByTagCall[1].inputSchema.parse(args)
     const result = z
       .object({
         content: z.array(z.object({ text: z.string() })),
@@ -1906,7 +1906,7 @@ describe("vault_find_orphans live folder defaults", () => {
       '- With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). When that folder is the vault root or blank, no daily folder is excluded.',
     )
     expect(toolConfig.description).not.toContain("Journal")
-    expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
+    expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
       'Folder paths to exclude (e.g. Projects; default: the daily notes folder, "Templates", "About Me")',
     )
   })
@@ -1921,7 +1921,7 @@ describe("vault_find_orphans live folder defaults", () => {
     expect(defaultsLine).toBe(
       "- With exclude_folders omitted, the server's configured list (the schema default) is used.",
     )
-    expect(toolConfig.inputSchema?.exclude_folders?.description).toBe(
+    expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
       'Folder paths to exclude (e.g. Projects; default: ["Archive","Scratch"])',
     )
   })

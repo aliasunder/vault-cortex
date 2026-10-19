@@ -115,6 +115,8 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 |  | `vault_list_files` | Browse the vault's non-markdown files with sizes and per-extension counts |
 | **Daily Notes** | `vault_get_daily_note` | Today's (or any date's) daily note |
 
+Every tool refuses a parameter it doesn't have and lists the ones it accepts, so a misspelled option fails instead of being quietly ignored.
+
 ---
 
 ## Prompts

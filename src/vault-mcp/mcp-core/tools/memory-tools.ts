@@ -4,6 +4,7 @@ import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { createStrictInputObject } from "./tool-helpers.js"
 
 /** Errors entries for a memory file whose properties block the server
  *  refuses. Reads refuse only YAML they cannot read. Writes also refuse a
@@ -340,19 +341,18 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
           .describe(
             'Raw entry text — a single line (newlines are rejected); the server prepends "- **YYYY-MM-DD**: " automatically. Do not include the date or bullet prefix.',
           ),
-        options: z
-          .object({
-            date: z
-              .string()
-              .min(1)
-              .optional()
-              .describe("ISO YYYY-MM-DD date (defaults to today, server timezone)"),
-            position: z
-              .enum(["top", "bottom"])
-              .optional()
-              .default("top")
-              .describe('Insert position (default "top" = newest first)'),
-          })
+        options: createStrictInputObject({
+          date: z
+            .string()
+            .min(1)
+            .optional()
+            .describe("ISO YYYY-MM-DD date (defaults to today, server timezone)"),
+          position: z
+            .enum(["top", "bottom"])
+            .optional()
+            .default("top")
+            .describe('Insert position (default "top" = newest first)'),
+        })
           .optional()
           .describe("Optional date and position overrides"),
       },

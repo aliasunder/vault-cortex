@@ -8,6 +8,7 @@
 import { readdirSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import {
   SIZE_CAPPED_COMBO_NAMES,
   SURFACE_COMBOS,
@@ -15,6 +16,42 @@ import {
   measureToolListChars,
   serializeSurfaceCapture,
 } from "../../../../scripts/tool-surface-capture.js"
+
+/** An object schema with declared properties, and whether it rejects keys
+ *  outside them (`additionalProperties: false`). */
+type ObjectSchemaNode = { path: string; rejectsUnknownKeys: boolean }
+
+const isJsonRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** Every object schema with declared properties at or below one JSON Schema
+ *  node, in document order. A record (`z.record`) declares no properties, so
+ *  its open keys are not collected. */
+const collectObjectSchemaNodes = (schemaNode: unknown, path: string): ObjectSchemaNode[] => {
+  if (Array.isArray(schemaNode)) {
+    return schemaNode.flatMap((element, index) => {
+      return collectObjectSchemaNodes(element, `${path}/${index}`)
+    })
+  }
+  if (!isJsonRecord(schemaNode)) return []
+
+  const childNodes = Object.entries(schemaNode).flatMap(([key, value]) => {
+    return collectObjectSchemaNodes(value, `${path}/${key}`)
+  })
+  // Compared with the string "object", so a properties map holding a
+  // parameter named `type` is not mistaken for an object schema
+  const declaresProperties = schemaNode.type === "object" && isJsonRecord(schemaNode.properties)
+
+  if (!declaresProperties) return childNodes
+  return [{ path, rejectsUnknownKeys: schemaNode.additionalProperties === false }, ...childNodes]
+}
+
+const listOpenObjectSchemaPaths = (tool: Tool): string[] => {
+  return collectObjectSchemaNodes(tool.inputSchema, `${tool.name}.inputSchema`)
+    .filter((objectNode) => !objectNode.rejectsUnknownKeys)
+    .map((objectNode) => objectNode.path)
+}
 
 describe("tool surface baseline", () => {
   it.each(SURFACE_COMBOS.map((combo) => [combo.name, combo] as const))(
@@ -36,7 +73,7 @@ describe("tool surface baseline", () => {
    *  - The allowance sits just above the default combo's average, so only
    *    small growth passes.
    *  Raising the allowance is a deliberate change with its reason in the PR. */
-  const CHARS_PER_TOOL_ALLOWANCE = 4291
+  const CHARS_PER_TOOL_ALLOWANCE = 4328
 
   it.each(SIZE_CAPPED_COMBO_NAMES)(
     "combo %s stays within the average per-tool size allowance",
@@ -55,6 +92,37 @@ describe("tool surface baseline", () => {
       ).toBeLessThanOrEqual(CHARS_PER_TOOL_ALLOWANCE * capture.tools.length)
     },
   )
+
+  it.each(SURFACE_COMBOS.map((combo) => [combo.name, combo] as const))(
+    "combo %s declares every input object as rejecting unknown keys",
+    async (_comboName, combo) => {
+      const capture = await captureToolSurface(combo)
+      const openObjectPaths = capture.tools.flatMap(listOpenObjectSchemaPaths)
+      expect(openObjectPaths).toEqual([])
+    },
+  )
+
+  // Without this, the check above would also pass if the walk never left the
+  // top level of each schema
+  it("finds the nested object schemas inside vault_search's filters", async () => {
+    const defaultCombo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === "default")
+    const capture = defaultCombo ? await captureToolSurface(defaultCombo) : undefined
+    const searchTool = capture?.tools.find((tool) => tool.name === "vault_search")
+
+    if (!searchTool) {
+      throw new Error("the default combo serves no vault_search")
+    }
+
+    const objectPaths = collectObjectSchemaNodes(searchTool.inputSchema, "inputSchema").map(
+      (objectNode) => objectNode.path,
+    )
+    expect(objectPaths).toEqual([
+      "inputSchema",
+      "inputSchema/properties/filters",
+      "inputSchema/properties/filters/properties/created",
+      "inputSchema/properties/filters/properties/modified",
+    ])
+  })
 
   // Guards two gaps vitest's file snapshots leave open: an orphaned file
   // lingering after an axis change (nothing ever asserts it again), and a

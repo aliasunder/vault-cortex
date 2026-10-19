@@ -1741,6 +1741,72 @@ describe("parameter combinations", () => {
   })
 })
 
+// ── Unknown parameters ───────────────────────────────────────
+
+describe("unknown parameters", () => {
+  it("rejects a misspelled top-level parameter instead of ignoring it", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: "Projects", globb: "nomatch-*.md" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'MCP error -32602: Input validation error: Invalid arguments for tool vault_list_notes: unrecognized key "globb" (accepted: folder, glob)',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("rejects a misspelled key inside a nested filter", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_tasks",
+      args: { created: { befor: "2000-01-01" } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'MCP error -32602: Input validation error: Invalid arguments for tool vault_list_tasks: unrecognized key "befor" (accepted: before, on, after) at created',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("leaves the note unchanged when a write carries a misspelled option", async () => {
+    const notePath = join(serverVaultPath, "unknown-param-write.md")
+    const noteContent = "first second first\n"
+    await writeFile(notePath, noteContent)
+    onTestFinished(() => rm(notePath, { force: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: {
+        path: "unknown-param-write.md",
+        old_text: "first",
+        new_text: "third",
+        replace_all: true,
+      },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'MCP error -32602: Input validation error: Invalid arguments for tool vault_replace_in_note: unrecognized key "replace_all" (accepted: path, old_text, new_text, replace_all_occurrences)',
+        },
+      ],
+      isError: true,
+    })
+    expect(await readFile(notePath, "utf8")).toBe(noteContent)
+  })
+})
+
 // ── Task tool path guards ────────────────────────────────────
 
 describe("task tool path guards", () => {

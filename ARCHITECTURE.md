@@ -136,6 +136,12 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 
 Group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry — annotations are declared once, and a new gating axis is one new predicate, not new branching in every module. Availability-keyed cross-references in tool descriptions and prompts disappear whenever their target does; a small number of durable API-level references (e.g. error-section alternatives naming sibling tools) remain. Search, indexing, and the file watcher are unaffected by `READONLY_MODE` and `DISABLED_TOOLS` — they write to the index database outside the vault, not to the vault itself.
 
+**Unknown parameters are rejected:** a Zod object drops keys its shape doesn't declare, so a misspelled optional parameter (`replace_all` for `replace_all_occurrences`) would otherwise run the call without it and report success.
+
+- The gated wrapper builds every tool's input object with `createStrictInputObject` (`tool-helpers.ts`), and the nested objects (`vault_search`'s `filters`, the date filters of `vault_search` and `vault_list_tasks`, `vault_update_memory`'s `options`) are declared with it. Record parameters such as `properties` keep their open keys.
+- The SDK returns a rejected call as an `isError` result naming the unknown keys, the accepted ones, and the nested object's path when there is one: `MCP error -32602: Input validation error: Invalid arguments for tool vault_list_tasks: unrecognized key "befor" (accepted: before, on, after) at created`. No handler runs, so nothing is written.
+- Every object in the advertised input schemas carries `additionalProperties: false`, so the advertised schema and the server's check agree. A snapshot test walks each served tool's schema in every config combination and fails on an object without it.
+
 ### Vault read/write
 
 | Tool                      | Input                                                                             | Annotation       |

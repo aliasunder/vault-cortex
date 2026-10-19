@@ -6,7 +6,13 @@ import {
   UnsupportedPropertiesBlockError,
 } from "../../../obsidian-markdown/frontmatter.js"
 import type { ToolName } from "../../tool-registry.js"
-import { createSafeHandlers, describeTextWindow, formatNoteMetadata } from "../tool-helpers.js"
+import { z } from "zod"
+import {
+  createSafeHandlers,
+  createStrictInputObject,
+  describeTextWindow,
+  formatNoteMetadata,
+} from "../tool-helpers.js"
 
 const VAULT_PATH = "/srv/vault"
 
@@ -408,6 +414,72 @@ describe("safeHandler", () => {
       ],
       isError: true,
     })
+  })
+})
+
+describe("createStrictInputObject", () => {
+  const createListingInput = () => {
+    return createStrictInputObject({
+      folder: z.string().min(1).optional(),
+      glob: z.string().min(1).optional(),
+    })
+  }
+
+  /** The issues a failed parse reports, as path and message pairs. */
+  const listIssues = (schema: z.ZodType, input: unknown) => {
+    const result = schema.safeParse(input)
+
+    if (result.success) throw new Error("expected the parse to fail")
+    return result.error.issues.map((issue) => ({ path: issue.path, message: issue.message }))
+  }
+
+  it("accepts the keys its shape declares", () => {
+    const result = createListingInput().safeParse({ folder: "Projects", glob: "*.md" })
+    expect(result).toEqual({ success: true, data: { folder: "Projects", glob: "*.md" } })
+  })
+
+  it("rejects an unknown key, naming it and the accepted keys", () => {
+    expect(listIssues(createListingInput(), { folder: "Projects", globb: "*.md" })).toEqual([
+      { path: [], message: 'unrecognized key "globb" (accepted: folder, glob)' },
+    ])
+  })
+
+  it("names every unknown key in one issue", () => {
+    expect(listIssues(createListingInput(), { folderr: "Projects", globb: "*.md" })).toEqual([
+      { path: [], message: 'unrecognized keys "folderr", "globb" (accepted: folder, glob)' },
+    ])
+  })
+
+  it("says a shape with no keys takes no parameters", () => {
+    expect(listIssues(createStrictInputObject({}), { limit: 5 })).toEqual([
+      { path: [], message: 'unrecognized key "limit" (this tool takes no parameters)' },
+    ])
+  })
+
+  it("reports an unknown key inside a nested strict object at that object's path", () => {
+    const listingWithBounds = createStrictInputObject({
+      created: createStrictInputObject({ before: z.string().optional() }).optional(),
+    })
+    expect(listIssues(listingWithBounds, { created: { befor: "2026-01-01" } })).toEqual([
+      { path: ["created"], message: 'unrecognized key "befor" (accepted: before)' },
+    ])
+  })
+
+  it("leaves a record's keys open", () => {
+    const filterInput = createStrictInputObject({
+      properties: z.record(z.string(), z.string()).optional(),
+    })
+    const result = filterInput.safeParse({ properties: { status: "active", owner: "me" } })
+    expect(result).toEqual({
+      success: true,
+      data: { properties: { status: "active", owner: "me" } },
+    })
+  })
+
+  it("keeps Zod's message for a declared key with a wrong value", () => {
+    expect(listIssues(createListingInput(), { folder: 42 })).toEqual([
+      { path: ["folder"], message: "Invalid input: expected string, received number" },
+    ])
   })
 })
 
