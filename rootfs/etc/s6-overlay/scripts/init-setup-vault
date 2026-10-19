@@ -112,18 +112,13 @@ if [ -n "$SYNC_MODE" ] && ! s6-setuidgid obsidian ob sync-config --mode "$SYNC_M
   exit 1
 fi
 
-# Obsidian settings categories to sync into .obsidian/. `ob sync-setup` above
-# drops this setting on every boot, which leaves no categories syncing:
-# - Unset or empty: the three the server reads — core-plugin-data (daily
-#   notes settings), community-plugin-data (community plugin settings, such
-#   as the Tasks plugin's format), and app (app.json, which holds the
-#   new-note folder a blank daily notes folder follows). Applied here so
-#   plain `docker run` matches the compose files; both compose files and
-#   both .env.example files repeat this list.
-# - Exactly "none": sends an empty value, the client's "clear" form
-#   (`ob sync-config --help`). Today that changes nothing; it stays so a
-#   client version that keeps this setting across `sync-setup` still syncs
-#   no categories.
+# Obsidian settings categories to sync into .obsidian/:
+# - Default: the three the server reads — core-plugin-data (daily notes
+#   settings), community-plugin-data (community plugin settings, such as
+#   the Tasks plugin's format) and app (the new-note location). Applied here
+#   as well as in the compose files, so plain `docker run` matches.
+# - SYNC_CONFIGS=none: sends an empty value, the client's "clear" form
+#   (`ob sync-config --help`).
 if [ "$SYNC_CONFIGS" = "none" ]; then
   if ! s6-setuidgid obsidian ob sync-config --configs ""; then
     echo "[obsidian-sync] WARNING: ob sync-config --configs '' failed — continuing without it." >&2
