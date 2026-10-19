@@ -1,0 +1,199 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh # ShellCheck cannot read the with-contenv shebang
+# Stops a boot that would sync a vault other than VAULT_NAME.
+#
+# Each vault's Sync setup is <config>/obsidian-headless/sync/<vaultId>/config.json.
+# Every ob command uses the first setup, by folder name, whose vaultPath is the
+# vault folder, whatever VAULT_NAME says. So a volume holding another vault's
+# setup (two installs sharing volumes, or VAULT_NAME changed on one install)
+# would sync that vault instead, or merge the two through Obsidian Sync.
+#
+# This check only reads, and runs before ob sync-setup writes anything:
+#   1. resolve VAULT_NAME to a vault ID the way ob sync-setup does;
+#   2. stop on a config.json the engine would silently ignore;
+#   3. compare the vault the engine would sync now with that ID.
+# Exit 0 lets the boot continue; exit 1 stops it. It can also run by hand
+# inside a running container, which prints the same decision:
+#   docker exec -i -w /vault <container> sh -s < check-sync-vault
+set -u
+
+if [ -z "${VAULT_NAME:-}" ]; then
+  echo "[obsidian-sync] ERROR: VAULT_NAME is not set." >&2
+  exit 1
+fi
+
+VAULT_PATH="${VAULT_PATH:-/vault}"
+SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
+GUIDE_URL="https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup"
+
+# ob compares paths against its own working directory, so every call runs
+# inside the vault folder, the way init-setup-vault runs ob sync-setup.
+if ! cd "$VAULT_PATH"; then
+  echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2
+  exit 1
+fi
+
+run_ob() {
+  s6-setuidgid obsidian ob "$@"
+}
+
+# ---------------------------------------------------------------------------
+# 1. The requested vault
+# ---------------------------------------------------------------------------
+
+if ! REMOTE_VAULTS=$(run_ob sync-list-remote --json); then
+  echo "[obsidian-sync] ERROR: Could not list the vaults in your Obsidian account." >&2
+  echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and the network, then restart." >&2
+  exit 1
+fi
+
+# Prints "<id><TAB><name>" for the vault VAULT_NAME names, matched the way ob
+# sync-setup matches it: an exact vault ID first, otherwise exactly one vault
+# with that name, across owned and shared vaults. Prints nothing when no vault
+# or several match; ob sync-setup then reports that itself and writes nothing.
+REQUESTED_VAULT=$(printf '%s' "$REMOTE_VAULTS" | VAULT_NAME="$VAULT_NAME" node --no-warnings -e '
+  const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
+  const allVaults = [...(listed.vaults ?? []), ...(listed.shared ?? [])]
+  const requested = process.env.VAULT_NAME
+  const byId = allVaults.find((vault) => vault.id === requested)
+  const byName = allVaults.filter((vault) => vault.name === requested)
+  const match = byId ?? (byName.length === 1 ? byName[0] : undefined)
+  if (match) console.log(match.id + "\t" + match.name)
+')
+if [ -z "$REQUESTED_VAULT" ]; then
+  echo "[obsidian-sync] Vault check: '$VAULT_NAME' does not name exactly one vault — ob sync-setup reports it."
+  exit 0
+fi
+REQUESTED_ID=$(printf '%s' "$REQUESTED_VAULT" | cut -f1)
+
+# Prints the current name of a vault ID from the remote list, or nothing when
+# the vault is no longer in the account.
+remote_vault_name() {
+  printf '%s' "$REMOTE_VAULTS" | VAULT_ID="$1" node --no-warnings -e '
+    const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
+    const allVaults = [...(listed.vaults ?? []), ...(listed.shared ?? [])]
+    const match = allVaults.find((vault) => vault.id === process.env.VAULT_ID)
+    if (match) console.log(match.name)
+  '
+}
+
+# ---------------------------------------------------------------------------
+# 2. Setups the engine would silently ignore
+# ---------------------------------------------------------------------------
+
+# The engine skips a config.json it cannot read or parse, so a stale vault's
+# setup could hide there and its notes sync into this vault. Prints one line
+# per such file; a sync folder that can't be listed is a non-zero exit.
+invalid_sync_configs() {
+  [ -d "$SYNC_STATE_ROOT" ] || return 0
+  node --no-warnings -e '
+    const { existsSync, readdirSync, readFileSync } = require("node:fs")
+    const { join } = require("node:path")
+    const syncRoot = process.argv[1]
+    for (const entry of readdirSync(syncRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const configPath = join(syncRoot, entry.name, "config.json")
+      if (!existsSync(configPath)) continue
+      try {
+        const config = JSON.parse(readFileSync(configPath, "utf8"))
+        const isConfig =
+          config !== null &&
+          typeof config === "object" &&
+          typeof config.vaultId === "string" &&
+          config.vaultId !== "" &&
+          typeof config.vaultPath === "string"
+        if (!isConfig) console.log(configPath)
+      } catch {
+        console.log(configPath)
+      }
+    }
+  ' "$SYNC_STATE_ROOT"
+}
+
+if ! INVALID_CONFIGS=$(invalid_sync_configs); then
+  echo "[obsidian-sync] ERROR: Could not read the Sync setups under ${SYNC_STATE_ROOT}." >&2
+  echo "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for." >&2
+  exit 1
+fi
+if [ -n "$INVALID_CONFIGS" ]; then
+  echo "[obsidian-sync] ERROR: A Sync setup file here is not a valid setup, and Obsidian Sync would ignore it:" >&2
+  printf '%s\n' "$INVALID_CONFIGS" | sed 's/^/[obsidian-sync]   /' >&2
+  echo "[obsidian-sync] Refusing to sync, because it may belong to another vault whose notes are in this folder." >&2
+  echo "[obsidian-sync] See: $GUIDE_URL" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 3. The vault the engine would sync now
+# ---------------------------------------------------------------------------
+
+PICKED_CONFIG=$(run_ob sync-config --json 2>/dev/null)
+PICK_EXIT=$?
+
+# Exit 3: no setup for this folder yet (a first boot, or setups only for other
+# paths), so ob sync-setup creates the first one.
+if [ "$PICK_EXIT" -eq 3 ]; then
+  echo "[obsidian-sync] Vault check: continue — no Sync setup for this folder yet."
+  exit 0
+fi
+if [ "$PICK_EXIT" -ne 0 ]; then
+  echo "[obsidian-sync] ERROR: The Sync client could not read its own setup (ob sync-config exited $PICK_EXIT)." >&2
+  echo "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for." >&2
+  echo "[obsidian-sync] See: $GUIDE_URL" >&2
+  exit 1
+fi
+
+# Prints "<id><TAB><stored name>" of the setup the engine picked.
+PICKED_VAULT=$(printf '%s' "$PICKED_CONFIG" | node --no-warnings -e '
+  const config = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
+  console.log(config.vaultId + "\t" + (config.vaultName ?? ""))
+')
+PICKED_ID=$(printf '%s' "$PICKED_VAULT" | cut -f1)
+PICKED_STORED_NAME=$(printf '%s' "$PICKED_VAULT" | cut -f2)
+
+if [ "$PICKED_ID" = "$REQUESTED_ID" ]; then
+  # A second setup for another vault is dormant while the engine picks this
+  # one, so the boot continues; removing it keeps it from being picked later.
+  OTHER_IDS=$(run_ob sync-list-local --json 2>/dev/null | REQUESTED_ID="$REQUESTED_ID" node --no-warnings -e '
+    const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
+    const otherIds = listed.vaults.map((vault) => vault.id).filter((id) => id !== process.env.REQUESTED_ID)
+    if (otherIds.length > 0) console.log(otherIds.join(" "))
+  ')
+  if [ -n "$OTHER_IDS" ]; then
+    echo "[obsidian-sync] WARNING: This install also holds Sync setups for other vaults: $OTHER_IDS" >&2
+    echo "[obsidian-sync] They are not used now. Remove each one's folder under ${SYNC_STATE_ROOT} so it can't be picked later." >&2
+  fi
+  echo "[obsidian-sync] Vault check: continue — set up for '$VAULT_NAME' ($REQUESTED_ID)."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Refuse
+# ---------------------------------------------------------------------------
+
+PICKED_CURRENT_NAME=$(remote_vault_name "$PICKED_ID")
+if [ -n "${STORAGE_ROOT:-}" ]; then
+  RESET_STEP="remove ${STORAGE_ROOT}/vault and ${STORAGE_ROOT}/config together"
+  SEPARATE_STEP="run it as a separate service"
+else
+  RESET_STEP="remove this install's vault_data and obsidian_config volumes together"
+  SEPARATE_STEP="run it as a separate install with its own INSTANCE_NAME"
+fi
+
+echo "[obsidian-sync] ERROR: This install is set up to sync a different vault than VAULT_NAME." >&2
+if [ -n "$PICKED_CURRENT_NAME" ]; then
+  echo "[obsidian-sync] VAULT_NAME is '$VAULT_NAME' ($REQUESTED_ID), but its Sync setup is for '$PICKED_CURRENT_NAME' ($PICKED_ID)." >&2
+else
+  echo "[obsidian-sync] VAULT_NAME is '$VAULT_NAME' ($REQUESTED_ID), but its Sync setup is for '$PICKED_STORED_NAME' ($PICKED_ID), which is no longer in your account." >&2
+fi
+echo "[obsidian-sync] Syncing now would merge the two vaults' notes. Nothing was changed. To fix it:" >&2
+echo "[obsidian-sync]   - If VAULT_NAME is a mistake, set it back and restart." >&2
+echo "[obsidian-sync]   - To sync '$VAULT_NAME' as well, $SEPARATE_STEP." >&2
+if [ -z "$PICKED_CURRENT_NAME" ]; then
+  echo "[obsidian-sync]   - If you re-created this same vault in Obsidian and the notes here are its notes," >&2
+  echo "[obsidian-sync]     remove only the old setup folder: ${SYNC_STATE_ROOT}/${PICKED_ID}" >&2
+fi
+echo "[obsidian-sync]   - To switch this install to '$VAULT_NAME' on purpose, $RESET_STEP." >&2
+echo "[obsidian-sync]     Removing only the Sync config would upload the old vault's notes into the new one." >&2
+echo "[obsidian-sync] See: $GUIDE_URL" >&2
+exit 1

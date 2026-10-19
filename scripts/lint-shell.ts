@@ -29,7 +29,8 @@ import { fileURLToPath } from "node:url"
 const SHELL_SCRIPT_GLOBS = [
   ".claude/hooks/*.sh",
   ".github/scripts/*.sh",
-  // The s6 init scripts, plus print-derived-env, which init-derive-env runs
+  // The s6 init scripts, plus the two they run: print-derived-env
+  // (init-derive-env) and check-sync-vault (init-setup-vault)
   "rootfs/etc/s6-overlay/scripts/*",
   "rootfs/etc/s6-overlay/s6-rc.d/*/run",
   "rootfs/etc/s6-overlay/s6-rc.d/*/finish",
