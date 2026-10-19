@@ -86,8 +86,8 @@ type WatcherState =
 
 /** A held path and the event token reserved for it when the watcher went live.
  *  An event token is a symbol stored per path in currentEvents, which each
- *  newer event for the path replaces. The startup batch's removal or read of
- *  the path goes ahead only while the reservation is still the path's token. */
+ *  newer event for the path replaces. The startup batch removes the path, or
+ *  indexes what it read, only while the reservation is still the path's token. */
 type ReservedPath = Readonly<{ filePath: string; reservation: symbol }>
 
 /** What indexing one changed file did. A note's embedding is still running when
@@ -97,8 +97,8 @@ type ChangeIndexResult =
   | { status: "file-indexed" }
   // The file was gone when read.
   | { status: "vanished" }
-  // A newer event or a removal for the same path arrived during the read, so
-  // this read's content was dropped.
+  // A newer event or a removal for the same path replaced this read's token
+  // before the read finished, so its content was dropped.
   | { status: "superseded" }
   // A note's read, stat or index write failed, or a non-md file's stat or
   // asset-table write did; already logged. A non-md file whose content alone
@@ -147,8 +147,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    * - indexChangedFile stores a fresh token before it reads the file, and drops
    *   what it read if a newer event or a removal replaced the token meanwhile.
    * - applyHeldChanges reserves one for each held path as the watcher goes
-   *   live. The startup batch reads the path under it, so a later deletion or a
-   *   newer event for the path cancels the batch's removal or read.
+   *   live. The startup batch reads the path under it, so after a later
+   *   deletion or a newer event for the path, the batch skips its removal or
+   *   drops what it read.
    */
   const currentEvents = new Map<string, symbol>()
 
@@ -741,7 +742,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     } catch (error) {
       if (isMissingPathError(error)) return { status: "missing" }
 
-      logger.warn("could not list a folder of held changes, so its files are read instead", {
+      logger.warn("could not list a folder of held changes, so stat checks its files", {
         path: relative(vaultPath, folderPath),
         error: describeError(error),
       })
@@ -808,7 +809,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   /**
    * Reads one held path again for the startup batch, under its reservation,
    * without waiting for its embedding.
-   * - A live event for the path since going live replaced the reservation, so
+   * - If a live event for the path replaced the reservation after going live,
    *   the read drops what it read, as an older live read does.
    * - A path that vanished by its read is left to the `unlink` chokidar sends
    *   for every file it tracks, as a live read leaves it.
@@ -868,8 +869,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   }
 
   /** Checks each held path against the disk, removes the missing ones, then
-   *  reads the rest again. The watcher is live meanwhile, so a path whose
-   *  reservation a live event replaced is skipped: that event is newer. */
+   *  reads the rest again. The watcher is live meanwhile, so for a path whose
+   *  reservation a live event replaced, the removal is skipped and the read's
+   *  result is dropped: that event is newer. */
   const reconcileHeldPaths = async (reservedPaths: ReadonlyArray<ReservedPath>): Promise<void> => {
     const folderListings = new Map<string, Promise<FolderListing>>()
 

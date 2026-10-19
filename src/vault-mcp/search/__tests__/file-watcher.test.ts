@@ -2456,7 +2456,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     await startup
 
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
-      "could not list a folder of held changes, so its files are read instead",
+      "could not list a folder of held changes, so stat checks its files",
       { path: "locked", error: "[Error]: controlled listing failure" },
     )
     expect(search.fullTextSearch({ query: "listedopal" }, logger).map((hit) => hit.path)).toEqual([
