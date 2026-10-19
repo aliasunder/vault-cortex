@@ -347,6 +347,8 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
             .min(1)
             .optional()
             .describe("ISO YYYY-MM-DD date (defaults to today, server timezone)"),
+          // Applies only when options is sent; without it, memoryStore.updateMemory
+          // defaults position to "top" itself
           position: z
             .enum(["top", "bottom"])
             .optional()

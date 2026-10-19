@@ -232,14 +232,16 @@ export const OPENING_BLOCK_ERROR_ENTRY =
  *  - One bullet names each remedy: the caller shortens a too-long name, and
  *    the vault's owner fixes permissions or the disk.
  *  - A save first writes a temp file named after the note plus
- *    ".<UUID>.tmp", 41 bytes longer, so a note can read fine and still fail
- *    to save. A rename writes that temp file beside the new name too, which
- *    is why the bullet asks for a name at least 41 bytes shorter.
+ *    ".<UUID>.tmp", 41 bytes longer (1 for the dot, 36 for the UUID, 4 for
+ *    ".tmp"), so a note can read fine and still fail to save. A rename
+ *    writes that temp file beside the new name too, which is why the bullet
+ *    asks for a name at least 41 bytes shorter.
  *  - A write that fails after the file is open (a full disk) gets a Node
  *    message with no path, so the bullet says the file is usually named.
  *  - Every tool that saves a note can raise these errors, but each lists the
- *    bullet only when its own description is next revised, because a grader
- *    re-scores every description whose text changes. */
+ *    bullet only when its own description is next revised, because
+ *    tool-definition graders such as Glama's re-score every description
+ *    whose text changes. */
 export const describeFilesystemErrorEntry = (
   whenToolEnabledText: ToolRegistrationContext["whenToolEnabledText"],
 ): string => {
@@ -248,9 +250,10 @@ export const describeFilesystemErrorEntry = (
   return `- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter${renameToolClause}. Permissions or a full or read-only disk need the vault's owner`
 }
 
-/** The Errors entry of every tool that rewrites a note, led by when the tool
- *  rewrites it for tools that do so only sometimes. The error itself carries
- *  the repair steps, so the entry points at them and names no tool. */
+/** The Errors entry of every tool that rewrites a note. A tool that rewrites
+ *  the note only in one mode passes that mode as rewriteCondition
+ *  (`"with overwrite: true"`), and the entry opens with it. The error itself
+ *  carries the repair steps, so the entry points at them and names no tool. */
 export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): string => {
   const conditionClause = rewriteCondition ? `${rewriteCondition}, ` : ""
   return `- "properties block …" — ${conditionClause}the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it`

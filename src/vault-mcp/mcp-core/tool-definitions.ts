@@ -106,8 +106,9 @@ export const registerTools = (params: {
     config: params.config,
   }
 
-  const groupHasEnabledTools = (group: ToolGroup): boolean =>
-    TOOL_REGISTRY.some((entry) => entry.group === group && enabledToolNames.has(entry.name))
+  const groupHasEnabledTools = (group: ToolGroup): boolean => {
+    return TOOL_REGISTRY.some((entry) => entry.group === group && enabledToolNames.has(entry.name))
+  }
 
   for (const [group, registerGroup] of GROUP_REGISTRARS) {
     if (groupHasEnabledTools(group)) {
