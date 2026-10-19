@@ -11,7 +11,7 @@ import { createToolAvailability } from "./tool-availability.js"
 import { createSafeHandlers, createStrictInputObject } from "./tools/tool-helpers.js"
 import type {
   RegisterGatedTool,
-  StrictInputObject,
+  ToolInputObject,
   ToolRegistrationContext,
 } from "./tools/tool-helpers.js"
 import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js"
@@ -58,7 +58,7 @@ const createGatedRegisterTool = (
     if (!enabledToolNames.has(name)) return
     // Left to inference, TypeScript resolves the SDK's input type to the raw
     // shape rather than the strict object, so the type arguments are spelled out
-    server.registerTool<ZodRawShapeCompat, StrictInputObject<typeof config.inputSchema>>(
+    server.registerTool<ZodRawShapeCompat, ToolInputObject<typeof config.inputSchema>>(
       name,
       {
         ...config,

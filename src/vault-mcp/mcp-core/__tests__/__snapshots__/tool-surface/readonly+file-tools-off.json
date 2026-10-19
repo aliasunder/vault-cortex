@@ -169,8 +169,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "additionalProperties": false
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
         "readOnlyHint": true,
@@ -287,8 +286,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {},
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "additionalProperties": false
+        "$schema": "http://json-schema.org/draft-07/schema#"
       },
       "annotations": {
         "readOnlyHint": true,

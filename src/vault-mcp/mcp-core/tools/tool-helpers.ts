@@ -27,25 +27,33 @@ import {
 export type RegisterGatedTool = <InputShape extends z.ZodRawShape>(
   name: ToolName,
   config: { title: string; description: string; inputSchema: InputShape },
-  handler: ToolCallback<StrictInputObject<InputShape>>,
+  handler: ToolCallback<ToolInputObject<InputShape>>,
 ) => void
 
-export type StrictInputObject<Shape extends z.ZodRawShape> = z.ZodObject<Shape, z.core.$strict>
+export type ToolInputObject<Shape extends z.ZodRawShape> = z.ZodObject<
+  Shape,
+  z.core.$ZodObjectConfig
+>
 
 /** A Zod object that rejects keys its shape does not declare, where a plain
  *  `z.object` drops them and the call succeeds without the misspelled option.
- *  The rejection names the unknown keys and the accepted ones, so the caller
- *  can correct the name in one retry. Every tool input object is built with
- *  it: the registerTool wrapper wraps each top-level shape, and nested
- *  objects are declared with it. */
+ *  - The rejection names the unknown keys and the accepted ones, so the caller
+ *    can correct the name in one retry.
+ *  - An empty shape is the exception: it accepts and drops any key, and its
+ *    schema leaves out `additionalProperties: false` to match.
+ *  - Every tool input object is built with it: the registerTool wrapper wraps
+ *    each top-level shape, and nested objects are declared with it. */
 export const createStrictInputObject = <Shape extends z.ZodRawShape>(
   shape: Shape,
-): StrictInputObject<Shape> => {
+): ToolInputObject<Shape> => {
   const acceptedKeys = Object.keys(shape)
-  const acceptedKeysText =
-    acceptedKeys.length > 0
-      ? `accepted: ${acceptedKeys.join(", ")}`
-      : "this tool takes no parameters"
+
+  // A tool with no parameters has no option a caller could misspell, and some
+  // clients send such tools a placeholder argument, so rejecting would break
+  // those calls without catching any mistake
+  if (acceptedKeys.length === 0) return z.object(shape)
+
+  const acceptedKeysText = `accepted: ${acceptedKeys.join(", ")}`
 
   return z.strictObject(shape, {
     error: (issue) => {

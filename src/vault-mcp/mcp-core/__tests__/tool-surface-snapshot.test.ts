@@ -17,16 +17,17 @@ import {
   serializeSurfaceCapture,
 } from "../../../../scripts/tool-surface-capture.js"
 
-/** An object schema with declared properties, and whether it rejects keys
- *  outside them (`additionalProperties: false`). */
-type ObjectSchemaNode = { path: string; rejectsUnknownKeys: boolean }
+/** An object schema with a properties map: whether the map names any
+ *  parameter, and whether the object rejects keys outside it
+ *  (`additionalProperties: false`). */
+type ObjectSchemaNode = { path: string; declaresParameters: boolean; rejectsUnknownKeys: boolean }
 
 const isJsonRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-/** Every object schema with declared properties at or below one JSON Schema
- *  node, in document order. A record (`z.record`) declares no properties, so
+/** Every object schema with a properties map at or below one JSON Schema
+ *  node, in document order. A record (`z.record`) has no properties map, so
  *  its open keys are not collected. */
 const collectObjectSchemaNodes = (schemaNode: unknown, path: string): ObjectSchemaNode[] => {
   if (Array.isArray(schemaNode)) {
@@ -39,17 +40,26 @@ const collectObjectSchemaNodes = (schemaNode: unknown, path: string): ObjectSche
   const childNodes = Object.entries(schemaNode).flatMap(([key, value]) => {
     return collectObjectSchemaNodes(value, `${path}/${key}`)
   })
+  const { properties } = schemaNode
   // Compared with the string "object", so a properties map holding a
   // parameter named `type` is not mistaken for an object schema
-  const declaresProperties = schemaNode.type === "object" && isJsonRecord(schemaNode.properties)
+  const isObjectSchema = schemaNode.type === "object" && isJsonRecord(properties)
 
-  if (!declaresProperties) return childNodes
-  return [{ path, rejectsUnknownKeys: schemaNode.additionalProperties === false }, ...childNodes]
+  if (!isObjectSchema) return childNodes
+
+  const objectNode = {
+    path,
+    declaresParameters: Object.keys(properties).length > 0,
+    rejectsUnknownKeys: schemaNode.additionalProperties === false,
+  }
+  return [objectNode, ...childNodes]
 }
 
-const listOpenObjectSchemaPaths = (tool: Tool): string[] => {
+/** Paths of the objects that break the rule: an object that declares
+ *  parameters rejects unknown keys, and one that declares none accepts them. */
+const listObjectSchemasBreakingStrictness = (tool: Tool): string[] => {
   return collectObjectSchemaNodes(tool.inputSchema, `${tool.name}.inputSchema`)
-    .filter((objectNode) => !objectNode.rejectsUnknownKeys)
+    .filter((objectNode) => objectNode.rejectsUnknownKeys !== objectNode.declaresParameters)
     .map((objectNode) => objectNode.path)
 }
 
@@ -73,7 +83,7 @@ describe("tool surface baseline", () => {
    *  - The allowance sits just above the default combo's average, so only
    *    small growth passes.
    *  Raising the allowance is a deliberate change with its reason in the PR. */
-  const CHARS_PER_TOOL_ALLOWANCE = 4328
+  const CHARS_PER_TOOL_ALLOWANCE = 4326
 
   it.each(SIZE_CAPPED_COMBO_NAMES)(
     "combo %s stays within the average per-tool size allowance",
@@ -94,16 +104,39 @@ describe("tool surface baseline", () => {
   )
 
   it.each(SURFACE_COMBOS.map((combo) => [combo.name, combo] as const))(
-    "combo %s declares every input object as rejecting unknown keys",
+    "combo %s rejects unknown keys on every input object that declares parameters",
     async (_comboName, combo) => {
       const capture = await captureToolSurface(combo)
-      const openObjectPaths = capture.tools.flatMap(listOpenObjectSchemaPaths)
-      expect(openObjectPaths).toEqual([])
+      const pathsBreakingStrictness = capture.tools.flatMap(listObjectSchemasBreakingStrictness)
+      expect(pathsBreakingStrictness).toEqual([])
     },
   )
 
-  // Without this, the check above would also pass if the walk never left the
-  // top level of each schema
+  // A tool with no parameters accepts any key, because some clients send such
+  // tools a placeholder argument and no option there can be misspelled
+  it("leaves the input objects of tools without parameters open", async () => {
+    const defaultCombo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === "default")
+    const capture = defaultCombo ? await captureToolSurface(defaultCombo) : undefined
+
+    if (!capture) {
+      throw new Error("no surface combo named default")
+    }
+
+    const parameterlessObjects = capture.tools
+      .flatMap((tool) => collectObjectSchemaNodes(tool.inputSchema, `${tool.name}.inputSchema`))
+      .filter((objectNode) => !objectNode.declaresParameters)
+    expect(parameterlessObjects).toEqual([
+      {
+        path: "vault_list_memory_files.inputSchema",
+        declaresParameters: false,
+        rejectsUnknownKeys: false,
+      },
+      { path: "vault_list_tags.inputSchema", declaresParameters: false, rejectsUnknownKeys: false },
+    ])
+  })
+
+  // Without this, the per-combo strictness check would also pass if the walk
+  // never left the top level of each schema
   it("finds the nested object schemas inside vault_search's filters", async () => {
     const defaultCombo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === "default")
     const capture = defaultCombo ? await captureToolSurface(defaultCombo) : undefined

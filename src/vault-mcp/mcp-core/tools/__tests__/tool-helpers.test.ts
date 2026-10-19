@@ -450,10 +450,9 @@ describe("createStrictInputObject", () => {
     ])
   })
 
-  it("says a shape with no keys takes no parameters", () => {
-    expect(listIssues(createStrictInputObject({}), { limit: 5 })).toEqual([
-      { path: [], message: 'unrecognized key "limit" (this tool takes no parameters)' },
-    ])
+  it("accepts and drops any key when the shape declares none", () => {
+    const result = createStrictInputObject({}).safeParse({ random_string: "placeholder" })
+    expect(result).toEqual({ success: true, data: {} })
   })
 
   it("reports an unknown key inside a nested strict object at that object's path", () => {

@@ -139,8 +139,9 @@ Group modules register through a gated wrapper that skips disabled names and inj
 **Unknown parameters are rejected:** a Zod object drops keys its shape doesn't declare, so a misspelled optional parameter (`replace_all` for `replace_all_occurrences`) would otherwise run the call without it and report success.
 
 - The gated wrapper builds every tool's input object with `createStrictInputObject` (`tool-helpers.ts`), and the nested objects (`vault_search`'s `filters`, the date filters of `vault_search` and `vault_list_tasks`, `vault_update_memory`'s `options`) are declared with it. Record parameters such as `properties` keep their open keys.
+- A tool with no parameters (`vault_list_tags`, `vault_list_memory_files`) accepts and drops any key. No option there can be misspelled, and some clients send such tools a placeholder argument.
 - The SDK returns a rejected call as an `isError` result naming the unknown keys, the accepted ones, and the nested object's path when there is one: `MCP error -32602: Input validation error: Invalid arguments for tool vault_list_tasks: unrecognized key "befor" (accepted: before, on, after) at created`. No handler runs, so nothing is written.
-- Every object in the advertised input schemas carries `additionalProperties: false`, so the advertised schema and the server's check agree. A snapshot test walks each served tool's schema in every config combination and fails on an object without it.
+- Every object in the advertised input schemas that declares parameters carries `additionalProperties: false`, and the parameterless ones leave it out, so the advertised schema and the server's check agree. A snapshot test walks each served tool's schema in every config combination and fails on an object that breaks this rule.
 
 ### Vault read/write
 

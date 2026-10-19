@@ -1778,6 +1778,18 @@ describe("unknown parameters", () => {
     })
   })
 
+  it("serves a tool with no parameters when the call carries a placeholder argument", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_tags",
+      args: { random_string: "placeholder" },
+    })
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse(textContent(result))).toEqual(
+      JSON.parse(textContent(await callTool({ client, name: "vault_list_tags", args: {} }))),
+    )
+  })
+
   it("leaves the note unchanged when a write carries a misspelled option", async () => {
     const notePath = join(serverVaultPath, "unknown-param-write.md")
     const noteContent = "first second first\n"
