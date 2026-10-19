@@ -1052,6 +1052,33 @@ describe("moveNote — Canvas sources", () => {
     })
   })
 
+  it("leaves a file card alone when it already holds the moved note's new path", async () => {
+    const { writeFixture, moveNote, readNote, noteExists } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    // The bare name resolves to Inbox/Note.md now and is the exact new path
+    // once the note moves to the vault root.
+    const boardCanvas = obsidianCanvas([
+      '{"id":"f1","type":"file","file":"Note.md","x":0,"y":0,"width":400,"height":400}',
+    ])
+    await writeFixture("Boards/Board.canvas", boardCanvas)
+
+    const result = await moveNote({
+      oldPath: "Inbox/Note.md",
+      newPath: "Note.md",
+      backlinkSources: ["Boards/Board.canvas"],
+    })
+
+    expect(await noteExists("Inbox/Note.md")).toBe(false)
+    expect(await readNote("Note.md")).toBe("# Note\n")
+    expect(await readNote("Boards/Board.canvas")).toBe(boardCanvas)
+    expect(result).toEqual({
+      moved_to: "Note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+  })
+
   it("finds a Canvas linking a note whose name holds a double quote, which the JSON escapes", async () => {
     const { writeFixture, moveNote, readNote, logger } = setupVault()
     await writeFixture('Say "Hi".md', "# Hi\n")

@@ -196,7 +196,7 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
 - **Canvas files:** links in text cards are rewritten like note links, and a file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
-- **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it
+- **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
