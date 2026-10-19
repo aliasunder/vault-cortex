@@ -152,8 +152,8 @@ const startServer = async (): Promise<void> => {
   await bootstrapMemoryIfEnabled(config, vaultPath)
 
   // watchVaultAndBuildIndex also returns the rebuild's embedding promise. Startup
-  // does not wait for it, so search answers by keyword until the vectors are
-  // ready, and rebuildFromVault logs an embedding failure itself.
+  // does not wait for it, so the server takes requests while the embedding pass
+  // is still running, and rebuildFromVault logs an embedding failure itself.
   const { count } = await watchVaultAndBuildIndex(
     { vaultPath, search, watcherOptions: { usePolling: config.windowsBindMount } },
     logger,
