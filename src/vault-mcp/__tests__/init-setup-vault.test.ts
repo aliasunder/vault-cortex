@@ -318,6 +318,25 @@ describe("init-setup-vault script", () => {
     ])
   })
 
+  it("warns and keeps going when the SYNC_CONFIGS=none clear call fails", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      syncConfigs: "none",
+      syncConfigFailsFor: "--configs",
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] WARNING: ob sync-config --configs '' failed — continuing without it.\n",
+    )
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
+      "sync-config --configs ",
+    ])
+  })
+
   it("passes VAULT_PASSWORD to sync-setup", () => {
     const run = runSetupScript({
       vaultName: "MyVault",

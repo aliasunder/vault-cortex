@@ -103,7 +103,7 @@ services:
       # A set folder list replaces its whole default.
       # The daily notes folder is resolved from DAILY_NOTES_FOLDER or
       # .obsidian/daily-notes.json (an empty folder there follows Obsidian's
-      # new-note location), falling back to "Daily Notes" when that file is missing.
+      # new-note location), falling back to "Daily Notes" when that file is missing or unreadable.
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, <DAILY_NOTES_FOLDER>"
       #   ORPHAN_EXCLUDE_FOLDERS    default: "<DAILY_NOTES_FOLDER>, Templates, <MEMORY_DIR>"
       #   (neither default adds a daily folder when the daily notes folder setting is the vault root or empty)
