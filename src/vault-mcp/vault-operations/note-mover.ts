@@ -906,8 +906,8 @@ const moveNote = async (
               allPaths: allNotePaths,
               sourcePath: canvasPath,
             })
-            // A card that already holds the new path (a bare name for a note
-            // moved to the vault root) is unchanged, so it is not counted.
+            // A card that already holds the new path (such as a bare name for
+            // a note moved to the vault root) is unchanged, so it is not counted.
             const cardNeedsNewPath = resolvedNote === oldPath && filePath !== newPath
             return cardNeedsNewPath ? newPath : null
           }
