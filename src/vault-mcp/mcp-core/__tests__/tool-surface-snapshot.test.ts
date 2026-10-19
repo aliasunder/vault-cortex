@@ -112,8 +112,7 @@ describe("tool surface baseline", () => {
     },
   )
 
-  // A tool with no parameters accepts any key, because some clients send such
-  // tools a placeholder argument and no option there can be misspelled
+  // Pins the empty-shape exception createStrictInputObject documents
   it("leaves the input objects of tools without parameters open", async () => {
     const defaultCombo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === "default")
     const capture = defaultCombo ? await captureToolSurface(defaultCombo) : undefined
