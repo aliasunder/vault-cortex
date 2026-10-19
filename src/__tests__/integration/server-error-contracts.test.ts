@@ -1779,15 +1779,14 @@ describe("unknown parameters", () => {
   })
 
   it("serves a tool with no parameters when the call carries a placeholder argument", async () => {
+    const resultWithoutArgs = await callTool({ client, name: "vault_list_tags", args: {} })
     const result = await callTool({
       client,
       name: "vault_list_tags",
       args: { random_string: "placeholder" },
     })
-    expect(result.isError).toBeUndefined()
-    expect(JSON.parse(textContent(result))).toEqual(
-      JSON.parse(textContent(await callTool({ client, name: "vault_list_tags", args: {} }))),
-    )
+    expect(resultWithoutArgs.isError).toBeUndefined()
+    expect(result).toEqual(resultWithoutArgs)
   })
 
   it("leaves the note unchanged when a write carries a misspelled option", async () => {

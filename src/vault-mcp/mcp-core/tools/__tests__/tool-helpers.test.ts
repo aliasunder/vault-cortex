@@ -480,6 +480,14 @@ describe("createStrictInputObject", () => {
       { path: ["folder"], message: "Invalid input: expected string, received number" },
     ])
   })
+
+  // Unlike a wrong value for a declared key, a non-object input is an issue of
+  // the object itself, so only this case reaches the object's error callback
+  it("keeps Zod's message when the input is not an object", () => {
+    expect(listIssues(createListingInput(), "Projects")).toEqual([
+      { path: [], message: "Invalid input: expected object, received string" },
+    ])
+  })
 })
 
 describe("describeTextWindow", () => {

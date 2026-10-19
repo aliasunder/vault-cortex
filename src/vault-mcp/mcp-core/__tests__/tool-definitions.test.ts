@@ -436,6 +436,24 @@ describe("registerTools", () => {
       ])
     }
   })
+
+  it("hands the server an input object that rejects an unknown key", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_NOTES)
+    const result = config.inputSchema?.safeParse({ folder: "Projects", globb: "*.md" })
+    const issues = result?.error?.issues.map((issue) => ({
+      path: issue.path,
+      message: issue.message,
+    }))
+    expect(issues).toEqual([
+      { path: [], message: 'unrecognized key "globb" (accepted: folder, glob)' },
+    ])
+  })
+
+  it("hands the server an input object that drops extra keys for a tool with no parameters", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_TAGS)
+    const result = config.inputSchema?.safeParse({ random_string: "placeholder" })
+    expect(result).toEqual({ success: true, data: {} })
+  })
 })
 
 describe("annotations", () => {
