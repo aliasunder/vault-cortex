@@ -480,6 +480,15 @@ describe("extractCanvasCardTexts", () => {
     expect(extractCanvasCardTexts(json)).toEqual(["kept"])
   })
 
+  it.each([
+    { label: "an object with no nodes key", canvas: "{}" },
+    { label: "a nodes value that is not an array", canvas: '{"nodes":"[[Plan]]"}' },
+    { label: "a top-level array", canvas: '[{"type":"text","text":"[[Plan]]"}]' },
+    { label: "a top-level null", canvas: "null" },
+  ])("returns no texts for $label", ({ canvas }) => {
+    expect(extractCanvasCardTexts(canvas)).toEqual([])
+  })
+
   it("throws on unparseable JSON", () => {
     expect(() => extractCanvasCardTexts("{not json")).toThrow(/^invalid \.canvas JSON: /)
   })
@@ -572,7 +581,10 @@ describe("rewriteCanvasLinks", () => {
 
   it("skips nodes missing geometry, matching the links the index records", () => {
     const result = rewriteCanvasLinks({
-      canvasJson: canvasJson([{ id: "f1", type: "file", file: "Inbox/Note.md" }]),
+      canvasJson: canvasJson([
+        { id: "f1", type: "file", file: "Inbox/Note.md" },
+        { id: "t1", type: "text", text: "See [[Inbox/Note]]" },
+      ]),
       rewriteCardText,
       rewriteFilePath,
     })
@@ -599,8 +611,18 @@ describe("rewriteCanvasLinks", () => {
     })
   })
 
-  it("returns null for a canvas with no nodes array", () => {
-    expect(rewriteCanvasLinks({ canvasJson: "{}", rewriteCardText, rewriteFilePath })).toBeNull()
+  // Two cases hold Inbox/Note.md, which rewriteFilePath would change, so the
+  // missing nodes list is the only reason nothing is rewritten.
+  it.each([
+    { label: "no nodes key", canvas: '{"edges":[]}' },
+    { label: "a nodes value that is not an array", canvas: '{"nodes":"Inbox/Note.md"}' },
+    {
+      label: "a top-level array",
+      canvas: '[{"id":"f1","type":"file","file":"Inbox/Note.md","x":0,"y":0,"width":1,"height":1}]',
+    },
+    { label: "a top-level null", canvas: "null" },
+  ])("returns null for a canvas with $label", ({ canvas }) => {
+    expect(rewriteCanvasLinks({ canvasJson: canvas, rewriteCardText, rewriteFilePath })).toBeNull()
   })
 
   it("throws on unparseable JSON", () => {

@@ -872,20 +872,56 @@ describe("moveNote — Canvas sources", () => {
         '{"id":"t1","type":"text","text":"[[Bar]]\\n```\\n[[Foo]]\\n```\\n`[[Foo]]`","x":0,"y":0,"width":250,"height":60}',
       ]),
     )
-    expect(result.links_updated).toBe(1)
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
   })
 
-  it("leaves a Canvas whose cards open a same-named note elsewhere byte-identical", async () => {
-    const { writeFixture, moveNote, readNote, logger } = setupVault()
+  it("keeps a text card's CRLF line endings and leaves its CRLF code block unchanged", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    // In the JSON, \r\n is an escaped CRLF, as in a card pasted from Windows.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"[[Foo]]\\r\\n```\\r\\n[[Foo]]\\r\\n```\\r\\nthen [[Foo]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["Board.canvas"],
+    })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"[[Bar]]\\r\\n```\\r\\n[[Foo]]\\r\\n```\\r\\nthen [[Bar]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 2,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  /** Holds "Note" in a card and in an exact path, but nothing in it resolves
+   *  to Inbox/Note.md: both cards open the same-named Archive/Note.md. */
+  const sameNameDecoyCanvas = obsidianCanvas([
+    '{"id":"f1","type":"file","file":"Archive/Note.md","x":0,"y":0,"width":400,"height":400}',
+    '{"id":"t1","type":"text","text":"Note to self: [[Archive/Note]]","x":500,"y":0,"width":250,"height":60}',
+  ])
+
+  it("leaves a backlink-source Canvas whose cards open a same-named note elsewhere byte-identical", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Inbox/Note.md", "# Note\n")
     await writeFixture("Archive/Note.md", "# Archived note\n")
-    // Contains "Note" in a card and an exact path, so it passes the scan's
-    // substring pre-filter, but nothing in it resolves to Inbox/Note.md.
-    const decoyCanvas = obsidianCanvas([
-      '{"id":"f1","type":"file","file":"Archive/Note.md","x":0,"y":0,"width":400,"height":400}',
-      '{"id":"t1","type":"text","text":"Note to self: [[Archive/Note]]","x":500,"y":0,"width":250,"height":60}',
-    ])
-    await writeFixture("Decoy.canvas", decoyCanvas)
+    await writeFixture("Decoy.canvas", sameNameDecoyCanvas)
 
     const result = await moveNote({
       oldPath: "Inbox/Note.md",
@@ -899,9 +935,30 @@ describe("moveNote — Canvas sources", () => {
       updated_notes: [],
       pruned_empty_folders: 0,
     })
-    expect(await readNote("Decoy.canvas")).toBe(decoyCanvas)
+    expect(await readNote("Decoy.canvas")).toBe(sameNameDecoyCanvas)
     expect(await readNote("Projects/Note.md")).toBe("# Note\n")
-    // The scan must never report a new source, whatever the log context.
+  })
+
+  it("does not report a Canvas whose cards open a same-named note elsewhere as a missed backlink", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    await writeFixture("Archive/Note.md", "# Archived note\n")
+    // Not a backlink source, so the scan reads it: it passes the substring
+    // pre-filter, and only link resolution can rule it out.
+    await writeFixture("Decoy.canvas", sameNameDecoyCanvas)
+
+    const result = await moveNote({ oldPath: "Inbox/Note.md", newPath: "Projects/Note.md" })
+
+    expect(result).toEqual({
+      moved_to: "Projects/Note.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Decoy.canvas")).toBe(sameNameDecoyCanvas)
+    // A rewrite of the decoy would change nothing, so only this log shows a
+    // false match. No file links Inbox/Note.md, so it must never fire,
+    // whatever its context.
     expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
       "backlink verification discovered sources the index missed",
       expect.anything(),
@@ -956,7 +1013,146 @@ describe("moveNote — Canvas sources", () => {
         '{"id":"f1","type":"file","file":"Bar.md","x":0,"y":0,"width":400,"height":400}',
       ]),
     )
-    expect(result.updated_notes).toEqual(["Board.canvas"])
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("gives a file card written as a bare name or a relative path the full new path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Inbox/Note.md", "# Note\n")
+    await writeFixture(
+      "Boards/Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Note.md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"f2","type":"file","file":"../Inbox/Note.md","x":500,"y":0,"width":400,"height":400}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Inbox/Note.md",
+      newPath: "Projects/Plan.md",
+      backlinkSources: ["Boards/Board.canvas"],
+    })
+
+    expect(await readNote("Boards/Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Projects/Plan.md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"f2","type":"file","file":"Projects/Plan.md","x":500,"y":0,"width":400,"height":400}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Projects/Plan.md",
+      links_updated: 2,
+      updated_notes: ["Boards/Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("finds a Canvas linking a note whose name holds a double quote, which the JSON escapes", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture('Say "Hi".md', "# Hi\n")
+    // The file holds only the escaped form, Say \"Hi\", so of the scan's
+    // substring checks only the JSON-escaped one can match it.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Say \\"Hi\\".md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Say \\"Hi\\"]]","x":500,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: 'Say "Hi".md', newPath: "Greeting.md" })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Greeting.md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Greeting]]","x":500,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Greeting.md",
+      links_updated: 2,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      { from: 'Say "Hi".md', to: "Greeting.md", additionalSources: ["Board.canvas"], attempt: 0 },
+    )
+  })
+
+  it("leaves a backlink-source Canvas with no nodes list byte-identical and completes the move", async () => {
+    const { writeFixture, moveNote, readNote, noteExists } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    // Each names Foo, but neither has a nodes list for a card to sit in.
+    const topLevelArrayCanvas = '[{"id":"f1","type":"file","file":"Foo.md"}]'
+    const nodesStringCanvas = '{"nodes":"[[Foo]]"}'
+    await writeFixture("List.canvas", topLevelArrayCanvas)
+    await writeFixture("Odd.canvas", nodesStringCanvas)
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "Bar.md",
+      backlinkSources: ["List.canvas", "Odd.canvas"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await noteExists("Foo.md")).toBe(false)
+    expect(await readNote("List.canvas")).toBe(topLevelArrayCanvas)
+    expect(await readNote("Odd.canvas")).toBe(nodesStringCanvas)
+  })
+
+  it("scans past a Canvas with no nodes list without logging it as unreadable", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    // Names Foo, so it passes the substring pre-filter and is parsed.
+    const nodesStringCanvas = '{"nodes":"[[Foo]]"}'
+    await writeFixture("Odd.canvas", nodesStringCanvas)
+
+    const result = await moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })
+
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Odd.canvas")).toBe(nodesStringCanvas)
+    expect(vi.mocked(logger.warn)).not.toHaveBeenCalled()
+  })
+
+  it("treats only a lowercase .canvas extension as a Canvas", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    const upperCaseCanvas = obsidianCanvas([
+      '{"id":"t1","type":"text","text":"Start from [[Foo]]","x":0,"y":0,"width":250,"height":60}',
+    ])
+    await writeFixture("Board.CANVAS", upperCaseCanvas)
+
+    const result = await moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })
+
+    expect(result).toEqual({
+      moved_to: "Bar.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Board.CANVAS")).toBe(upperCaseCanvas)
+    // The scan skips Board.CANVAS and no other file links Foo.md, so the log
+    // must never fire, whatever its context.
+    expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      expect.anything(),
+    )
   })
 
   it("aborts without writing when a Canvas backlink source is not valid JSON", async () => {
@@ -1334,6 +1530,38 @@ describe("moveNote — guards", () => {
     })
     expect(await readNote("foo.md")).toBe("Self [[foo]].\n")
     expect(await readNote("Hub.md")).toBe("Links [[foo]].\n")
+  })
+
+  it("points a Canvas file card and text card at the new casing on a case-only rename", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "# Foo\n")
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Foo.md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[Foo]]","x":500,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    forceCaseOnlyRenameDetection(vault)
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "foo.md",
+      backlinkSources: ["Board.canvas"],
+    })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"foo.md","x":0,"y":0,"width":400,"height":400}',
+        '{"id":"t1","type":"text","text":"See [[foo]]","x":500,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "foo.md",
+      links_updated: 2,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
   })
 
   it("moves between case-variant names when the filesystem treats them as distinct files", async (testContext) => {
