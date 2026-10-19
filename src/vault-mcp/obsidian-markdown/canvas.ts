@@ -288,9 +288,15 @@ export const extractCanvasFileLinks = (canvasJson: string): string[] => {
   const parsed = parseCanvasJson(canvasJson)
 
   const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
-  const filePaths = rawNodes
-    .map(parseNode)
-    .flatMap((node) => (node?.type === "file" && node.file ? [node.file] : []))
+  const filePaths: string[] = []
+  for (const rawNode of rawNodes) {
+    const node = parseNode(rawNode)
+
+    if (node !== null && node.type === "file" && node.file) {
+      filePaths.push(node.file)
+    }
+  }
+
   return [...new Set(filePaths)]
 }
 
