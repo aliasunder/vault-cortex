@@ -418,7 +418,7 @@ When the file isn't available — or if you use the Periodic Notes plugin, whose
 - `DAILY_NOTES_FOLDER` — any vault-relative path: `Journal`, `Planner/Daily`, or `/` for the vault root
 - `DAILY_NOTES_FORMAT` — same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, `MMM D, YYYY`, …
 
-You can set one or both — a set value always wins over the config file. A value you leave unset comes from `daily-notes.json`; when that file is missing, the server uses `Daily Notes` and `YYYY-MM-DD`.
+You can set one or both — a set value always wins over the config file. A value you leave unset comes from `daily-notes.json`; when that file is missing or unreadable, the server uses `Daily Notes` and `YYYY-MM-DD`.
 
 - Changes in Obsidian apply on the next call when `.obsidian/daily-notes.json` is available in the server's vault.
 - Apply environment changes with the CLI's `restart` command, recreate the Compose container, or redeploy on your hosting platform.
