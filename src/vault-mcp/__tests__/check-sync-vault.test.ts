@@ -181,10 +181,11 @@ describe("check-sync-vault", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stdout).toBe(
+    // stdout carries only the requested vault's ID, for init-setup-vault.
+    expect(run.stdout).toBe("bbb222\n")
+    expect(run.stderr).toBe(
       "[obsidian-sync] Vault check: continue — no Sync setup for this folder yet.\n",
     )
-    expect(run.stderr).toBe("")
     expect(run.obCalls).toEqual(["sync-list-remote --json", "sync-config --json"])
   })
 
@@ -199,8 +200,8 @@ describe("check-sync-vault", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stdout).toBe("[obsidian-sync] Vault check: continue — set up for 'Work' (bbb222).\n")
-    expect(run.stderr).toBe("")
+    expect(run.stdout).toBe("bbb222\n")
+    expect(run.stderr).toBe("[obsidian-sync] Vault check: continue — set up for 'Work' (bbb222).\n")
   })
 
   it("matches VAULT_NAME as a vault ID before matching it as a name", () => {
@@ -214,7 +215,8 @@ describe("check-sync-vault", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stdout).toBe(
+    expect(run.stdout).toBe("bbb222\n")
+    expect(run.stderr).toBe(
       "[obsidian-sync] Vault check: continue — set up for 'bbb222' (bbb222).\n",
     )
   })
@@ -308,11 +310,10 @@ describe("check-sync-vault", () => {
     expect(run.status).toBe(0)
     expect(run.stderr).toBe(
       "[obsidian-sync] WARNING: This install also holds Sync setups for other vaults: bbb222\n" +
-        `[obsidian-sync] They are not used now. Remove each one's folder under ${run.syncRoot} so it can't be picked later.\n`,
+        `[obsidian-sync] They are not used now. Remove each one's folder under ${run.syncRoot} so it can't be picked later.\n` +
+        "[obsidian-sync] Vault check: continue — set up for 'Personal' (aaa111).\n",
     )
-    expect(run.stdout).toBe(
-      "[obsidian-sync] Vault check: continue — set up for 'Personal' (aaa111).\n",
-    )
+    expect(run.stdout).toBe("aaa111\n")
   })
 
   it("stops when the account's vault list can't be read", () => {
@@ -342,7 +343,8 @@ describe("check-sync-vault", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stdout).toBe(
+    expect(run.stdout).toBe("")
+    expect(run.stderr).toBe(
       "[obsidian-sync] Vault check: 'Work' does not name exactly one vault — ob sync-setup reports it.\n",
     )
     expect(run.obCalls).toEqual(["sync-list-remote --json"])
@@ -391,9 +393,7 @@ describe("check-sync-vault", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stdout).toBe(
-      "[obsidian-sync] Vault check: continue — no Sync setup for this folder yet.\n",
-    )
+    expect(run.stdout).toBe("bbb222\n")
     expect(run.obCalls).toEqual(["sync-list-remote --json", "sync-config --json"])
   })
 

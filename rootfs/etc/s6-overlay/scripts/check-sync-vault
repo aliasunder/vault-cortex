@@ -12,8 +12,11 @@
 #   1. resolve VAULT_NAME to a vault ID the way ob sync-setup does;
 #   2. stop on a config.json the engine would silently ignore;
 #   3. compare the vault the engine would sync now with that ID.
-# Exit 0 lets the boot continue; exit 1 stops it. It can also run by hand
-# inside a running container, which prints the same decision:
+# Exit 0 lets the boot continue and prints the vault ID from step 1 on stdout
+# (nothing when VAULT_NAME names no single vault), which init-setup-vault
+# checks again after ob sync-setup. Exit 1 stops the boot. Every message goes
+# to stderr. It can also run by hand inside a running container, which prints
+# the same decision:
 #   docker exec -i -w /vault <container> sh -s < check-sync-vault
 set -u
 
@@ -61,7 +64,7 @@ REQUESTED_VAULT=$(printf '%s' "$REMOTE_VAULTS" | VAULT_NAME="$VAULT_NAME" node -
   if (match) console.log(match.id + "\t" + match.name)
 ')
 if [ -z "$REQUESTED_VAULT" ]; then
-  echo "[obsidian-sync] Vault check: '$VAULT_NAME' does not name exactly one vault — ob sync-setup reports it."
+  echo "[obsidian-sync] Vault check: '$VAULT_NAME' does not name exactly one vault — ob sync-setup reports it." >&2
   exit 0
 fi
 REQUESTED_ID=$(printf '%s' "$REQUESTED_VAULT" | cut -f1)
@@ -133,7 +136,8 @@ PICK_EXIT=$?
 # Exit 3: no setup for this folder yet (a first boot, or setups only for other
 # paths), so ob sync-setup creates the first one.
 if [ "$PICK_EXIT" -eq 3 ]; then
-  echo "[obsidian-sync] Vault check: continue — no Sync setup for this folder yet."
+  echo "[obsidian-sync] Vault check: continue — no Sync setup for this folder yet." >&2
+  printf '%s\n' "$REQUESTED_ID"
   exit 0
 fi
 if [ "$PICK_EXIT" -ne 0 ]; then
@@ -163,7 +167,8 @@ if [ "$PICKED_ID" = "$REQUESTED_ID" ]; then
     echo "[obsidian-sync] WARNING: This install also holds Sync setups for other vaults: $OTHER_IDS" >&2
     echo "[obsidian-sync] They are not used now. Remove each one's folder under ${SYNC_STATE_ROOT} so it can't be picked later." >&2
   fi
-  echo "[obsidian-sync] Vault check: continue — set up for '$VAULT_NAME' ($REQUESTED_ID)."
+  echo "[obsidian-sync] Vault check: continue — set up for '$VAULT_NAME' ($REQUESTED_ID)." >&2
+  printf '%s\n' "$REQUESTED_ID"
   exit 0
 fi
 

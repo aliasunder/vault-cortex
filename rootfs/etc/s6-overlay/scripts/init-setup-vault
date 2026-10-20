@@ -9,6 +9,10 @@ if [ "${SETUP_MODE:-}" = 1 ]; then
   exit 0
 fi
 
+# Resolved before the cd into VAULT_PATH, so a relative script path still
+# finds check-sync-vault beside this script.
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
 VAULT_PATH="${VAULT_PATH:-/vault}"
 mkdir -p "$VAULT_PATH"
 if ! cd "$VAULT_PATH"; then
@@ -52,12 +56,47 @@ fi
 if [ -n "$CONFIG_DIR_NAME" ]; then
   set -- "$@" --config-dir "$CONFIG_DIR_NAME"
 fi
+
+# check-sync-vault stops the boot before ob sync-setup writes anything when
+# the volume holds another vault's Sync setup. It prints the vault ID that
+# VAULT_NAME names, for the check after ob sync-setup. It runs under sh
+# because this script has already loaded the environment its with-contenv
+# line would load.
+if ! REQUESTED_VAULT_ID=$(sh "$SCRIPT_DIR/check-sync-vault"); then
+  exit 1
+fi
+
 if ! run_sync_setup "$@"; then
   echo "[obsidian-sync] ERROR: ob sync-setup failed." >&2
   echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct." >&2
   if [ -z "$VAULT_PASSWORD" ]; then
     echo "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD." >&2
   fi
+  exit 1
+fi
+
+# ob sync-setup has just written VAULT_NAME's setup, so the Sync client must
+# now use it for this folder. Every sync-config call below writes to the setup
+# the client uses, so any other answer stops the boot before those writes.
+sync_client_uses_vault() {
+  picked_config=$(s6-setuidgid obsidian ob sync-config --json) || return 1
+  printf '%s' "$picked_config" | VAULT_ID="$1" node --no-warnings -e '
+    const configText = require("node:fs").readFileSync(0, "utf8")
+    const parseConfig = () => {
+      try {
+        return JSON.parse(configText)
+      } catch {
+        process.exit(1)
+      }
+    }
+    process.exit(parseConfig()?.vaultId === process.env.VAULT_ID ? 0 : 1)
+  '
+}
+
+if [ -z "$REQUESTED_VAULT_ID" ] || ! sync_client_uses_vault "$REQUESTED_VAULT_ID"; then
+  echo "[obsidian-sync] ERROR: After ob sync-setup, the Sync client does not use the setup for '$VAULT_NAME' in this folder." >&2
+  echo "[obsidian-sync] Refusing to sync a vault other than VAULT_NAME." >&2
+  echo "[obsidian-sync] See: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup" >&2
   exit 1
 fi
 

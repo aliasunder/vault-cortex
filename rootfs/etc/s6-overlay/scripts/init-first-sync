@@ -66,11 +66,13 @@ fi
 #
 # The guard sums local_files across every store instead of resolving
 # <vaultId>. The image serves one vault, so a second store exists only
-# after the device was registered against a different remote vault
-# (one deleted and re-created, or a manual sync-setup). Counting that
-# store too keeps the guard conservative; the cost is a stopped
-# container until the device is re-registered. The queue step below reads
-# only the active store, because it writes to the store the client syncs from.
+# after the device was registered against a different remote vault (one
+# deleted and re-created, or a manual sync-setup). init-setup-vault has
+# already stopped any boot whose client would sync that other vault, so
+# here the second store is unused. Counting it too keeps the guard
+# conservative; the cost is a stopped container until the device is
+# re-registered. The queue step below reads only the active store, because
+# it writes to the store the client syncs from.
 SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 
 # Prints the number of files the sync state records as present locally;

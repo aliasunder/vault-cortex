@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -12,18 +12,27 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * name reaches the first-sync stage unconfigured — so every branch is
  * exercised here by running the real script under `sh` with stub `ob` and
  * `s6-setuidgid` executables on PATH.
+ *
+ * The script runs check-sync-vault from its own folder, so each run links the
+ * real script into a temp folder beside a stub check. The check's own
+ * branches are covered in check-sync-vault.test.ts; these tests cover when
+ * it runs and what happens on each of its answers.
  */
 
 const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/init-setup-vault")
 
 /** Stub `ob`: logs each invocation; `sync-setup` exits with the code the
  *  test configures, `sync-config` fails when its flag matches
- *  `OB_SYNC_CONFIG_FAIL_FLAG`, every other invocation succeeds. */
+ *  `OB_SYNC_CONFIG_FAIL_FLAG`, `sync-config --json` prints a setup for
+ *  `OB_PICKED_VAULT_ID`, and every other invocation succeeds. */
 const OB_STUB = `#!/bin/sh
 echo "$*" >> "$OB_CALL_LOG"
 case "$1" in
   sync-setup) exit "$OB_SYNC_SETUP_EXIT" ;;
-  sync-config) [ "$2" = "$OB_SYNC_CONFIG_FAIL_FLAG" ] && exit 1; exit 0 ;;
+  sync-config)
+    [ "$2" = "$OB_SYNC_CONFIG_FAIL_FLAG" ] && exit 1
+    [ "$2" = --json ] && printf '{"vaultId":"%s","syncMode":"bidirectional"}' "$OB_PICKED_VAULT_ID"
+    exit 0 ;;
   *) exit 0 ;;
 esac
 `
@@ -34,6 +43,22 @@ shift
 exec "$@"
 `
 
+/** Stub check-sync-vault: logs its run in the same call log, then refuses or
+ *  prints the vault ID the test configures. */
+const VAULT_CHECK_STUB = `#!/bin/sh
+echo "check-sync-vault" >> "$OB_CALL_LOG"
+if [ "$VAULT_CHECK_REFUSES" = 1 ]; then
+  echo "[obsidian-sync] ERROR: stub vault check refused." >&2
+  exit 1
+fi
+printf '%s\\n' "$VAULT_CHECK_VAULT_ID"
+`
+
+const REQUESTED_VAULT_ID = "aaa111"
+
+const VAULT_CHECK_CALL = "check-sync-vault"
+/** The check after ob sync-setup that the Sync client uses the requested vault. */
+const PICKED_VAULT_CALL = "sync-config --json"
 const DEFAULT_SYNC_CONFIGS_CALL = "sync-config --configs core-plugin-data,community-plugin-data,app"
 
 /** The folder and attachment filters are applied on every boot, empty meaning
@@ -42,12 +67,18 @@ const DEFAULT_SYNC_CONFIGS_CALL = "sync-config --configs core-plugin-data,commun
 const CLEAR_EXCLUDED_FOLDERS_CALL = "sync-config --excluded-folders "
 const CLEAR_FILE_TYPES_CALL = "sync-config --file-types "
 
+const PICKED_VAULT_ERROR =
+  "[obsidian-sync] ERROR: After ob sync-setup, the Sync client does not use the setup for 'MyVault' in this folder.\n" +
+  "[obsidian-sync] Refusing to sync a vault other than VAULT_NAME.\n" +
+  "[obsidian-sync] See: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup\n"
+
 type SetupRun = {
   status: number | null
   stdout: string
   stderr: string
-  /** Every `ob` invocation, as the script issued it (subcommand + args). */
-  obCalls: string[]
+  /** Every `ob` invocation (subcommand + args) and vault check run, in the
+   *  order the script issued them. */
+  calls: string[]
   vaultPath: string
 }
 
@@ -66,25 +97,37 @@ type SetupRunOptions = {
   syncSetupFails?: boolean
   /** The `ob sync-config` flag whose invocation fails (e.g. `--file-types`). */
   syncConfigFailsFor?: string
+  /** When true, the vault check refuses. */
+  vaultCheckRefuses?: boolean
+  /** The vault ID the vault check prints (default: the requested vault's;
+   *  empty when VAULT_NAME names no single vault). */
+  vaultCheckVaultId?: string
+  /** The vault ID `ob sync-config --json` reports after `ob sync-setup`
+   *  (default: the requested vault's). */
+  pickedVaultId?: string
 }
 
 const runSetupScript = (options: SetupRunOptions): SetupRun => {
   const tempDir = mkdtempSync(join(tmpdir(), "init-setup-vault-"))
   onTestFinished(() => rmSync(tempDir, { recursive: true, force: true }))
   const stubBinDir = join(tempDir, "bin")
+  const scriptsDir = join(tempDir, "scripts")
   const vaultPath = join(tempDir, "vault")
   mkdirSync(stubBinDir)
+  mkdirSync(scriptsDir)
   mkdirSync(vaultPath)
 
   writeFileSync(join(stubBinDir, "ob"), OB_STUB, { mode: 0o755 })
   writeFileSync(join(stubBinDir, "s6-setuidgid"), SETUIDGID_STUB, {
     mode: 0o755,
   })
+  symlinkSync(SCRIPT_PATH, join(scriptsDir, "init-setup-vault"))
+  writeFileSync(join(scriptsDir, "check-sync-vault"), VAULT_CHECK_STUB)
 
-  const callLogPath = join(tempDir, "ob-calls.log")
+  const callLogPath = join(tempDir, "calls.log")
   writeFileSync(callLogPath, "")
 
-  const result = spawnSync("sh", [SCRIPT_PATH], {
+  const result = spawnSync("sh", [join(scriptsDir, "init-setup-vault")], {
     encoding: "utf8",
     env: {
       PATH: `${stubBinDir}:${process.env.PATH ?? ""}`,
@@ -93,6 +136,9 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       OB_CALL_LOG: callLogPath,
       OB_SYNC_SETUP_EXIT: String(options.syncSetupFails ? 1 : 0),
       OB_SYNC_CONFIG_FAIL_FLAG: options.syncConfigFailsFor ?? "",
+      OB_PICKED_VAULT_ID: options.pickedVaultId ?? REQUESTED_VAULT_ID,
+      VAULT_CHECK_REFUSES: options.vaultCheckRefuses ? "1" : "0",
+      VAULT_CHECK_VAULT_ID: options.vaultCheckVaultId ?? REQUESTED_VAULT_ID,
       ...(options.setupMode ? { SETUP_MODE: "1" } : {}),
       ...(options.vaultName === undefined ? {} : { VAULT_NAME: options.vaultName }),
       ...(options.vaultPassword === undefined ? {} : { VAULT_PASSWORD: options.vaultPassword }),
@@ -107,14 +153,14 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
     },
   })
 
-  const obCalls = readFileSync(callLogPath, "utf8")
+  const calls = readFileSync(callLogPath, "utf8")
     .split("\n")
     .filter((loggedCall) => loggedCall !== "")
   return {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
-    obCalls,
+    calls,
     vaultPath,
   }
 }
@@ -128,7 +174,7 @@ describe("init-setup-vault script", () => {
     expect(run.status).toBe(0)
     expect(run.stdout).toBe("[obsidian-sync] Setup mode — skipping vault setup.\n")
     expect(run.stderr).toBe("")
-    expect(run.obCalls).toEqual([])
+    expect(run.calls).toEqual([])
   })
 
   it("refuses to start when VAULT_NAME is unset", () => {
@@ -140,30 +186,67 @@ describe("init-setup-vault script", () => {
       "[obsidian-sync] ERROR: VAULT_NAME is not set.\n" +
         "[obsidian-sync] Set VAULT_NAME to your exact Obsidian vault name (case-sensitive) in .env (or -e VAULT_NAME=...) and restart.\n",
     )
-    expect(run.obCalls).toEqual([])
+    expect(run.calls).toEqual([])
   })
 
   it("refuses to start when VAULT_NAME is empty", () => {
     const run = runSetupScript({ vaultName: "" })
 
     expect(run.status).toBe(1)
-    expect(run.obCalls).toEqual([])
+    expect(run.calls).toEqual([])
   })
 
   it("configures sync for the named vault", () => {
     const run = runSetupScript({ vaultName: "MyVault" })
 
     expect(run.status).toBe(0)
+    // The vault ID the check prints is captured, so it never reaches the log.
     expect(run.stdout).toBe(
       `[obsidian-sync] Configuring sync for vault: 'MyVault' → ${run.vaultPath}\n`,
     )
     expect(run.stderr).toBe("")
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
     ])
+  })
+
+  it("stops before ob sync-setup when the vault check refuses", () => {
+    const run = runSetupScript({ vaultName: "MyVault", vaultCheckRefuses: true })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe("[obsidian-sync] ERROR: stub vault check refused.\n")
+    expect(run.calls).toEqual([VAULT_CHECK_CALL])
+  })
+
+  it("stops before any sync-config write when the Sync client uses another vault after ob sync-setup", () => {
+    const run = runSetupScript({ vaultName: "MyVault", pickedVaultId: "bbb222" })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(PICKED_VAULT_ERROR)
+    expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault", PICKED_VAULT_CALL])
+  })
+
+  it("stops before any sync-config write when ob sync-config --json fails after ob sync-setup", () => {
+    const run = runSetupScript({ vaultName: "MyVault", syncConfigFailsFor: "--json" })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(PICKED_VAULT_ERROR)
+    expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault", PICKED_VAULT_CALL])
+  })
+
+  it("stops after ob sync-setup when the vault check named no vault", () => {
+    // ob sync-setup fails when VAULT_NAME names no single vault; if it ever
+    // succeeds anyway, the setup it wrote can't be checked, so the boot stops.
+    const run = runSetupScript({ vaultName: "MyVault", vaultCheckVaultId: "" })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(PICKED_VAULT_ERROR)
+    expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault"])
   })
 
   it("exits 1 with the credential hint when ob sync-setup fails", () => {
@@ -175,7 +258,7 @@ describe("init-setup-vault script", () => {
         "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct.\n" +
         "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD.\n",
     )
-    expect(run.obCalls).toEqual(["sync-setup --vault MyVault"])
+    expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault"])
   })
 
   it("registers the first device under DEVICE_NAME", () => {
@@ -184,8 +267,10 @@ describe("init-setup-vault script", () => {
       deviceName: "vault cortex box",
     })
 
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault --device-name vault cortex box",
+      PICKED_VAULT_CALL,
       "sync-config --device-name vault cortex box",
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
@@ -205,8 +290,10 @@ describe("init-setup-vault script", () => {
       "[obsidian-sync] WARNING: ob sync-config --file-types 'image,pdf' failed — continuing without it.\n",
     )
     // The call after the failed one still runs.
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       "sync-config --file-types image,pdf",
       DEFAULT_SYNC_CONFIGS_CALL,
@@ -218,8 +305,10 @@ describe("init-setup-vault script", () => {
 
     expect(run.status).toBe(0)
     expect(run.stderr).toBe("")
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       "sync-config --mode pull-only",
@@ -241,8 +330,10 @@ describe("init-setup-vault script", () => {
         "[obsidian-sync] Set SYNC_MODE to bidirectional, pull-only, or mirror-remote and restart.\n",
     )
     // Nothing after the failed mode call runs.
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       "sync-config --mode pull-onyl",
@@ -256,8 +347,10 @@ describe("init-setup-vault script", () => {
       syncFileTypes: "image,pdf",
     })
 
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       "sync-config --excluded-folders Daily Notes,Private",
       "sync-config --file-types image,pdf",
       DEFAULT_SYNC_CONFIGS_CALL,
@@ -271,8 +364,10 @@ describe("init-setup-vault script", () => {
       syncFileTypes: "",
     })
 
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
@@ -287,8 +382,10 @@ describe("init-setup-vault script", () => {
 
     expect(run.status).toBe(0)
     expect(run.stderr).toBe("")
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
@@ -299,8 +396,10 @@ describe("init-setup-vault script", () => {
     const run = runSetupScript({ vaultName: "MyVault", syncConfigs: "app,hotkey" })
 
     expect(run.status).toBe(0)
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       "sync-config --configs app,hotkey",
@@ -310,8 +409,10 @@ describe("init-setup-vault script", () => {
   it("clears config-category sync when SYNC_CONFIGS is none", () => {
     const run = runSetupScript({ vaultName: "MyVault", syncConfigs: "none" })
 
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       "sync-config --configs ",
@@ -329,8 +430,10 @@ describe("init-setup-vault script", () => {
     expect(run.stderr).toBe(
       "[obsidian-sync] WARNING: ob sync-config --configs '' failed — continuing without it.\n",
     )
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       "sync-config --configs ",
@@ -344,8 +447,10 @@ describe("init-setup-vault script", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault --password s3cret",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
@@ -359,8 +464,10 @@ describe("init-setup-vault script", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.obCalls).toEqual([
+    expect(run.calls).toEqual([
+      VAULT_CHECK_CALL,
       "sync-setup --vault MyVault --config-dir .obsidian-custom",
+      PICKED_VAULT_CALL,
       CLEAR_EXCLUDED_FOLDERS_CALL,
       CLEAR_FILE_TYPES_CALL,
       DEFAULT_SYNC_CONFIGS_CALL,
