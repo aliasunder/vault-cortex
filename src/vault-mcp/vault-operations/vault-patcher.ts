@@ -427,6 +427,10 @@ const patchNote = async (
   logger: Logger,
 ): Promise<PatchNoteResult> => {
   const { path, operation, content, heading, headingLevel, includeChildren } = params
+
+  if (content === "") {
+    throw new Error("content cannot be empty")
+  }
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {

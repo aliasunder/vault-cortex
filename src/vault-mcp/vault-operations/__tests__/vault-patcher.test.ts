@@ -530,6 +530,14 @@ Top-level content.
 // ── patchNote operations ────────────────────────────────────────
 
 describe("patchNote — file-level operations", () => {
+  it("throws when content is empty and leaves the note unchanged", async () => {
+    await writeTestNote("note.md", "## A\nbody\n")
+    await expect(
+      patchNote({ vaultPath: vault, path: "note.md", operation: "append", content: "" }, logger),
+    ).rejects.toThrow(new Error("content cannot be empty"))
+    expect(await readTestNote("note.md")).toBe("## A\nbody\n")
+  })
+
   it("appends to end of file", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
