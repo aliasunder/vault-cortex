@@ -237,12 +237,9 @@ Content under H6.
       },
       logger,
     )
-    const updated = await readTestNote(`level-${level}.md`)
-    const lines = updated.split("\n")
-    const existingIdx = lines.findIndex((line) => line === `Content under ${heading}.`)
-    const appendedIdx = lines.findIndex((line) => line === `Appended to ${heading}.`)
-    expect(existingIdx).toBeGreaterThan(-1)
-    expect(appendedIdx).toBeGreaterThan(existingIdx)
+    // Each deeper heading is a child of the one above, so every section runs to
+    // the end of the note and the content lands below the last line.
+    expect(await readTestNote(`level-${level}.md`)).toBe(`${content}Appended to ${heading}.\n`)
   })
 
   it("ignores headings inside fenced code blocks", async () => {
@@ -274,14 +271,12 @@ Content under H6.
       },
       logger,
     )
-    const updated = await readTestNote("code.md")
-    const lines = updated.split("\n")
-    const someTextIdx = lines.findIndex((line) => line === "Some text.")
-    const appendedIdx = lines.findIndex((line) => line === "appended text")
-    const anotherIdx = lines.findIndex((line) => line === "## Another Real Heading")
-    expect(someTextIdx).toBeGreaterThan(-1)
-    expect(appendedIdx).toBeGreaterThan(someTextIdx)
-    expect(anotherIdx).toBeGreaterThan(appendedIdx)
+    expect(await readTestNote("code.md")).toBe(
+      NOTE_WITH_CODE_BLOCK.replace(
+        "```\n\n## Another Real Heading",
+        "```\n\nappended text\n## Another Real Heading",
+      ),
+    )
   })
 
   it("strips trailing hashes from headings", async () => {
@@ -304,12 +299,7 @@ Content here.
       },
       logger,
     )
-    const updated = await readTestNote("hashes.md")
-    const lines = updated.split("\n")
-    const contentIdx = lines.findIndex((line) => line === "Content here.")
-    const newLineIdx = lines.findIndex((line) => line === "new line")
-    expect(contentIdx).toBeGreaterThan(-1)
-    expect(newLineIdx).toBeGreaterThan(contentIdx)
+    expect(await readTestNote("hashes.md")).toBe(`${content}new line\n`)
   })
 
   it("ignores headings inside nested fenced code blocks", async () => {
@@ -353,11 +343,7 @@ More content.
       },
       logger,
     )
-    const updated = await readTestNote("nested-fence.md")
-    const lines = updated.split("\n")
-    const moreIdx = lines.findIndex((line) => line === "More content.")
-    const appendIdx = lines.findIndex((line) => line === "appended to real")
-    expect(appendIdx).toBeGreaterThan(moreIdx)
+    expect(await readTestNote("nested-fence.md")).toBe(`${content}appended to real\n`)
   })
 
   it("ignores headings inside tilde-fenced code blocks", async () => {
@@ -495,15 +481,17 @@ Sub-level.
   })
 
   it("disambiguates with heading_level", async () => {
+    // The H2 comes first so its section ends at the H1: an append to the H1
+    // would land at the end of the note instead.
     const content = `---
 title: Levels
 ---
 
-# Overview
-Top-level content.
-
 ## Overview
 Sub-level content.
+
+# Overview
+Top-level content.
 `
     await writeTestNote("levels.md", content)
     await patchNote(
@@ -517,19 +505,9 @@ Sub-level content.
       },
       logger,
     )
-    const updated = await readTestNote("levels.md")
-    const lines = updated.split("\n")
-    const h1Idx = lines.findIndex((line) => line === "# Overview")
-    const topContentIdx = lines.findIndex((line) => line === "Top-level content.")
-    const h2Idx = lines.findIndex((line) => line === "## Overview")
-    const subContentIdx = lines.findIndex((line) => line === "Sub-level content.")
-    const addedIdx = lines.findIndex((line) => line === "added to H2")
-    // added to H2 must be in the H2 section (after Sub-level content), not H1
-    expect(addedIdx).toBeGreaterThan(subContentIdx)
-    expect(addedIdx).toBeGreaterThan(h2Idx)
-    // H1 section content must be unchanged (added text is NOT between H1 and H2)
-    expect(topContentIdx).toBeGreaterThan(h1Idx)
-    expect(h2Idx).toBeGreaterThan(topContentIdx)
+    expect(await readTestNote("levels.md")).toBe(
+      content.replace("Sub-level content.\n\n", "Sub-level content.\n\nadded to H2\n"),
+    )
   })
 
   it("errors on empty heading", async () => {
@@ -612,14 +590,10 @@ describe("patchNote — file-level operations", () => {
       },
       logger,
     )
-    const updated = await readTestNote("board.md")
-    const lines = updated.split("\n")
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
-    const appendedIdx = lines.findIndex((line) => line === "Appended at EOF.")
     // File-level append bypasses heading parsing, so content lands after
     // the trailing block — not before it. This is expected; section-level
     // append (with a heading target) should be used for Kanban boards.
-    expect(appendedIdx).toBeGreaterThan(settingsIdx)
+    expect(await readTestNote("board.md")).toBe(`${NOTE_KANBAN}Appended at EOF.\n`)
   })
 
   it("errors on replace without heading", async () => {
@@ -1220,9 +1194,12 @@ More content.
       },
       logger,
     )
-    const afterAppend = await readTestNote("note.md")
-    expect(afterAppend).toContain("Appended task")
-    expect(afterAppend).toContain("Subtasks")
+    expect(await readTestNote("note.md")).toBe(
+      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+        "- [ ] Sub-task 1\n\n",
+        "- [ ] Sub-task 1\n\n- [ ] Appended task\n\n",
+      ),
+    )
   })
 
   it("does not guard prepend on sections with children", async () => {
@@ -1276,13 +1253,10 @@ describe("patchNote — trailing comment block preservation", () => {
       },
       logger,
     )
-    const updated = await readTestNote("board.md")
-    const lines = updated.split("\n")
-    const taskDIdx = lines.findIndex((line) => line === "- [x] Task D")
-    const taskEIdx = lines.findIndex((line) => line === "- [x] Task E")
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
-    expect(taskEIdx).toBeGreaterThan(taskDIdx)
-    expect(taskEIdx).toBeLessThan(settingsIdx)
+    // The empty line above the block stays between the new task and the block
+    expect(await readTestNote("board.md")).toBe(
+      NOTE_KANBAN.replace("- [x] Task D\n", "- [x] Task D\n- [x] Task E\n"),
+    )
   })
 
   it("prepend to the final heading preserves the trailing block", async () => {
@@ -1512,20 +1486,12 @@ ${doneItems.join("\n")}
       },
       logger,
     )
-    const updated = await readTestNote("big-board.md")
-    const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex(
-      (line) => line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19",
+    expect(await readTestNote("big-board.md")).toBe(
+      content.replace(
+        "\n\n%% kanban:settings",
+        "\n- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19\n\n%% kanban:settings",
+      ),
     )
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
-    expect(appendedIdx).toBeGreaterThan(-1)
-    expect(settingsIdx).toBeGreaterThan(-1)
-    // The appended task must land BEFORE the kanban:settings block
-    expect(appendedIdx).toBeLessThan(settingsIdx)
-    // Verify the settings block is still intact
-    expect(updated).toContain("%% kanban:settings")
-    expect(updated).toContain('{"kanban-plugin":"board","hide-tags-in-title":true}')
-    expect(updated).toMatch(/%%\n*$/)
   })
 
   it("append to Done survives a stray %% in card text that toggles comment state", async () => {
@@ -1564,14 +1530,12 @@ kanban-plugin: board
       },
       logger,
     )
-    const updated = await readTestNote("stray-pct.md")
-    const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex((line) => line === "- [x] Appended after stray %% card")
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
-    expect(appendedIdx).toBeGreaterThan(-1)
-    expect(settingsIdx).toBeGreaterThan(-1)
-    // Appended content must be BEFORE the kanban:settings block
-    expect(appendedIdx).toBeLessThan(settingsIdx)
+    expect(await readTestNote("stray-pct.md")).toBe(
+      content.replace(
+        "\n\n%% kanban:settings",
+        "\n- [x] Appended after stray %% card\n\n%% kanban:settings",
+      ),
+    )
   })
 
   it("append to Done when a card has an inline Obsidian comment with %%", async () => {
@@ -1604,15 +1568,12 @@ kanban-plugin: board
       },
       logger,
     )
-    const updated = await readTestNote("inline-comment.md")
-    const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex(
-      (line) => line === "- [x] New task after inline comment card",
+    expect(await readTestNote("inline-comment.md")).toBe(
+      content.replace(
+        "\n\n%% kanban:settings",
+        "\n- [x] New task after inline comment card\n\n%% kanban:settings",
+      ),
     )
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
-    expect(appendedIdx).toBeGreaterThan(-1)
-    expect(settingsIdx).toBeGreaterThan(-1)
-    expect(appendedIdx).toBeLessThan(settingsIdx)
   })
 
   it("append to Done when an odd number of stray %% lines appear in cards", async () => {
@@ -1647,15 +1608,12 @@ kanban-plugin: board
       },
       logger,
     )
-    const updated = await readTestNote("odd-pct.md")
-    const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex(
-      (line) => line === "- [x] Task appended after triple stray %%",
+    expect(await readTestNote("odd-pct.md")).toBe(
+      content.replace(
+        "\n\n%% kanban:settings",
+        "\n- [x] Task appended after triple stray %%\n\n%% kanban:settings",
+      ),
     )
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
-    expect(appendedIdx).toBeGreaterThan(-1)
-    expect(settingsIdx).toBeGreaterThan(-1)
-    expect(appendedIdx).toBeLessThan(settingsIdx)
   })
 
   it("replace on a heading with only blank lines before the trailing block", async () => {
@@ -1712,12 +1670,9 @@ kanban-plugin: board
       },
       logger,
     )
-    const updated = await readTestNote("board.md")
-    const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex((line) => line === "- [x] Appended task")
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
-    expect(appendedIdx).toBeGreaterThan(-1)
-    expect(settingsIdx).toBeGreaterThan(appendedIdx)
+    expect(await readTestNote("board.md")).toBe(
+      content.replace("## Done\n", "## Done\n- [x] Appended task\n"),
+    )
   })
 
   it("replace on the last section is unaffected when there is no trailing block", async () => {
@@ -1829,18 +1784,9 @@ describe("frontmatter preservation", () => {
       },
       logger,
     )
-    const updated = await readTestNote("no-fm.md")
-    const lines = updated.split("\n")
-    const sectionOneIdx = lines.findIndex((line) => line === "## Section One")
-    const contentIdx = lines.findIndex((line) => line === "Content one.")
-    const appendIdx = lines.findIndex((line) => line === "Appended text.")
-    const sectionTwoIdx = lines.findIndex((line) => line === "## Section Two")
-    // Appended text must be within Section One (after content, before Section Two)
-    expect(contentIdx).toBeGreaterThan(sectionOneIdx)
-    expect(appendIdx).toBeGreaterThan(contentIdx)
-    expect(sectionTwoIdx).toBeGreaterThan(appendIdx)
-    // Section Two content untouched
-    expect(updated).toContain("Content two.")
+    expect(await readTestNote("no-fm.md")).toBe(
+      NOTE_NO_FRONTMATTER.replace("Content one.\n\n", "Content one.\n\nAppended text.\n"),
+    )
   })
 
   it("keeps a local-offset created datetime byte-identical through patchNote", async () => {
@@ -1864,13 +1810,7 @@ Body text.
       },
       logger,
     )
-    const updated = await readTestNote("stamped.md")
-    expect(
-      updated.startsWith(
-        "---\ntitle: Stamped\ndate: 2026-05-13\ncreated: 2026-05-13T20:00:00-04:00\n---\n",
-      ),
-    ).toBe(true)
-    expect(updated).toContain("Appended.")
+    expect(await readTestNote("stamped.md")).toBe(`${stamped}Appended.\n`)
   })
 
   it("keeps a local-offset created datetime byte-identical through replaceInNote", async () => {
@@ -2206,8 +2146,9 @@ Content.
       },
       logger,
     )
-    const updated = await readTestNote("empty.md")
-    expect(updated).toMatch(/## Empty Section\n+Now has content\.\n+## Next/)
+    expect(await readTestNote("empty.md")).toBe(
+      content.replace("## Empty Section\n\n", "## Empty Section\n\nNow has content.\n"),
+    )
   })
 
   it("handles note with only frontmatter", async () => {
@@ -2221,13 +2162,9 @@ Content.
       },
       logger,
     )
-    const updated = await readTestNote("only-fm.md")
-    // Frontmatter preserved
-    expect(updated).toContain("title: Empty")
-    expect(updated.startsWith("---\n")).toBe(true)
-    // Content was appended
-    expect(updated).toContain("## First Section")
-    expect(updated).toContain("Content.")
+    expect(await readTestNote("only-fm.md")).toBe(
+      "---\ntitle: Empty\n---\n## First Section\nContent.\n",
+    )
   })
 
   it("handles heading at very end of file with no body", async () => {
@@ -2251,20 +2188,7 @@ Some text.
       },
       logger,
     )
-    const updated = await readTestNote("trailing.md")
-    const lines = updated.split("\n")
-    const hasContentIdx = lines.findIndex((line) => line === "## Has Content")
-    const someTextIdx = lines.findIndex((line) => line === "Some text.")
-    const headingIdx = lines.findIndex((line) => line === "## Trailing Heading")
-    const addedIdx = lines.findIndex((line) => line === "Added to trailing.")
-    // Previous section intact
-    expect(someTextIdx).toBeGreaterThan(hasContentIdx)
-    expect(headingIdx).toBeGreaterThan(someTextIdx)
-    // Added content is after the trailing heading
-    expect(addedIdx).toBeGreaterThan(headingIdx)
-    // No heading after the added content
-    const headingsAfter = lines.slice(addedIdx + 1).filter((line) => /^#{1,6} /.test(line))
-    expect(headingsAfter).toHaveLength(0)
+    expect(await readTestNote("trailing.md")).toBe(`${content}Added to trailing.\n`)
   })
 
   it("handles file in subdirectory", async () => {
@@ -2286,13 +2210,7 @@ Body.
       },
       logger,
     )
-    const updated = await readTestNote("sub/dir/nested.md")
-    const lines = updated.split("\n")
-    const bodyIdx = lines.findIndex((line) => line === "Body.")
-    const moreIdx = lines.findIndex((line) => line === "More body.")
-    expect(bodyIdx).toBeGreaterThan(-1)
-    expect(moreIdx).toBeGreaterThan(bodyIdx)
-    expect(updated).toContain("title: Nested")
+    expect(await readTestNote("sub/dir/nested.md")).toBe(`${content}More body.\n`)
   })
 })
 
