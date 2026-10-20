@@ -87,8 +87,8 @@ const findDisplacedLeadingContent = (lines: readonly string[]): DisplacedLeading
 
 /** Appends `contentLines` to a body that ends just before line `bodyEndLine`.
  *  - At the note's end, a final line break splits off an empty last element
- *    that only ends the line before it (`"a\n"` → `["a", ""]`), so the content
- *    goes above that element, at index 1.
+ *    that only ends the line before it, so the content goes above that element
+ *    (`"a\n"` → `["a", ""]` → content at index 1).
  *  - A body ending at a heading or a trailing `%% %%` comment block keeps its
  *    last empty line, and the content goes below it. */
 const appendToBody = (params: {
@@ -268,8 +268,8 @@ const listTextDeletionEdits = (params: {
   // would be quadratic in its length. Starts as an empty range before the body.
   let lastLineBreakRun: LineBreakRun = { start: -1, end: -1 }
   /** The run of line breaks in `body` around `position`. Reuses the last run
-   *  measured when `position` falls inside it or on either edge, where a fresh
-   *  measurement returns the same run, and remembers each new one. */
+   *  measured when `position` falls inside it or on one of its edges (measuring
+   *  from an edge finds the same run), and remembers each new one. */
   const findLineBreakRunAt = (position: number): LineBreakRun => {
     const isInLastRun = position >= lastLineBreakRun.start && position <= lastLineBreakRun.end
 
