@@ -564,6 +564,15 @@ describe("patchNote — file-level operations", () => {
     expect(await readTestNote("empty.md")).toBe("added\n")
   })
 
+  it("appends on a new line below the last line when the note does not end with a line break", async () => {
+    await writeTestNote("unterminated.md", "body")
+    await patchNote(
+      { vaultPath: vault, path: "unterminated.md", operation: "append", content: "added" },
+      logger,
+    )
+    expect(await readTestNote("unterminated.md")).toBe("body\nadded\n")
+  })
+
   it("prepends after frontmatter", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
@@ -1001,6 +1010,21 @@ describe("patchNote — section-level append", () => {
       logger,
     )
     expect(await readTestNote("empty.md")).toBe("## A\n| 2 |\n")
+  })
+
+  it("appends on a new line below the last line when the note does not end with a line break", async () => {
+    await writeTestNote("unterminated.md", "## A\n| 1 |")
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "unterminated.md",
+        operation: "append",
+        content: "| 2 |",
+        heading: "A",
+      },
+      logger,
+    )
+    expect(await readTestNote("unterminated.md")).toBe("## A\n| 1 |\n| 2 |\n")
   })
 
   it("leaves an empty line after content that ends with a line break at the end of the note", async () => {
