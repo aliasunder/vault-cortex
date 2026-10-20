@@ -27,7 +27,8 @@ What happens on first start:
 - The image is pulled (~150MB)
 - The keyword index builds in seconds — search works right away
 - The semantic (embedding) index builds in the background — expect a few
-  minutes on a large vault, with search served keyword-only until it finishes
+  minutes on a large vault; keyword search works meanwhile, and semantic
+  matches appear as each note is embedded
 
 > **On Windows?** Set `WINDOWS_MODE=true` in your `.env` — then `VAULT_PATH` can point
 > at a normal Windows path like `C:\Users\you\MyVault`. With the CLI, edit the
@@ -192,8 +193,10 @@ The server runs these startup tasks on every boot:
 
 1. Create memory template files if the memory folder doesn't exist (skipped
    when `MEMORY_ENABLED=false` or `READONLY_MODE=true`).
-2. Rebuild the search index, including any new memory template files.
-3. Start the file watcher.
+2. Start the file watcher, which holds the changes it sees until step 4.
+3. Rebuild the search index, including any new memory template files.
+4. Apply the changes the watcher held, so search reflects notes added, edited
+   or deleted while the server started.
 
 Restarting the container re-runs this flow (useful when testing bootstrap
 behavior). The command is the same for both setup methods,

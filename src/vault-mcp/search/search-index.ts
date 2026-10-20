@@ -39,6 +39,15 @@ import { hybridSearch } from "./hybrid-search.js"
 
 // ── File content indexing constants ─────────────────────────────
 
+/** Files read at once while indexing from disk, by the startup rebuild and by
+ *  the file watcher's startup batch, so a large vault cannot open every file
+ *  at once. */
+export const INDEXING_FILE_READ_CONCURRENCY = 16
+
+/** PDFs whose text is extracted at once while indexing. Extraction is
+ *  CPU-heavy, so fewer run together than other file reads. */
+export const PDF_EXTRACTION_CONCURRENCY = 4
+
 /** Extensions whose content is indexed into file_content_fts for vault_search.
  *  Excludes .canvas (own path with link extraction) and .md (notes_fts). */
 export const INDEXABLE_TEXT_EXTENSIONS = new Set([
@@ -2077,12 +2086,23 @@ export const createSearchIndex = (
   }
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
-   * Returns the note count and a background embedding promise. */
+   * Returns the note count and a background embedding promise.
+   * - No source write may run while it does. A source write is an upsert or remove call
+   *   that changes the tables this clears; one that lands during its reads is replaced by
+   *   the older content it read.
+   * - The file watcher is the only caller that makes source writes at runtime, and
+   *   watchVaultAndBuildIndex holds it until this returns; a new runtime caller must go
+   *   through that hold.
+   * - The returned embedding promise rejects if the background pass fails. This function
+   *   already logs that failure, so a caller may leave the promise unawaited. */
   const rebuildFromVault = async (
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<{ count: number; embedding: Promise<void> }> => {
     const { vaultPath } = params
+    // Embedding work that outlived its source can leave vectors whose chunk or
+    // memory entry is gone. They would take nearest-neighbour slots from live
+    // vectors, so they are dropped before anything else.
     const orphanNoteVectorsRemoved = deleteOrphanNoteVectorsStmt?.run().changes ?? 0
     const orphanFileVectorsRemoved = deleteOrphanFileVectorsStmt?.run().changes ?? 0
     const orphanMemoryVectorsRemoved = deleteOrphanMemoryVectorsStmt?.run().changes ?? 0
@@ -2177,11 +2197,9 @@ export const createSearchIndex = (
         return null
       }
     }
-    /** Bound filesystem work so a large vault cannot open every file at once. */
-    const REBUILD_IO_CONCURRENCY = 16
     const nonMarkdownFileSizeResults = await mapWithConcurrency({
       items: allNonMdFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: readFileSize,
     })
     const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
@@ -2198,7 +2216,6 @@ export const createSearchIndex = (
         })
       : []
 
-    // Read canvas files for content indexing + link extraction.
     const readRebuildFileContent = async (params: {
       file: RebuildFilePaths
       sourceKind: "canvas file" | "text file" | "note"
@@ -2224,23 +2241,18 @@ export const createSearchIndex = (
         return null
       }
     }
+    // Read canvas files for content indexing + link extraction.
     const canvasContentResults = await mapWithConcurrency({
       items: canvasFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "canvas file" }),
     })
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
     // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
-    const extractPdfContent = async (file: {
-      absolutePath: string
-      relativePath: string
-    }): Promise<{
-      relativePath: string
-      content: string
-      modifiedAtMs: number
-      sizeBytes: number
-    } | null> => {
+    const extractPdfContent = async (
+      file: RebuildFilePaths,
+    ): Promise<RebuildFileContent | null> => {
       try {
         const [buffer, fileStat] = await Promise.all([
           readFile(file.absolutePath),
@@ -2265,7 +2277,7 @@ export const createSearchIndex = (
     }
     const pdfResults = await mapWithConcurrency({
       items: pdfFiles,
-      concurrency: 4,
+      concurrency: PDF_EXTRACTION_CONCURRENCY,
       mapper: extractPdfContent,
     })
     const pdfContents = pdfResults.filter((entry) => entry !== null)
@@ -2273,14 +2285,14 @@ export const createSearchIndex = (
     // Read text files for content indexing (raw UTF-8).
     const textFileContentResults = await mapWithConcurrency({
       items: textFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "text file" }),
     })
     const textFileContents = textFileContentResults.filter((entry) => entry !== null)
 
     const noteContentResults = await mapWithConcurrency({
       items: markdownFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "note" }),
     })
     const noteContents = noteContentResults.filter((entry) => entry !== null)
@@ -2371,6 +2383,9 @@ export const createSearchIndex = (
         const pathList = allPaths.map((row) => row.path)
         cachedCanvasNotePaths = pathList
 
+        // No source write may run during a rebuild, so this second clear
+        // normally finds nothing. It stays so that a link written during the
+        // file reads above, against that rule, cannot outlive the rebuild.
         db.exec("DELETE FROM links")
         for (const note of noteContents) {
           if (skippedNotePaths.has(note.relativePath)) continue
@@ -2465,9 +2480,8 @@ export const createSearchIndex = (
     // Every note read from disk, including notes that failed to index, unlike indexedNotes
     const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
 
-    // Pass 3 runs in the background — the server can start accepting requests
-    // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
-    // progressive enhancement: search works with FTS-only until vectors are ready.
+    // Pass 3 runs in the background, so startup does not wait for it. Until a
+    // note's vectors exist, search finds that note by keyword only.
     const embeddingPromise =
       embedder && selectAllNoteChunkPathsStmt
         ? (async () => {
@@ -2497,13 +2511,12 @@ export const createSearchIndex = (
             let entriesEmbedded = 0
             let embedErrors = 0
             for (const note of notesForEmbedding) {
-              if (
-                !isCurrentSourceVersion(
-                  { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
-                  logger,
-                )
+              const noteVersionIsCurrent = isCurrentSourceVersion(
+                { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
+                logger,
               )
-                continue
+
+              if (!noteVersionIsCurrent) continue
 
               try {
                 chunksEmbedded += await embedAndStoreChunks(
@@ -2516,6 +2529,8 @@ export const createSearchIndex = (
                 )
                 const memoryFile = memoryFileNameFromPath(note.relativePath)
 
+                // Checked again after the await above: a newer write to the
+                // note during the chunk embedding makes this entry pass obsolete.
                 if (
                   memoryFile &&
                   isCurrentSourceVersion(
@@ -2580,13 +2595,12 @@ export const createSearchIndex = (
               let fileChunksEmbedded = 0
               let fileEmbedErrors = 0
               for (const file of filesForEmbedding) {
-                if (
-                  !isCurrentSourceVersion(
-                    { sourcePath: file.path, sourceVersion: file.sourceVersion },
-                    logger,
-                  )
+                const fileVersionIsCurrent = isCurrentSourceVersion(
+                  { sourcePath: file.path, sourceVersion: file.sourceVersion },
+                  logger,
                 )
-                  continue
+
+                if (!fileVersionIsCurrent) continue
 
                 try {
                   fileChunksEmbedded += await embedAndStoreFileChunks(

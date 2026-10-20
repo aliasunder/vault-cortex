@@ -492,11 +492,22 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs three passes, then returns so the server can start accepting requests:
+**Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 runs in the background:
 
 1. **Pass 1** — index notes (FTS5 + metadata)
 2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
-3. **Pass 3 (background)** — embed notes, then file content. Search works with FTS-only until vectors are ready
+3. **Pass 3 (background)** — embed notes, then file content. Until a note's vectors exist, search finds it by keyword only
+
+**Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
+
+1. The watcher starts holding: from then on, it records each path chokidar reports as changed instead of indexing it. Startup waits for chokidar's initial scan to finish.
+2. `rebuildFromVault` runs. The watcher is the index's only other writer, because a tool's vault write reaches the index as a watcher event. The watcher is holding, so nothing else writes while the rebuild reads.
+3. The watcher goes live. In the same step, it removes each held path whose latest event was a deletion, and marks every held path so that a live change to it takes over from the step 4 batch.
+4. One batch checks each held path against the disk, `INDEXING_FILE_READ_CONCURRENCY` (16) at a time. Paths gone from disk are removed first. The rest are read again within the rebuild's limits: other files 16 at a time, then the PDFs whose text is extracted, `PDF_EXTRACTION_CONCURRENCY` (4) at a time.
+
+The server starts accepting requests once the step 4 batch has finished writing to the index, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. A held path that a live change takes over is indexed by that change, which can finish just after the server starts.
+
+A file that is created after step 1 and deleted within chokidar's 2 s write-stability window emits no event, so if the rebuild read it, it stays searchable until the next restart.
 
 **Startup cleanup:** before resetting the source tables, the rebuild removes vectors whose parent chunk or memory-entry row is missing and retains vectors with surviving parents.
 
@@ -928,8 +939,9 @@ graph LR
    both processes read/write the shared `/vault` volume. On startup: bootstraps
    memory templates if the memory folder
    doesn't exist, `MEMORY_ENABLED` is not `false`, and the server is not in
-   `READONLY_MODE`, builds the FTS5 search index including those templates,
-   then starts the file watcher.
+   `READONLY_MODE`, starts the file watcher, builds the FTS5 search index
+   including those templates, then applies the changes the watcher saw while
+   the index was built (see **Startup order** under [Indexing](#indexing)).
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after the full init chain has finished and the sync

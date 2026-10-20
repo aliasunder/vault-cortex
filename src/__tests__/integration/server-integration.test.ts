@@ -77,6 +77,41 @@ it("indexes newly bootstrapped memory templates before accepting requests", asyn
   )
 })
 
+// Startup holds file-watcher events until its index batch ends, so a server
+// that never stopped holding would never index this note.
+it("indexes a note written after startup once the file watcher reports it", async () => {
+  const server = await startServer(await freePort())
+  onTestFinished(server.cleanup)
+  const client = await createTestClient(server.port)
+  onTestFinished(() => client.close())
+
+  const writeResult = await callTool({
+    client,
+    name: "vault_write_note",
+    args: { path: "watcher-smoke.md", body: "watchersmokeopal\n" },
+  })
+  expect(writeResult.isError).not.toBe(true)
+
+  // Polls without throwing, so a server that never indexes the note fails on
+  // the exact assertion below rather than on a timeout.
+  const pollDeadline = DateTime.now().plus({ seconds: 10 })
+  const searchUntilFound = async (): Promise<string[]> => {
+    const searchResult = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "watchersmokeopal" },
+    })
+    const foundPaths = JSON.parse(textContent(searchResult)).results.map(
+      (entry: { path: string }) => entry.path,
+    )
+
+    if (foundPaths.length > 0 || DateTime.now() > pollDeadline) return foundPaths
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    return searchUntilFound()
+  }
+  expect(await searchUntilFound()).toEqual(["watcher-smoke.md"])
+}, 30_000)
+
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string => {
   return result.messages
