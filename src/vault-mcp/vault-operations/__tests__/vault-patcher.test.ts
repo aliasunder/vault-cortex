@@ -1142,6 +1142,15 @@ describe("patchNote — section-level append", () => {
     expect(await readTestNote("table.md")).toBe("## A\n| 1 |\n| 2 |\n")
   })
 
+  it("appends below the empty line that ends a section in the middle of the note", async () => {
+    await writeTestNote("middle.md", "## A\n| 1 |\n\n## B\nb\n")
+    await patchNote(
+      { vaultPath: vault, path: "middle.md", operation: "append", content: "| 2 |", heading: "A" },
+      logger,
+    )
+    expect(await readTestNote("middle.md")).toBe("## A\n| 1 |\n\n| 2 |\n## B\nb\n")
+  })
+
   it("keeps the one empty line that ends the final section above the appended content", async () => {
     await writeTestNote("gap.md", "## A\n| 1 |\n\n")
     await patchNote(
