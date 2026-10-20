@@ -7,16 +7,10 @@ import {
   UnkeepableOpeningBlockError,
   UnsupportedPropertiesBlockError,
 } from "../../obsidian-markdown/frontmatter.js"
+import { findTrailingCommentBlockStart } from "../../obsidian-markdown/headings.js"
 import { logger } from "../../../logger.js"
 
-const {
-  patchNote,
-  replaceInNote,
-  deleteSpan,
-  replaceSpan,
-  insertAtAnchor,
-  findTrailingCommentBlockStart,
-} = vaultPatcher
+const { patchNote, replaceInNote, deleteSpan, replaceSpan, insertAtAnchor } = vaultPatcher
 
 let vault: string
 
