@@ -178,7 +178,7 @@ describe("markdown path requirement", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 
   it("replaceInNote rejects a path without the .md extension", async () => {
@@ -187,13 +187,13 @@ describe("markdown path requirement", () => {
         { vaultPath: vault, path: "Projects/Plan", oldText: "a", newText: "b" },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 
   it("deleteSpan rejects a path without the .md extension", async () => {
     await expect(
       deleteSpan({ vaultPath: vault, path: "Projects/Plan", startAnchor: "x" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 })
 
@@ -256,7 +256,11 @@ Content under H6.
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found")
+    ).rejects.toThrow(
+      new Error(
+        'heading not found: "Fake Heading Inside Code". Available headings: ## Real Heading, ## Another Real Heading',
+      ),
+    )
   })
 
   it("targets real headings around code blocks", async () => {
@@ -331,7 +335,11 @@ More content.
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found")
+    ).rejects.toThrow(
+      new Error(
+        'heading not found: "Fake Heading In Nested Block". Available headings: ## Real Heading, ## Another Real Heading',
+      ),
+    )
     // Real headings are still reachable
     await patchNote(
       {
@@ -373,10 +381,14 @@ Content after.
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found")
+    ).rejects.toThrow(
+      new Error(
+        'heading not found: "Fake Heading In Tilde Block". Available headings: ## Before, ## After',
+      ),
+    )
   })
 
-  it("returns empty list for file with no headings", async () => {
+  it("lists no available headings when the note has none", async () => {
     await writeTestNote("flat.md", "---\ntitle: Flat\n---\n\nJust text.\n")
     await expect(
       patchNote(
@@ -389,7 +401,7 @@ Content after.
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found")
+    ).rejects.toThrow(new Error('heading not found: "Nonexistent". Available headings: (none)'))
   })
 })
 
@@ -409,7 +421,11 @@ describe("heading lookup", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found")
+    ).rejects.toThrow(
+      new Error(
+        'heading not found: "active". Available headings: # Main Title, ## Active, ### Subtasks, ## Up Next, ## Done',
+      ),
+    )
   })
 
   it("errors on heading not found with available list", async () => {
@@ -629,7 +645,7 @@ describe("patchNote — file-level operations", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('operation "replace" requires a heading target')
+    ).rejects.toThrow(new Error('operation "replace" requires a heading target'))
   })
 
   it("errors on insert_before without heading", async () => {
@@ -644,7 +660,7 @@ describe("patchNote — file-level operations", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('operation "insert_before" requires a heading target')
+    ).rejects.toThrow(new Error('operation "insert_before" requires a heading target'))
   })
 })
 
@@ -1132,7 +1148,7 @@ describe("patchNote — child-section guard", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('section "## Active" has 1 child heading (Subtasks)')
+    ).rejects.toThrow(new Error('section "## Active" has 1 child heading (Subtasks)'))
     expect(await readTestNote("note.md")).toBe(content)
   })
 
@@ -1152,7 +1168,7 @@ describe("patchNote — child-section guard", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)',
+      new Error('section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)'),
     )
     expect(await readTestNote("note.md")).toBe(content)
   })
@@ -1932,7 +1948,7 @@ describe("patchNote errors", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "missing.md"')
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
   })
 
   it("reports a path through a file as not found, never the server's path", async () => {
@@ -1961,7 +1977,7 @@ describe("patchNote errors", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("path traversal blocked")
+    ).rejects.toThrow(new Error('path traversal blocked: "../escape.md" escapes vault root'))
   })
 
   it("rejects content containing a control character", async () => {
@@ -1977,7 +1993,9 @@ describe("patchNote errors", () => {
         logger,
       ),
     ).rejects.toThrow(
-      "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+      new Error(
+        "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+      ),
     )
   })
 })
@@ -2077,7 +2095,11 @@ describe("patchNote — duplicate-heading guard", () => {
           },
           logger,
         ),
-      ).rejects.toThrow('content begins with the heading "## Up Next"')
+      ).rejects.toThrow(
+        new Error(
+          'content begins with the heading "## Up Next", which would duplicate it — heading-targeted ops keep the matched heading, so omit the heading line from content.',
+        ),
+      )
       // Rejected before any write — the file is byte-for-byte unchanged.
       expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
     },
@@ -2339,7 +2361,9 @@ apple and apple and apple.
         logger,
       ),
     ).rejects.toThrow(
-      "new_text contains a control character (U+0000 at position 4) — control characters other than tab, LF, and CR are not allowed",
+      new Error(
+        "new_text contains a control character (U+0000 at position 4) — control characters other than tab, LF, and CR are not allowed",
+      ),
     )
   })
 
@@ -2355,7 +2379,7 @@ apple and apple and apple.
         },
         logger,
       ),
-    ).rejects.toThrow('text not found in "note.md"')
+    ).rejects.toThrow(new Error('text not found in "note.md": "nonexistent text"'))
   })
 
   it("handles multi-line old_text", async () => {
@@ -2439,7 +2463,7 @@ Hello World.
         },
         logger,
       ),
-    ).rejects.toThrow("text not found")
+    ).rejects.toThrow(new Error('text not found in "case.md": "hello world"'))
   })
 
   it("errors on file not found", async () => {
@@ -2453,7 +2477,7 @@ Hello World.
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "missing.md"')
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
   })
 
   it("errors on path traversal", async () => {
@@ -2467,7 +2491,7 @@ Hello World.
         },
         logger,
       ),
-    ).rejects.toThrow("path traversal blocked")
+    ).rejects.toThrow(new Error('path traversal blocked: "../escape.md" escapes vault root'))
   })
 
   it("truncates long old_text in error message", async () => {
@@ -2829,7 +2853,7 @@ title: "- [ ] Task A"
     await writeTestNote("note.md", content)
     await expect(
       deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" }, logger),
-    ).rejects.toThrow('start anchor not found in "note.md": "- [ ] Task A"')
+    ).rejects.toThrow(new Error('start anchor not found in "note.md": "- [ ] Task A"'))
   })
 
   it("does not disturb a trailing kanban:settings block", async () => {
@@ -3103,7 +3127,7 @@ title: WholeBody
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "no such line" }, logger),
-    ).rejects.toThrow('start anchor not found in "note.md"')
+    ).rejects.toThrow(new Error('start anchor not found in "note.md": "no such line"'))
     expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
   })
 
@@ -3127,7 +3151,11 @@ later content
         },
         logger,
       ),
-    ).rejects.toThrow('end anchor not found in "endbefore.md" at or after the start anchor')
+    ).rejects.toThrow(
+      new Error(
+        'end anchor not found in "endbefore.md" at or after the start anchor: "EARLY marker"',
+      ),
+    )
     expect(await readTestNote("endbefore.md")).toBe(content)
   })
 
@@ -3142,7 +3170,9 @@ title: Ambig
     await writeTestNote("ambig.md", content)
     await expect(
       deleteSpan({ vaultPath: vault, path: "ambig.md", startAnchor: "- [ ] dup" }, logger),
-    ).rejects.toThrow('ambiguous start anchor in "ambig.md": "- [ ] dup" matches 2 lines')
+    ).rejects.toThrow(
+      new Error('ambiguous start anchor in "ambig.md": "- [ ] dup" matches 2 lines'),
+    )
     expect(await readTestNote("ambig.md")).toBe(content)
   })
 
@@ -3167,7 +3197,9 @@ START unique
         logger,
       ),
     ).rejects.toThrow(
-      'ambiguous end anchor in "ambigend.md": "- end candidate" matches 2 lines at or after the start anchor',
+      new Error(
+        'ambiguous end anchor in "ambigend.md": "- end candidate" matches 2 lines at or after the start anchor',
+      ),
     )
     expect(await readTestNote("ambigend.md")).toBe(content)
   })
@@ -3175,13 +3207,13 @@ START unique
   it("errors on file not found", async () => {
     await expect(
       deleteSpan({ vaultPath: vault, path: "missing.md", startAnchor: "x" }, logger),
-    ).rejects.toThrow('note not found: "missing.md"')
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
   })
 
   it("errors on path traversal", async () => {
     await expect(
       deleteSpan({ vaultPath: vault, path: "../escape.md", startAnchor: "x" }, logger),
-    ).rejects.toThrow("path traversal blocked")
+    ).rejects.toThrow(new Error('path traversal blocked: "../escape.md" escapes vault root'))
   })
 })
 
@@ -3597,7 +3629,7 @@ body line
         },
         logger,
       ),
-    ).rejects.toThrow('start anchor not found in "fm.md": "| 2026-05-01 |"')
+    ).rejects.toThrow(new Error('start anchor not found in "fm.md": "| 2026-05-01 |"'))
   })
 
   it("rejects content containing a control character", async () => {
@@ -3613,7 +3645,9 @@ body line
         logger,
       ),
     ).rejects.toThrow(
-      "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+      new Error(
+        "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+      ),
     )
   })
 
@@ -3629,7 +3663,7 @@ body line
         },
         logger,
       ),
-    ).rejects.toThrow('start anchor not found in "tracker.md"')
+    ).rejects.toThrow(new Error('start anchor not found in "tracker.md": "nonexistent anchor"'))
   })
 
   it("throws when end anchor is not found at or after start", async () => {
@@ -3646,7 +3680,9 @@ body line
         logger,
       ),
     ).rejects.toThrow(
-      'end anchor not found in "tracker.md" at or after the start anchor: "| 2026-05-01 |"',
+      new Error(
+        'end anchor not found in "tracker.md" at or after the start anchor: "| 2026-05-01 |"',
+      ),
     )
   })
 
@@ -3670,7 +3706,9 @@ duplicate line
         },
         logger,
       ),
-    ).rejects.toThrow('ambiguous start anchor in "ambiguous.md": "duplicate line" matches 2 lines')
+    ).rejects.toThrow(
+      new Error('ambiguous start anchor in "ambiguous.md": "duplicate line" matches 2 lines'),
+    )
   })
 
   it("uses first match when first_match is set on ambiguous anchor", async () => {
@@ -3727,7 +3765,9 @@ repeated end
         logger,
       ),
     ).rejects.toThrow(
-      'ambiguous end anchor in "endambig.md": "repeated end" matches 2 lines at or after the start anchor',
+      new Error(
+        'ambiguous end anchor in "endambig.md": "repeated end" matches 2 lines at or after the start anchor',
+      ),
     )
   })
 
@@ -3777,7 +3817,7 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "missing.md"')
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
   })
 
   it("throws when content is empty", async () => {
@@ -3837,7 +3877,7 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md"')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "tracker")'))
   })
 
   it("rejects concurrent writes on the same file", async () => {
@@ -4569,7 +4609,7 @@ body line
         },
         logger,
       ),
-    ).rejects.toThrow('anchor not found in "fm.md": "- Apples"')
+    ).rejects.toThrow(new Error('anchor not found in "fm.md": "- Apples"'))
   })
 
   it("rejects content containing a control character", async () => {
@@ -4586,7 +4626,9 @@ body line
         logger,
       ),
     ).rejects.toThrow(
-      "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+      new Error(
+        "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+      ),
     )
   })
 
@@ -4678,7 +4720,7 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow('anchor not found in "shopping.md"')
+    ).rejects.toThrow(new Error('anchor not found in "shopping.md": "nonexistent"'))
   })
 
   it("throws on ambiguous anchor", async () => {
@@ -4702,7 +4744,7 @@ duplicate
         },
         logger,
       ),
-    ).rejects.toThrow('ambiguous anchor in "dupes.md": "duplicate" matches 2 lines')
+    ).rejects.toThrow(new Error('ambiguous anchor in "dupes.md": "duplicate" matches 2 lines'))
   })
 
   it("uses first match when first_match is set", async () => {
@@ -4750,7 +4792,7 @@ duplicate beta
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "missing.md"')
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
   })
 
   it("throws when content is empty", async () => {
@@ -4797,7 +4839,7 @@ duplicate beta
         },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md"')
+    ).rejects.toThrow(new Error('path must end in ".md" (received "shopping")'))
   })
 
   it("rejects concurrent writes on the same file", async () => {
@@ -5045,7 +5087,9 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 
@@ -5061,7 +5105,9 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 
@@ -5069,7 +5115,9 @@ describe("hidden paths", () => {
     await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
     await expect(
       deleteSpan({ vaultPath: vault, path: HIDDEN_NOTE, startAnchor: "Body line." }, logger),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 
@@ -5085,7 +5133,9 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 
@@ -5102,7 +5152,9 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    ).rejects.toThrow(
+      new Error('hidden path blocked: ".trash/secret.md" targets a hidden file or folder'),
+    )
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 })
