@@ -291,6 +291,19 @@ MEMORY_DIR=About Me
 # (default: https://github.com/aliasunder/vault-cortex).
 # SERVICE_DOCUMENTATION_URL=https://github.com/youruser/your-fork
 
+# Name of this install's container, Compose project and data volumes
+# (<name>_vault_data, <name>_mcp_data and <name>_obsidian_config). To run more
+# than one vault on this server, give each install its own INSTANCE_NAME, PORT
+# and DEVICE_NAME.
+# Valid values: two or more lowercase letters, digits, hyphens or underscores,
+# starting with a letter or digit.
+# Default: vault-cortex
+# Set it before the first start. Changing it later starts the install on new,
+# empty volumes, so the vault downloads again as a new Obsidian Sync device
+# while the old volumes stay. Stop the old container first
+# (docker compose down, or npx vault-cortex down).
+INSTANCE_NAME=vault-cortex
+
 # Host port to expose (default: 8000).
 PORT=8000
 

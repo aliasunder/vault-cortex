@@ -13,12 +13,15 @@
 #
 # Full docs: https://github.com/aliasunder/vault-cortex
 
-name: vault-cortex
+name: ${INSTANCE_NAME:-vault-cortex}
 
 services:
   vault-cortex:
     image: ghcr.io/aliasunder/vault-cortex:remote
-    container_name: vault-cortex
+    # Follows the project name, so -p and COMPOSE_PROJECT_NAME rename the
+    # container too. Older Compose versions leave COMPOSE_PROJECT_NAME empty
+    # here, and the INSTANCE_NAME fallback covers them.
+    container_name: ${COMPOSE_PROJECT_NAME:-${INSTANCE_NAME:-vault-cortex}}
     hostname: ${DEVICE_NAME:-vault-cortex}
     restart: unless-stopped
     environment:
