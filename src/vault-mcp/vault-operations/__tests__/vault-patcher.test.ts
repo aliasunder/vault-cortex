@@ -695,6 +695,24 @@ describe("patchNote — file-level operations", () => {
     expect(updated).toMatch(/Task D\n+## New Section\nNew content\./)
   })
 
+  it("appends directly below the last line when the note ends with a line break", async () => {
+    await writeTestNote("body.md", "body\n")
+    await patchNote(
+      { vaultPath: vault, path: "body.md", operation: "append", content: "added" },
+      logger,
+    )
+    expect(await readTestNote("body.md")).toBe("body\nadded\n")
+  })
+
+  it("appends to an empty note without an empty line above the content", async () => {
+    await writeTestNote("empty.md", "")
+    await patchNote(
+      { vaultPath: vault, path: "empty.md", operation: "append", content: "added" },
+      logger,
+    )
+    expect(await readTestNote("empty.md")).toBe("added\n")
+  })
+
   it("prepends after frontmatter", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
@@ -962,7 +980,7 @@ describe("patchNote — leading-content advisory", () => {
       displacedLeadingContent: null,
     })
     expect(await readTestNote("intro.md")).toBe(
-      "Intro prose.\n\n## Section\n\nbody\n\n## New Section\n",
+      "Intro prose.\n\n## Section\n\nbody\n## New Section\n",
     )
   })
 
@@ -1113,6 +1131,48 @@ describe("patchNote — section-level append", () => {
     // No heading after Task E (it's the last section)
     const headingsAfter = lines.slice(taskEIdx + 1).filter((line) => /^#{1,6} /.test(line))
     expect(headingsAfter).toHaveLength(0)
+  })
+
+  it("appends directly below the last line when the note ends with a line break", async () => {
+    await writeTestNote("table.md", "## A\n| 1 |\n")
+    await patchNote(
+      { vaultPath: vault, path: "table.md", operation: "append", content: "| 2 |", heading: "A" },
+      logger,
+    )
+    expect(await readTestNote("table.md")).toBe("## A\n| 1 |\n| 2 |\n")
+  })
+
+  it("keeps the one empty line that ends the final section above the appended content", async () => {
+    await writeTestNote("gap.md", "## A\n| 1 |\n\n")
+    await patchNote(
+      { vaultPath: vault, path: "gap.md", operation: "append", content: "| 2 |", heading: "A" },
+      logger,
+    )
+    expect(await readTestNote("gap.md")).toBe("## A\n| 1 |\n\n| 2 |\n")
+  })
+
+  it("appends directly below the heading of an empty final section", async () => {
+    await writeTestNote("empty.md", "## A\n")
+    await patchNote(
+      { vaultPath: vault, path: "empty.md", operation: "append", content: "| 2 |", heading: "A" },
+      logger,
+    )
+    expect(await readTestNote("empty.md")).toBe("## A\n| 2 |\n")
+  })
+
+  it("leaves an empty line after content that ends with a line break at the end of the note", async () => {
+    await writeTestNote("trailing.md", "## A\n| 1 |\n")
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "trailing.md",
+        operation: "append",
+        content: "| 2 |\n",
+        heading: "A",
+      },
+      logger,
+    )
+    expect(await readTestNote("trailing.md")).toBe("## A\n| 1 |\n| 2 |\n\n")
   })
 })
 
@@ -5039,7 +5099,7 @@ describe("Windows line breaks (CRLF)", () => {
       )
 
       expect(await readTestNote("note.md")).toBe(
-        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nB\n\nX1\nX2\n",
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nB\nX1\nX2\n",
       )
     })
 
@@ -5135,7 +5195,7 @@ describe("Windows line breaks (CRLF)", () => {
     )
 
     expect(await readTestNote("related.md")).toBe(
-      '---\ntitle: C\nrelated:\n  - "[[Note]]"\n---\nA\n\nZ\n',
+      '---\ntitle: C\nrelated:\n  - "[[Note]]"\n---\nA\nZ\n',
     )
   })
 })

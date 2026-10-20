@@ -84,6 +84,19 @@ const findDisplacedLeadingContent = (lines: readonly string[]): DisplacedLeading
   }
 }
 
+/** The line an append to a body ending at `bodyEndLine` is spliced in at. A
+ *  final line break splits off an empty last element, which ends the last line
+ *  and is not an empty line, so the append goes above it. */
+const findAppendInsertionLine = (params: {
+  lines: readonly string[]
+  bodyEndLine: number
+}): number => {
+  const { lines, bodyEndLine } = params
+  const endsWithLineTerminator = bodyEndLine === lines.length && lines.at(-1) === ""
+
+  return endsWithLineTerminator ? bodyEndLine - 1 : bodyEndLine
+}
+
 /** Splices new content into a line array at the position determined by operation and target. */
 const applySectionOperation = (
   lines: readonly string[],
@@ -92,12 +105,10 @@ const applySectionOperation = (
   operation: Operation,
 ): string[] => {
   switch (operation) {
-    case "append":
-      return [
-        ...lines.slice(0, target.bodyEndLine),
-        ...contentLines,
-        ...lines.slice(target.bodyEndLine),
-      ]
+    case "append": {
+      const insertionLine = findAppendInsertionLine({ lines, bodyEndLine: target.bodyEndLine })
+      return [...lines.slice(0, insertionLine), ...contentLines, ...lines.slice(insertionLine)]
+    }
     case "prepend":
       return [
         ...lines.slice(0, target.bodyStartLine),
@@ -427,8 +438,11 @@ const patchNote = async (
         ? findDisplacedLeadingContent(lines)
         : null
 
+      const appendLine = findAppendInsertionLine({ lines, bodyEndLine: lines.length })
       const updatedLines =
-        operation === "append" ? [...lines, ...contentLines] : [...contentLines, ...lines]
+        operation === "append"
+          ? [...lines.slice(0, appendLine), ...contentLines, ...lines.slice(appendLine)]
+          : [...contentLines, ...lines]
       const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
       logger.info("patched note", {
         path,
