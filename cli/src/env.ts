@@ -129,7 +129,7 @@ MEMORY_DIR=About Me
 
 # Name of this install's container, Compose project and search-index volume
 # (<name>_mcp_data). To run more than one vault on this machine, give each
-# install its own INSTANCE_NAME and its own PORT.
+# install its own INSTANCE_NAME and PORT, with PUBLIC_URL on that port.
 # Valid values: two or more lowercase letters, digits, hyphens or underscores,
 # starting with a letter or digit.
 # Default: vault-cortex

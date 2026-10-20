@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -199,8 +199,8 @@ The server runs these startup tasks on every boot:
    or deleted while the server started.
 
 Restarting the container re-runs this flow (useful when testing bootstrap
-behavior). The command is the same for both setup methods,
-since both name the container `vault-cortex`:
+behavior). The command is the same for both setup methods, since both name
+the container after `INSTANCE_NAME` (`vault-cortex` unless you set it):
 
 ```bash
 docker restart vault-cortex
@@ -236,6 +236,55 @@ docker stop vault-cortex
 ([`down`](../../cli/#down) · [`start`](../../cli/#start) in the CLI
 reference). Otherwise resume with `docker compose up -d` or
 `docker start vault-cortex`.
+
+## Run more than one vault
+
+Each vault gets its own install, with its own folder, `.env`, container,
+search index, port and connector. Give every install after the first its own
+`INSTANCE_NAME` before its first start. That name labels the install's
+container, Compose project and index volume (`<name>_mcp_data`); the first
+install keeps the default, `vault-cortex`.
+
+**Set up with the CLI?** Run `init` again into a new folder:
+
+```bash
+npx vault-cortex@latest init --dir ./vault-cortex-work
+```
+
+When `vault-cortex` is already in use, `init` asks for the new install's
+name and port, for example `work` and `8001`. For a scripted setup, add
+`--yes --vault-path <path> --instance-name work --port 8001`. Then pass the
+same `--dir` to every command for that install:
+
+```bash
+npx vault-cortex@latest upgrade --dir ./vault-cortex-work
+npx vault-cortex@latest logs --dir ./vault-cortex-work
+```
+
+**Set up with Docker Compose?** Copy this folder, and set these in the
+copy's `.env`:
+
+```dotenv
+INSTANCE_NAME=work
+PORT=8001
+PUBLIC_URL=http://localhost:8001
+VAULT_PATH=/Users/you/Documents/WorkVault
+```
+
+Run each install's `docker compose` commands from its own folder.
+
+For each install:
+
+- **Connect it as its own server** in your MCP client, under its own name and
+  port. For Claude Code:
+  `claude mcp add --scope user --transport http work http://localhost:8001/mcp`.
+- **Update and restart it on its own:** `upgrade --dir` or `restart --dir`
+  with the CLI, or `docker compose pull && docker compose up -d` in its folder
+  with Compose.
+- **Use its name in `docker` commands.** The commands in this guide that name
+  the container (`docker logs vault-cortex`, `docker restart vault-cortex`,
+  `docker stop vault-cortex`) take the install's `INSTANCE_NAME` instead, for
+  example `docker logs work`.
 
 ## Windows (Docker Desktop)
 
@@ -353,7 +402,9 @@ usual cause.
 container from a different management method is still running. The CLI
 (`npx vault-cortex@latest upgrade`) and Docker Compose (`docker compose up -d`)
 manage the container independently — stop the existing one first with
-`docker rm -f vault-cortex`, then retry with your preferred method.
+`docker rm -f vault-cortex`, then retry with your preferred method. Setting
+up a second vault? Give it its own name instead — see
+[Run more than one vault](#run-more-than-one-vault).
 
 ## Building from source
 

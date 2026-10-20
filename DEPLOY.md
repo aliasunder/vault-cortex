@@ -99,6 +99,8 @@ That runs, in order:
 
 On startup, Compose runs one `vault-cortex` container (the `:remote` image). Inside it, s6-overlay runs the init chain (Obsidian login → vault setup → first sync to completion) and then supervises two processes in order: the sync process (mirrors your vault) → the MCP server. Both drop to the same UID (1000, adjustable via PUID/PGID) so they share the `/vault` volume. See [ARCHITECTURE.md § Container Startup](./ARCHITECTURE.md#container-startup) for the full diagram.
 
+The repo-root `docker-compose.yml` names its volumes explicitly (`vault-cortex_vault_data`, `vault-cortex_mcp_index_data`, `vault-cortex_obsidian_config`) and does not read `INSTANCE_NAME`, so this deployment's data stays on those volumes whatever `.env` sets.
+
 ## Verify
 
 ```bash

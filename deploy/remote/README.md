@@ -15,7 +15,7 @@ configuration. Both produce an identical container — restart policy, log
 rotation, and health check included — and Podman or any OCI-compatible
 container runtime works in place of Docker.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Sign in](#sign-in-to-obsidian-sync) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Sign in](#sign-in-to-obsidian-sync) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -493,6 +493,109 @@ docker stop vault-cortex
 reference). Otherwise resume with `docker compose up -d` or
 `docker start vault-cortex`.
 
+## Run more than one vault
+
+Each vault gets its own install, with its own folder, `.env`, container,
+volumes, port, Obsidian Sync device and connector. Give every install after
+the first its own `INSTANCE_NAME` before its first start. That name labels
+the install's container, Compose project and volumes (`<name>_vault_data`,
+`<name>_mcp_data` and `<name>_obsidian_config`); the first install keeps the
+default, `vault-cortex`. A second vault must never use the first install's
+volumes: the container refuses to start rather than merge the two vaults
+(see [Another vault's Sync setup](#another-vaults-sync-setup)).
+
+**Set up with the CLI?** Run `init` again into a new folder:
+
+```bash
+npx vault-cortex@latest init --mode remote --dir ./vault-cortex-work
+```
+
+When `vault-cortex` is already in use, `init` asks for the new install's
+name and port, for example `work` and `8001`, and names its Sync device after
+it. Then pass the same `--dir` to every command for that install:
+
+```bash
+npx vault-cortex@latest upgrade --dir ./vault-cortex-work
+npx vault-cortex@latest logs --dir ./vault-cortex-work
+```
+
+**Set up with Docker Compose?** Copy this folder, and set these in the
+copy's `.env`:
+
+```dotenv
+INSTANCE_NAME=work
+PORT=8001
+DEVICE_NAME=work
+VAULT_NAME=Work
+PUBLIC_URL=https://work.example.com
+```
+
+Run each install's `docker compose` commands from its own folder.
+
+**Set up with `docker run`?** In the command from [Setup](#setup), replace
+`vault-cortex` with the new name in `--name`, `--hostname` and the three
+volume names, and the host port in `-p` (`-p 8001:8000`). Set its own
+`DEVICE_NAME` in its `.env`.
+
+For each install:
+
+- **Give it its own address.** Route a separate host name to its port in your
+  [HTTPS access](#https-access) setup, and use that as its `PUBLIC_URL`.
+- **Connect it as its own server** in your MCP client, under its own name.
+  For Claude Code:
+  `claude mcp add --scope user --transport http work <PUBLIC_URL>/mcp`.
+- **Update and restart it on its own:** `upgrade --dir` or `restart --dir`
+  with the CLI, `docker compose pull && docker compose up -d` in its folder
+  with Compose, or the `docker run` steps under [Updating](#updating) with its
+  name.
+- **Use its name in `docker` commands.** The commands in this guide that name
+  the container or its volumes (`docker logs vault-cortex`,
+  `docker restart vault-cortex`, `docker rm -f vault-cortex`,
+  `vault-cortex_vault_data`) take the install's name instead, for example
+  `docker logs work`.
+
+### Another vault's Sync setup
+
+When the container's volumes hold the Obsidian Sync setup for a different
+vault than `VAULT_NAME`, the container stops before it syncs or changes
+anything, because starting would merge the two vaults' notes through
+Obsidian Sync. `docker logs` then shows:
+
+```text
+[obsidian-sync] ERROR: This install is set up to sync a different vault than VAULT_NAME.
+[obsidian-sync] VAULT_NAME is 'Work' (<vault ID>), but its Sync setup is for 'Personal' (<vault ID>).
+```
+
+It usually means `VAULT_NAME` was changed, or a second install is using the
+first one's volumes. Fix it one of these ways:
+
+- **`VAULT_NAME` is a mistake:** set it back and re-create the container. The
+  **Changed `.env`?** note under [Restart](#restart) gives the command for
+  each setup method.
+- **You want to sync both vaults:** give the second vault its own install, as
+  described above. On Render or Railway, deploy it as a separate service.
+- **You want this install to sync the new vault instead:** delete all of its
+  volumes together (the **Stop and delete all volumes** commands under
+  [Stop](#stop)), then start it again. The container downloads the new vault
+  like a first start, and the old vault stays in Obsidian Sync. Deleting only
+  `obsidian_config` would upload the old vault's notes into the new one. On
+  Render or Railway, follow the entry in that platform's guide.
+- **You re-created the same vault in Obsidian**, the log says the old one "is
+  no longer in your account", and the notes on the server are that vault's
+  notes: remove only the old setup folder the log names, then start the
+  container:
+
+  ```bash
+  docker run --rm -v vault-cortex_obsidian_config:/home/obsidian/.config \
+    --entrypoint rm ghcr.io/aliasunder/vault-cortex:remote \
+    -r /home/obsidian/.config/obsidian-headless/sync/<old vault ID>
+  ```
+
+A **WARNING** that the install "also holds Sync setups for other vaults"
+means the container started, because it uses the right vault, but one of
+those setups could be used on a later start. Remove each one's folder with
+the same command, using the vault ID from the warning.
+
 ## Memory
 
 The memory layer is enabled by default. Set `MEMORY_ENABLED=false` in your
@@ -605,6 +708,7 @@ These optional settings are worth knowing about:
 | `READONLY_MODE`         | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `DISABLED_TOOLS`        | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `SYNC_CONFIGS`          | daily notes, plugins, and app | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `INSTANCE_NAME`         | `vault-cortex`                | Names this install's container, Compose project and volumes. Set it before the first start to run another vault on the same server (see [Run more than one vault](#run-more-than-one-vault))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (edits made on the server stay on the server and are never uploaded), or `mirror-remote` (Obsidian Sync overwrites edits made on the server, so the server always matches your vault). An invalid value stops the container at boot.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `CONFLICT_STRATEGY`     | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -697,16 +801,23 @@ container, because `docker start` keeps the old settings. The
 **Changed `.env`?** note under [Restart](#restart) gives the command for each
 setup method.
 
+**"This install is set up to sync a different vault than VAULT_NAME" in
+`docker logs`, and the container stops.** The container's volumes hold the
+Obsidian Sync setup for another vault, and starting would merge the two.
+[Another vault's Sync setup](#another-vaults-sync-setup) gives the fixes.
+
 **"container name vault-cortex already in use" on start or upgrade.** A
 container from a different management method is still running. The CLI
 (`npx vault-cortex@latest upgrade`) and Docker Compose (`docker compose up -d`)
 manage the container independently — stop the existing one first with
-`docker rm -f vault-cortex`, then retry with your preferred method.
+`docker rm -f vault-cortex`, then retry with your preferred method. Setting
+up a second vault? Give it its own name instead — see
+[Run more than one vault](#run-more-than-one-vault).
 
 **Vault re-syncs from scratch (or the search index is empty) after switching
 between the CLI, Compose, and `docker run`.** Nothing is lost — your data is
-still in the old volumes. All three methods use the same named volumes, so
-data normally carries over — but only when the names match exactly, and a
+still in the old volumes. All three methods use the same named volumes for
+the same `INSTANCE_NAME`, so data normally carries over — but only when the names match exactly, and a
 mismatch produces **no error**. Docker silently creates fresh, empty volumes
 and the container starts with a clean slate: Obsidian Sync registers a new
 device and re-syncs the vault, and the search index rebuilds.
