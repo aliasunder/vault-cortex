@@ -123,10 +123,6 @@
 
 ## [0.54.16] — 2026-10-20
 
-### ⚠ BREAKING CHANGES
-
-- a tool call that sends a parameter the tool doesn't declare, at the top level or inside a nested object such as `vault_search`'s `filters`, now fails with an invalid-arguments error naming the unknown key and the accepted ones, where the key used to be dropped silently; only `vault_list_tags` and `vault_list_memory_files`, which take no parameters, still accept extra keys.
-
 ### Features
 
 - **tools:** Reject unknown tool parameters instead of ignoring them (#684)
