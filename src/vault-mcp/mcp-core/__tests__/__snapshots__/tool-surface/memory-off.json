@@ -135,7 +135,8 @@
           "path",
           "description"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -168,7 +169,8 @@
         "required": [
           "path"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -212,7 +214,8 @@
           "path",
           "start_anchor"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -247,7 +250,8 @@
             "maximum": 9007199254740991
           }
         },
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -275,7 +279,8 @@
         "required": [
           "path"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -300,7 +305,8 @@
             "minLength": 1
           }
         },
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -328,7 +334,8 @@
         "required": [
           "path"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -382,7 +389,8 @@
           "position",
           "content"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -423,7 +431,8 @@
             "maximum": 9007199254740991
           }
         },
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -453,7 +462,8 @@
             "minLength": 1
           }
         },
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -478,7 +488,8 @@
             "minLength": 1
           }
         },
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -518,7 +529,8 @@
         "required": [
           "key"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -607,7 +619,8 @@
                 "type": "string",
                 "minLength": 1
               }
-            }
+            },
+            "additionalProperties": false
           },
           "scheduled": {
             "description": "Scheduled date (⏳ / [scheduled:: ]) bounds",
@@ -628,7 +641,8 @@
                 "type": "string",
                 "minLength": 1
               }
-            }
+            },
+            "additionalProperties": false
           },
           "start": {
             "description": "Start date (🛫 / [start:: ]) bounds",
@@ -649,7 +663,8 @@
                 "type": "string",
                 "minLength": 1
               }
-            }
+            },
+            "additionalProperties": false
           },
           "done": {
             "description": "Done date (✅ / [completion:: ]) bounds",
@@ -670,7 +685,8 @@
                 "type": "string",
                 "minLength": 1
               }
-            }
+            },
+            "additionalProperties": false
           },
           "created": {
             "description": "Created date (➕ / [created:: ]) bounds",
@@ -691,7 +707,8 @@
                 "type": "string",
                 "minLength": 1
               }
-            }
+            },
+            "additionalProperties": false
           },
           "cancelled": {
             "description": "Cancelled date (❌ / [cancelled:: ]) bounds",
@@ -712,7 +729,8 @@
                 "type": "string",
                 "minLength": 1
               }
-            }
+            },
+            "additionalProperties": false
           },
           "priority": {
             "description": "Priority levels, OR-combined; \"none\" selects tasks with no priority signifier",
@@ -798,7 +816,8 @@
             ]
           }
         },
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -837,7 +856,8 @@
           "old_path",
           "new_path"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -897,7 +917,8 @@
           "operation",
           "content"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -941,7 +962,8 @@
         "required": [
           "path"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1000,7 +1022,8 @@
         "required": [
           "path"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1036,7 +1059,8 @@
             "maximum": 9007199254740991
           }
         },
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1080,7 +1104,8 @@
           "old_text",
           "new_text"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1130,7 +1155,8 @@
           "start_anchor",
           "content"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1225,7 +1251,8 @@
                     "type": "string",
                     "minLength": 1
                   }
-                }
+                },
+                "additionalProperties": false
               },
               "modified": {
                 "description": "Modified date bounds (YYYY-MM-DD) on filesystem modified time",
@@ -1246,9 +1273,11 @@
                     "type": "string",
                     "minLength": 1
                   }
-                }
+                },
+                "additionalProperties": false
               }
-            }
+            },
+            "additionalProperties": false
           },
           "limit": {
             "default": 20,
@@ -1273,7 +1302,8 @@
         "required": [
           "query"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1313,7 +1343,8 @@
         "required": [
           "folder"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1359,7 +1390,8 @@
           "key",
           "value"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1399,7 +1431,8 @@
         "required": [
           "tag"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1442,7 +1475,8 @@
           "path",
           "properties"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1668,7 +1702,8 @@
         "required": [
           "path"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1715,7 +1750,8 @@
           "path",
           "body"
         ],
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,

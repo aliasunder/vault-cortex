@@ -2,7 +2,6 @@
 
 import { z } from "zod"
 import type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js"
-import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import type { VaultConfig } from "../../config.js"
@@ -22,12 +21,38 @@ import {
  *  config disables the tool, and injects the registry's annotations so group
  *  modules never restate them — the config type carries no annotations key,
  *  making an inline block a compile error. Throws on a name missing from the
- *  registry (a typo'd registration would otherwise be invisible forever). */
-export type RegisterGatedTool = <InputArgs extends undefined | ZodRawShapeCompat = undefined>(
+ *  registry (a typo'd registration would otherwise be invisible forever).
+ *  inputSchema is required because the SDK validates nothing without one. */
+export type RegisterGatedTool = <InputShape extends z.ZodRawShape>(
   name: ToolName,
-  config: { title: string; description: string; inputSchema?: InputArgs },
-  handler: ToolCallback<InputArgs>,
+  config: { title: string; description: string; inputSchema: InputShape },
+  handler: ToolCallback<ToolInputObject<InputShape>>,
 ) => void
+
+// Zod's base object config would add an index signature to handler args, so a
+// misspelled parameter name would still compile
+export type ToolInputObject<Shape extends z.ZodRawShape> = z.ZodObject<Shape, z.core.$strict>
+
+export const createStrictInputObject = <Shape extends z.ZodRawShape>(
+  shape: Shape,
+): ToolInputObject<Shape> => {
+  const acceptedKeys = Object.keys(shape)
+
+  // Some clients send a placeholder argument to tools that take no parameters
+  if (acceptedKeys.length === 0) return z.object(shape)
+
+  const acceptedKeysText = `accepted: ${acceptedKeys.join(", ")}`
+
+  return z.strictObject(shape, {
+    error: (issue) => {
+      if (issue.code !== "unrecognized_keys") return undefined
+
+      const keyNoun = issue.keys.length === 1 ? "key" : "keys"
+      const quotedKeys = issue.keys.map((key) => `"${key}"`).join(", ")
+      return `unrecognized ${keyNoun} ${quotedKeys} (${acceptedKeysText})`
+    },
+  })
+}
 
 export type ToolRegistrationContext = ToolAvailability &
   SafeHandlers & {
@@ -49,7 +74,7 @@ const FIXED_PROMOTED_KEYS = new Set(["title", "type", "created", "related"])
 
 /** The promoted keys of one note: the fixed four plus the tags key its
  *  frontmatter spells, when it has one. */
-const promotedKeysOfNote = (properties: Record<string, unknown>): ReadonlySet<string> => {
+const resolvePromotedKeys = (properties: Record<string, unknown>): ReadonlySet<string> => {
   const noteTagsKey = Object.keys(properties).find(isTagsKey)
   return noteTagsKey ? new Set([...FIXED_PROMOTED_KEYS, noteTagsKey]) : FIXED_PROMOTED_KEYS
 }
@@ -61,11 +86,9 @@ export const formatNoteMetadata = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
 }): Record<string, unknown> => {
-  // Drop a null `leading_callout` so notes without one don't carry the key;
-  // keep it (the { type, title, body } block) when present.
   const { properties, leading_callout: leadingCallout, ...fields } = meta
 
-  const promotedKeys = promotedKeysOfNote(properties)
+  const promotedKeys = resolvePromotedKeys(properties)
   const additional_properties = Object.fromEntries(
     Object.entries(properties).filter(([key]) => !promotedKeys.has(key)),
   )
@@ -79,21 +102,19 @@ export const formatNoteMetadata = (meta: {
 
 /** Shared Zod schema for one date filter ({ before, on, after }) — used by
  *  vault_list_tasks' task date filters and vault_search's created/modified. */
-export const dateFilterSchema = z
-  .object({
-    before: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates"),
-    on: z.string().min(1).optional().describe("Exact date match (YYYY-MM-DD)"),
-    after: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
-  })
-  .optional()
+export const dateFilterSchema = createStrictInputObject({
+  before: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates"),
+  on: z.string().min(1).optional().describe("Exact date match (YYYY-MM-DD)"),
+  after: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
+}).optional()
 
 /** One-line, model-facing summary of a paged text read: the window served,
  *  the rendition's total line count, and the next start_line when more
@@ -211,14 +232,16 @@ export const OPENING_BLOCK_ERROR_ENTRY =
  *  - One bullet names each remedy: the caller shortens a too-long name, and
  *    the vault's owner fixes permissions or the disk.
  *  - A save first writes a temp file named after the note plus
- *    ".<UUID>.tmp", 41 bytes longer, so a note can read fine and still fail
- *    to save. A rename writes that temp file beside the new name too, which
- *    is why the bullet asks for a name at least 41 bytes shorter.
+ *    ".<UUID>.tmp", 41 bytes longer (1 for the dot, 36 for the UUID, 4 for
+ *    ".tmp"), so a note can read fine and still fail to save. A rename
+ *    writes that temp file beside the new name too, which is why the bullet
+ *    asks for a name at least 41 bytes shorter.
  *  - A write that fails after the file is open (a full disk) gets a Node
  *    message with no path, so the bullet says the file is usually named.
  *  - Every tool that saves a note can raise these errors, but each lists the
- *    bullet only when its own description is next revised, because a grader
- *    re-scores every description whose text changes. */
+ *    bullet only when its own description is next revised, because
+ *    tool-definition graders such as Glama's re-score every description
+ *    whose text changes. */
 export const describeFilesystemErrorEntry = (
   whenToolEnabledText: ToolRegistrationContext["whenToolEnabledText"],
 ): string => {
@@ -227,9 +250,10 @@ export const describeFilesystemErrorEntry = (
   return `- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter${renameToolClause}. Permissions or a full or read-only disk need the vault's owner`
 }
 
-/** The Errors entry of every tool that rewrites a note, led by when the tool
- *  rewrites it for tools that do so only sometimes. The error itself carries
- *  the repair steps, so the entry points at them and names no tool. */
+/** The Errors entry of every tool that rewrites a note. A tool that rewrites
+ *  the note only in one mode passes that mode as rewriteCondition
+ *  (`"with overwrite: true"`), and the entry opens with it. The error itself
+ *  carries the repair steps, so the entry points at them and names no tool. */
 export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): string => {
   const conditionClause = rewriteCondition ? `${rewriteCondition}, ` : ""
   return `- "properties block …" — ${conditionClause}the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it`
