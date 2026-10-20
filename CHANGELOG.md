@@ -120,6 +120,29 @@
 
 
 
+
+## [0.54.16] — 2026-10-20
+
+### ⚠ BREAKING CHANGES
+
+- a tool call that sends a parameter the tool doesn't declare, at the top level or inside a nested object such as `vault_search`'s `filters`, now fails with an invalid-arguments error naming the unknown key and the accepted ones, where the key used to be dropped silently; only `vault_list_tags` and `vault_list_memory_files`, which take no parameters, still accept extra keys.
+
+### Features
+
+- **tools:** Reject unknown tool parameters instead of ignoring them (#684)
+
+### Bug Fixes
+
+- **move:** Point Canvas file cards at a moved note's new path (#683)
+- **remote:** Sync app.json by default so a blank daily-notes folder follows Obsidian's new-note folder (#682)
+- **search:** Index vault changes that land while the server starts (#679)
+- **tools:** Reword the edit tools' empty-line rule and correct nine tool descriptions (#678)
+
+### Documentation
+
+- Fix the Ask DeepWiki badge (#685)
+- Update CHANGELOG.md for v0.54.15
+
 ## [0.54.15] — 2026-10-17
 
 ### Bug Fixes
