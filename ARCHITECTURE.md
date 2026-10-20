@@ -195,7 +195,8 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
-- **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it
+- **Canvas files:** links in text cards are rewritten like note links, and a file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
+- **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
@@ -1223,8 +1224,11 @@ Docker hardening, and durability seatbelts above.
   still the unchanged file it trashed, so a corrupted record, a symlink,
   or a note Obsidian later trashed under the same name is left alone.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
-  lock, `moveNote` first scans the filesystem for backlinks the search
-  index missed (closing a lag race); then reads every affected file and
+  lock, `moveNote` first scans notes and Canvas files for backlinks the
+  search index missed (closing a lag race) or never records (links in
+  Canvas text cards). The scan skips a file it cannot read or parse, with
+  a warning, so an unreadable file aborts the move only when the index
+  lists it as a backlink. The move then reads every affected file and
   computes every rewrite _before_ touching anything. If any read fails, no
   file is mutated. Destination is written first via exclusive create;
   source is deleted last — a failure at any step leaves both copies rather

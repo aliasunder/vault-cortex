@@ -1240,7 +1240,7 @@ Errors:
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.
 
-Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten, including the moved note's own relative links), updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of empty parent folders removed — 0 unless prune_empty_folders was set).`,
+Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten, including the moved note's own relative links), updated_notes (sorted paths of the other notes and Canvas files that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of empty parent folders removed — 0 unless prune_empty_folders was set).`,
       inputSchema: {
         old_path: z
           .string()
