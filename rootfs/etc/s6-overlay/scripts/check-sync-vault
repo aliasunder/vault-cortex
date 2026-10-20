@@ -16,8 +16,10 @@
 # (nothing when VAULT_NAME names no single vault), which init-setup-vault
 # checks again after ob sync-setup. Exit 1 stops the boot. Every message goes
 # to stderr. It can also run by hand inside a running container, which prints
-# the same decision:
-#   docker exec -i -w /vault <container> sh -s < check-sync-vault
+# the same decision. docker exec leaves s6's /command off PATH, and
+# with-contenv loads the environment the init chain published:
+#   docker exec -i -w /vault -e PATH=/command:/usr/bin:/bin <container> \
+#     /command/with-contenv sh -s < check-sync-vault
 set -u
 
 if [ -z "${VAULT_NAME:-}" ]; then
