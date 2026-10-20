@@ -113,19 +113,16 @@ if [ -n "$SYNC_MODE" ] && ! s6-setuidgid obsidian ob sync-config --mode "$SYNC_M
 fi
 
 # Obsidian settings categories to sync into .obsidian/:
-# - Default: the two the server reads — core-plugin-data (daily notes
-#   settings) and community-plugin-data (community plugin settings, such as
-#   the Tasks plugin's format). Applied here as well as in the compose files,
-#   so plain `docker run` matches.
+# - Default: the three the server reads — core-plugin-data (daily notes
+#   settings), community-plugin-data (community plugin settings, such as
+#   the Tasks plugin's format) and app (the new-note location). Applied here
+#   as well as in the compose files, so plain `docker run` matches.
 # - SYNC_CONFIGS=none: sends an empty value, the client's "clear" form
-#   (`ob sync-config --help`). Skipping the call would leave the client's own
-#   defaults syncing, since `ob sync-setup` above resets this setting to them
-#   on every boot: app, appearance, appearance-data, hotkey, core-plugin, and
-#   core-plugin-data.
+#   (`ob sync-config --help`).
 if [ "$SYNC_CONFIGS" = "none" ]; then
   if ! s6-setuidgid obsidian ob sync-config --configs ""; then
     echo "[obsidian-sync] WARNING: ob sync-config --configs '' failed — continuing without it." >&2
   fi
 else
-  apply_sync_config --configs "${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}"
+  apply_sync_config --configs "${SYNC_CONFIGS:-core-plugin-data,community-plugin-data,app}"
 fi

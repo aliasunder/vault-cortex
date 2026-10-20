@@ -541,9 +541,10 @@ in `.obsidian/daily-notes.json`, and in remote mode the server only receives
 that file when settings syncing is turned on in two places:
 
 - **Server side** — `SYNC_CONFIGS` defaults to
-  `core-plugin-data,community-plugin-data`: daily notes settings (Obsidian's
-  **Core plugin settings** toggle) and community plugin settings, such as
-  the Tasks plugin's format (**Installed community plugins**). It takes a
+  `core-plugin-data,community-plugin-data,app`: daily notes settings
+  (Obsidian's **Core plugin settings** toggle), community plugin settings
+  such as the Tasks plugin's format (**Installed community plugins**), and
+  the new-note location (**Main settings**). It takes a
   comma-separated list of Obsidian's settings categories (`app`,
   `appearance`, `appearance-data`, `hotkey`, `core-plugin`,
   `core-plugin-data`, `community-plugin`, `community-plugin-data`); set
@@ -563,15 +564,11 @@ lands; no restart needed.
 
 If the folder box in Obsidian's Daily notes options is empty, Obsidian puts
 daily notes where **Default location for new notes** says, a setting stored
-in `.obsidian/app.json`. The default `SYNC_CONFIGS` leaves that file out, so
-the server then looks in the vault root. **Same folder as current file** also
-means the vault root, as it does in Obsidian for daily notes. If your new
-notes go to a set folder, either:
-
-- set `SYNC_CONFIGS=core-plugin-data,community-plugin-data,app`, the default
-  list plus `app`, and turn on **Main settings** under Vault configuration
-  sync — a `.env` edit, so re-create the container as described below; or
-- set `DAILY_NOTES_FOLDER`, as described below.
+in `.obsidian/app.json`. The server reads that file once **Main settings** is
+turned on under Vault configuration sync; until then it looks in the vault
+root. **Same folder as current file** also means the vault root, as it does
+in Obsidian for daily notes. If you can't sync Main settings, set
+`DAILY_NOTES_FOLDER`, as described below.
 
 Daily notes in the vault root, or in the new-note folder because the folder
 box is empty, aren't protected from delete and move and can appear in orphan
@@ -607,7 +604,7 @@ These optional settings are worth knowing about:
 | `FILE_TOOLS_ENABLED`    | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `READONLY_MODE`         | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `DISABLED_TOOLS`        | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `SYNC_CONFIGS`          | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `SYNC_CONFIGS`          | daily notes, plugins, and app | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (edits made on the server stay on the server and are never uploaded), or `mirror-remote` (Obsidian Sync overwrites edits made on the server, so the server always matches your vault). An invalid value stops the container at boot.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `CONFLICT_STRATEGY`     | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |

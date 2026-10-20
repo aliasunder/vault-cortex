@@ -356,15 +356,15 @@ SYNC_EXCLUDED_FOLDERS=
 SYNC_FILE_TYPES=
 
 # Obsidian settings categories to sync into the server's .obsidian/ folder
-# (default: daily notes settings and community plugin settings such as the
-# Tasks plugin's format; "none" disables).
+# (default: daily notes settings, community plugin settings such as the
+# Tasks plugin's format, and app for the new-note location; "none" disables).
 # A category only syncs after your desktop pushes it: Obsidian Settings →
 # Sync → "Vault configuration sync" (per device). Some community plugins
 # keep API keys in their settings — server tools never read .obsidian/,
 # but synced settings do live on the server volume. Values: app,
 # appearance, appearance-data, hotkey, core-plugin, core-plugin-data,
 # community-plugin, community-plugin-data — comma-separated.
-SYNC_CONFIGS=core-plugin-data,community-plugin-data
+SYNC_CONFIGS=core-plugin-data,community-plugin-data,app
 `
 
 // sync:remote-optional:end

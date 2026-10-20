@@ -21,6 +21,19 @@ const COMMENTED_VAR_LINE = /^# ([A-Z_]+)=/gm
 /** Matches active (uncommented) env var assignments: `VAR_NAME=value`. */
 const UNCOMMENTED_VAR_LINE = /^([A-Z_]+)=/gm
 
+/** Matches every SYNC_CONFIGS assignment line, commented (`# SYNC_CONFIGS=`) or active. */
+const SYNC_CONFIGS_ASSIGNMENT_LINE = /^#? ?SYNC_CONFIGS=.*$/gm
+
+/** The remote .env the CLI writes, for answers that set no conditional var. */
+const buildSampleRemoteEnv = (): string => {
+  return buildRemoteEnv({
+    mcpAuthToken: "t",
+    publicUrl: "https://v.example.com",
+    obsidianAuthToken: "tok",
+    vaultName: "V",
+  })
+}
+
 /** Extracts deduplicated var names from all `${VAR}` interpolations in compose content. */
 const interpolatedVars = (composeContent: string): string[] => [
   ...new Set([...composeContent.matchAll(COMPOSE_INTERPOLATION)].map((match) => match[1])),
@@ -66,6 +79,17 @@ type RenderBlueprint = {
 
 const readRenderBlueprint = (): RenderBlueprint => parseYaml(readRepoFile("render.yaml"))
 
+type ComposeFile = {
+  services: {
+    "vault-cortex": { image: string; environment: Record<string, string> }
+  }
+}
+
+const readComposeService = (composePath: string): ComposeFile["services"]["vault-cortex"] => {
+  const composeFile: ComposeFile = parseYaml(readRepoFile(composePath))
+  return composeFile.services["vault-cortex"]
+}
+
 /** Maps a Blueprint's `envVars` list by key so tests can address one entry. */
 const renderEnvVarsByKey = (blueprint: RenderBlueprint): Map<string, RenderEnvVar> =>
   new Map(blueprint.services[0].envVars.map((envVar) => [envVar.key, envVar]))
@@ -107,7 +131,7 @@ const DERIVED_AT_BOOT = ["LOG_DIR", "PUBLIC_URL", "VAULT_PATH", "INDEX_DB_PATH",
 
 describe("image constants", () => {
   it("REMOTE_IMAGE matches the image the remote compose template pulls", () => {
-    expect(readRepoFile("deploy/remote/docker-compose.yml")).toContain(`image: ${REMOTE_IMAGE}`)
+    expect(readComposeService("deploy/remote/docker-compose.yml").image).toBe(REMOTE_IMAGE)
   })
 
   it("REMOTE_IMAGE matches the image the Render blueprint pulls", () => {
@@ -252,13 +276,7 @@ describe("env var consistency across deploy surfaces", () => {
     },
     {
       mode: "remote" as const,
-      buildEnv: () =>
-        buildRemoteEnv({
-          mcpAuthToken: "t",
-          publicUrl: "https://v.example.com",
-          obsidianAuthToken: "tok",
-          vaultName: "V",
-        }),
+      buildEnv: buildSampleRemoteEnv,
       conditionalVars: ["VAULT_PASSWORD"],
     },
   ]
@@ -302,11 +320,34 @@ describe("SYNC_CONFIGS default", () => {
       // semantics (unset OR empty → the default categories); disabling is
       // the explicit "none" sentinel handled by the init script, never an
       // empty/unset value.
-      expect(readRepoFile(composePath)).toContain(
-        "SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}",
+      expect(readComposeService(composePath).environment.SYNC_CONFIGS).toBe(
+        "${SYNC_CONFIGS:-core-plugin-data,community-plugin-data,app}",
       )
     },
   )
+
+  // These files set SYNC_CONFIGS on an active line, which overrides the
+  // compose default — a stale value here ships the old categories to every
+  // user who starts from them.
+  it.each([
+    {
+      label: "deploy/remote/.env.example",
+      readEnvFile: () => readRepoFile("deploy/remote/.env.example"),
+    },
+    { label: "the CLI's generated remote .env", readEnvFile: buildSampleRemoteEnv },
+  ])("$label sets SYNC_CONFIGS to the compose default", ({ readEnvFile }) => {
+    const syncConfigsLines = readEnvFile().match(SYNC_CONFIGS_ASSIGNMENT_LINE)
+
+    expect(syncConfigsLines).toEqual(["SYNC_CONFIGS=core-plugin-data,community-plugin-data,app"])
+  })
+
+  // The root template documents the default on a commented line; operators
+  // who uncomment it pin whatever it says.
+  it("the root .env.example documents the compose default", () => {
+    const syncConfigsLines = readRepoFile(".env.example").match(SYNC_CONFIGS_ASSIGNMENT_LINE)
+
+    expect(syncConfigsLines).toEqual(["# SYNC_CONFIGS=core-plugin-data,community-plugin-data,app"])
+  })
 })
 
 describe("cli dependency pinning", () => {

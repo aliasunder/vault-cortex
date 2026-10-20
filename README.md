@@ -418,11 +418,11 @@ When the file isn't available — or if you use the Periodic Notes plugin, whose
 - `DAILY_NOTES_FOLDER` — any vault-relative path: `Journal`, `Planner/Daily`, or `/` for the vault root
 - `DAILY_NOTES_FORMAT` — same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, `MMM D, YYYY`, …
 
-You can set one or both — a set value always wins over the config file. A value you leave unset comes from `daily-notes.json`; when that file is missing, the server uses `Daily Notes` and `YYYY-MM-DD`.
+You can set one or both — a set value always wins over the config file. A value you leave unset comes from `daily-notes.json`; when that file is missing or unreadable, the server uses `Daily Notes` and `YYYY-MM-DD`.
 
 - Changes in Obsidian apply on the next call when `.obsidian/daily-notes.json` is available in the server's vault.
 - Apply environment changes with the CLI's `restart` command, recreate the Compose container, or redeploy on your hosting platform.
-- If you leave the folder empty in Obsidian's Daily notes options, the server follows Obsidian's **Default location for new notes** setting (Settings → Files and links), read from `.obsidian/app.json`. **Same folder as current file** counts as the vault root, because Obsidian creates a daily note without reference to an open note and so has no folder to follow. When `app.json` isn't in the server's vault, as in remote mode with the default `SYNC_CONFIGS`, the server uses the vault root.
+- If you leave the folder empty in Obsidian's Daily notes options, the server follows Obsidian's **Default location for new notes** setting (Settings → Files and links), read from `.obsidian/app.json`. **Same folder as current file** counts as the vault root, because Obsidian creates a daily note without reference to an open note and so has no folder to follow. When `app.json` isn't in the server's vault, as in remote mode until **Main settings** is synced, the server uses the vault root.
 - If your daily notes live in the vault root, or in the new-note folder because the folder setting is empty, delete and move don't protect them and orphan results can include them. Protecting or excluding that folder would also cover every other note in it.
 
 > **Note:** A few date format tokens are unsupported — ordinals (`Do`, `Mo`, `DDDo`, `wo`), `dd` (2-letter weekday), `d` (weekday number), `e`, `k`/`kk`, `w` (week number), `Q` (quarter), `Z`/`ZZ` (UTC offset), and the localized formats (`L`–`LLLL`, `LT`, `LTS`). The server can't reproduce the filenames Obsidian creates with these tokens, so it could never find the notes. If your format uses any of them, `vault_get_daily_note` returns a clear error — change the format in Obsidian or set `DAILY_NOTES_FORMAT` to a supported alternative.
