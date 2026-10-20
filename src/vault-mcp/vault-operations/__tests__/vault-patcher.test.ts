@@ -62,6 +62,10 @@ Intro paragraph.
 - [x] Task D
 `
 
+/** NOTE_WITH_SECTIONS as a patch writes it back: the properties block comes
+ *  out in block style and the body is unchanged. */
+const NOTE_WITH_SECTIONS_REWRITTEN = NOTE_WITH_SECTIONS.replace("tags: [test]", "tags:\n  - test")
+
 const NOTE_NO_FRONTMATTER = `# Title
 
 ## Section One
@@ -691,8 +695,9 @@ describe("patchNote — file-level operations", () => {
       },
       logger,
     )
-    const updated = await readTestNote("note.md")
-    expect(updated).toMatch(/Task D\n+## New Section\nNew content\./)
+    expect(await readTestNote("note.md")).toBe(
+      `${NOTE_WITH_SECTIONS_REWRITTEN}## New Section\nNew content.\n`,
+    )
   })
 
   it("appends directly below the last line when the note ends with a line break", async () => {
@@ -1079,17 +1084,10 @@ describe("patchNote — section-level append", () => {
       },
       logger,
     )
-    const updated = await readTestNote("note.md")
-    const lines = updated.split("\n")
-    const upNextIdx = lines.findIndex((line) => line === "## Up Next")
-    const taskCIdx = lines.findIndex((line) => line === "- [ ] Task C")
-    const taskEIdx = lines.findIndex((line) => line === "- [ ] Task E")
-    const doneIdx = lines.findIndex((line) => line === "## Done")
-    // Task E must be after existing Up Next content, before ## Done
-    expect(upNextIdx).toBeGreaterThan(-1)
-    expect(taskCIdx).toBeGreaterThan(upNextIdx)
-    expect(taskEIdx).toBeGreaterThan(taskCIdx)
-    expect(doneIdx).toBeGreaterThan(taskEIdx)
+    // The empty line that ends Up Next stays above the appended task
+    expect(await readTestNote("note.md")).toBe(
+      NOTE_WITH_SECTIONS_REWRITTEN.replace("- [ ] Task C\n\n", "- [ ] Task C\n\n- [ ] Task E\n"),
+    )
   })
 
   it("appends to section with children (end of full section)", async () => {
@@ -1104,8 +1102,12 @@ describe("patchNote — section-level append", () => {
       },
       logger,
     )
-    const updated = await readTestNote("note.md")
-    expect(updated).toMatch(/Sub-task 1\n+- \[ \] New task after subtasks\n+## Up Next/)
+    expect(await readTestNote("note.md")).toBe(
+      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+        "- [ ] Sub-task 1\n\n",
+        "- [ ] Sub-task 1\n\n- [ ] New task after subtasks\n",
+      ),
+    )
   })
 
   it("appends to last section in file", async () => {
@@ -1120,17 +1122,7 @@ describe("patchNote — section-level append", () => {
       },
       logger,
     )
-    const updated = await readTestNote("note.md")
-    const lines = updated.split("\n")
-    const doneIdx = lines.findIndex((line) => line === "## Done")
-    const taskDIdx = lines.findIndex((line) => line === "- [x] Task D")
-    const taskEIdx = lines.findIndex((line) => line === "- [x] Task E")
-    // Task E must be in the Done section, after existing Task D
-    expect(taskDIdx).toBeGreaterThan(doneIdx)
-    expect(taskEIdx).toBeGreaterThan(taskDIdx)
-    // No heading after Task E (it's the last section)
-    const headingsAfter = lines.slice(taskEIdx + 1).filter((line) => /^#{1,6} /.test(line))
-    expect(headingsAfter).toHaveLength(0)
+    expect(await readTestNote("note.md")).toBe(`${NOTE_WITH_SECTIONS_REWRITTEN}- [x] Task E\n`)
   })
 
   it("appends directly below the last line when the note ends with a line break", async () => {
