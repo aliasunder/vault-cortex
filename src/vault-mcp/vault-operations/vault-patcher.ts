@@ -89,8 +89,9 @@ const findDisplacedLeadingContent = (lines: readonly string[]): DisplacedLeading
  *  - At the note's end, a final line break splits off an empty last element
  *    that only ends the line before it, so the content goes above that element
  *    (`"a\n"` → `["a", ""]` → content at index 1).
- *  - A body ending at a heading or a trailing `%% %%` comment block keeps its
- *    last empty line, and the content goes below it. */
+ *  - A body ending at a heading keeps its last empty line, and the content goes
+ *    below it. One ending at a trailing `%% %%` comment block stops above the
+ *    empty lines before the block, so the content goes above them. */
 const appendToBody = (params: {
   lines: readonly string[]
   contentLines: readonly string[]
