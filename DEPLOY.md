@@ -409,7 +409,7 @@ Both halves come from the dedicated deploy keypair set up in [Prerequisites](#pr
 
 **Tag push** — merge a version-bump PR into `main`, then tag the merge commit: `git tag v<version> && git push --tags`. The tag push triggers `auto_release.yml`, which deploys and creates the release.
 
-Direct commits to `main` are blocked by a branch ruleset — every change, version bumps included, lands via PR. Release automation is the only actor that pushes to `main` directly (the changelog and version-bump commits in the workflows above).
+Direct commits to `main` are blocked by a branch ruleset — every change, a tag push's version bump included, lands via PR. Release automation is the only actor that pushes to `main` directly (the changelog and version-bump commits in the workflows above).
 
 ### Rotating SSH keys
 
