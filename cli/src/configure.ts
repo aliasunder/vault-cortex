@@ -8,7 +8,6 @@ import {
   portsOfOtherContainers,
   withPublicUrlOverride,
 } from "./optional-settings.js"
-import { readEnvInstanceName } from "./scaffold.js"
 import type { DockerRunner } from "./docker.js"
 import type { Prompts } from "./prompts.js"
 
@@ -41,15 +40,13 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   const initialized = requireInitializedDir(flags.dir, prompts)
 
   if (!initialized) return 1
-  const { targetDir, envFilePath, mode } = initialized
+  const { targetDir, envFilePath, mode, instanceName } = initialized
 
   const envContent = readFileSync(envFilePath, "utf8")
   const daemonStatus = docker.daemonStatus()
-  const instanceNameRead = readEnvInstanceName(envFilePath)
-  // An invalid name stops the restart later, so its ports go unchecked here.
   const portsInUse =
-    daemonStatus === "running" && instanceNameRead.kind === "ok"
-      ? portsOfOtherContainers(docker.publishedHostPorts(), instanceNameRead.instanceName)
+    daemonStatus === "running"
+      ? portsOfOtherContainers(docker.publishedHostPorts(), instanceName)
       : new Map<number, string>()
   const pickedOverrides = await askOptionalSettings({ mode, envContent, portsInUse }, prompts)
 

@@ -170,7 +170,9 @@ const checkRequestedPort = async (
   const message = portInUseMessage(requestedPort, portUser)
 
   if (flags.yes) {
-    prompts.error(`${message} Re-run with --port and a free port.`)
+    prompts.error(
+      `${message} Re-run with a free port, such as --port ${suggestFreePort(portsInUse)}.`,
+    )
     return { kind: "exit" }
   }
   prompts.warn(message)

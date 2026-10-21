@@ -2091,7 +2091,7 @@ describe("runInit when the instance name is already in use", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      'Port 9000 is already used by the "other-app" container on this machine. Re-run with --port and a free port.',
+      'Port 9000 is already used by the "other-app" container on this machine. Re-run with a free port, such as --port 8000.',
     ])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
   })
@@ -2400,7 +2400,28 @@ describe("runInit when another container publishes the new install's port", () =
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      'Port 9000 is already used by the "other-app" container on this machine. Re-run with --port and a free port.',
+      'Port 9000 is already used by the "other-app" container on this machine. Re-run with a free port, such as --port 8000.',
+    ])
+    expect(existsSync(join(targetDir, ".env"))).toBe(false)
+  })
+
+  it("stops --yes when the default port is taken, naming the first free one", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, yes: true },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: [[8000, "other-app"]] }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'Port 8000 is already used by the "other-app" container on this machine. Re-run with a free port, such as --port 8001.',
     ])
     expect(existsSync(join(targetDir, ".env"))).toBe(false)
   })
