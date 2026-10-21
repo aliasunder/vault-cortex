@@ -136,6 +136,8 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 
 Group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry — annotations are declared once, and a new gating axis is one new predicate, not new branching in every module. Availability-keyed cross-references in tool descriptions and prompts disappear whenever their target does; a small number of durable API-level references (e.g. error-section alternatives naming sibling tools) remain. Search, indexing, and the file watcher are unaffected by `READONLY_MODE` and `DISABLED_TOOLS` — they write to the index database outside the vault, not to the vault itself.
 
+The wrapper also builds each tool's input with `createStrictInputObject`, so a parameter the tool doesn't declare is rejected with an error naming the accepted ones; tools with no parameters accept any key.
+
 ### Vault read/write
 
 | Tool                      | Input                                                                             | Annotation       |

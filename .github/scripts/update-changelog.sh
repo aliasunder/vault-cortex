@@ -1,45 +1,50 @@
 #!/usr/bin/env bash
-# Update CHANGELOG.md with release notes for a given version.
+# Update CHANGELOG.md in the current directory with release notes for a
+# given version.
 # Usage: update-changelog.sh <version> <notes-file>
-# Replaces [Unreleased] section if present, otherwise inserts after header.
+# The entry goes above the newest version entry, replacing an [Unreleased]
+# section if there is one.
 
 set -euo pipefail
 
 VERSION="${1:?Usage: update-changelog.sh <version> <notes-file>}"
 NOTES_FILE="${2:?Usage: update-changelog.sh <version> <notes-file>}"
 
-NOTES=$(cat "$NOTES_FILE")
 DATE=$(date +%Y-%m-%d)
 
-python3 - "$VERSION" "$DATE" "$NOTES" << 'PYTHON'
-import sys, re, os
+# Python reads this program from fd 3, not stdin, so a notes file of
+# /dev/stdin still reads the caller's stdin.
+python3 /dev/fd/3 "$VERSION" "$DATE" "$NOTES_FILE" 3<< 'PYTHON'
+import sys, re
+from pathlib import Path
 
-version, date, notes = sys.argv[1], sys.argv[2], sys.argv[3]
-entry = f"## [{version}] — {date}\n\n{notes}"
+# From an "## [Unreleased]" heading up to the next "## [" heading or the end
+# of the file, the section's trailing blank lines included.
+UNRELEASED_SECTION = re.compile(
+    r'^## \[Unreleased\].*?(?=^## \[|\Z)', re.DOTALL | re.MULTILINE
+)
+# An entry heading: any line starting "## [".
+ENTRY_HEADING = re.compile(r'^## \[', re.MULTILINE)
 
-changelog_path = "CHANGELOG.md"
-if os.path.exists(changelog_path):
-    with open(changelog_path) as f:
-        text = f.read()
-    # Replace [Unreleased] section if present
-    if re.search(r'^## \[Unreleased\]', text, re.MULTILINE):
-        text = re.sub(
-            r'## \[Unreleased\].*?(?=\n## \[|$)',
-            entry,
-            text, count=1, flags=re.DOTALL
-        )
-    else:
-        # Insert before the first version entry (## [x.y.z])
-        lines = text.split('\n')
-        insert_at = next(
-            (i for i in range(len(lines)) if lines[i].startswith('## [')),
-            len(lines)
-        )
-        lines.insert(insert_at, f"\n{entry}\n")
-        text = '\n'.join(lines)
-else:
-    text = f"# Changelog\n\n{entry}\n"
+version, date, notes_file = sys.argv[1:]
+notes = Path(notes_file).read_text(encoding="utf-8")
 
-with open(changelog_path, 'w') as f:
-    f.write(text)
+changelog = Path("CHANGELOG.md")
+text = changelog.read_text(encoding="utf-8") if changelog.exists() else ""
+# Remove an [Unreleased] section rather than replace it with the entry:
+# re.sub reads backslashes in a replacement string as escapes.
+text = UNRELEASED_SECTION.sub('', text, count=1)
+
+first_entry = ENTRY_HEADING.search(text)
+header_end = first_entry.start() if first_entry else len(text)
+
+# With no text above the first entry, the header is a "# Changelog" title.
+header = text[:header_end].rstrip() or "# Changelog"
+entry = f"## [{version}] — {date}\n\n{notes}".rstrip()
+earlier_entries = text[header_end:].rstrip()
+
+# Every part is rstripped, so the join leaves exactly one blank line between
+# parts and a single newline at the end of the file.
+parts = [header, entry, earlier_entries]
+changelog.write_text("\n\n".join(part for part in parts if part) + "\n", encoding="utf-8")
 PYTHON

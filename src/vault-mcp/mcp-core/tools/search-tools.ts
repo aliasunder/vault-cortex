@@ -5,7 +5,7 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
+import { createStrictInputObject, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
 
 export const registerSearchTools = ({
   registerTool,
@@ -92,39 +92,38 @@ ${searchErrorsSection}
 Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). A higher score is more relevant. ${searchResultDetailsText}`,
       inputSchema: {
         query: z.string().min(1).describe("Search query text"),
-        filters: z
-          .object({
-            folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
-            tags: z
-              .array(z.string().min(1))
-              .optional()
-              .describe('Tags, "#" optional (e.g. ["reference"])'),
-            related: z
-              .array(z.string().min(1))
-              .optional()
-              .describe(
-                'Require all listed related links, each written exactly as in the note\'s related property, brackets and alias included (e.g. "[[Projects/alpha|Alpha]]")',
-              ),
-            type: z
-              .string()
-              .min(1)
-              .optional()
-              .describe(
-                'Match the frontmatter type field (exact, case-sensitive match, e.g. "person", "meeting")',
-              ),
-            properties: z
-              .record(z.string().min(1), z.union([z.string().min(1), z.number(), z.boolean()]))
-              .optional()
-              .describe(
-                'Match arbitrary frontmatter properties by key-value (e.g. { status: "active", priority: 1 })',
-              ),
-            created: dateFilterSchema.describe(
-              'Created date bounds (YYYY-MM-DD) on the frontmatter "created" property',
+        filters: createStrictInputObject({
+          folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
+          tags: z
+            .array(z.string().min(1))
+            .optional()
+            .describe('Tags, "#" optional (e.g. ["reference"])'),
+          related: z
+            .array(z.string().min(1))
+            .optional()
+            .describe(
+              'Require all listed related links, each written exactly as in the note\'s related property, brackets and alias included (e.g. "[[Projects/alpha|Alpha]]")',
             ),
-            modified: dateFilterSchema.describe(
-              "Modified date bounds (YYYY-MM-DD) on filesystem modified time",
+          type: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              'Match the frontmatter type field (exact, case-sensitive match, e.g. "person", "meeting")',
             ),
-          })
+          properties: z
+            .record(z.string().min(1), z.union([z.string().min(1), z.number(), z.boolean()]))
+            .optional()
+            .describe(
+              'Match arbitrary frontmatter properties by key-value (e.g. { status: "active", priority: 1 })',
+            ),
+          created: dateFilterSchema.describe(
+            'Created date bounds (YYYY-MM-DD) on the frontmatter "created" property',
+          ),
+          modified: dateFilterSchema.describe(
+            "Modified date bounds (YYYY-MM-DD) on filesystem modified time",
+          ),
+        })
           .optional()
           .describe("Optional structured filters"),
         limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),

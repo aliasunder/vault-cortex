@@ -8,6 +8,7 @@
 import { readdirSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import {
   SIZE_CAPPED_COMBO_NAMES,
   SURFACE_COMBOS,
@@ -15,6 +16,47 @@ import {
   measureToolListChars,
   serializeSurfaceCapture,
 } from "../../../../scripts/tool-surface-capture.js"
+
+type ObjectSchemaNode = { path: string; declaresParameters: boolean; rejectsUnknownKeys: boolean }
+
+const isJsonRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** A record (`z.record`) has no properties map, so it is not collected. */
+const collectObjectSchemaNodes = (schemaNode: unknown, path: string): ObjectSchemaNode[] => {
+  if (Array.isArray(schemaNode)) {
+    return schemaNode.flatMap((element, index) => {
+      return collectObjectSchemaNodes(element, `${path}/${index}`)
+    })
+  }
+  if (!isJsonRecord(schemaNode)) return []
+
+  const childNodes = Object.entries(schemaNode).flatMap(([key, value]) => {
+    return collectObjectSchemaNodes(value, `${path}/${key}`)
+  })
+  const { properties } = schemaNode
+  // Compared with the string "object", so a properties map holding a
+  // parameter named `type` is not mistaken for an object schema
+  const isObjectSchema = schemaNode.type === "object" && isJsonRecord(properties)
+
+  if (!isObjectSchema) return childNodes
+
+  const objectNode = {
+    path,
+    declaresParameters: Object.keys(properties).length > 0,
+    rejectsUnknownKeys: schemaNode.additionalProperties === false,
+  }
+  return [objectNode, ...childNodes]
+}
+
+/** Paths of the objects that break the rule: an object that declares
+ *  parameters rejects unknown keys, and one that declares none accepts them. */
+const listObjectSchemasBreakingStrictness = (tool: Tool): string[] => {
+  return collectObjectSchemaNodes(tool.inputSchema, `${tool.name}.inputSchema`)
+    .filter((objectNode) => objectNode.rejectsUnknownKeys !== objectNode.declaresParameters)
+    .map((objectNode) => objectNode.path)
+}
 
 describe("tool surface baseline", () => {
   it.each(SURFACE_COMBOS.map((combo) => [combo.name, combo] as const))(
@@ -36,7 +78,7 @@ describe("tool surface baseline", () => {
    *  - The allowance sits just above the default combo's average, so only
    *    small growth passes.
    *  Raising the allowance is a deliberate change with its reason in the PR. */
-  const CHARS_PER_TOOL_ALLOWANCE = 4291
+  const CHARS_PER_TOOL_ALLOWANCE = 4327
 
   it.each(SIZE_CAPPED_COMBO_NAMES)(
     "combo %s stays within the average per-tool size allowance",
@@ -55,6 +97,58 @@ describe("tool surface baseline", () => {
       ).toBeLessThanOrEqual(CHARS_PER_TOOL_ALLOWANCE * capture.tools.length)
     },
   )
+
+  it.each(SURFACE_COMBOS.map((combo) => [combo.name, combo] as const))(
+    "combo %s rejects unknown keys on every input object that declares parameters",
+    async (_comboName, combo) => {
+      const capture = await captureToolSurface(combo)
+      const pathsBreakingStrictness = capture.tools.flatMap(listObjectSchemasBreakingStrictness)
+      expect(pathsBreakingStrictness).toEqual([])
+    },
+  )
+
+  it("leaves the input objects of tools without parameters open", async () => {
+    const defaultCombo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === "default")
+    const capture = defaultCombo ? await captureToolSurface(defaultCombo) : undefined
+
+    if (!capture) {
+      throw new Error("no surface combo named default")
+    }
+
+    const parameterlessObjects = capture.tools
+      .flatMap((tool) => collectObjectSchemaNodes(tool.inputSchema, `${tool.name}.inputSchema`))
+      .filter((objectNode) => !objectNode.declaresParameters)
+    expect(parameterlessObjects).toEqual([
+      {
+        path: "vault_list_memory_files.inputSchema",
+        declaresParameters: false,
+        rejectsUnknownKeys: false,
+      },
+      { path: "vault_list_tags.inputSchema", declaresParameters: false, rejectsUnknownKeys: false },
+    ])
+  })
+
+  // Without this, the per-combo strictness check would also pass if the walk
+  // never left the top level of each schema
+  it("finds the nested object schemas inside vault_search's filters", async () => {
+    const defaultCombo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === "default")
+    const capture = defaultCombo ? await captureToolSurface(defaultCombo) : undefined
+    const searchTool = capture?.tools.find((tool) => tool.name === "vault_search")
+
+    if (!searchTool) {
+      throw new Error("the default combo serves no vault_search")
+    }
+
+    const objectPaths = collectObjectSchemaNodes(searchTool.inputSchema, "inputSchema").map(
+      (objectNode) => objectNode.path,
+    )
+    expect(objectPaths).toEqual([
+      "inputSchema",
+      "inputSchema/properties/filters",
+      "inputSchema/properties/filters/properties/created",
+      "inputSchema/properties/filters/properties/modified",
+    ])
+  })
 
   // Guards two gaps vitest's file snapshots leave open: an orphaned file
   // lingering after an axis change (nothing ever asserts it again), and a

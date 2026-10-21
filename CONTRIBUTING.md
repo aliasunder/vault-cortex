@@ -224,18 +224,38 @@ the allowance states why.
 
 ## Release Process
 
-Releases are cut by the maintainer. Two paths:
+Releases are cut by the maintainer, in one of two ways:
 
 - **Manual Release:** Actions tab → "Manual Release" → choose
-  `patch`/`minor`/`major`. Bumps version, deploys, creates GitHub Release.
-- **Tag push:** merge a version-bump PR into `main`, then
-  `git tag v<version> && git push --tags`
+  `patch`/`minor`/`major`. The workflow bumps the version, deploys, and
+  creates the GitHub Release.
+- **Tag push:** merge a version-bump PR into `main`, then run
+  `git tag v<version> && git push --tags`. The tag push deploys and creates
+  the GitHub Release.
 
-Direct commits to `main` are blocked by a branch ruleset — all changes,
-version bumps included, land via PR.
+Direct commits to `main` are blocked by a branch ruleset — all changes, a tag
+push's version bump included, land via PR. Only the release workflows push to
+`main` directly, for their version-bump and CHANGELOG commits.
 
 The CLI releases separately: Actions tab → "Release CLI" (see
 [The `cli/` Package](#the-cli-package)).
+
+What each release's notes list:
+
+- **Server releases** (`.github/scripts/generate-notes.sh`): every commit
+  since the last release, except:
+  - release bumps
+  - dev-dependency bumps: commits with the `deps-dev` scope, and commits that
+    change only `devDependencies` or `overrides` in the root `package.json`,
+    and in `package-lock.json` only packages marked `"dev": true`
+  - Claude Code hook changes (commit scope `hooks`)
+  - commits that change only `AGENTS.md`, `CHANGELOG.md`, dotfiles at the
+    repository root (`.gitignore`, `.trivyignore`; not `.dockerignore`, which
+    decides what the image build copies, or `.env.example`, which DEPLOY.md
+    has deployers copy), or files under `.claude/`,
+    `.devin/` or `.husky/`
+- **CLI releases** (`.github/workflows/cli_release.yml`): every commit that
+  touches `cli/`, dependency bumps included (`deps-dev` too).
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
