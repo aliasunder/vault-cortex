@@ -19,7 +19,10 @@ import type { Prompts } from "./prompts.js"
 
 /** The .env values that tell one install on a machine apart from another. */
 export type InstanceIdentity = {
-  /** Copied verbatim from the folder's existing .env when init runs again over it. */
+  /**
+   * Read from the folder's existing .env, without surrounding quotes, when
+   * init runs again over it.
+   */
   carried: Record<string, string>
   /**
    * Chosen in this run, by flag or prompt. A `http://localhost:<port>`

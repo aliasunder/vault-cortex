@@ -172,10 +172,10 @@ const commentedLinePattern = (name: string): RegExp => new RegExp(`^# ${name}=.*
  * Reads a var's current value from .env content. A commented-out or missing
  * line returns undefined — both mean "the server uses its built-in default",
  * which is exactly what the prompts need to distinguish. Duplicate lines
- * report the LAST value, matching docker --env-file precedence, and lose one
- * pair of surrounding quotes, as stripEnvQuotedValues removes them before
- * docker run. Hints, prompt seeding, and the PUBLIC_URL derivation must
- * reason from the value that actually takes effect.
+ * report the LAST value, matching docker --env-file precedence. The value
+ * loses one pair of surrounding quotes, as stripEnvQuotedValues removes them
+ * before docker run. Hints, prompt seeding, and the PUBLIC_URL derivation
+ * must reason from the value that actually takes effect.
  */
 export const readOptionalValue = (envContent: string, name: string): string | undefined => {
   const matches = [...envContent.matchAll(new RegExp(`^${name}=(.*)$`, "gm"))]
@@ -314,7 +314,8 @@ const askFolder = async (
   const { question, currentValue, defaultValue } = params
   const answer = (
     await prompts.text(question, {
-      defaultValue: currentValue ?? defaultValue,
+      // An empty .env value leaves the server's default folder in effect.
+      defaultValue: currentValue || defaultValue,
       placeholder: defaultValue,
     })
   ).trim()
@@ -353,12 +354,13 @@ const askOptionalText = async (
   const answer = (
     await prompts.text(question, {
       defaultValue: currentValue,
-      placeholder: currentValue === undefined ? placeholder : "blank = keep the current value",
+      // The server reads an empty .env value as unset.
+      placeholder: currentValue ? "blank = keep the current value" : placeholder,
     })
   ).trim()
 
   if (answer !== "" && answer !== currentValue) return answer
-  if (currentValue === undefined) {
+  if (!currentValue) {
     prompts.log("Left unset — the server reads this setting from your vault's own config.")
     return undefined
   }

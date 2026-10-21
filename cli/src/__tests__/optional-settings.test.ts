@@ -399,6 +399,21 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(overrides).toEqual({ MEMORY_DIR: "Memory Bank" })
   })
 
+  it.each([
+    { label: "an empty line", envContent: "MEMORY_DIR=\n" },
+    { label: "empty quotes", envContent: 'MEMORY_DIR=""\n' },
+  ])(
+    "offers the default memory folder when MEMORY_DIR is $label, as the server reads it",
+    async ({ envContent }) => {
+      const scripted = createScriptedPrompts([["MEMORY_DIR"], ""])
+
+      const overrides = await askOptionalSettings({ mode: "local", envContent }, scripted.prompts)
+
+      expect(scripted.errors).toEqual([])
+      expect(overrides).toEqual({ MEMORY_DIR: "About Me" })
+    },
+  )
+
   it("re-prompts on an empty memory folder until a name is given", async () => {
     // No current value and no typed answer: the stub returns the prompt's
     // defaultValue ("About Me"), so a genuinely empty submission needs the
@@ -479,6 +494,30 @@ describe("askOptionalSettings per-setting prompts", () => {
       "Left unset — the server reads this setting from your vault's own config.",
     ])
   })
+
+  it.each([
+    { label: "an empty line", envContent: "DAILY_NOTES_FOLDER=\n" },
+    { label: "empty quotes", envContent: 'DAILY_NOTES_FOLDER=""\n' },
+  ])(
+    "treats a daily notes folder set to $label as unset, as the server reads it",
+    async ({ envContent }) => {
+      const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
+
+      const overrides = await askOptionalSettings({ mode: "local", envContent }, scripted.prompts)
+
+      expect(scripted.textCalls).toEqual([
+        {
+          message: "Vault folder for daily notes:",
+          defaultValue: "",
+          placeholder: "blank = use your vault's daily notes settings",
+        },
+      ])
+      expect(overrides).toEqual({})
+      expect(scripted.logs).toEqual([
+        "Left unset — the server reads this setting from your vault's own config.",
+      ])
+    },
+  )
 
   it("keeps a set daily notes folder on a blank submit without recording a no-op", async () => {
     // The prompt resolves an empty submit to its defaultValue (the current
