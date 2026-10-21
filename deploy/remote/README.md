@@ -629,6 +629,11 @@ the file with the command above, using that folder's name in place of
 `<old vault ID>`. Otherwise delete all of the install's volumes, as in the fix
 for syncing the new vault instead.
 
+An **ERROR** that "the Sync client could not read its own setup" means the
+Sync client's answer about which vault it syncs failed or named no vault, so
+the container stopped without changing anything. Restart it. If the error
+comes back, the Sync client's own message in the lines above it says why.
+
 ## Memory
 
 The memory layer is enabled by default. Set `MEMORY_ENABLED=false` in your

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from "node:fs"
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -72,6 +72,11 @@ const PICKED_VAULT_ERROR =
   "[obsidian-sync] Refusing to sync a vault other than VAULT_NAME.\n" +
   "[obsidian-sync] See: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup\n"
 
+const UNREADABLE_SETUP_ERROR =
+  "[obsidian-sync] ERROR: After ob sync-setup, the Sync client could not read its own setup.\n" +
+  "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for.\n" +
+  "[obsidian-sync] See: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup\n"
+
 type SetupRun = {
   status: number | null
   stdout: string
@@ -125,7 +130,7 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
   writeFileSync(join(stubBinDir, "s6-setuidgid"), SETUIDGID_STUB, {
     mode: 0o755,
   })
-  symlinkSync(SCRIPT_PATH, join(scriptsDir, "init-setup-vault"))
+  copyFileSync(SCRIPT_PATH, join(scriptsDir, "init-setup-vault"))
   writeFileSync(join(scriptsDir, "check-sync-vault"), VAULT_CHECK_STUB)
 
   const callLogPath = join(tempDir, "calls.log")
@@ -244,19 +249,24 @@ describe("init-setup-vault script", () => {
     expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault", PICKED_VAULT_CALL])
   })
 
-  it("stops before any sync-config write when ob sync-config --json fails after ob sync-setup", () => {
-    const run = runSetupScript({ vaultName: "MyVault", syncConfigFailsFor: "--json" })
+  it.each<{ label: string; options: SetupRunOptions }>([
+    {
+      label: "ob sync-config --json fails",
+      options: { vaultName: "MyVault", syncConfigFailsFor: "--json" },
+    },
+    {
+      label: "ob sync-config --json prints no JSON",
+      options: { vaultName: "MyVault", pickedConfigOutput: "Fetching vaults..." },
+    },
+    {
+      label: "ob sync-config --json prints no vault ID",
+      options: { vaultName: "MyVault", pickedConfigOutput: '{"syncMode":"bidirectional"}' },
+    },
+  ])("stops before any sync-config write when $label after ob sync-setup", ({ options }) => {
+    const run = runSetupScript(options)
 
     expect(run.status).toBe(1)
-    expect(run.stderr).toBe(PICKED_VAULT_ERROR)
-    expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault", PICKED_VAULT_CALL])
-  })
-
-  it("stops before any sync-config write when ob sync-config --json prints no JSON after ob sync-setup", () => {
-    const run = runSetupScript({ vaultName: "MyVault", pickedConfigOutput: "Fetching vaults..." })
-
-    expect(run.status).toBe(1)
-    expect(run.stderr).toBe(PICKED_VAULT_ERROR)
+    expect(run.stderr).toBe(UNREADABLE_SETUP_ERROR)
     expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault", PICKED_VAULT_CALL])
   })
 
@@ -274,7 +284,10 @@ describe("init-setup-vault script", () => {
     const run = runSetupScript({ vaultName: "MyVault", vaultCheckVaultId: "" })
 
     expect(run.status).toBe(1)
-    expect(run.stderr).toBe(PICKED_VAULT_ERROR)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] ERROR: VAULT_NAME 'MyVault' named no single vault when the vault check ran, so this boot can't confirm which setup ob sync-setup used.\n" +
+        "[obsidian-sync] Restart to run the check again.\n",
+    )
     expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault"])
   })
 

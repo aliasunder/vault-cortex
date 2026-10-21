@@ -75,28 +75,42 @@ if ! run_sync_setup "$@"; then
   exit 1
 fi
 
+SYNC_SETUP_GUIDE_URL="https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup"
+
+# The check prints no vault ID when VAULT_NAME named no single vault. ob
+# sync-setup then fails, so getting here means the vault changed mid-boot.
+if [ -z "$REQUESTED_VAULT_ID" ]; then
+  echo "[obsidian-sync] ERROR: VAULT_NAME '$VAULT_NAME' named no single vault when the vault check ran, so this boot can't confirm which setup ob sync-setup used." >&2
+  echo "[obsidian-sync] Restart to run the check again." >&2
+  exit 1
+fi
+
 # ob sync-setup has just written VAULT_NAME's setup, so the Sync client must
 # now use it for this folder. Every sync-config call below writes to the setup
 # the client uses, so any other answer stops the boot before those writes.
-sync_client_uses_vault() {
-  picked_config=$(s6-setuidgid obsidian ob sync-config --json) || return 1
-  printf '%s' "$picked_config" | VAULT_ID="$1" node --no-warnings -e '
-    const configText = require("node:fs").readFileSync(0, "utf8")
-    const parseConfig = () => {
-      try {
-        return JSON.parse(configText)
-      } catch {
-        process.exit(1)
-      }
-    }
-    process.exit(parseConfig()?.vaultId === process.env.VAULT_ID ? 0 : 1)
-  '
+#
+# Prints the vault ID the Sync client now uses for this folder, or nothing
+# when ob sync-config fails or prints no vault ID. It always returns 0,
+# because set -e would end the script silently on a failed assignment.
+picked_vault_id() {
+  picked_config=$(s6-setuidgid obsidian ob sync-config --json) || return 0
+  printf '%s' "$picked_config" | node --no-warnings -e '
+    const config = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
+    if (typeof config.vaultId === "string") console.log(config.vaultId)
+  ' 2>/dev/null || return 0
 }
+PICKED_VAULT_ID=$(picked_vault_id)
 
-if [ -z "$REQUESTED_VAULT_ID" ] || ! sync_client_uses_vault "$REQUESTED_VAULT_ID"; then
+if [ -z "$PICKED_VAULT_ID" ]; then
+  echo "[obsidian-sync] ERROR: After ob sync-setup, the Sync client could not read its own setup." >&2
+  echo "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for." >&2
+  echo "[obsidian-sync] See: $SYNC_SETUP_GUIDE_URL" >&2
+  exit 1
+fi
+if [ "$PICKED_VAULT_ID" != "$REQUESTED_VAULT_ID" ]; then
   echo "[obsidian-sync] ERROR: After ob sync-setup, the Sync client does not use the setup for '$VAULT_NAME' in this folder." >&2
   echo "[obsidian-sync] Refusing to sync a vault other than VAULT_NAME." >&2
-  echo "[obsidian-sync] See: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup" >&2
+  echo "[obsidian-sync] See: $SYNC_SETUP_GUIDE_URL" >&2
   exit 1
 fi
 

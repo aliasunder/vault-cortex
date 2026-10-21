@@ -1965,6 +1965,65 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(readEnvLines(targetDir)).not.toContain("MCP_AUTH_TOKEN=old")
   })
 
+  it("points a generated PUBLIC_URL at the carried port when the old file has none", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\n`,
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      [], // no optional settings
+      true, // overwrite the existing file
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("keeps a custom PUBLIC_URL carried beside a changed port", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\nPUBLIC_URL=https://vault.example.com\n`,
+    )
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://vault.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
   it("prints commands for the kept file's name and port, not this run's flags", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()

@@ -441,24 +441,25 @@ describe("check-sync-vault", () => {
     expect(run.stdout).toBe("aaa111\n")
   })
 
-  it("continues without the warning when the local setups can't be listed", () => {
+  it.each([
+    { label: "the listing fails", localJson: "", localExit: 1 },
+    { label: "the listing is not JSON", localJson: "Fetching vaults...", localExit: 0 },
+  ])("continues with a listing warning when $label", ({ localJson, localExit }) => {
     const run = runCheck({
       vaultName: "Personal",
       remoteJson: remoteVaults([VAULT_A, VAULT_B]),
       configJson: pickedConfig(VAULT_A.id, VAULT_A.name),
       configExit: 0,
-      localJson: "",
-      localExit: 1,
+      localJson,
+      localExit,
     })
 
     expect(run.status).toBe(0)
     expect(run.stdout).toBe("aaa111\n")
-    // Only the outcome is pinned: node's parse error for the empty listing
-    // reaches stderr before this line.
-    expect(run.stderr.trimEnd().split("\n").at(-1)).toBe(
-      "[obsidian-sync] Vault check: continue — set up for 'Personal' (aaa111).",
+    expect(run.stderr).toBe(
+      "[obsidian-sync] WARNING: Could not list this install's Sync setups, so a setup for another vault would not be reported here.\n" +
+        "[obsidian-sync] Vault check: continue — set up for 'Personal' (aaa111).\n",
     )
-    expect(run.stderr).not.toContain("WARNING")
   })
 
   it("stops when the account's vault list can't be read", () => {

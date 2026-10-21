@@ -178,13 +178,17 @@ fi
 if [ "$PICKED_ID" = "$REQUESTED_ID" ]; then
   # A second setup for another vault is dormant while the engine picks this
   # one, so the boot continues; removing it keeps it from being picked later.
-  # The listing only feeds this warning, so a failed listing skips the
+  # The listing only feeds this warning, so a failed listing is reported as a
   # warning instead of stopping a boot the checks above already passed.
-  OTHER_IDS=$(run_ob sync-list-local --json 2>/dev/null | REQUESTED_ID="$REQUESTED_ID" node --no-warnings -e '
-    const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
-    const otherIds = listed.vaults.map((vault) => vault.id).filter((id) => id !== process.env.REQUESTED_ID)
-    if (otherIds.length > 0) console.log(otherIds.join(" "))
-  ' 2>/dev/null)
+  if ! LOCAL_SETUPS=$(run_ob sync-list-local --json 2>/dev/null) ||
+    ! OTHER_IDS=$(printf '%s' "$LOCAL_SETUPS" | REQUESTED_ID="$REQUESTED_ID" node --no-warnings -e '
+      const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
+      const otherIds = listed.vaults.map((vault) => vault.id).filter((id) => id !== process.env.REQUESTED_ID)
+      if (otherIds.length > 0) console.log(otherIds.join(" "))
+    ' 2>/dev/null); then
+    echo "[obsidian-sync] WARNING: Could not list this install's Sync setups, so a setup for another vault would not be reported here." >&2
+    OTHER_IDS=""
+  fi
   if [ -n "$OTHER_IDS" ]; then
     echo "[obsidian-sync] WARNING: This install also holds Sync setups for other vaults: $OTHER_IDS" >&2
     echo "[obsidian-sync] They are not used now. Remove each one's folder under ${SYNC_STATE_ROOT} so it can't be picked later." >&2

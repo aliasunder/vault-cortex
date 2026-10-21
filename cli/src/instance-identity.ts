@@ -230,11 +230,13 @@ export const resolveInstanceIdentity = async (
 /**
  * Writes the identity into freshly generated .env content, before the
  * optional-settings chooser reads it, so the chooser shows the identity's port
- * as current. Carried values land verbatim; chosen ones go through
- * derivePublicUrlOverride, so a `http://localhost:<port>` PUBLIC_URL follows a
- * new port.
+ * as current. A `http://localhost:<port>` PUBLIC_URL follows a carried or a
+ * chosen port; a carried PUBLIC_URL is the user's own and lands verbatim.
  */
 export const applyInstanceIdentity = (envContent: string, identity: InstanceIdentity): string => {
-  const withCarried = applyOptionalSettings(envContent, identity.carried)
+  const carriedSettings = identity.carried.PUBLIC_URL
+    ? identity.carried
+    : derivePublicUrlOverride(envContent, identity.carried)
+  const withCarried = applyOptionalSettings(envContent, carriedSettings)
   return applyOptionalSettings(withCarried, derivePublicUrlOverride(withCarried, identity.chosen))
 }
