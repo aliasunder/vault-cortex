@@ -321,6 +321,28 @@ describe("generate-notes.sh", () => {
       expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
     })
 
+    it("leaves out a commit that changes only devDependencies in package.json", () => {
+      const repo = createReleaseRepo()
+      commitListedFeature(repo)
+      repo.commit("chore(deps): widen the vitest range", {
+        "package.json": toJsonFile({ ...BASE_MANIFEST, devDependencies: { vitest: ">=1.0.0" } }),
+      })
+
+      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+    })
+
+    it("leaves out a lockfile-only change that moves only dev-only packages", () => {
+      const repo = createReleaseRepo()
+      commitListedFeature(repo)
+      repo.commit("chore(deps): refresh the lockfile", {
+        "package-lock.json": toJsonFile(
+          lockfileWith({ "node_modules/vitest": { version: "1.0.1", dev: true } }),
+        ),
+      })
+
+      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+    })
+
     it("leaves out an override that moves only dev-only packages", () => {
       const repo = createReleaseRepo()
       commitListedFeature(repo)
