@@ -172,9 +172,12 @@ def read_json_at(revision, path):
         return None
     return json_value
 
+# Tells a missing key from one set to null, so adding a null value is a change.
+_MISSING = object()
+
 def changed_keys(old_mapping, new_mapping):
     keys = old_mapping.keys() | new_mapping.keys()
-    return [key for key in keys if old_mapping.get(key) != new_mapping.get(key)]
+    return [key for key in keys if old_mapping.get(key, _MISSING) != new_mapping.get(key, _MISSING)]
 
 # Security updates and overrides can use the `deps` scope even when every package
 # they move is a dev dependency. The lockfile marks a package that only

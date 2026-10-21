@@ -497,12 +497,20 @@ describe("generate-notes.sh", () => {
       )
     })
 
-    it("keeps a lockfile change whose package entry is not an object", () => {
+    it.each([
+      { label: "an installed package's entry", installPath: "node_modules/vitest", entry: "1.0.1" },
+      { label: "the project's own entry", installPath: "", entry: "fixture" },
+      {
+        label: "a new install path's entry, set to null",
+        installPath: "node_modules/left-pad",
+        entry: null,
+      },
+    ])("keeps a lockfile change where $label is not an object", ({ installPath, entry }) => {
       const repo = createReleaseRepo()
       repo.commit("chore(deps): bump vitest", {
         "package-lock.json": toJsonFile({
           ...BASE_LOCKFILE,
-          packages: { ...BASE_LOCKFILE.packages, "node_modules/vitest": "1.0.1" },
+          packages: { ...BASE_LOCKFILE.packages, [installPath]: entry },
         }),
       })
 
