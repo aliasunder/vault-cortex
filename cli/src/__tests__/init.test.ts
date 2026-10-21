@@ -951,7 +951,10 @@ describe("runInit with a kept existing .env", () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=http://localhost:8000\n`,
+    )
     const scripted = createScriptedPrompts(keepEnvAnswers(vaultDir, targetDir))
 
     const exitCode = await runInit(
@@ -975,7 +978,10 @@ describe("runInit with a kept existing .env", () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\nPORT=9000\n")
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n`,
+    )
     const scripted = createScriptedPrompts([
       ...keepEnvAnswers(vaultDir, targetDir),
       true, // start the server now
@@ -998,6 +1004,55 @@ describe("runInit with a kept existing .env", () => {
     expect(exitCode).toBe(0)
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
     expect(scripted.prints[0]).toContain("http://localhost:9000/mcp")
+  })
+
+  it("stops instead of starting a kept .env with no PUBLIC_URL, as start does", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\n`)
+    const scripted = createScriptedPrompts(keepEnvAnswers(vaultDir, targetDir))
+    const recording = createRecordingDocker()
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
+    ])
+    expect(recording.runParams).toEqual([])
+    expect(scripted.prints).toEqual([])
+  })
+
+  it("mounts the kept file's vault folder, not this run's, as start does", async () => {
+    const promptedVaultDir = makeVault()
+    const keptVaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${keptVaultDir}\nPUBLIC_URL=http://localhost:8000\n`,
+    )
+    const scripted = createScriptedPrompts([
+      ...keepEnvAnswers(promptedVaultDir, targetDir),
+      true, // start the server now
+    ])
+    const recording = createRecordingDocker()
+    const fetchHealthy: typeof fetch = async () => {
+      return new Response(null, { status: 200 })
+    }
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchHealthy },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams.map((params) => params.vaultPath)).toEqual([keptVaultDir])
   })
 })
 
@@ -1117,8 +1172,10 @@ describe("runInit remote with a kept existing .env", () => {
     expect(scripted.prints[0]).not.toContain("prompted.example.com")
   })
 
-  it("points at the sign-in page when the kept file has no Sync token, despite this run's capture", async () => {
-    const targetDir = makeTargetDir()
+  /** Captures a Sync token this run, then keeps an existing .env that has none, and starts. */
+  const runInitCapturingTokenThenKeepingEnv = async (
+    targetDir: string,
+  ): Promise<{ exitCode: number; scripted: ReturnType<typeof createScriptedPrompts> }> => {
     mkdirSync(targetDir, { recursive: true })
     writeFileSync(
       join(targetDir, ".env"),
@@ -1146,7 +1203,6 @@ describe("runInit remote with a kept existing .env", () => {
       false, // .env differs — keep the existing file
       true, // start the server now
     ])
-
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
@@ -1155,6 +1211,25 @@ describe("runInit remote with a kept existing .env", () => {
         fetchFn: fetchSigninSuccess,
       },
     )
+    return { exitCode, scripted }
+  }
+
+  it("warns that this run's Sync token wasn't saved when the existing .env is kept", async () => {
+    const targetDir = makeTargetDir()
+
+    const { exitCode, scripted } = await runInitCapturingTokenThenKeepingEnv(targetDir)
+
+    expect(exitCode).toBe(0)
+    expect(scripted.warnings).toEqual([
+      `The Sync token from this sign-in wasn't saved, because ${targetDir}/.env was kept. To add it, run:\n` +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+    ])
+  })
+
+  it("points at the sign-in page when the kept file has no Sync token, despite this run's capture", async () => {
+    const targetDir = makeTargetDir()
+
+    const { exitCode, scripted } = await runInitCapturingTokenThenKeepingEnv(targetDir)
 
     expect(exitCode).toBe(0)
     expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
@@ -1302,7 +1377,8 @@ describe("runInit guided optional settings", () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const existingEnv = `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=http://localhost:8000\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
@@ -1334,7 +1410,7 @@ describe("runInit guided optional settings", () => {
     ])
     // Keeping at the conflict prompt still protects the file (the write
     // report states the discard); no configure-pointer log remains.
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
   })
 
   it("applies chooser answers when a consented re-init overwrites the existing .env", async () => {
@@ -2329,6 +2405,37 @@ describe("runInit re-run keeps the instance identity", () => {
     ])
     expect(scripted.asked).toHaveLength(1)
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+  })
+
+  it("warns when --port moves a re-run off the port its custom PUBLIC_URL serves", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=https://vault.example.com\n`,
+    )
+    // re-run anyway, no optional settings, overwrite .env, don't start
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.warnings).toEqual([
+      "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://vault.example.com",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=9000",
+    ])
   })
 
   it("lets --port replace a kept PORT that is not a port, moving the localhost PUBLIC_URL with it", async () => {

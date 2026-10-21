@@ -6,6 +6,7 @@ import {
   applyOptionalSettings,
   askPort,
   derivePublicUrlOverride,
+  describeStrandedPublicUrl,
   readOptionalValue,
 } from "./optional-settings.js"
 import {
@@ -308,4 +309,23 @@ export const applyInstanceIdentity = (envContent: string, identity: InstanceIden
     : derivePublicUrlOverride(envContent, identity.carried)
   const withCarried = applyOptionalSettings(envContent, carriedSettings)
   return applyOptionalSettings(withCarried, derivePublicUrlOverride(withCarried, identity.chosen))
+}
+
+/**
+ * Warns when --port moves a re-run off the port its carried PUBLIC_URL names:
+ * applyInstanceIdentity never rewrites a custom URL. Returns undefined
+ * when there is nothing to warn about.
+ */
+export const describeStrandedCarriedPublicUrl = (
+  envContent: string,
+  identity: InstanceIdentity,
+): string | undefined => {
+  if (!identity.carried.PUBLIC_URL) return undefined
+  const withCarried = applyOptionalSettings(envContent, identity.carried)
+
+  return describeStrandedPublicUrl({
+    envContent: withCarried,
+    pickedOverrides: identity.chosen,
+    appliedOverrides: derivePublicUrlOverride(withCarried, identity.chosen),
+  })
 }

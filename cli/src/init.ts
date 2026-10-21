@@ -17,8 +17,12 @@ import {
   pollHealth,
   type DockerRunner,
 } from "./docker.js"
-import { applyInstanceIdentity, resolveInstanceIdentity } from "./instance-identity.js"
-import { reportPublicUrlProbe } from "./lifecycle.js"
+import {
+  applyInstanceIdentity,
+  describeStrandedCarriedPublicUrl,
+  resolveInstanceIdentity,
+} from "./instance-identity.js"
+import { reportPublicUrlProbe, resolveDeployment } from "./lifecycle.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
@@ -27,10 +31,7 @@ import {
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
-  readEnvInstanceName,
   readEnvObsidianToken,
-  readEnvPort,
-  readEnvPublicUrl,
   stripEnvQuotedValues,
   writeFiles,
   type FileWriteResult,
@@ -284,30 +285,6 @@ const reportWrites = (
 }
 
 /**
- * Reads the instance name and port from the .env on disk, which may be a kept
- * file whose values differ from this run's. Reports an invalid value and
- * returns undefined, so init never starts or prints commands for a bad name or port.
- */
-const readInstanceFromDisk = (
-  targetDir: string,
-  prompts: Prompts,
-): { instanceName: string; port: number } | undefined => {
-  const envFilePath = join(targetDir, ".env")
-  const instanceNameRead = readEnvInstanceName(envFilePath)
-  const portRead = readEnvPort(envFilePath)
-
-  if (instanceNameRead.kind === "invalid") {
-    prompts.error(`${instanceNameRead.message} Fix it in ${targetDir}/.env.`)
-    return undefined
-  }
-  if (portRead.kind === "invalid") {
-    prompts.error(`${portRead.message} Fix it in ${targetDir}/.env.`)
-    return undefined
-  }
-  return { instanceName: instanceNameRead.instanceName, port: portRead.port }
-}
-
-/**
  * Offers to start the container, walking a gate ladder where each failed
  * gate degrades to instructions instead of an error: daemon running → user
  * consents → any container with this name is removed → docker run succeeds
@@ -435,20 +412,19 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // user asked for a full re-run — the answers land in the regenerated file
   // when they overwrite at the conflict prompt (keeping it discards them,
   // which the write report states). In-place edits stay configure's job.
-  const generatedEnvContent = applyInstanceIdentity(
-    buildLocalEnv({ mcpAuthToken: token, vaultPath }),
-    identityResult.identity,
-  )
+  const templateEnvContent = buildLocalEnv({ mcpAuthToken: token, vaultPath })
+  const generatedEnvContent = applyInstanceIdentity(templateEnvContent, identityResult.identity)
   const optionalOverrides = flags.yes
     ? {}
     : await askOptionalSettings({ mode: "local", envContent: generatedEnvContent }, prompts)
   const appliedOverrides = derivePublicUrlOverride(generatedEnvContent, optionalOverrides)
   const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
-  const publicUrlWarning = describeStrandedPublicUrl({
-    envContent: generatedEnvContent,
-    pickedOverrides: optionalOverrides,
-    appliedOverrides,
-  })
+  const publicUrlWarning =
+    describeStrandedPublicUrl({
+      envContent: generatedEnvContent,
+      pickedOverrides: optionalOverrides,
+      appliedOverrides,
+    }) ?? describeStrandedCarriedPublicUrl(templateEnvContent, identityResult.identity)
 
   // Conflict policy: identical existing files are skipped silently;
   // differing ones prompt per file (default keep). --yes never overwrites —
@@ -476,15 +452,22 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   // Only a written .env carries the picked port, so a kept one needs no warning.
   if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
-  const instanceOnDisk = readInstanceFromDisk(targetDir, prompts)
+  // The .env on disk decides what starts, with start's own checks: a kept
+  // file may hold another name, port, vault folder or PUBLIC_URL than this run's.
+  const deployment = resolveDeployment(targetDir, prompts)
 
-  if (!instanceOnDisk) return 1
-  const { instanceName, port } = instanceOnDisk
+  if (!deployment) return 1
+  const { instanceName, port } = deployment
+  // A kept remote .env has no VAULT_PATH, so this run's folder is mounted.
+  const mountedVaultPath = deployment.vaultPath ?? vaultPath
 
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
     ? "not-started"
-    : await offerDockerRun({ targetDir, instanceName, port, mode: "local", vaultPath }, deps)
+    : await offerDockerRun(
+        { targetDir, instanceName, port, mode: "local", vaultPath: mountedVaultPath },
+        deps,
+      )
   prompts.print(
     buildLocalConnectMessage({
       targetDir,
@@ -585,15 +568,18 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
-  const instanceOnDisk = readInstanceFromDisk(targetDir, prompts)
+  if (capturedToken && !tokenWritten) {
+    prompts.warn(
+      `The Sync token from this sign-in wasn't saved, because ${targetDir}/.env was kept. To add it, run:\n` +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+    )
+  }
+  // Same on-disk checks as the local flow; the server reads only the file,
+  // so a kept file's PUBLIC_URL wins over this run's prompt.
+  const deployment = resolveDeployment(targetDir, prompts)
 
-  if (!instanceOnDisk) return 1
-  const { instanceName, port } = instanceOnDisk
-  // Like PORT above, PUBLIC_URL comes from the .env actually on disk — a kept
-  // existing file may hold a different URL than this run's prompt, and the
-  // server only reads the file. The prompted value is the fallback for a kept
-  // legacy .env that predates PUBLIC_URL.
-  const effectivePublicUrl = readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
+  if (!deployment) return 1
+  const { instanceName, port, publicUrl: effectivePublicUrl } = deployment
 
   // Started without a Sync token in .env, the container keeps a login saved
   // on its volume, or serves its sign-in page; the closing message covers both.
