@@ -163,7 +163,7 @@ docker compose down -v         # stop and delete the index (rebuilds on next sta
 docker compose pull && docker compose up -d --force-recreate   # update to the latest image
 ```
 
-To serve a second vault from the same machine, set it up in a separate folder with its own `.env` that sets `INSTANCE_NAME` (for example `INSTANCE_NAME=work`) and a free `PORT`, then register it in the client under its own name. `INSTANCE_NAME` names that install's container and index volume, so the commands in this guide use that name in place of `vault-cortex` (`docker exec work …`).
+To serve a second vault from the same machine, set it up in a separate folder with its own `.env` that sets `INSTANCE_NAME` (for example `INSTANCE_NAME=work`), a free `PORT`, and `PUBLIC_URL` on that port (for example `http://localhost:8001`), then register it in the client under its own name and URL. `INSTANCE_NAME` names that install's container and index volume, so the `docker exec` commands in this guide use that name in place of `vault-cortex` (`docker exec work …`) and its URLs use its `PORT`. The `docker compose` commands keep the service name `vault-cortex` and run from that install's folder.
 
 ## More
 

@@ -533,8 +533,8 @@ PUBLIC_URL=https://work.example.com
 Run each install's `docker compose` commands from its own folder.
 
 **Set up with `docker run`?** In the command from [Setup](#setup), replace
-`vault-cortex` with the new name in `--name`, `--hostname` and the three
-volume names, and the host port in `-p` (`-p 8001:8000`). Set its own
+`vault-cortex` with the new name in `--name`, `--hostname` and the volume
+names, and the host port in `-p` (`-p 8001:8000`). Set its own
 `DEVICE_NAME` in its `.env`.
 
 For each install:
@@ -590,6 +590,9 @@ first one's volumes. Fix it one of these ways:
     --entrypoint rm ghcr.io/aliasunder/vault-cortex:remote \
     -r /home/obsidian/.config/obsidian-headless/sync/<old vault ID>
   ```
+
+  With a single volume (`STORAGE_ROOT`), mount `vault-cortex_storage:/persist`
+  instead, and remove the folder the log names under `/persist/config`.
 
 A **WARNING** that the install "also holds Sync setups for other vaults"
 means the container started, because it uses the right vault, but one of
