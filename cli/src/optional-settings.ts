@@ -229,8 +229,16 @@ export const derivePublicUrlOverride = (
   // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
   const currentPort = readOptionalValue(envContent, "PORT") || String(DEFAULT_PORT)
   const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+  // A generated .env starts with PUBLIC_URL on the default port, so beside a
+  // PORT edited into a value that isn't a port, that URL follows too.
+  const followedPorts = isValidPort(currentPort)
+    ? [currentPort]
+    : [currentPort, String(DEFAULT_PORT)]
+  const publicUrlFollowsPort = followedPorts.some(
+    (followedPort) => currentPublicUrl === `http://localhost:${followedPort}`,
+  )
 
-  if (currentPublicUrl !== `http://localhost:${currentPort}`) return overrides
+  if (!publicUrlFollowsPort) return overrides
   return { ...overrides, PUBLIC_URL: `http://localhost:${newPort}` }
 }
 
@@ -282,8 +290,10 @@ export const askPort = async (
   currentValue: string | undefined,
   prompts: Prompts,
 ): Promise<string> => {
-  // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
-  const suggestedPort = currentValue || String(DEFAULT_PORT)
+  // An empty PORT= line leaves the default port in effect, as readEnvPort reads
+  // it; a value that isn't a port is never offered, since it would be rejected.
+  const suggestedPort =
+    currentValue && isValidPort(currentValue) ? currentValue : String(DEFAULT_PORT)
   const answer = (
     await prompts.text("Host port for the server:", {
       defaultValue: suggestedPort,

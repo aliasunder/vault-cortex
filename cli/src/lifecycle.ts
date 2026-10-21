@@ -105,7 +105,7 @@ const missingPublicUrlFix = (mode: Mode, port: number): string => {
  * Resolves --dir to the on-disk deployment and validates its .env for a
  * container start: mode detection, PORT, VAULT_PATH (local), and PUBLIC_URL.
  * Reports each failure via prompts.error and returns undefined.
- * Shared by upgrade and restart so their precondition checks can't drift.
+ * Shared by start, restart, upgrade and configure so their precondition checks can't drift.
  */
 export const resolveDeployment = (
   dirFlag: string | undefined,
@@ -268,7 +268,7 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
   prompts.intro("vault-cortex down")
 
   // Teardown only needs to confirm this is an init'd directory — the full
-  // .env validation (VAULT_PATH, PUBLIC_URL) guards container starts.
+  // .env validation (PORT, VAULT_PATH, PUBLIC_URL) guards container starts.
   const initialized = requireInitializedDir(flags.dir, prompts)
 
   if (!initialized) return 1

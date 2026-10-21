@@ -35,7 +35,7 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   prompts.intro("vault-cortex configure")
 
   // Editing settings only needs an init'd .env — the full start validation
-  // (VAULT_PATH, PUBLIC_URL) runs later, only when a restart is requested.
+  // (PORT, VAULT_PATH, PUBLIC_URL) runs later, only when a restart is requested.
   const initialized = requireInitializedDir(flags.dir, prompts)
 
   if (!initialized) return 1

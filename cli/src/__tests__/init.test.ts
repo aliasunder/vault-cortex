@@ -1116,6 +1116,57 @@ describe("runInit remote with a kept existing .env", () => {
     expect(scripted.prints[0]).toContain("https://persisted.example.com/mcp")
     expect(scripted.prints[0]).not.toContain("prompted.example.com")
   })
+
+  it("points at the sign-in page when the kept file has no Sync token, despite this run's capture", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=existing\n" +
+        "OBSIDIAN_AUTH_TOKEN=\n" +
+        "VAULT_NAME=MyVault\n" +
+        "PUBLIC_URL=https://persisted.example.com\n",
+    )
+    const fetchSigninSuccess: typeof fetch = async (input) => {
+      if (!String(input).includes("api.obsidian.md")) return new Response(null, { status: 200 })
+      return new Response(
+        JSON.stringify({ token: "sync-token-xyz", name: "User", email: "user@example.com" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
+    }
+    const scripted = createScriptedPrompts([
+      true, // existing deployment found — re-run setup anyway
+      "https://prompted.example.com", // public URL
+      "MyVault", // vault name
+      true, // generate the token now
+      "user@example.com", // email
+      "password", // password
+      false, // no end-to-end encryption
+      [], // no optional settings
+      false, // .env differs — keep the existing file
+      true, // start the server now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReadyEmptyHost,
+        fetchFn: fetchSigninSuccess,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
+      "OBSIDIAN_AUTH_TOKEN=",
+    )
+    expect(scripted.prints[0]).toContain(
+      "The server is running.\n" +
+        "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
+        "syncing. Open it and sign in with the auth token below:\n" +
+        "  https://persisted.example.com\n\n",
+    )
+  })
 })
 
 describe("runInit sync-token auto-capture fallback", () => {

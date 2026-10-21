@@ -284,9 +284,9 @@ const reportWrites = (
 }
 
 /**
- * Reads the instance name from the .env on disk, which may be a kept file
- * whose INSTANCE_NAME differs from this run's. Reports an invalid value and
- * returns undefined, so init never starts or prints commands for a bad name.
+ * Reads the instance name and port from the .env on disk, which may be a kept
+ * file whose values differ from this run's. Reports an invalid value and
+ * returns undefined, so init never starts or prints commands for a bad name or port.
  */
 const readInstanceFromDisk = (
   targetDir: string,
@@ -614,7 +614,8 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
       token,
       publicUrl: effectivePublicUrl,
       startStatus,
-      obsidianTokenMissing: !hasSyncToken,
+      // From the file, like PUBLIC_URL: a token captured this run is not in a kept .env.
+      obsidianTokenMissing: !readEnvObsidianToken(join(targetDir, ".env")),
       tokenWritten,
     }),
   )
