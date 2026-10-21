@@ -232,7 +232,9 @@ Releases are cut by the maintainer. Two paths:
   `git tag v<version> && git push --tags`. Deploys, creates GitHub Release.
 
 Direct commits to `main` are blocked by a branch ruleset — all changes,
-version bumps included, land via PR.
+version bumps included, land via PR. Release automation is the only actor
+that pushes to `main` directly: the release workflows' version-bump and
+CHANGELOG commits.
 
 The CLI releases separately: Actions tab → "Release CLI" (see
 [The `cli/` Package](#the-cli-package)).
