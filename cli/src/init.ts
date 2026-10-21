@@ -197,6 +197,13 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
   return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
 }
 
+const askTargetDir = async (prompts: Prompts): Promise<string> => {
+  return await prompts.text("Where should I put the config files?", {
+    defaultValue: DEFAULT_TARGET_DIR,
+    placeholder: DEFAULT_TARGET_DIR,
+  })
+}
+
 /** Re-prompts until the answer is a valid base http(s) URL (no /mcp path). */
 const askPublicUrl = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text(
@@ -280,7 +287,7 @@ const reportWrites = (
  * whose INSTANCE_NAME differs from this run's. Reports an invalid value and
  * returns undefined, so init never starts or prints commands for a bad name.
  */
-const readWrittenInstanceName = (targetDir: string, prompts: Prompts): string | undefined => {
+const readInstanceNameFromDisk = (targetDir: string, prompts: Prompts): string | undefined => {
   const instanceNameRead = readEnvInstanceName(join(targetDir, ".env"))
 
   if (instanceNameRead.kind === "ok") return instanceNameRead.instanceName
@@ -359,6 +366,8 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 
   if (flags.yes) {
     if (!vaultPathResult || vaultPathResult.kind === "error") {
+      // runInit rejects --yes without --vault-path before calling this, so the
+      // fallback message is unreachable; it covers vaultPathResult's undefined type.
       prompts.error(vaultPathResult?.message ?? "--yes requires --vault-path.")
       return 1
     }
@@ -376,19 +385,11 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
       ? vaultPathResult.path
       : await askVaultPath(prompts)
 
+  const requestedTargetDir =
+    flags.dir ?? (flags.yes ? DEFAULT_TARGET_DIR : await askTargetDir(prompts))
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
-  const targetDir = resolve(
-    expandTilde(
-      flags.dir ??
-        (flags.yes
-          ? DEFAULT_TARGET_DIR
-          : await prompts.text("Where should I put the config files?", {
-              defaultValue: DEFAULT_TARGET_DIR,
-              placeholder: DEFAULT_TARGET_DIR,
-            })),
-    ),
-  )
+  const targetDir = resolve(expandTilde(requestedTargetDir))
 
   // --yes skips the guard: it's non-interactive by contract, and its own
   // conflict policy (refuse to overwrite, exit 1) already protects the dir.
@@ -411,16 +412,16 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // user asked for a full re-run — the answers land in the regenerated file
   // when they overwrite at the conflict prompt (keeping it discards them,
   // which the write report states). In-place edits stay configure's job.
-  const defaultEnvContent = applyInstanceIdentity(
+  const generatedEnvContent = applyInstanceIdentity(
     buildLocalEnv({ mcpAuthToken: token, vaultPath }),
     identityResult.identity,
   )
   const optionalOverrides = flags.yes
     ? {}
-    : await askOptionalSettings({ mode: "local", envContent: defaultEnvContent }, prompts)
+    : await askOptionalSettings({ mode: "local", envContent: generatedEnvContent }, prompts)
   const envContent = applyOptionalSettings(
-    defaultEnvContent,
-    derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
+    generatedEnvContent,
+    derivePublicUrlOverride(generatedEnvContent, optionalOverrides),
   )
 
   // Conflict policy: identical existing files are skipped silently;
@@ -448,7 +449,7 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
-  const instanceName = readWrittenInstanceName(targetDir, prompts)
+  const instanceName = readInstanceNameFromDisk(targetDir, prompts)
 
   if (!instanceName) return 1
 
@@ -477,24 +478,17 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> => {
   const { prompts, fetchFn } = deps
 
+  const requestedTargetDir = flags.dir ?? (await askTargetDir(prompts))
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
-  const targetDir = resolve(
-    expandTilde(
-      flags.dir ??
-        (await prompts.text("Where should I put the config files?", {
-          defaultValue: DEFAULT_TARGET_DIR,
-          placeholder: DEFAULT_TARGET_DIR,
-        })),
-    ),
-  )
+  const targetDir = resolve(expandTilde(requestedTargetDir))
 
   const continueReinit = await confirmReinitOverExistingEnv(targetDir, prompts)
 
   if (!continueReinit) return 0
 
-  // Before the public URL prompt, so a second install's new port is known when
-  // its URL is typed.
+  // Before the public URL prompt, so a second install's port is chosen before
+  // the user types the URL that reaches it.
   const identityResult = await resolveInstanceIdentity({ mode: "remote", targetDir, flags }, deps)
 
   if (identityResult.kind === "exit") return 1
@@ -508,9 +502,9 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // the "run get-sync-token later" guidance when neither source has a token.
   const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
   const existingEnvToken = readEnvObsidianToken(join(targetDir, ".env"))
-  const hasExistingToken = Boolean(capturedToken ?? existingEnvToken)
+  const hasSyncToken = Boolean(capturedToken ?? existingEnvToken)
 
-  if (!hasExistingToken) {
+  if (!hasSyncToken) {
     prompts.log(
       "No token yet — run this later to add it to your .env:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
@@ -529,7 +523,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // .env passed the re-init guard — a consented re-run gets the full setup,
   // chooser included (see the local flow's comment for the overwrite/keep
   // semantics).
-  const defaultEnvContent = applyInstanceIdentity(
+  const generatedEnvContent = applyInstanceIdentity(
     buildRemoteEnv({
       mcpAuthToken: token,
       publicUrl,
@@ -540,12 +534,12 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
     identityResult.identity,
   )
   const optionalOverrides = await askOptionalSettings(
-    { mode: "remote", envContent: defaultEnvContent },
+    { mode: "remote", envContent: generatedEnvContent },
     prompts,
   )
   const envContent = applyOptionalSettings(
-    defaultEnvContent,
-    derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
+    generatedEnvContent,
+    derivePublicUrlOverride(generatedEnvContent, optionalOverrides),
   )
   const files = buildFilesToWrite(envContent)
   const results = await writeFiles({ targetDir, files }, confirmOverwrite(prompts))
@@ -565,13 +559,13 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // server only reads the file. The prompted value is the fallback for a kept
   // legacy .env that predates PUBLIC_URL.
   const effectivePublicUrl = readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
-  const instanceName = readWrittenInstanceName(targetDir, prompts)
+  const instanceName = readInstanceNameFromDisk(targetDir, prompts)
 
   if (!instanceName) return 1
 
   // Without the sync token the container can't start (init-check-auth fails
   // and s6 stops it), so only offer docker run when it was provided.
-  const startStatus: StartStatus = !hasExistingToken
+  const startStatus: StartStatus = !hasSyncToken
     ? "not-started"
     : await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
 
@@ -590,7 +584,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
       token,
       publicUrl: effectivePublicUrl,
       startStatus,
-      obsidianTokenMissing: !hasExistingToken,
+      obsidianTokenMissing: !hasSyncToken,
       tokenWritten,
     }),
   )

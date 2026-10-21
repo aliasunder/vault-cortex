@@ -131,6 +131,8 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
     args.push("--health-retries", "3")
     args.push("--health-start-period", "20s")
   } else {
+    // The init chain names the Sync device after the hostname when the .env
+    // sets no DEVICE_NAME; a fixed name keeps it from being a container ID.
     args.push("--hostname", instanceName)
     args.push(...volumeMountArgs(mode, instanceName))
     args.push("--health-cmd", HEALTH_CMD)
@@ -198,10 +200,10 @@ export const createDockerRunner = (): DockerRunner => ({
   stopAndRemoveContainer: (instanceName) => {
     return spawnSync("docker", ["rm", "-f", instanceName]).status === 0
   },
-  // `docker rm -f` on a missing container exits 1 on engines < 23 and 0 on
-  // >= 23, so stopAndRemoveContainer's status can't distinguish "already
-  // gone" from "failed" — callers needing idempotent messaging probe
-  // existence first. Output stays piped (discarded): this is a boolean probe.
+  // Callers that must tell "already gone" from "failed" probe with this
+  // before stopAndRemoveContainer: `docker rm -f` on a missing container
+  // exits 1 on engines < 23 and 0 on >= 23, so its status can't tell them
+  // apart. Output stays piped (discarded): this is a boolean probe.
   containerExists: (instanceName) => {
     return spawnSync("docker", ["container", "inspect", instanceName]).status === 0
   },

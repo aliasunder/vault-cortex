@@ -9,14 +9,17 @@ import {
   isValidPort,
   readOptionalValue,
 } from "./optional-settings.js"
-import { DEFAULT_INSTANCE_NAME, validateInstanceName, type Mode } from "./scaffold.js"
+import { DEFAULT_INSTANCE_NAME, describeInvalidInstanceName, type Mode } from "./scaffold.js"
 import type { Prompts } from "./prompts.js"
 
 /** The .env values that tell one install on a machine apart from another. */
 export type InstanceIdentity = {
   /** Copied verbatim from the folder's existing .env when init runs again over it. */
   carried: Record<string, string>
-  /** Chosen in this run, by flag or prompt. A local PUBLIC_URL follows a chosen PORT. */
+  /**
+   * Chosen in this run, by flag or prompt. A `http://localhost:<port>`
+   * PUBLIC_URL follows a chosen PORT.
+   */
   chosen: Record<string, string>
 }
 
@@ -60,6 +63,8 @@ const isInstanceNameInUse = (
   return instanceVolumeNames(params).some((volumeName) => docker.volumeExists(volumeName))
 }
 
+const EXAMPLE_INSTANCE_NAME = "work"
+
 /** Re-prompts until the answer is a valid name no other install on the machine uses. */
 const askFreeInstanceName = async (
   params: { mode: Mode; suggestedName: string | undefined },
@@ -70,10 +75,10 @@ const askFreeInstanceName = async (
   const answer = (
     await prompts.text("Name for this install (lowercase letters, digits, - and _):", {
       defaultValue: suggestedName,
-      placeholder: suggestedName ?? "work",
+      placeholder: suggestedName ?? EXAMPLE_INSTANCE_NAME,
     })
   ).trim()
-  const invalidReason = validateInstanceName(answer)
+  const invalidReason = describeInvalidInstanceName(answer)
 
   if (invalidReason) {
     prompts.error(invalidReason)
@@ -96,12 +101,20 @@ const suggestInstanceName = (
 ): string | undefined => {
   const folderName = basename(params.targetDir).toLowerCase()
 
-  if (validateInstanceName(folderName)) return undefined
+  if (describeInvalidInstanceName(folderName)) return undefined
   if (isInstanceNameInUse({ mode: params.mode, instanceName: folderName }, docker)) return undefined
   return folderName
 }
 
-const inUseOnYesMessage = (instanceName: string): string => {
+/**
+ * A new remote install's Sync device takes the install's name, so Obsidian
+ * Sync's history tells its changes apart from the first install's.
+ */
+const buildDeviceNameSetting = (mode: Mode, instanceName: string): Record<string, string> => {
+  return mode === "remote" ? { DEVICE_NAME: instanceName } : {}
+}
+
+const nameInUseWithYesFlagMessage = (instanceName: string): string => {
   return (
     `An install named "${instanceName}" already exists on this machine (its container or data volumes are here).\n` +
     `Re-run with --instance-name <name> (and --port <port> if ${instanceName}'s port is taken) to give this install its own name,\n` +
@@ -125,7 +138,9 @@ export const resolveInstanceIdentity = async (
   const { mode, targetDir, flags } = params
   const { prompts, docker } = deps
 
-  const flagNameError = flags.instanceName && validateInstanceName(flags.instanceName)
+  const flagNameError = flags.instanceName
+    ? describeInvalidInstanceName(flags.instanceName)
+    : undefined
 
   if (flagNameError) {
     prompts.error(`--instance-name: ${flagNameError}`)
@@ -142,20 +157,23 @@ export const resolveInstanceIdentity = async (
 
   const existingEnvPath = join(targetDir, ".env")
 
+  // An existing .env makes this folder an install already, and its own
+  // container and volumes would always count as in use, so a re-run skips the check.
   if (existsSync(existingEnvPath)) {
     const carried = readCarriedIdentity(existingEnvPath, mode)
     return { kind: "ok", identity: { carried, chosen: flagOverrides } }
   }
 
   const requestedName = flags.instanceName ?? DEFAULT_INSTANCE_NAME
-  const nameCheckPossible = docker.daemonStatus() === "running"
+  const requestedNameInUse =
+    docker.daemonStatus() === "running" &&
+    isInstanceNameInUse({ mode, instanceName: requestedName }, docker)
 
-  if (!nameCheckPossible || !isInstanceNameInUse({ mode, instanceName: requestedName }, docker)) {
-    // A free name from --instance-name is a new install, so a remote one gets
-    // the matching device name, as the interactive "own name" answer gives it.
+  // A name not in use, or one Docker could not check, starts a new install.
+  if (!requestedNameInUse) {
     const chosen = {
       ...flagOverrides,
-      ...(mode === "remote" && flags.instanceName ? { DEVICE_NAME: flags.instanceName } : {}),
+      ...(flags.instanceName ? buildDeviceNameSetting(mode, flags.instanceName) : {}),
     }
     return { kind: "ok", identity: { carried: {}, chosen } }
   }
@@ -164,7 +182,7 @@ export const resolveInstanceIdentity = async (
     return { kind: "ok", identity: { carried: {}, chosen: flagOverrides } }
   }
   if (flags.yes) {
-    prompts.error(inUseOnYesMessage(requestedName))
+    prompts.error(nameInUseWithYesFlagMessage(requestedName))
     return { kind: "exit" }
   }
 
@@ -191,12 +209,10 @@ export const resolveInstanceIdentity = async (
   const suggestedName = suggestInstanceName({ mode, targetDir }, docker)
   const instanceName = await askFreeInstanceName({ mode, suggestedName }, deps)
   const port = await askPort(flags.port, prompts)
-  // The device name labels this install's changes in Obsidian Sync's history,
-  // so a second remote install is told apart from the first there too.
   const chosen = {
     INSTANCE_NAME: instanceName,
     PORT: port,
-    ...(mode === "remote" ? { DEVICE_NAME: instanceName } : {}),
+    ...buildDeviceNameSetting(mode, instanceName),
   }
   return { kind: "ok", identity: { carried: {}, chosen } }
 }
@@ -205,7 +221,8 @@ export const resolveInstanceIdentity = async (
  * Writes the identity into freshly generated .env content, before the
  * optional-settings chooser reads it, so the chooser shows the identity's port
  * as current. Carried values land verbatim; chosen ones go through
- * derivePublicUrlOverride, so a local PUBLIC_URL follows a new port.
+ * derivePublicUrlOverride, so a `http://localhost:<port>` PUBLIC_URL follows a
+ * new port.
  */
 export const applyInstanceIdentity = (envContent: string, identity: InstanceIdentity): string => {
   const withCarried = applyOptionalSettings(envContent, identity.carried)

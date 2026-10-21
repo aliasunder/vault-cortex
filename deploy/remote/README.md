@@ -443,8 +443,8 @@ starts. The server then runs these startup tasks:
    or deleted while the server started.
 
 Restarting the container re-runs this flow (useful when testing bootstrap
-behavior). The command is the same for every setup
-method:
+behavior). The command is the same for every setup method; an install with
+its own `INSTANCE_NAME` uses that name in place of `vault-cortex`:
 
 ```bash
 # Sync and the MCP server both restart; the startup steps re-run cleanly:
@@ -497,30 +497,35 @@ reference). Otherwise resume with `docker compose up -d` or
 
 Each vault gets its own install, with its own folder, `.env`, container,
 volumes, port, Obsidian Sync device and connector. Give every install after
-the first its own `INSTANCE_NAME` before its first start. That name labels
-the install's container, Compose project and volumes (`<name>_vault_data`,
+the first its own `INSTANCE_NAME` before its first start. Docker uses that
+name for the install's container and volumes (`<name>_vault_data`,
 `<name>_mcp_data` and `<name>_obsidian_config`); the first install keeps the
-default, `vault-cortex`. A second vault must never use the first install's
-volumes: the container refuses to start rather than merge the two vaults
-(see [Another vault's Sync setup](#another-vaults-sync-setup)).
+default, `vault-cortex`. Give each install its own `DEVICE_NAME` too, so
+Obsidian Sync's history tells their changes apart. A second vault must never
+use the first install's volumes: the container refuses to start rather than
+merge the two vaults (see
+[Another vault's Sync setup](#another-vaults-sync-setup)).
 
-**Set up with the CLI?** Run `init` again into a new folder:
+**Set up with the CLI?** From the folder you ran `init` in the first time,
+run it again with a new `--dir`:
 
 ```bash
 npx vault-cortex@latest init --mode remote --dir ./vault-cortex-work
 ```
 
-When `vault-cortex` is already in use, `init` asks for the new install's
-name and port, for example `work` and `8001`, and names its Sync device after
-it. Then pass the same `--dir` to every command for that install:
+When this server already has a `vault-cortex` container or volumes, `init`
+asks for the new install's name and port, for example `work` and `8001`, and
+sets its `DEVICE_NAME` to that name. Then pass the same `--dir` to every
+command for that install:
 
 ```bash
 npx vault-cortex@latest upgrade --dir ./vault-cortex-work
 npx vault-cortex@latest logs --dir ./vault-cortex-work
 ```
 
-**Set up with Docker Compose?** Copy this folder, and set these in the
-copy's `.env`:
+**Set up with Docker Compose?** Set up a new folder as in **Manual setup**
+under [Setup](#setup), with its own `MCP_AUTH_TOKEN`, and also set these in
+its `.env`:
 
 ```dotenv
 INSTANCE_NAME=work
@@ -532,15 +537,24 @@ PUBLIC_URL=https://work.example.com
 
 Run each install's `docker compose` commands from its own folder.
 
-**Set up with `docker run`?** In the command from [Setup](#setup), replace
-`vault-cortex` with the new name in `--name`, `--hostname` and the volume
-names, and the host port in `-p` (`-p 8001:8000`). Set its own
-`DEVICE_NAME` in its `.env`.
+**Set up with `docker run`?** Set up a new folder with its own `.env` as
+above, but leave `PORT` at `8000`, because the `docker run` command does not
+override it. Then run the command from [Setup](#setup) with `vault-cortex`
+replaced by the new name in `--name`, `--hostname` and the volume names, and
+with the new host port in `-p` (`-p 8001:8000`).
 
 For each install:
 
-- **Give it its own address.** Route a separate host name to its port in your
-  [HTTPS access](#https-access) setup, and use that as its `PUBLIC_URL`.
+- **Give it its own address.** In your [HTTPS access](#https-access) setup,
+  route a separate address to its port, and use that address as its
+  `PUBLIC_URL`:
+  - Cloudflare Tunnel: add a public hostname that points at
+    `http://localhost:8001`.
+  - API Gateway: create another HTTP API that proxies to
+    `http://<your-server-ip>:8001/{proxy+}`.
+  - Reverse proxy: add a site block for another domain with
+    `reverse_proxy localhost:8001`.
+  - Direct access: `http://<your-ip>:8001`.
 - **Connect it as its own server** in your MCP client, under its own name.
   For Claude Code:
   `claude mcp add --scope user --transport http work <PUBLIC_URL>/mcp`.
@@ -556,10 +570,12 @@ For each install:
 
 ### Another vault's Sync setup
 
-When the container's volumes hold the Obsidian Sync setup for a different
-vault than `VAULT_NAME`, the container stops before it syncs or changes
-anything, because starting would merge the two vaults' notes through
-Obsidian Sync. `docker logs` then shows:
+The container keeps an Obsidian Sync setup in its `obsidian_config` volume
+(the `config` folder with a single volume): the record of which vault in your
+account it syncs. When that setup is for a different vault than `VAULT_NAME`,
+the container stops before it syncs or changes anything, because starting
+would merge the two vaults' notes through Obsidian Sync. `docker logs` then
+shows:
 
 ```text
 [obsidian-sync] ERROR: This install is set up to sync a different vault than VAULT_NAME.
@@ -572,18 +588,21 @@ first one's volumes. Fix it one of these ways:
 - **`VAULT_NAME` is a mistake:** set it back and re-create the container. The
   **Changed `.env`?** note under [Restart](#restart) gives the command for
   each setup method.
-- **You want to sync both vaults:** give the second vault its own install, as
-  described above. On Render or Railway, deploy it as a separate service.
+- **You want to sync both vaults:** set this install's `VAULT_NAME` back, and
+  give the second vault its own install, as described above. On Render or
+  Railway, deploy it as a separate service.
 - **You want this install to sync the new vault instead:** delete all of its
   volumes together (the **Stop and delete all volumes** commands under
   [Stop](#stop)), then start it again. The container downloads the new vault
-  like a first start, and the old vault stays in Obsidian Sync. Deleting only
-  `obsidian_config` would upload the old vault's notes into the new one. On
-  Render or Railway, follow the entry in that platform's guide.
-- **You re-created the same vault in Obsidian**, the log says the old one "is
-  no longer in your account", and the notes on the server are that vault's
-  notes: remove only the old setup folder the log names, then start the
-  container:
+  like a first start, and the old vault stays in Obsidian Sync. Deleting the
+  volumes also deletes the server's record of signed-in clients, so remove
+  and re-add the server in each MCP client. Deleting only `obsidian_config`
+  would upload the old vault's notes into the new one. On Render or Railway,
+  follow the entry in that platform's guide.
+- **You re-created the same vault in Obsidian**, the second log line ends
+  with "which is no longer in your account", and the notes on the server are
+  that vault's notes: remove only the old setup folder the log names, then
+  start the container:
 
   ```bash
   docker run --rm -v vault-cortex_obsidian_config:/home/obsidian/.config \
@@ -592,12 +611,22 @@ first one's volumes. Fix it one of these ways:
   ```
 
   With a single volume (`STORAGE_ROOT`), mount `vault-cortex_storage:/persist`
-  instead, and remove the folder the log names under `/persist/config`.
+  instead, and remove the full path the log names, which starts with
+  `/persist/config`.
 
 A **WARNING** that the install "also holds Sync setups for other vaults"
-means the container started, because it uses the right vault, but one of
-those setups could be used on a later start. Remove each one's folder with
-the same command, using the vault ID from the warning.
+means the container started, because it uses the right vault, but the Sync
+client would use one of those setups if this vault's setup were removed.
+Remove each one's folder with the same command, using the vault ID from the
+warning.
+
+An **ERROR** that "a Sync setup file here is not a valid setup" means the
+Sync client can't read the file the log names and would ignore it. That file
+may be another vault's setup, whose notes are in this install's vault. If the
+notes on the server are `VAULT_NAME`'s notes, remove the folder that holds
+the file with the command above, using that folder's name in place of
+`<old vault ID>`. Otherwise delete all of the install's volumes, as in the fix
+for syncing the new vault instead.
 
 ## Memory
 
@@ -712,7 +741,7 @@ These optional settings are worth knowing about:
 | `DISABLED_TOOLS`        | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `SYNC_CONFIGS`          | daily notes, plugins, and app | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `INSTANCE_NAME`         | `vault-cortex`                | Names this install's container, Compose project and volumes. Set it before the first start to run another vault on the same server (see [Run more than one vault](#run-more-than-one-vault))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log; give each install on a server its own (see [Run more than one vault](#run-more-than-one-vault))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (edits made on the server stay on the server and are never uploaded), or `mirror-remote` (Obsidian Sync overwrites edits made on the server, so the server always matches your vault). An invalid value stops the container at boot.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `CONFLICT_STRATEGY`     | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `SYNC_EXCLUDED_FOLDERS` | _(empty)_                     | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -732,7 +761,7 @@ The setup above is authenticated — every request requires your token or an
 OAuth session. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
-  direct access to port 8000 wherever you manage your server's firewall
+  direct access to port 8000, and to each other install's `PORT`, wherever you manage your server's firewall
   (provider panel, AWS security groups, infrastructure-as-code). All traffic
   then flows through the encrypted path.
 

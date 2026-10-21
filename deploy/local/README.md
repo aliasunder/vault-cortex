@@ -241,28 +241,31 @@ reference). Otherwise resume with `docker compose up -d` or
 
 Each vault gets its own install, with its own folder, `.env`, container,
 search index, port and connector. Give every install after the first its own
-`INSTANCE_NAME` before its first start. That name labels the install's
-container, Compose project and index volume (`<name>_mcp_data`); the first
-install keeps the default, `vault-cortex`.
+`INSTANCE_NAME` before its first start. Docker uses that name for the
+install's container and for the volume that holds its search index
+(`<name>_mcp_data`); the first install keeps the default, `vault-cortex`.
 
-**Set up with the CLI?** Run `init` again into a new folder:
+**Set up with the CLI?** From the folder you ran `init` in the first time,
+run it again with a new `--dir`:
 
 ```bash
 npx vault-cortex@latest init --dir ./vault-cortex-work
 ```
 
-When `vault-cortex` is already in use, `init` asks for the new install's
-name and port, for example `work` and `8001`. For a scripted setup, add
-`--yes --vault-path <path> --instance-name work --port 8001`. Then pass the
-same `--dir` to every command for that install:
+When this machine already has a `vault-cortex` container or search index
+volume, `init` asks for the new install's name and port, for example `work`
+and `8001`, and points its `PUBLIC_URL` at that port. For a scripted setup,
+add `--yes --vault-path <path> --instance-name work --port 8001`. Then pass
+the same `--dir` to every command for that install:
 
 ```bash
 npx vault-cortex@latest upgrade --dir ./vault-cortex-work
 npx vault-cortex@latest logs --dir ./vault-cortex-work
 ```
 
-**Set up with Docker Compose?** Copy this folder, and set these in the
-copy's `.env`:
+**Set up with Docker Compose?** Set up a new folder as in **Manual setup**
+under [Setup](#setup), with its own `MCP_AUTH_TOKEN`, and also set these in
+its `.env`:
 
 ```dotenv
 INSTANCE_NAME=work
@@ -271,7 +274,8 @@ PUBLIC_URL=http://localhost:8001
 VAULT_PATH=/Users/you/Documents/WorkVault
 ```
 
-Run each install's `docker compose` commands from its own folder.
+`PUBLIC_URL` must use the new port, or MCP clients can't sign in. Run each
+install's `docker compose` commands from its own folder.
 
 For each install:
 
@@ -387,7 +391,7 @@ longer exists and `/authorize` rejects it. Clear the client's stored
 authorization for this server and reconnect so it registers fresh:
 
 - **Claude Code:** `claude mcp remove <name>`, then
-  `claude mcp add --scope user --transport http <name> http://localhost:8000/mcp`.
+  `claude mcp add --scope user --transport http <name> http://localhost:<port>/mcp`.
 - **Claude Desktop / mcp-remote:** delete `~/.mcp-auth` and restart the client.
 - **Other clients:** remove and re-add the server.
 

@@ -30,6 +30,7 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 
 # Public URL for OAuth issuer and access-token binding (default: http://localhost:8000).
 # Override if you expose the server on a different URL (e.g. via a reverse proxy).
+# When you change PORT, change the port here too, or MCP clients can't sign in.
 PUBLIC_URL=http://localhost:8000
 
 # Largest file vault_read_file will read, in bytes (default: 52428800 = 50 MiB).
@@ -133,9 +134,10 @@ MEMORY_DIR=About Me
 # Valid values: two or more lowercase letters, digits, hyphens or underscores,
 # starting with a letter or digit.
 # Default: vault-cortex
-# Set it before the first start. Changing it later starts the install on a new,
-# empty index volume while the old one stays, so stop the old container first
-# (docker compose down, or npx vault-cortex down).
+# Set it before the first start. To change it later, stop the container first
+# (docker compose down, or npx vault-cortex down), then change it: the install
+# starts on a new, empty index volume, and the old one stays until you remove
+# it (docker volume rm <old name>_mcp_data).
 INSTANCE_NAME=vault-cortex
 
 # Host port to expose (default: 8000).
@@ -293,15 +295,15 @@ MEMORY_DIR=About Me
 
 # Name of this install's container, Compose project and data volumes
 # (<name>_vault_data, <name>_mcp_data and <name>_obsidian_config). To run more
-# than one vault on this server, give each install its own INSTANCE_NAME, PORT
-# and DEVICE_NAME.
+# than one vault on this server, give each install its own INSTANCE_NAME, PORT,
+# PUBLIC_URL and DEVICE_NAME.
 # Valid values: two or more lowercase letters, digits, hyphens or underscores,
 # starting with a letter or digit.
 # Default: vault-cortex
-# Set it before the first start. Changing it later starts the install on new,
-# empty volumes, so the vault downloads again as a new Obsidian Sync device
-# while the old volumes stay. Stop the old container first
-# (docker compose down, or npx vault-cortex down).
+# Set it before the first start. To change it later, stop the container first
+# (docker compose down, or npx vault-cortex down), then change it: the install
+# starts on new, empty volumes and downloads the vault again as a new Obsidian
+# Sync device, while the old volumes stay until you remove them.
 INSTANCE_NAME=vault-cortex
 
 # Host port to expose (default: 8000).
@@ -348,6 +350,7 @@ PUID=1000
 PGID=1000
 
 # Device name the container reports to Obsidian Sync — labels its changes in the sync log.
+# Give each install on a server its own, to tell their changes apart.
 DEVICE_NAME=vault-cortex
 
 # Obsidian Sync conflict resolution: merge | conflict (default: merge).

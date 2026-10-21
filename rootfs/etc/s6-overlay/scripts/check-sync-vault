@@ -3,8 +3,8 @@
 # Stops a boot that would sync a vault other than VAULT_NAME.
 #
 # Each vault's Sync setup is <config>/obsidian-headless/sync/<vaultId>/config.json.
-# Every ob command uses the first setup, by folder name, whose vaultPath is the
-# vault folder, whatever VAULT_NAME says. So a volume holding another vault's
+# Every ob command uses the first setup, in folder-name order, whose vaultPath
+# is the vault folder, whatever VAULT_NAME says. So a volume holding another vault's
 # setup (two installs sharing volumes, or VAULT_NAME changed on one install)
 # would sync that vault instead, or merge the two through Obsidian Sync.
 #
@@ -86,9 +86,10 @@ remote_vault_name() {
 # 2. Setups the engine would silently ignore
 # ---------------------------------------------------------------------------
 
-# The engine skips a config.json it cannot read or parse, so a stale vault's
-# setup could hide there and its notes sync into this vault. Prints one line
-# per such file; a sync folder that can't be listed is a non-zero exit.
+# The engine skips a config.json it cannot read or parse. If that file is
+# another vault's setup, this folder holds that vault's notes, and ob
+# sync-setup would upload them into VAULT_NAME's vault. Prints one line per
+# such file; a sync folder that can't be listed is a non-zero exit.
 invalid_sync_configs() {
   [ -d "$SYNC_STATE_ROOT" ] || return 0
   node --no-warnings -e '
@@ -160,6 +161,8 @@ PICKED_STORED_NAME=$(printf '%s' "$PICKED_VAULT" | cut -f2)
 if [ "$PICKED_ID" = "$REQUESTED_ID" ]; then
   # A second setup for another vault is dormant while the engine picks this
   # one, so the boot continues; removing it keeps it from being picked later.
+  # The listing only feeds this warning, so a failed listing skips the
+  # warning instead of stopping a boot the checks above already passed.
   OTHER_IDS=$(run_ob sync-list-local --json 2>/dev/null | REQUESTED_ID="$REQUESTED_ID" node --no-warnings -e '
     const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
     const otherIds = listed.vaults.map((vault) => vault.id).filter((id) => id !== process.env.REQUESTED_ID)
@@ -179,6 +182,8 @@ fi
 # ---------------------------------------------------------------------------
 
 PICKED_CURRENT_NAME=$(remote_vault_name "$PICKED_ID")
+# STORAGE_ROOT is set on single-volume hosts (Render, Railway), where the
+# vault and the Sync config are folders on one volume instead of two volumes.
 if [ -n "${STORAGE_ROOT:-}" ]; then
   RESET_STEP="remove ${STORAGE_ROOT}/vault and ${STORAGE_ROOT}/config together"
   SEPARATE_STEP="run it as a separate service"

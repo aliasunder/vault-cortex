@@ -65,8 +65,8 @@ remote setup, init offers to generate your
 [Obsidian Sync token](#get-sync-token) as part of the flow.
 
 To run a second vault on the same machine, run init again with its own
-`--dir`. When the default name `vault-cortex` is already in use, init asks
-you to give the new install its own name and port. That name (`INSTANCE_NAME`
+`--dir`. When the machine already has a `vault-cortex` container or data
+volume, init asks you to give the new install its own name and port. That name (`INSTANCE_NAME`
 in its `.env`) names the install's container and data, and every command run
 with that `--dir` acts only on it. Each install gets its own connector in
 your MCP client.
@@ -79,7 +79,8 @@ Flags:
   `./vault-cortex`)
 - `--instance-name <name>` — name for this install's container and data
   (default `vault-cortex`); lowercase letters, digits, `-` and `_`. Naming an
-  install that already exists reuses its data, for the same vault set up again
+  install that already exists reuses its data, so use it only for the same
+  vault set up again
 - `--port <port>` — host port for this install (default `8000`)
 - `--yes` — non-interactive local setup with defaults; requires `--vault-path`,
   and `--instance-name` when the name is already in use

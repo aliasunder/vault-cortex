@@ -85,7 +85,7 @@ export const readEnvPort = (envFilePath: string): number => {
 }
 
 /** Returns why a candidate instance name is invalid, or undefined when it is valid. */
-export const validateInstanceName = (candidateName: string): string | undefined => {
+export const describeInvalidInstanceName = (candidateName: string): string | undefined => {
   if (INSTANCE_NAME_PATTERN.test(candidateName)) return undefined
   return `"${candidateName}" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.`
 }
@@ -107,7 +107,7 @@ export const readEnvInstanceName = (envFilePath: string): InstanceNameRead => {
   const instanceName = rawValue ? stripSurroundingQuotes(rawValue) : ""
 
   if (!instanceName) return { kind: "ok", instanceName: DEFAULT_INSTANCE_NAME }
-  const invalidReason = validateInstanceName(instanceName)
+  const invalidReason = describeInvalidInstanceName(instanceName)
 
   if (invalidReason) return { kind: "invalid", message: `INSTANCE_NAME ${invalidReason}` }
   return { kind: "ok", instanceName }
@@ -190,7 +190,8 @@ export const patchEnvObsidianToken = (envFilePath: string, token: string): boole
 /**
  * Reads the OBSIDIAN_AUTH_TOKEN value from an existing .env file. Returns
  * undefined when the file is missing, has no active line, or the value is
- * empty — an empty `OBSIDIAN_AUTH_TOKEN=` line is not a valid token.
+ * empty — an empty `OBSIDIAN_AUTH_TOKEN=` line is not a valid token. Quotes
+ * stay in the value, because init writes it back into the regenerated .env.
  */
 export const readEnvObsidianToken = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined

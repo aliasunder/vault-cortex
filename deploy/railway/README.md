@@ -347,8 +347,7 @@ again, like a first deploy.
 **A redeploy took as long as the first deploy and downloaded the whole vault
 again.** The volume was replaced, or `/persist/config` was removed, so the
 container started over with a fresh Obsidian Sync connection. Nothing needs
-cleaning up, unless `VAULT_NAME` now names a different vault than before: see
-the next entry.
+cleaning up.
 
 **`This install is set up to sync a different vault than VAULT_NAME.`** The
 container refused to start because the volume holds the Obsidian Sync setup
@@ -359,12 +358,17 @@ names both vaults. Then do one of these:
 - If `VAULT_NAME` is a mistake, set it back under **Variables** and apply the
   staged change.
 - To serve the other vault as well, deploy it as a separate Railway service
-  with its own volume, and leave this one on its original vault.
+  with its own volume, and leave this one on its original vault. The new
+  service has its own URL and `MCP_AUTH_TOKEN`, so connect it as its own
+  server in your MCP client. Give it its own `DEVICE_NAME` to tell the two
+  apart in Obsidian Sync's history.
 - To switch this service to the new vault, delete the volume
   (**Settings → Volumes**), add a new one at `/persist`, then **Redeploy**.
   The container downloads the new vault like a first deploy, and the old
-  vault stays in Obsidian Sync. Removing only `/persist/config` would upload
-  the old vault's notes into the new one.
+  vault stays in Obsidian Sync. The new volume has no record of your
+  signed-in MCP clients, so remove and re-add the server in each client.
+  Removing only `/persist/config` would upload the old vault's notes into the
+  new one.
 
 **`The vault is empty but this device has previously synced.`** The
 container refused to start because the vault directory on the volume is

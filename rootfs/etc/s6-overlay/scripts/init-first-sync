@@ -83,6 +83,7 @@ SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 # compares it as an integer, so the only output is the bare number.
 known_sync_files() {
   set -- "$SYNC_STATE_ROOT"/*/state.db
+  # sh leaves a glob that matches nothing as its literal text.
   [ -e "$1" ] || { echo 0; return 0; }
   node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite")

@@ -19,13 +19,19 @@ const paint = (style: TextStyle, text: string): string =>
 
 const RULE_WIDTH = 56
 
-const topRule = (label: string): string =>
-  paint("dim", `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`)
+const topRule = (label: string): string => {
+  const labelPart = `╭── ${label} `
+  const fillWidth = Math.max(0, RULE_WIDTH - labelPart.length - "╮".length)
+  return paint("dim", `${labelPart}${"─".repeat(fillWidth)}╮`)
+}
 
-const bottomRule = (): string => paint("dim", `╰${"─".repeat(RULE_WIDTH - 2)}╯`)
+const bottomRule = (): string => paint("dim", `╰${"─".repeat(RULE_WIDTH - "╰╯".length)}╯`)
 
-const sectionRule = (label: string): string =>
-  paint("dim", `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`)
+const sectionRule = (label: string): string => {
+  const labelPart = `── ${label} `
+  const fillWidth = Math.max(0, RULE_WIDTH - labelPart.length)
+  return paint("dim", `${labelPart}${"─".repeat(fillWidth)}`)
+}
 
 /**
  * Daemon-stopped guidance shared by every command that needs the container
