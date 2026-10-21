@@ -64,12 +64,13 @@ name and port. Existing files are never overwritten without asking. During a
 remote setup, init offers to generate your
 [Obsidian Sync token](#get-sync-token) as part of the flow.
 
-To run a second vault on the same machine, run init again with its own
-`--dir`. When the machine already has a `vault-cortex` container or data
-volume, init asks you to give the new install its own name and port. That name (`INSTANCE_NAME`
-in its `.env`) names the install's container and data, and every command run
-with that `--dir` acts only on it. Each install gets its own connector in
-your MCP client.
+To run a second vault on the same machine, start Docker, so init can check
+which names are in use, then run init again with its own `--dir`. When the
+machine already has a `vault-cortex` container or data volume, init asks you
+to give the new install its own name and port. That name
+(`INSTANCE_NAME` in its `.env`) names the install's container and data, and
+every command run with that `--dir` acts only on it. Each install gets its
+own connector in your MCP client.
 
 Flags:
 

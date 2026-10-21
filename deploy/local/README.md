@@ -245,8 +245,9 @@ search index, port and connector. Give every install after the first its own
 install's container and for the volume that holds its search index
 (`<name>_mcp_data`); the first install keeps the default, `vault-cortex`.
 
-**Set up with the CLI?** From the folder you ran `init` in the first time,
-run it again with a new `--dir`:
+**Set up with the CLI?** Start Docker, so `init` can check which names are
+in use. Then, from the folder you ran `init` in the first time, run it again
+with a new `--dir`:
 
 ```bash
 npx vault-cortex@latest init --dir ./vault-cortex-work

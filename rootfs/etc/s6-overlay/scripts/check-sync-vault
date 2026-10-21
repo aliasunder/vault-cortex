@@ -56,7 +56,7 @@ fi
 # sync-setup matches it: an exact vault ID first, otherwise exactly one vault
 # with that name, across owned and shared vaults. Prints nothing when no vault
 # or several match; ob sync-setup then reports that itself and writes nothing.
-REQUESTED_VAULT=$(printf '%s' "$REMOTE_VAULTS" | VAULT_NAME="$VAULT_NAME" node --no-warnings -e '
+if ! REQUESTED_VAULT=$(printf '%s' "$REMOTE_VAULTS" | VAULT_NAME="$VAULT_NAME" node --no-warnings -e '
   const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
   const allVaults = [...(listed.vaults ?? []), ...(listed.shared ?? [])]
   const requested = process.env.VAULT_NAME
@@ -64,7 +64,13 @@ REQUESTED_VAULT=$(printf '%s' "$REMOTE_VAULTS" | VAULT_NAME="$VAULT_NAME" node -
   const byName = allVaults.filter((vault) => vault.name === requested)
   const match = byId ?? (byName.length === 1 ? byName[0] : undefined)
   if (match) console.log(match.id + "\t" + match.name)
-')
+'); then
+  # ob sync-setup reads the list itself and could still set up VAULT_NAME's
+  # vault beside another vault's setup for this folder.
+  echo "[obsidian-sync] ERROR: Could not read the list of vaults in your Obsidian account." >&2
+  echo "[obsidian-sync] Refusing to sync without knowing which vault VAULT_NAME names." >&2
+  exit 1
+fi
 if [ -z "$REQUESTED_VAULT" ]; then
   echo "[obsidian-sync] Vault check: '$VAULT_NAME' does not name exactly one vault — ob sync-setup reports it." >&2
   exit 0

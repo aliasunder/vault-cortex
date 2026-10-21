@@ -477,6 +477,25 @@ describe("check-sync-vault", () => {
     expect(run.obCalls).toEqual(["sync-list-remote --json"])
   })
 
+  it("stops when the account's vault list is not JSON", () => {
+    const run = runCheck({
+      vaultName: "Work",
+      remoteJson: "Fetching vaults...",
+      configJson: pickedConfig(VAULT_A.id, VAULT_A.name),
+      configExit: 0,
+      setupFiles: { [VAULT_A.id]: setupFile(VAULT_A) },
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stdout).toBe("")
+    // node's own parse error comes first.
+    expect(run.stderr.trimEnd().split("\n").slice(-2)).toEqual([
+      "[obsidian-sync] ERROR: Could not read the list of vaults in your Obsidian account.",
+      "[obsidian-sync] Refusing to sync without knowing which vault VAULT_NAME names.",
+    ])
+    expect(run.obCalls).toEqual(["sync-list-remote --json"])
+  })
+
   it.each([
     { label: "no vault", vaults: [VAULT_A] },
     { label: "several vaults", vaults: [{ ...VAULT_A, name: "Work" }, VAULT_B] },

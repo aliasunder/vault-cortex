@@ -183,6 +183,18 @@ export const classifyDaemonStatus = (spawnResult: {
   return spawnErrorCode === "ENOENT" ? "not-installed" : "not-running"
 }
 
+/**
+ * Whether `docker container inspect --format {{.Name}}` printed this name.
+ * Docker prints it with a leading slash; Podman and nerdctl print it bare.
+ */
+export const isContainerNamed = (params: {
+  inspectedName: string
+  instanceName: string
+}): boolean => {
+  const { inspectedName, instanceName } = params
+  return inspectedName.trim().replace(/^\//, "") === instanceName
+}
+
 export const createDockerRunner = (): DockerRunner => ({
   daemonStatus: () => classifyDaemonStatus(spawnSync("docker", ["info"], { timeout: 5_000 })),
   // stdout is discarded: `docker run -d` prints only the container ID there,
@@ -200,12 +212,19 @@ export const createDockerRunner = (): DockerRunner => ({
   stopAndRemoveContainer: (instanceName) => {
     return spawnSync("docker", ["rm", "-f", instanceName]).status === 0
   },
-  // Callers that must tell "already gone" from "failed" probe with this
-  // before stopAndRemoveContainer: `docker rm -f` on a missing container
-  // exits 1 on engines < 23 and 0 on >= 23, so its status can't tell them
-  // apart. Output stays piped (discarded): this is a boolean probe.
+  // - Callers probe with this before stopAndRemoveContainer: `docker rm -f` on
+  //   a missing container exits 1 on engines < 23 and 0 on >= 23.
+  // - The printed name is compared because Docker falls back to container-ID
+  //   prefixes, so an all-hex name ("2025") could match another container.
   containerExists: (instanceName) => {
-    return spawnSync("docker", ["container", "inspect", instanceName]).status === 0
+    const inspectResult = spawnSync(
+      "docker",
+      ["container", "inspect", "--format", "{{.Name}}", instanceName],
+      { encoding: "utf8" },
+    )
+
+    if (inspectResult.status !== 0) return false
+    return isContainerNamed({ inspectedName: inspectResult.stdout, instanceName })
   },
   volumeExists: (volumeName) => {
     return spawnSync("docker", ["volume", "inspect", volumeName]).status === 0

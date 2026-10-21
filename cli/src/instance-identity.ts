@@ -124,7 +124,8 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
 
 /**
  * Decides this install's name and port before init writes .env:
- * - a re-run over an existing .env keeps its name, port and URL (`carried`);
+ * - a re-run over an existing .env keeps its name and port, plus a local
+ *   PUBLIC_URL or a remote DEVICE_NAME (`carried`);
  * - --instance-name and --port set them directly;
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
@@ -138,8 +139,9 @@ export const resolveInstanceIdentity = async (
   const { mode, targetDir, flags } = params
   const { prompts, docker } = deps
 
-  // Compared with undefined so an empty --instance-name is rejected instead of
-  // falling back to the default name without the in-use check.
+  // Compared with undefined so an empty flag is an error: an empty
+  // --instance-name would skip the default name's in-use check, and an empty
+  // --port would silently become the default port.
   const flagNameError =
     flags.instanceName === undefined ? undefined : describeInvalidInstanceName(flags.instanceName)
 
@@ -147,7 +149,7 @@ export const resolveInstanceIdentity = async (
     prompts.error(`--instance-name: ${flagNameError}`)
     return { kind: "exit" }
   }
-  if (flags.port && !isValidPort(flags.port)) {
+  if (flags.port !== undefined && !isValidPort(flags.port)) {
     prompts.error("--port must be a whole number between 1 and 65535.")
     return { kind: "exit" }
   }

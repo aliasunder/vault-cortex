@@ -45,11 +45,13 @@ case "${1:-}" in
     ;;
 
   container)
-    # docker container inspect <name> — check if container exists
-    if ! is_present "${3:-}"; then
+    # docker container inspect --format '{{.Name}}' <name> — prints the name
+    # with Docker's leading slash when the container exists
+    container_name="${!#}"
+    if ! is_present "$container_name"; then
       exit 1
     fi
-    echo '[{"Id":"abc123","State":{"Status":"running"}}]'
+    echo "/$container_name"
     ;;
 
   volume)

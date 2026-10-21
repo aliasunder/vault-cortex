@@ -6,6 +6,7 @@ import {
   classifyDaemonStatus,
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  isContainerNamed,
   LOCAL_IMAGE,
   pollHealth,
   probeHealth,
@@ -452,6 +453,21 @@ describe("classifyDaemonStatus", () => {
     })
 
     expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe("not-running")
+  })
+})
+
+describe("isContainerNamed", () => {
+  it.each([
+    { label: "Docker's slash-prefixed name", inspectedName: "/2025\n" },
+    { label: "Podman's bare name", inspectedName: "2025\n" },
+  ])("matches $label", ({ inspectedName }) => {
+    expect(isContainerNamed({ inspectedName, instanceName: "2025" })).toBe(true)
+  })
+
+  it("rejects a container that inspect found by an ID prefix", () => {
+    expect(
+      isContainerNamed({ inspectedName: "/remote-boot-relative-index-db\n", instanceName: "2025" }),
+    ).toBe(false)
   })
 })
 

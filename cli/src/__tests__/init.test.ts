@@ -1902,6 +1902,11 @@ describe("runInit --yes when the instance name is already in use", () => {
       flags: { port: "80a" },
       expectedError: "--port must be a whole number between 1 and 65535.",
     },
+    {
+      label: "an empty --port",
+      flags: { port: "" },
+      expectedError: "--port must be a whole number between 1 and 65535.",
+    },
   ])("exits 1 on $label", async ({ flags, expectedError }) => {
     const scripted = createScriptedPrompts([])
 

@@ -165,9 +165,10 @@ docker compose pull && docker compose up -d --force-recreate   # update to the l
 
 To serve a second vault from the same machine:
 
-1. Repeat Steps 1–2 in a separate folder, with a new `MCP_AUTH_TOKEN` and that vault's `VAULT_PATH`.
+1. In a separate folder, repeat Step 1 and Step 2's download and `.env` edit, with a new `MCP_AUTH_TOKEN` and that vault's `VAULT_PATH`. Don't start it yet: started under the default name, it would replace the first install's container.
 2. In that folder's `.env`, also set `INSTANCE_NAME` (for example `INSTANCE_NAME=work`), a free `PORT`, and `PUBLIC_URL` on that port (for example `http://localhost:8001`).
-3. Register it in the client (Step 4) under its own name and URL.
+3. Start it from that folder with Step 2's `docker compose pull` and `docker compose up -d`.
+4. Register it in the client (Step 4) under its own name and URL.
 
 `INSTANCE_NAME` names that install's container and index volume, so the `docker exec` commands in this guide use that name in place of `vault-cortex` (`docker exec work …`), and its URLs use its `PORT`. The `docker compose` commands keep the service name `vault-cortex` and run from that install's folder.
 
