@@ -13,7 +13,7 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * exercised here by running the real script under `sh` with stub `ob` and
  * `s6-setuidgid` executables on PATH.
  *
- * The script runs check-sync-vault from its own folder, so each run links the
+ * The script runs check-sync-vault from its own folder, so each run copies the
  * real script into a temp folder beside a stub check. The check's own
  * branches are covered in check-sync-vault.test.ts; these tests cover when
  * it runs and what happens on each of its answers.
