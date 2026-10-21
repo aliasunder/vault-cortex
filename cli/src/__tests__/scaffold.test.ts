@@ -380,6 +380,22 @@ describe("readEnvPublicUrl", () => {
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
+
+  it("returns undefined when the quotes hold only whitespace", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="   "\n')
+
+    expect(readEnvPublicUrl(envPath)).toBeUndefined()
+  })
+
+  it("trims whitespace inside the quotes before stripping trailing slashes", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL=" https://vault.example.com/ "\n')
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
 })
 
 describe("detectMode", () => {

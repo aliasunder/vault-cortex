@@ -138,10 +138,10 @@ export const readEnvVaultPath = (envFilePath: string): string | undefined => {
 export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
   const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_PUBLIC_URL_VALUE_LINES)].at(-1)
-  // A whitespace-only line matches the regex and trims to "" — normalize to
-  // undefined so the non-empty contract holds ("" is never a legitimate URL).
+  // A whitespace-only value, quoted or not, counts as empty, as it does in
+  // the server's check of the required variable.
   const rawValue = match?.[1].trim()
-  const unquotedValue = rawValue ? stripSurroundingQuotes(rawValue) : undefined
+  const unquotedValue = rawValue ? stripSurroundingQuotes(rawValue).trim() : undefined
   // Strip trailing slashes (mirroring askPublicUrl's prompt-side
   // normalization): consumers append paths to this base, and a hand-edited
   // `https://host/` would otherwise print broken `//mcp` connect URLs.

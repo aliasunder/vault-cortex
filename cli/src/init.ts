@@ -586,7 +586,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
 
   // Without the sync token the container only opens its setup page and syncs
   // nothing, so docker run is offered only with a token; otherwise the
-  // closing message says how to get one.
+  // closing message says to fill it in before starting.
   const startStatus: StartStatus = !hasSyncToken
     ? "not-started"
     : await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
