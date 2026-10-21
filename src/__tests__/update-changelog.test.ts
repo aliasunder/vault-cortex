@@ -181,8 +181,11 @@ describe("update-changelog.sh", () => {
       )
     })
 
-    it("ends the file with a single newline when the changelog ends in blank lines", () => {
-      const releaseDir = createReleaseDir(`# Changelog\n\n${EARLIER_ENTRIES}\n\n\n`)
+    it.each([
+      { label: "ends in blank lines", earlierEntries: `${EARLIER_ENTRIES}\n\n\n` },
+      { label: "has no final newline", earlierEntries: EARLIER_ENTRIES.trimEnd() },
+    ])("ends the file with a single newline when the changelog $label", ({ earlierEntries }) => {
+      const releaseDir = createReleaseDir(`# Changelog\n\n${earlierEntries}`)
 
       releaseDir.release({ version: "0.2.0", notes: NOTES })
 
