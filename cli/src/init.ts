@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
@@ -14,7 +14,6 @@ import {
 import {
   healthPollTimeoutMs,
   healthTimeoutMessage,
-  isVaultCortexImage,
   pollHealth,
   type DockerRunner,
 } from "./docker.js"
@@ -23,11 +22,12 @@ import {
   describeStrandedCarriedPublicUrl,
   resolveInstanceIdentity,
 } from "./instance-identity.js"
-import { foreignContainerMessage, reportPublicUrlProbe, resolveDeployment } from "./lifecycle.js"
+import { checkInstanceContainer, reportPublicUrlProbe, resolveDeployment } from "./lifecycle.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
   describeStrandedPublicUrl,
+  readOptionalValue,
   withPublicUrlOverride,
 } from "./optional-settings.js"
 import {
@@ -252,9 +252,16 @@ const confirmOverwrite =
  */
 const describeModeMismatch = (params: { targetDir: string; mode: Mode }): string | undefined => {
   const { targetDir, mode } = params
-  const existingMode = detectMode(join(targetDir, ".env"))
+  const envFilePath = join(targetDir, ".env")
+  const existingMode = detectMode(envFilePath)
 
   if (!existingMode || existingMode === mode) return undefined
+  // detectMode reads any .env without a Sync token as local, but only a file
+  // init wrote has MCP_AUTH_TOKEN; another app's .env gets the usual re-run question.
+  const writtenByInit =
+    readOptionalValue(readFileSync(envFilePath, "utf8"), "MCP_AUTH_TOKEN") !== undefined
+
+  if (!writtenByInit) return undefined
   return (
     `${targetDir} holds a ${existingMode} install, and this run sets up a ${mode} one.\n` +
     `To start the existing install: ${startCommand(targetDir)}\n` +
@@ -305,11 +312,11 @@ const reportWrites = (
 
 /**
  * Offers to start the container, walking a gate ladder where each failed
- * gate degrades to instructions instead of an error: daemon running → user
- * consents → any container with this name is removed → docker run succeeds
- * → health check passes. Returns "running"
- * when the server is confirmed up, "starting" when the container launched
- * but the health check timed out, or "not-started" when a gate failed.
+ * gate degrades to instructions instead of an error: daemon running → no
+ * other image's container holds the name → user consents → any container with
+ * this name is removed → docker run succeeds → health check passes. Returns
+ * "running" when the server is confirmed up, "starting" when the container
+ * launched but the health check timed out, or "not-started" when a gate failed.
  */
 const offerDockerRun = async (
   params: { targetDir: string; instanceName: string; port: number; mode: Mode; vaultPath?: string },
@@ -330,21 +337,16 @@ const offerDockerRun = async (
     )
     return "not-started"
   }
-  const existingImage = docker.containerImage(instanceName)
+  const envFilePath = join(targetDir, ".env")
+  const instanceContainer = checkInstanceContainer(
+    { instanceName, envFilePath },
+    { prompts, docker },
+  )
 
-  if (existingImage && !isVaultCortexImage(existingImage)) {
-    prompts.error(
-      foreignContainerMessage({
-        instanceName,
-        image: existingImage,
-        envFilePath: join(targetDir, ".env"),
-      }),
-    )
-    return "not-started"
-  }
+  if (instanceContainer === "foreign") return "not-started"
   // docker run refuses a name an existing container already holds, so a yes
   // replaces that container the way `start` does, and the question says so.
-  const containerExists = Boolean(existingImage)
+  const containerExists = instanceContainer === "own"
   const startQuestion = containerExists
     ? `Start the server now? This stops and replaces the existing "${instanceName}" container. Its data volumes are kept.`
     : "Start the server now?"
@@ -355,7 +357,6 @@ const offerDockerRun = async (
     prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
     return "not-started"
   }
-  const envFilePath = join(targetDir, ".env")
   stripEnvQuotedValues(envFilePath)
   const containerStarted = docker.dockerRun({
     mode,

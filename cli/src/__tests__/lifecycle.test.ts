@@ -1008,8 +1008,9 @@ describe("a container under the install's name that runs another image", () => {
     expect(exitCode).toBe(1)
     expect(foreign.calls).toEqual(["inspect:vault-cortex"])
     expect(scripted.errors).toEqual([
-      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so it was left in place.\n` +
-        `Give this install a name no other container uses: change INSTANCE_NAME in ${targetDir}/.env.`,
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        `To keep this install's data, rename that container: docker rename vault-cortex <new-name>\n` +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
     ])
   })
 
@@ -1027,8 +1028,9 @@ describe("a container under the install's name that runs another image", () => {
     expect(exitCode).toBe(1)
     expect(foreign.calls).toEqual(["inspect:vault-cortex"])
     expect(scripted.errors).toEqual([
-      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so it was left in place.\n` +
-        `Give this install a name no other container uses: change INSTANCE_NAME in ${targetDir}/.env.`,
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        `To keep this install's data, rename that container: docker rename vault-cortex <new-name>\n` +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
     ])
   })
 
@@ -1046,8 +1048,9 @@ describe("a container under the install's name that runs another image", () => {
     expect(exitCode).toBe(1)
     expect(foreign.calls).toEqual(["inspect:vault-cortex"])
     expect(scripted.errors).toEqual([
-      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so it was left in place.\n` +
-        `Give this install a name no other container uses: change INSTANCE_NAME in ${targetDir}/.env.`,
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        `To keep this install's data, rename that container: docker rename vault-cortex <new-name>\n` +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
     ])
   })
 })

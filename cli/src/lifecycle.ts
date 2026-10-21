@@ -195,20 +195,25 @@ export const reportPublicUrlProbe = async (
 }
 
 /**
- * Refusal for a container that holds the install's name but runs another
- * image: INSTANCE_NAME then names someone else's container, which a command
- * must not stop or remove.
+ * Looks up the container that holds the install's name. One running another
+ * image is someone else's, so no command may stop, remove or stream it: this
+ * reports the refusal, and callers stop on "foreign".
  */
-export const foreignContainerMessage = (params: {
-  instanceName: string
-  image: string
-  envFilePath: string
-}): string => {
-  const { instanceName, image, envFilePath } = params
-  return (
-    `A container named "${instanceName}" runs ${image}, not Vault Cortex, so it was left in place.\n` +
-    `Give this install a name no other container uses: change INSTANCE_NAME in ${envFilePath}.`
+export const checkInstanceContainer = (
+  params: { instanceName: string; envFilePath: string },
+  deps: { prompts: Prompts; docker: DockerRunner },
+): "none" | "own" | "foreign" => {
+  const { instanceName, envFilePath } = params
+  const image = deps.docker.containerImage(instanceName)
+
+  if (!image) return "none"
+  if (isVaultCortexImage(image)) return "own"
+  deps.prompts.error(
+    `A container named "${instanceName}" runs ${image}, not Vault Cortex, so this command leaves it alone.\n` +
+      `To keep this install's data, rename that container: docker rename ${instanceName} <new-name>\n` +
+      `Or change INSTANCE_NAME in ${envFilePath}: the install then starts on new, empty volumes.`,
   )
+  return "foreign"
 }
 
 /**
@@ -223,24 +228,18 @@ export const recreateContainer = async (
   const { deployment, healthTimeoutMs } = params
   const { prompts, docker, fetchFn } = deps
   const { instanceName } = deployment
-  const existingImage = docker.containerImage(instanceName)
+  const instanceContainer = checkInstanceContainer(
+    { instanceName, envFilePath: deployment.envFilePath },
+    { prompts, docker },
+  )
 
-  if (existingImage && !isVaultCortexImage(existingImage)) {
-    prompts.error(
-      foreignContainerMessage({
-        instanceName,
-        image: existingImage,
-        envFilePath: deployment.envFilePath,
-      }),
-    )
-    return 1
-  }
+  if (instanceContainer === "foreign") return 1
   // `docker rm -f` on a missing container exits non-zero on engines < 23,
   // so the bare return value can't distinguish "nothing to remove" from a
   // real failure — only treat removal as failed when a container exists.
   // Proceeding after a genuine failure would surface as a confusing
   // "container name already in use" from docker run.
-  if (existingImage && !docker.stopAndRemoveContainer(instanceName)) {
+  if (instanceContainer === "own" && !docker.stopAndRemoveContainer(instanceName)) {
     prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
     return 1
   }
@@ -302,17 +301,17 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
 
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
-  const { instanceName, envFilePath } = initialized
-  const existingImage = docker.containerImage(instanceName)
+  const { instanceName, envFilePath, targetDir } = initialized
+  const instanceContainer = checkInstanceContainer(
+    { instanceName, envFilePath },
+    { prompts, docker },
+  )
 
-  if (!existingImage) {
+  if (instanceContainer === "foreign") return 1
+  if (instanceContainer === "none") {
     prompts.log(`No ${instanceName} container found — nothing to stop.`)
     prompts.outro("Done.")
     return 0
-  }
-  if (!isVaultCortexImage(existingImage)) {
-    prompts.error(foreignContainerMessage({ instanceName, image: existingImage, envFilePath }))
-    return 1
   }
 
   if (!docker.stopAndRemoveContainer(instanceName)) {
@@ -323,7 +322,7 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
   prompts.log(
     "Container stopped and removed. Your vault data, search index, and settings are untouched.",
   )
-  prompts.outro(`Start again with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`)
+  prompts.outro(`Start again with: npx vault-cortex@latest start --dir "${targetDir}"`)
   return 0
 }
 
@@ -341,17 +340,17 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
 
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
-  const { instanceName, envFilePath } = initialized
-  const existingImage = docker.containerImage(instanceName)
+  const { instanceName, envFilePath, targetDir } = initialized
+  const instanceContainer = checkInstanceContainer(
+    { instanceName, envFilePath },
+    { prompts, docker },
+  )
 
-  if (!existingImage) {
+  if (instanceContainer === "foreign") return 1
+  if (instanceContainer === "none") {
     prompts.error(
-      `No ${instanceName} container — start it with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
+      `No ${instanceName} container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
     )
-    return 1
-  }
-  if (!isVaultCortexImage(existingImage)) {
-    prompts.error(foreignContainerMessage({ instanceName, image: existingImage, envFilePath }))
     return 1
   }
 

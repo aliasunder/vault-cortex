@@ -67,9 +67,9 @@ server.
 
 - Stops when the folder holds an install of the other mode (a remote install
   for a local setup, or the reverse), and points you to [`start`](#start).
-- Otherwise asks before anything else. Declining leaves everything unchanged
-  and points you to [`configure`](#configure), the command for changing
-  settings in place.
+- Asks before changing anything. Declining leaves everything unchanged and
+  points you to [`configure`](#configure), the command for changing settings
+  in place.
 - Never overwrites existing files without asking.
 - Keeps the install's name, and stops if `--instance-name` gives a different
   one.
@@ -85,10 +85,10 @@ server.
    npx vault-cortex@latest init --dir ./vault-cortex-work
    ```
 
-3. When the machine already has a `vault-cortex` container or data volume,
-   init asks for the new install's name and port, and suggests the first port
-   no other container uses. The name is saved as `INSTANCE_NAME` in the
-   install's `.env` and names its container and data.
+3. Give the new install its own name and port when init asks. It asks when
+   the machine already has a `vault-cortex` container or data volume, and
+   suggests the first port no other container uses. The name is saved as
+   `INSTANCE_NAME` in the install's `.env` and names its container and data.
 4. Pass that `--dir` to every command for the install, such as `upgrade` or
    `logs`. Each command acts only on that install.
 5. Add the install to your MCP client as its own connector.
@@ -168,8 +168,10 @@ npx vault-cortex@latest start
 This is the command the CLI's own guidance points to whenever the server
 isn't running — after [`down`](#down), or an `init` where the server wasn't
 started. It's the same cycle as [`restart`](#restart) under the name you'd
-look for: any existing container is replaced, and Docker pulls the server
-image automatically on a first start.
+look for: the install's existing container is replaced, and Docker pulls the
+server image automatically on a first start. A container of another app that
+holds the install's name is left alone, and `start` stops with an error that
+names it.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.
 

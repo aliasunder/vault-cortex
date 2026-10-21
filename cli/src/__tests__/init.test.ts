@@ -943,7 +943,7 @@ describe("runInit re-init guard", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
   })
 
-  it("stops local init on a folder that holds a remote install, before asking anything", async () => {
+  it("stops local init on a folder that holds a remote install, before asking about the existing install", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
@@ -972,7 +972,27 @@ describe("runInit re-init guard", () => {
     expect(dockerRun).not.toHaveBeenCalled()
   })
 
-  it("stops remote init on a folder that holds a local install, before asking anything", async () => {
+  it("asks the usual re-run question for a .env that init did not write", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const otherAppEnv = "DATABASE_URL=postgres://localhost/app\n"
+    writeFileSync(join(targetDir, ".env"), otherAppEnv)
+    const scripted = createScriptedPrompts([
+      false, // do not re-run setup
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReadyEmptyHost, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(otherAppEnv)
+  })
+
+  it("stops remote init on a folder that holds a local install, before asking about the existing install", async () => {
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
     const existingEnv = `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${makeVault()}\n`
@@ -2249,11 +2269,81 @@ describe("runInit when the instance name is already in use", () => {
     expect(recording.calls).toEqual(["inspect:vault-cortex", "inspect:vault-cortex"])
   })
 
-  it("leaves a container that runs another image in place and does not offer to start", async () => {
+  it("asks for a new name, without offering reuse, when another app's container holds the default name", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "work",
+      "8001",
+      [], // no optional settings
+      false, // don't start now
+    ])
+    const docker: DockerRunner = {
+      ...dockerWithExisting([]),
+      containerImage: (instanceName) => {
+        return instanceName === "vault-cortex" ? "postgres:16" : undefined
+      },
+    }
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      NAME_QUESTION,
+      PORT_QUESTION,
+      "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
+    ])
+    expect(scripted.warnings).toEqual([
+      'A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this install needs another name.',
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("stops --instance-name when another app's container holds that name", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts()
+    const docker: DockerRunner = {
+      ...dockerWithExisting([]),
+      containerImage: (instanceName) => {
+        return instanceName === "work" ? "postgres:16" : undefined
+      },
+    }
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, yes: true, instanceName: "work" },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'A container named "work" runs postgres:16, not Vault Cortex, so this install needs another name. Re-run with --instance-name and a name no other container uses.',
+    ])
+    expect(existsSync(join(targetDir, ".env"))).toBe(false)
+  })
+
+  it("leaves a re-run's container that runs another image in place and does not offer to start", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=http://localhost:8001\nINSTANCE_NAME=work\nPORT=8001\n`,
+    )
     // No answer for a start question: asking one fails the test.
-    const scripted = createScriptedPrompts(["reuse", "8000", []])
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      [], // no optional settings
+      true, // overwrite the existing file
+    ])
     const recording = createRecordingDocker()
     const docker: DockerRunner = {
       ...recording.docker,
@@ -2270,10 +2360,11 @@ describe("runInit when the instance name is already in use", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.errors).toEqual([
-      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so it was left in place.\n` +
-        `Give this install a name no other container uses: change INSTANCE_NAME in ${targetDir}/.env.`,
+      `A container named "work" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        "To keep this install's data, rename that container: docker rename work <new-name>\n" +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
     ])
-    expect(recording.calls).toEqual(["inspect:vault-cortex", "inspect:vault-cortex"])
+    expect(recording.calls).toEqual(["inspect:work"])
   })
 
   it("counts a remote install as in use when only its vault volume is left", async () => {

@@ -290,29 +290,11 @@ const isValidTimezone = (value: string): boolean => {
   }
 }
 
-/** Re-prompts until the answer is a valid port number. */
-const askPort = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
-  // An empty PORT= line leaves the default port in effect, as readEnvPort reads
-  // it; a value that isn't a port is never offered, since it would be rejected.
-  const suggestedPort =
-    currentValue && isValidPort(currentValue) ? currentValue : String(DEFAULT_PORT)
-  const answer = (
-    await prompts.text("Host port for the server:", {
-      defaultValue: suggestedPort,
-      placeholder: suggestedPort,
-    })
-  ).trim()
-
-  if (isValidPort(answer)) return answer
-  prompts.error("PORT must be a whole number between 1 and 65535.")
-  return askPort(currentValue, prompts)
-}
-
 /** Host ports that containers on this machine publish, mapped to each container's name. */
 export type PortsInUse = ReadonlyMap<number, string>
 
-export const portInUseMessage = (port: string, containerName: string): string => {
-  return `Port ${port} is already used by the "${containerName}" container on this machine.`
+export const portInUseMessage = (params: { port: string; containerName: string }): string => {
+  return `Port ${params.port} is already used by the "${params.containerName}" container on this machine.`
 }
 
 /** The first port, counting up from the default, that no container publishes. */
@@ -328,13 +310,28 @@ export const askFreePort = async (
   params: { suggestedPort: string | undefined; portsInUse: PortsInUse },
   prompts: Prompts,
 ): Promise<string> => {
-  const answer = await askPort(params.suggestedPort, prompts)
-  const portUser = params.portsInUse.get(Number(answer))
+  const { suggestedPort, portsInUse } = params
+  // An empty PORT= line leaves the default port in effect, as readEnvPort reads
+  // it; a value that isn't a port is never offered, since it would be rejected.
+  const offeredPort =
+    suggestedPort && isValidPort(suggestedPort) ? suggestedPort : String(DEFAULT_PORT)
+  const answer = (
+    await prompts.text("Host port for the server:", {
+      defaultValue: offeredPort,
+      placeholder: offeredPort,
+    })
+  ).trim()
+
+  if (!isValidPort(answer)) {
+    prompts.error("PORT must be a whole number between 1 and 65535.")
+    return askFreePort(params, prompts)
+  }
+  const portUser = portsInUse.get(Number(answer))
 
   if (!portUser) return answer
-  prompts.error(`${portInUseMessage(answer, portUser)} Pick another port.`)
-  // A free suggestion, so pressing enter can't offer the taken port again.
-  return askFreePort({ ...params, suggestedPort: suggestFreePort(params.portsInUse) }, prompts)
+  prompts.error(`${portInUseMessage({ port: answer, containerName: portUser })} Pick another port.`)
+  // Suggest a free port, so pressing Enter can't pick the taken one again.
+  return askFreePort({ ...params, suggestedPort: suggestFreePort(portsInUse) }, prompts)
 }
 
 export const buildPortsInUse = (publishedPorts: ReadonlyArray<PublishedPort>): PortsInUse => {
@@ -498,18 +495,22 @@ const askSettingValue = async (
 }
 
 /**
- * The guided optional-settings flow shared by init and configure: one
- * multiselect chooser (enter with nothing picked = change nothing), then one
- * prompt per picked setting. Returns the chosen values keyed by var name —
- * the caller owns applying them via applyOptionalSettings. The port prompt
- * refuses a port in portsInUse: the ports other containers publish, empty
- * when Docker can't be asked.
+ * The guided optional-settings flow shared by init and configure:
+ * - one multiselect chooser (enter with nothing picked = change nothing), then
+ *   one prompt per picked setting;
+ * - returns the chosen values keyed by var name, which the caller applies with
+ *   applyOptionalSettings.
  */
 export const askOptionalSettings = async (
-  params: { mode: Mode; envContent: string; portsInUse?: PortsInUse },
+  params: {
+    mode: Mode
+    envContent: string
+    /** Ports other containers publish, which the port prompt refuses; empty when Docker can't be asked. */
+    portsInUse: PortsInUse
+  },
   prompts: Prompts,
 ): Promise<Record<string, string>> => {
-  const { mode, envContent, portsInUse = new Map<number, string>() } = params
+  const { mode, envContent, portsInUse } = params
   const offeredSettings = OPTIONAL_SETTINGS.filter(
     (setting) => !setting.remoteOnly || mode === "remote",
   )

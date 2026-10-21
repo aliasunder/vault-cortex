@@ -478,6 +478,14 @@ describe("parsePublishedHostPorts", () => {
     ])
   })
 
+  it("counts every port of a published host-port range", () => {
+    expect(parsePublishedHostPorts("/ranged 18690-18692\n")).toEqual([
+      { hostPort: 18690, containerName: "ranged" },
+      { hostPort: 18691, containerName: "ranged" },
+      { hostPort: 18692, containerName: "ranged" },
+    ])
+  })
+
   it("keeps every container that publishes the same host port", () => {
     const inspectOutput = ["/vault-cortex 8000", "/stopped-test 8000"].join("\n")
 
@@ -531,7 +539,6 @@ describe("isVaultCortexImage", () => {
     { label: "a Docker Hub tag", image: "aliasunder/vault-cortex:remote" },
     { label: "a fully named Docker Hub tag", image: "docker.io/aliasunder/vault-cortex:0.54.16" },
     { label: "a digest", image: "ghcr.io/aliasunder/vault-cortex@sha256:0123abcd" },
-    { label: "the image's name before the rename", image: "ghcr.io/aliasunder/vault-mcp:latest" },
   ])("accepts $label", ({ image }) => {
     expect(isVaultCortexImage(image)).toBe(true)
   })

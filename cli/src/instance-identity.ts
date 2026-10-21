@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import { basename, join } from "node:path"
 
-import { instanceVolumeNames, type DockerRunner } from "./docker.js"
+import { instanceVolumeNames, isVaultCortexImage, type DockerRunner } from "./docker.js"
 import {
   applyOptionalSettings,
   askFreePort,
@@ -72,17 +72,20 @@ const readCarriedIdentity = (envFilePath: string, mode: Mode): Record<string, st
   return Object.fromEntries(carriedEntries)
 }
 
-/**
- * Whether another install already uses this name on the machine: its
- * container exists, or one of its volumes does. A leftover volume counts,
- * because a new install with that name would mount the old data.
- */
+/** A leftover volume counts as in use, because a new install with that name would mount the old data. */
+const hasInstanceVolumes = (
+  params: { mode: Mode; instanceName: string },
+  docker: DockerRunner,
+): boolean => {
+  return instanceVolumeNames(params).some((volumeName) => docker.volumeExists(volumeName))
+}
+
+/** Whether another install already uses this name on the machine: its container or one of its volumes exists. */
 const isInstanceNameInUse = (
   params: { mode: Mode; instanceName: string },
   docker: DockerRunner,
 ): boolean => {
-  if (docker.containerImage(params.instanceName)) return true
-  return instanceVolumeNames(params).some((volumeName) => docker.volumeExists(volumeName))
+  return Boolean(docker.containerImage(params.instanceName)) || hasInstanceVolumes(params, docker)
 }
 
 const EXAMPLE_INSTANCE_NAME = "work"
@@ -167,7 +170,7 @@ const checkRequestedPort = async (
   const portUser = portsInUse.get(Number(requestedPort))
 
   if (!portUser) return { kind: "ok", settings: flags.port ? { PORT: flags.port } : {} }
-  const message = portInUseMessage(requestedPort, portUser)
+  const message = portInUseMessage({ port: requestedPort, containerName: portUser })
 
   if (flags.yes) {
     prompts.error(
@@ -222,8 +225,8 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
  *   --yes cannot ask, so it exits unless --instance-name settles it;
  * - a new install's port, and a re-run's --port, must not be one another
  *   container publishes.
- * The checks need a running Docker daemon; without one a new install's are
- * skipped with a warning, and a re-run's --port is not checked.
+ * The checks need a running Docker daemon; without one a new install's checks
+ * are skipped with a warning, and a re-run's --port is not checked.
  */
 export const resolveInstanceIdentity = async (
   params: { mode: Mode; targetDir: string; flags: InstanceIdentityFlags },
@@ -254,7 +257,7 @@ export const resolveInstanceIdentity = async (
   const existingEnvPath = join(targetDir, ".env")
 
   // An existing .env makes this folder an install already, and its own
-  // container and volumes would always count as in use, so a re-run skips the check.
+  // container and volumes would always count as in use, so a re-run skips the name check.
   if (existsSync(existingEnvPath)) {
     const carried = readCarriedIdentity(existingEnvPath, mode)
     const carriedName = carried.INSTANCE_NAME || DEFAULT_INSTANCE_NAME
@@ -301,8 +304,11 @@ export const resolveInstanceIdentity = async (
   // Without Docker the check can't see another install's container or
   // volumes, and a shared name would only surface when start replaces them.
   if (!daemonRunning) prompts.warn(nameCheckSkippedMessage(requestedName))
+  const requestedNameImage = daemonRunning ? docker.containerImage(requestedName) : undefined
   const requestedNameInUse =
-    daemonRunning && isInstanceNameInUse({ mode, instanceName: requestedName }, docker)
+    daemonRunning &&
+    (Boolean(requestedNameImage) ||
+      hasInstanceVolumes({ mode, instanceName: requestedName }, docker))
   const publishedPorts = daemonRunning ? docker.publishedHostPorts() : []
   const portsInUse = buildPortsInUse(publishedPorts)
   // A new folder's .env starts from the template's device name, so a name
@@ -321,7 +327,22 @@ export const resolveInstanceIdentity = async (
     return { kind: "ok", identity: { carried: {}, chosen }, portsInUse }
   }
   const portsOutsideReusedInstall = portsOfOtherContainers(publishedPorts, requestedName)
+  // Another app's container holds no install's data, so its name can't be
+  // reused: --yes and --instance-name stop, and the prompt asks for a new name.
+  const otherAppImage =
+    requestedNameImage && !isVaultCortexImage(requestedNameImage) ? requestedNameImage : undefined
 
+  if (otherAppImage) {
+    const nameTakenMessage = `A container named "${requestedName}" runs ${otherAppImage}, not Vault Cortex, so this install needs another name.`
+
+    if (flags.instanceName || flags.yes) {
+      prompts.error(
+        `${nameTakenMessage} Re-run with --instance-name and a name no other container uses.`,
+      )
+      return { kind: "exit" }
+    }
+    prompts.warn(nameTakenMessage)
+  }
   if (flags.instanceName) {
     prompts.log(`Reusing the data of the existing "${requestedName}" install.`)
     const reusedPort = await askReusedPort(
@@ -338,22 +359,24 @@ export const resolveInstanceIdentity = async (
     return { kind: "exit" }
   }
 
-  const choice = await prompts.select(
-    `An install named "${requestedName}" already exists on this machine (its container or data volumes are here). What should this install do?`,
-    [
-      {
-        value: "own-name",
-        label: "Give this install its own name",
-        hint: "a second vault, with its own container, data and port",
-      },
-      {
-        value: "reuse",
-        label: "Reuse the existing data — this is the same vault set up again",
-        hint: `replaces the "${requestedName}" container`,
-      },
-    ],
-    "own-name",
-  )
+  const choice = otherAppImage
+    ? "own-name"
+    : await prompts.select(
+        `An install named "${requestedName}" already exists on this machine (its container or data volumes are here). What should this install do?`,
+        [
+          {
+            value: "own-name",
+            label: "Give this install its own name",
+            hint: "a second vault, with its own container, data and port",
+          },
+          {
+            value: "reuse",
+            label: "Reuse the existing data — this is the same vault set up again",
+            hint: `replaces the "${requestedName}" container`,
+          },
+        ],
+        "own-name",
+      )
 
   if (choice === "reuse") {
     const reusedPort = await askReusedPort(

@@ -44,10 +44,10 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
 
   const envContent = readFileSync(envFilePath, "utf8")
   const daemonStatus = docker.daemonStatus()
-  const portsInUse =
-    daemonStatus === "running"
-      ? portsOfOtherContainers(docker.publishedHostPorts(), instanceName)
-      : new Map<number, string>()
+  const portsInUse = portsOfOtherContainers(
+    daemonStatus === "running" ? docker.publishedHostPorts() : [],
+    instanceName,
+  )
   const pickedOverrides = await askOptionalSettings({ mode, envContent, portsInUse }, prompts)
 
   if (Object.keys(pickedOverrides).length === 0) {
@@ -73,13 +73,14 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   if (publicUrlWarning) prompts.warn(publicUrlWarning)
 
   const restartHint = `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`
+  // Asked again: Docker may have stopped or started while the prompts were open.
+  const restartDaemonStatus = docker.daemonStatus()
 
-  if (daemonStatus !== "running") {
-    // Settings are already saved — the runtime state only affects the restart
-    // offer, so both non-running states degrade to the hint; restart itself
-    // prints the full install/start guidance when run.
+  if (restartDaemonStatus !== "running") {
+    // Settings are already saved, so both non-running states degrade to the
+    // hint; restart itself prints the full install/start guidance when run.
     prompts.warn(
-      daemonStatus === "not-installed"
+      restartDaemonStatus === "not-installed"
         ? `No container runtime found — settings saved.\n${restartHint}`
         : `Container runtime not running — settings saved.\n${restartHint}`,
     )

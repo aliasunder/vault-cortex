@@ -5,16 +5,11 @@ import type { Mode } from "./scaffold.js"
 export const LOCAL_IMAGE = "ghcr.io/aliasunder/vault-cortex:latest"
 export const REMOTE_IMAGE = "ghcr.io/aliasunder/vault-cortex:remote"
 
-/**
- * - The image on GHCR and on its Docker Hub mirror, which Docker also reports
- *   without docker.io/.
- * - vault-mcp: the image's name before v0.27.0, which older CLI installs still run.
- */
+/** The image on GHCR and on its Docker Hub mirror, which Docker also reports without docker.io/. */
 const VAULT_CORTEX_IMAGE_REPOSITORIES = [
   "ghcr.io/aliasunder/vault-cortex",
   "aliasunder/vault-cortex",
   "docker.io/aliasunder/vault-cortex",
-  "ghcr.io/aliasunder/vault-mcp",
 ]
 
 /** True for any tag or digest of the Vault Cortex image. */
@@ -217,8 +212,8 @@ export const classifyDaemonStatus = (spawnResult: {
 }
 
 /**
- * Whether `docker container inspect --format {{.Name}}` printed this name.
- * Docker prints it with a leading slash; Podman and nerdctl print it bare.
+ * Whether the name `docker container inspect` printed is this name. Docker
+ * prints it with a leading slash; Podman and nerdctl print it bare.
  */
 export const isContainerNamed = (params: {
   inspectedName: string
@@ -236,7 +231,7 @@ export const parseContainerImage = (params: {
   inspectOutput: string
   instanceName: string
 }): string | undefined => {
-  const [inspectedName = "", image] = params.inspectOutput.trim().split(" ")
+  const [inspectedName, image] = params.inspectOutput.trim().split(/\s+/)
 
   if (!image || !isContainerNamed({ inspectedName, instanceName: params.instanceName })) {
     return undefined
@@ -252,8 +247,21 @@ export const parseContainerImage = (params: {
 const PUBLISHED_PORTS_FORMAT =
   "{{.Name}}{{range $containerPort, $bindings := .HostConfig.PortBindings}}{{range $bindings}} {{.HostPort}}{{end}}{{end}}"
 
-/** A published host port; an empty HostPort means the runtime picks one at start. */
-const HOST_PORT_PATTERN = /^\d+$/
+/**
+ * A published host port ("8000"), or a range ("8000-8010") the runtime picks one
+ * port from at start. An empty HostPort means the runtime picks any port.
+ */
+const HOST_PORT_PATTERN = /^(\d+)(?:-(\d+))?$/
+
+/** Every port a HostPort value can claim; a range counts whole, since any of its ports may be the one in use. */
+const expandHostPort = (hostPort: string): number[] => {
+  const match = HOST_PORT_PATTERN.exec(hostPort)
+
+  if (!match) return []
+  const firstPort = Number(match[1])
+  const lastPort = match[2] ? Number(match[2]) : firstPort
+  return Array.from({ length: lastPort - firstPort + 1 }, (_, offset) => firstPort + offset)
+}
 
 /**
  * Reads PUBLISHED_PORTS_FORMAT output into one entry per container and port,
@@ -266,9 +274,7 @@ export const parsePublishedHostPorts = (inspectOutput: string): ReadonlyArray<Pu
     if (!inspectedName) return []
     // Docker prints the name with a leading slash; Podman and nerdctl print it bare.
     const containerName = inspectedName.replace(/^\//, "")
-    return hostPorts
-      .filter((hostPort) => HOST_PORT_PATTERN.test(hostPort))
-      .map((hostPort) => ({ hostPort: Number(hostPort), containerName }))
+    return hostPorts.flatMap(expandHostPort).map((hostPort) => ({ hostPort, containerName }))
   })
 }
 

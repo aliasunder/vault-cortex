@@ -170,7 +170,7 @@ LOG_LEVEL=info
 
 # Directory for persistent log files inside the container (default: none).
 # The container's own log (what \`docker logs\` shows) is always written, but
-# Docker discards it whenever the container is recreated — on image updates
+# Docker discards it whenever the container is re-created — on image updates
 # or settings changes. Set a path (e.g. /data/logs) to also write date-stamped
 # log files there; the /data volume keeps them.
 LOG_DIR=none
@@ -335,7 +335,7 @@ LOG_LEVEL=info
 
 # Directory for persistent log files inside the container (default: /data/logs).
 # The container's own log (what \`docker logs\` shows) is always written, but
-# Docker discards it whenever the container is recreated — on image updates
+# Docker discards it whenever the container is re-created — on image updates
 # or settings changes. Log files under LOG_DIR live on the data volume and
 # survive. Set to "none" to keep only the container log.
 LOG_DIR=/data/logs

@@ -118,7 +118,8 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(recording.calls).toEqual(["inspect:work", "rm:work", "run:work"])
+    // Inspected before the pull, then again by the re-create step.
+    expect(recording.calls).toEqual(["inspect:work", "inspect:work", "rm:work", "run:work"])
     expect(recording.runParams.map((params) => params.instanceName)).toEqual(["work"])
   })
 
@@ -213,6 +214,34 @@ describe("runUpgrade", () => {
         "some networks keep a server from reaching its own public address even\n" +
         "when other devices can. Once access is set up, check from any device:\n" +
         "  curl https://vault.example.com/healthz",
+    ])
+  })
+
+  it("refuses a container of another app before downloading the image", async () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-upgrade-"))
+    writeLocalEnv(targetDir)
+    const pulledImages: string[] = []
+    const docker: DockerRunner = {
+      ...dockerReady,
+      containerImage: () => "postgres:16",
+      pullImage: (image) => {
+        pulledImages.push(image)
+        return true
+      },
+    }
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runUpgrade(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(pulledImages).toEqual([])
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        "To keep this install's data, rename that container: docker rename vault-cortex <new-name>\n" +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
     ])
   })
 

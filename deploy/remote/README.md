@@ -500,9 +500,8 @@ volumes, port, Obsidian Sync device and connector. Give every install after
 the first its own `INSTANCE_NAME` before its first start. Docker uses that
 name for the install's container and volumes (`<name>_vault_data`,
 `<name>_mcp_data` and `<name>_obsidian_config`); the first install keeps the
-default, `vault-cortex`. A second vault must never
-use the first install's volumes: the container refuses to start rather than
-merge the two vaults (see
+default, `vault-cortex`. A second vault must never use the first install's
+volumes: the container refuses to start rather than merge the two vaults (see
 [Another vault's Sync setup](#another-vaults-sync-setup)).
 
 **Set up with the CLI?** Start Docker, so `init` can check which names and

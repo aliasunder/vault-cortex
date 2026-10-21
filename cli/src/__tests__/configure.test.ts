@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runConfigure } from "../configure.js"
 import type { DockerRunner } from "../docker.js"
@@ -91,6 +91,35 @@ describe("runConfigure with picked settings", () => {
     expect(scripted.warnings).toEqual([
       `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
+    expect(scripted.asked).toEqual([
+      "Any optional settings to change? (press enter to skip)",
+      "Enable the memory layer (About Me/ folder + memory tools)?",
+    ])
+  })
+
+  it("asks Docker again before offering the restart, in case it stopped during the prompts", async () => {
+    const targetDir = makeTempTargetDir()
+    writeLocalEnv(targetDir)
+    const daemonStatus = vi
+      .fn<DockerRunner["daemonStatus"]>()
+      .mockReturnValueOnce("running")
+      .mockReturnValue("not-running")
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: { ...dockerReady, daemonStatus }, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(daemonStatus).toHaveBeenCalledTimes(2)
+    expect(scripted.warnings).toEqual([
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+    ])
+    // The restart question is never asked.
     expect(scripted.asked).toEqual([
       "Any optional settings to change? (press enter to skip)",
       "Enable the memory layer (About Me/ folder + memory tools)?",
