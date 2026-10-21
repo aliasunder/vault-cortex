@@ -266,6 +266,17 @@ describe("readEnvVaultPath", () => {
 
     expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
   })
+
+  it("takes the last active line, as docker --env-file does", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "VAULT_PATH=/Users/me/OldVault\nMCP_AUTH_TOKEN=abc\nVAULT_PATH=/Users/me/NewVault\n",
+    )
+
+    expect(readEnvVaultPath(envPath)).toBe("/Users/me/NewVault")
+  })
 })
 
 describe("readEnvPublicUrl", () => {
@@ -275,6 +286,17 @@ describe("readEnvPublicUrl", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com\n")
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
+  it("takes the last active line, as docker --env-file does", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "PUBLIC_URL=https://old.example.com\nMCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://new.example.com\n",
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://new.example.com")
   })
 
   it("strips trailing slashes so consumers can append paths cleanly", () => {
@@ -510,6 +532,16 @@ describe("readEnvObsidianToken", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Test\n")
 
     expect(readEnvObsidianToken(envPath)).toBeUndefined()
+  })
+
+  it("takes the last line with a value, as docker --env-file does", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(
+      envPath,
+      "OBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=Test\nOBSIDIAN_AUTH_TOKEN=new-token\n",
+    )
+
+    expect(readEnvObsidianToken(envPath)).toBe("new-token")
   })
 
   it("returns undefined when the file has no OBSIDIAN_AUTH_TOKEN line", () => {

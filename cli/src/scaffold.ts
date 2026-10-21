@@ -40,14 +40,21 @@ const ENV_INSTANCE_NAME_LINES = /^INSTANCE_NAME=(.*)$/gm
  */
 const INSTANCE_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]+$/
 
-/** Matches an active (uncommented) VAULT_PATH line in a .env file. */
-const ENV_VAULT_PATH_LINE = /^VAULT_PATH=(.+)\s*$/m
+/**
+ * Matches every active (uncommented) VAULT_PATH line. Global, like the
+ * PUBLIC_URL and token patterns below, because `docker run --env-file` lets
+ * the last duplicate win.
+ */
+const ENV_VAULT_PATH_LINES = /^VAULT_PATH=(.+)\s*$/gm
 
 /** Matches an active (uncommented) PUBLIC_URL line. */
 const ENV_PUBLIC_URL_LINE = /^PUBLIC_URL=/m
 
-/** Matches an active (uncommented) PUBLIC_URL line, capturing a non-empty value. */
-const ENV_PUBLIC_URL_VALUE_LINE = /^PUBLIC_URL=(.+)\s*$/m
+/** Matches every active (uncommented) PUBLIC_URL line, capturing a non-empty value. */
+const ENV_PUBLIC_URL_VALUE_LINES = /^PUBLIC_URL=(.+)\s*$/gm
+
+/** Matches every active (uncommented) OBSIDIAN_AUTH_TOKEN line with a value. */
+const ENV_OBSIDIAN_TOKEN_LINES = /^OBSIDIAN_AUTH_TOKEN=(.+)$/gm
 
 /** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
 const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m
@@ -119,7 +126,7 @@ export const readEnvInstanceName = (envFilePath: string): InstanceNameRead => {
  */
 export const readEnvVaultPath = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
-  const match = ENV_VAULT_PATH_LINE.exec(readFileSync(envFilePath, "utf8"))
+  const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_VAULT_PATH_LINES)].at(-1)
   const rawValue = match?.[1].trim()
   return rawValue ? stripSurroundingQuotes(rawValue) : undefined
 }
@@ -145,7 +152,7 @@ export const hasEnvPublicUrl = (envFilePath: string): boolean => {
  */
 export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
-  const match = ENV_PUBLIC_URL_VALUE_LINE.exec(readFileSync(envFilePath, "utf8"))
+  const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_PUBLIC_URL_VALUE_LINES)].at(-1)
   // A whitespace-only line matches the regex and trims to "" — normalize to
   // undefined so the non-empty contract holds ("" is never a legitimate URL).
   const rawValue = match?.[1].trim()
@@ -195,7 +202,7 @@ export const patchEnvObsidianToken = (envFilePath: string, token: string): boole
  */
 export const readEnvObsidianToken = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
-  const match = /^OBSIDIAN_AUTH_TOKEN=(.+)$/m.exec(readFileSync(envFilePath, "utf8"))
+  const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_OBSIDIAN_TOKEN_LINES)].at(-1)
   return match?.[1].trim() || undefined
 }
 

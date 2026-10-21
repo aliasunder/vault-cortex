@@ -131,6 +131,27 @@ const renameOnRerunMessage = (params: { carriedName: string; targetDir: string }
   )
 }
 
+const nameCheckSkippedMessage = (instanceName: string): string => {
+  return (
+    `Docker isn't running, so init can't check whether another install on this machine already uses the name "${instanceName}".\n` +
+    `If one does, give this install its own INSTANCE_NAME and PORT in its .env before you start it, or run init again with Docker running.`
+  )
+}
+
+/**
+ * A reused install's .env is in another folder, so its port is asked for
+ * rather than assumed to be the default; --yes cannot ask and keeps --port
+ * or the default.
+ */
+const askReusedPort = async (
+  flags: InstanceIdentityFlags,
+  prompts: Prompts,
+): Promise<Record<string, string>> => {
+  if (flags.port) return { PORT: flags.port }
+  if (flags.yes) return {}
+  return { PORT: await askPort(undefined, prompts) }
+}
+
 const nameInUseWithYesFlagMessage = (instanceName: string): string => {
   return (
     `An install named "${instanceName}" already exists on this machine (its container or data volumes are here).\n` +
@@ -201,9 +222,13 @@ export const resolveInstanceIdentity = async (
   }
 
   const requestedName = flags.instanceName ?? DEFAULT_INSTANCE_NAME
+  const daemonRunning = docker.daemonStatus() === "running"
+
+  // Without Docker the check can't see another install's container or
+  // volumes, and a shared name would only surface when start replaces them.
+  if (!daemonRunning) prompts.warn(nameCheckSkippedMessage(requestedName))
   const requestedNameInUse =
-    docker.daemonStatus() === "running" &&
-    isInstanceNameInUse({ mode, instanceName: requestedName }, docker)
+    daemonRunning && isInstanceNameInUse({ mode, instanceName: requestedName }, docker)
   // A new folder's .env starts from the template's device name, so a name
   // given by --instance-name sets it too, whether the name is new or reused.
   const flagSettings = {
@@ -217,7 +242,8 @@ export const resolveInstanceIdentity = async (
   }
   if (flags.instanceName) {
     prompts.log(`Reusing the data of the existing "${requestedName}" install.`)
-    return { kind: "ok", identity: { carried: {}, chosen: flagSettings } }
+    const reusedPort = await askReusedPort(flags, prompts)
+    return { kind: "ok", identity: { carried: {}, chosen: { ...flagSettings, ...reusedPort } } }
   }
   if (flags.yes) {
     prompts.error(nameInUseWithYesFlagMessage(requestedName))
@@ -242,7 +268,8 @@ export const resolveInstanceIdentity = async (
   )
 
   if (choice === "reuse") {
-    return { kind: "ok", identity: { carried: {}, chosen: flagOverrides } }
+    const reusedPort = await askReusedPort(flags, prompts)
+    return { kind: "ok", identity: { carried: {}, chosen: { ...flagOverrides, ...reusedPort } } }
   }
   const suggestedName = suggestInstanceName({ mode, targetDir }, docker)
   const instanceName = await askFreeInstanceName({ mode, suggestedName }, deps)

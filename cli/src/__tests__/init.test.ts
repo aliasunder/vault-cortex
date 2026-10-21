@@ -5,7 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runInit, validatePublicUrl } from "../init.js"
 import { pollHealth, type DockerRunner } from "../docker.js"
-import { buildDockerNotInstalledMessage } from "../messages.js"
+import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "../messages.js"
 import { readEnvInstanceName } from "../scaffold.js"
 
 vi.mock("../docker.js", { spy: true })
@@ -447,8 +447,12 @@ describe("runInit interactive local flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain("Start the server now?")
-    expect(scripted.warnings).toHaveLength(1)
-    expect(scripted.warnings[0]).toContain("Container runtime not running")
+    expect(scripted.warnings).toEqual([
+      nameCheckSkippedWarning("vault-cortex"),
+      buildDaemonNotRunningMessage(
+        `, then run:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
+      ),
+    ])
   })
 
   // Message content per platform is pinned test-owned in messages.test.ts —
@@ -474,6 +478,7 @@ describe("runInit interactive local flow", () => {
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain("Start the server now?")
     expect(scripted.warnings).toEqual([
+      nameCheckSkippedWarning("vault-cortex"),
       buildDockerNotInstalledMessage({
         nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
       }),
@@ -1529,6 +1534,12 @@ const IN_USE_QUESTION =
   'An install named "vault-cortex" already exists on this machine (its container or data volumes are here). What should this install do?'
 const NAME_QUESTION = "Name for this install (lowercase letters, digits, - and _):"
 const PORT_QUESTION = "Host port for the server:"
+const nameCheckSkippedWarning = (instanceName: string): string => {
+  return (
+    `Docker isn't running, so init can't check whether another install on this machine already uses the name "${instanceName}".\n` +
+    "If one does, give this install its own INSTANCE_NAME and PORT in its .env before you start it, or run init again with Docker running."
+  )
+}
 const REPLACE_START_QUESTION =
   'Start the server now? This stops and replaces the existing "vault-cortex" container. Its data volumes are kept.'
 
@@ -1650,10 +1661,13 @@ describe("runInit when the instance name is already in use", () => {
     ])
   })
 
-  it("writes nothing extra when the user reuses the existing data", async () => {
+  it.each([
+    { label: "the default port", port: "8000" },
+    { label: "another port", port: "8001" },
+  ])("asks the port of the install whose data is reused, and writes $label", async ({ port }) => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts(["reuse", [], false])
+    const scripted = createScriptedPrompts(["reuse", port, [], false])
 
     const exitCode = await runInit(
       { mode: "local", vaultPath: vaultDir, dir: targetDir },
@@ -1667,20 +1681,44 @@ describe("runInit when the instance name is already in use", () => {
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([
       IN_USE_QUESTION,
+      PORT_QUESTION,
       "Any optional settings to change? (press enter to skip)",
       REPLACE_START_QUESTION,
     ])
     expect(readIdentityLines(targetDir)).toEqual([
-      "PUBLIC_URL=http://localhost:8000",
+      `PUBLIC_URL=http://localhost:${port}`,
       "INSTANCE_NAME=vault-cortex",
-      "PORT=8000",
+      `PORT=${port}`,
+    ])
+  })
+
+  it("asks the port when --instance-name reuses an install without --yes or --port", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["8002", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "work" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked[0]).toBe(PORT_QUESTION)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8002",
+      "INSTANCE_NAME=work",
+      "PORT=8002",
     ])
   })
 
   it("replaces the existing container when the user reuses its data and starts now", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts(["reuse", [], true])
+    const scripted = createScriptedPrompts(["reuse", "8000", [], true])
     const recording = createRecordingDocker()
 
     const exitCode = await runInit(
@@ -1701,7 +1739,7 @@ describe("runInit when the instance name is already in use", () => {
   it("starts nothing when the existing container can't be removed", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts(["reuse", [], true])
+    const scripted = createScriptedPrompts(["reuse", "8000", [], true])
     const recording = createRecordingDocker()
     const docker: DockerRunner = { ...recording.docker, stopAndRemoveContainer: () => false }
 
@@ -1721,6 +1759,7 @@ describe("runInit when the instance name is already in use", () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "reuse",
+      "8000",
       "https://vault.example.com",
       "MyVault",
       false,
@@ -2050,6 +2089,42 @@ describe("runInit re-run keeps the instance identity", () => {
       "PUBLIC_URL=http://localhost:8001",
       "INSTANCE_NAME=work",
       "PORT=8001",
+    ])
+  })
+
+  it("warns when a re-run's chosen port leaves a custom PUBLIC_URL as it was", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\nPUBLIC_URL=https://vault.example.com\n`,
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      ["PORT"], // change the host port
+      "9001",
+      true, // overwrite the existing file
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://vault.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=9001",
+    ])
+    expect(scripted.warnings).toEqual([
+      "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
     ])
   })
 

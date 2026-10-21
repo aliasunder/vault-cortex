@@ -5,7 +5,7 @@ import {
   applyOptionalSettings,
   askOptionalSettings,
   derivePublicUrlOverride,
-  readOptionalValue,
+  describeStrandedPublicUrl,
 } from "./optional-settings.js"
 import type { DockerRunner } from "./docker.js"
 import type { Prompts } from "./prompts.js"
@@ -58,15 +58,13 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   writeFileSync(envFilePath, applyOptionalSettings(envContent, overrides))
   prompts.log(`Updated ${changedNames.join(", ")} in ${targetDir}/.env.`)
 
-  // A custom PUBLIC_URL is never rewritten (see derivePublicUrlOverride), but
-  // a port change can still strand it — surface the consequence non-blocking.
-  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+  const publicUrlWarning = describeStrandedPublicUrl({
+    envContent,
+    pickedOverrides,
+    appliedOverrides: overrides,
+  })
 
-  if (pickedOverrides.PORT && !overrides.PUBLIC_URL && currentPublicUrl) {
-    prompts.warn(
-      `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`,
-    )
-  }
+  if (publicUrlWarning) prompts.warn(publicUrlWarning)
 
   const restartHint = `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`
   const daemonStatus = docker.daemonStatus()

@@ -23,6 +23,7 @@ import {
   applyOptionalSettings,
   askOptionalSettings,
   derivePublicUrlOverride,
+  describeStrandedPublicUrl,
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
@@ -430,10 +431,13 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   const optionalOverrides = flags.yes
     ? {}
     : await askOptionalSettings({ mode: "local", envContent: generatedEnvContent }, prompts)
-  const envContent = applyOptionalSettings(
-    generatedEnvContent,
-    derivePublicUrlOverride(generatedEnvContent, optionalOverrides),
-  )
+  const appliedOverrides = derivePublicUrlOverride(generatedEnvContent, optionalOverrides)
+  const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
+  const publicUrlWarning = describeStrandedPublicUrl({
+    envContent: generatedEnvContent,
+    pickedOverrides: optionalOverrides,
+    appliedOverrides,
+  })
 
   // Conflict policy: identical existing files are skipped silently;
   // differing ones prompt per file (default keep). --yes never overwrites —
@@ -459,6 +463,8 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
+  // Only a written .env carries the picked port, so a kept one needs no warning.
+  if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
   const port = readEnvPort(join(targetDir, ".env"))
   const instanceName = readInstanceNameFromDisk(targetDir, prompts)
 
@@ -548,10 +554,13 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
     { mode: "remote", envContent: generatedEnvContent },
     prompts,
   )
-  const envContent = applyOptionalSettings(
-    generatedEnvContent,
-    derivePublicUrlOverride(generatedEnvContent, optionalOverrides),
-  )
+  const appliedOverrides = derivePublicUrlOverride(generatedEnvContent, optionalOverrides)
+  const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
+  const publicUrlWarning = describeStrandedPublicUrl({
+    envContent: generatedEnvContent,
+    pickedOverrides: optionalOverrides,
+    appliedOverrides,
+  })
   const files = buildFilesToWrite(envContent)
   const results = await writeFiles({ targetDir, files }, confirmOverwrite(prompts))
   reportWrites({ targetDir, results }, prompts)
@@ -564,6 +573,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
+  if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
   const port = readEnvPort(join(targetDir, ".env"))
   // Like PORT above, PUBLIC_URL comes from the .env actually on disk — a kept
   // existing file may hold a different URL than this run's prompt, and the

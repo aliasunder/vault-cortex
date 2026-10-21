@@ -235,6 +235,23 @@ export const derivePublicUrlOverride = (
 }
 
 /**
+ * Warns about a picked PORT change that left PUBLIC_URL as it was:
+ * derivePublicUrlOverride never rewrites a custom URL, so it may still name
+ * the old port. Returns undefined when there is nothing to warn about.
+ */
+export const describeStrandedPublicUrl = (params: {
+  envContent: string
+  pickedOverrides: Record<string, string>
+  appliedOverrides: Record<string, string>
+}): string | undefined => {
+  const { envContent, pickedOverrides, appliedOverrides } = params
+  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+
+  if (!pickedOverrides.PORT || appliedOverrides.PUBLIC_URL || !currentPublicUrl) return undefined
+  return `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`
+}
+
+/**
  * True unless the .env value is an explicit "off" spelling — env-var's asBool
  * accepts 0/1 alongside true/false. An absent or unrecognized value falls to
  * the server default, declared per-toggle via defaultEnabled (enabled unless

@@ -4,8 +4,9 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
 import { runConfigure } from "../configure.js"
-import type { DockerRunParams, DockerRunner } from "../docker.js"
+import type { DockerRunner } from "../docker.js"
 import {
+  createRecordingDocker,
   createScriptedPrompts,
   dockerDown,
   dockerNotInstalled,
@@ -13,20 +14,6 @@ import {
   fetchNever,
   fetchOk,
 } from "./command-stubs.js"
-
-/** A ready daemon that records dockerRun calls for start-parameter asserts. */
-const createRecordingDocker = () => {
-  const dockerRunCalls: DockerRunParams[] = []
-  const docker: DockerRunner = {
-    ...dockerReady,
-    containerExists: () => false,
-    dockerRun: (params) => {
-      dockerRunCalls.push(params)
-      return true
-    },
-  }
-  return { docker, dockerRunCalls }
-}
 
 // Creates a temp target dir and registers its removal at creation time, so
 // the suite self-cleans even when an assertion throws mid-test.
@@ -139,7 +126,7 @@ describe("runConfigure with picked settings", () => {
   it("saves the changes and prints the restart hint when the restart is declined", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = writeLocalEnv(targetDir)
-    const { docker, dockerRunCalls } = createRecordingDocker()
+    const { docker, runParams } = createRecordingDocker()
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
       false, // disable the memory layer
@@ -155,7 +142,7 @@ describe("runConfigure with picked settings", () => {
     expect(readFileSync(envFilePath, "utf8")).toBe(
       LOCAL_ENV_CONTENT.replace("MEMORY_ENABLED=true", "MEMORY_ENABLED=false"),
     )
-    expect(dockerRunCalls).toEqual([])
+    expect(runParams).toEqual([])
     expect(scripted.logs).toEqual([
       `Updated MEMORY_ENABLED in ${targetDir}/.env.`,
       `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
@@ -167,7 +154,7 @@ describe("runConfigure with picked settings", () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = join(targetDir, ".env")
     writeFileSync(envFilePath, `${LOCAL_ENV_CONTENT}INSTANCE_NAME=work\n`)
-    const { docker, dockerRunCalls } = createRecordingDocker()
+    const { docker, runParams } = createRecordingDocker()
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
       false, // disable the memory layer
@@ -180,7 +167,7 @@ describe("runConfigure with picked settings", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(dockerRunCalls).toEqual([
+    expect(runParams).toEqual([
       {
         mode: "local",
         instanceName: "work",
@@ -194,7 +181,7 @@ describe("runConfigure with picked settings", () => {
   it("re-creates the container on the new PORT when the restart is accepted", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = writeLocalEnv(targetDir)
-    const { docker, dockerRunCalls } = createRecordingDocker()
+    const { docker, runParams } = createRecordingDocker()
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
       fetchedUrls.push(String(url))
@@ -214,7 +201,7 @@ describe("runConfigure with picked settings", () => {
     expect(exitCode).toBe(0)
     // The restart resolves the deployment from the .env written moments
     // before, so the new port drives both the port mapping and health URL.
-    expect(dockerRunCalls).toEqual([
+    expect(runParams).toEqual([
       {
         mode: "local",
         instanceName: "vault-cortex",
@@ -345,7 +332,7 @@ describe("runConfigure with picked settings", () => {
       envFilePath,
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=true\n",
     )
-    const { docker, dockerRunCalls } = createRecordingDocker()
+    const { docker, runParams } = createRecordingDocker()
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
       false, // disable the memory layer
@@ -362,7 +349,7 @@ describe("runConfigure with picked settings", () => {
       `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
         `Add this line to your .env:\n  PUBLIC_URL=http://localhost:8000`,
     ])
-    expect(dockerRunCalls).toEqual([])
+    expect(runParams).toEqual([])
     // The settings edit itself succeeded before the restart failed — and the
     // user is told so, with the way to apply once the .env issue is fixed.
     expect(readFileSync(envFilePath, "utf8")).toBe(
