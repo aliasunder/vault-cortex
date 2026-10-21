@@ -528,7 +528,7 @@ under [Setup](#setup), with its own `MCP_AUTH_TOKEN`, `VAULT_NAME` and
 [Configuration](#configuration)) and a free `PORT`. Run each install's
 `docker compose` commands from its own folder.
 
-**Set up with `docker run`?** Set up a new folder with its own `.env` as
+**Set up with `docker run` (no Compose)?** Set up a new folder with its own `.env` as
 above, but keep `PORT` at `8000`. With `docker run`, `PORT` is the port the
 server listens on inside the container, and the command's `-p` mapping and
 health check both expect `8000`. Then run the command from [Setup](#setup)
