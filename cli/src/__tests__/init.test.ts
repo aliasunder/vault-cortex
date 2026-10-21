@@ -2126,7 +2126,7 @@ describe("runInit re-run keeps the instance identity", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `"Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
+      `INSTANCE_NAME "Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
     ])
   })
 
@@ -2220,20 +2220,14 @@ describe("runInit re-run keeps the instance identity", () => {
     ])
   })
 
-  it("stops before starting anything when the kept file's INSTANCE_NAME is invalid", async () => {
+  it("stops before asking anything more when the kept file's INSTANCE_NAME is invalid", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(
-      join(targetDir, ".env"),
-      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=Work Vault\n`,
-    )
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=Work Vault\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
     const dockerRun = vi.fn(() => true)
-    const scripted = createScriptedPrompts([
-      true, // re-run setup anyway
-      [], // no optional settings
-      false, // keep the existing file
-    ])
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
 
     const exitCode = await runInit(
       { mode: "local", vaultPath: vaultDir, dir: targetDir },
@@ -2248,6 +2242,8 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(scripted.errors).toEqual([
       `INSTANCE_NAME "Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
     ])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
     expect(scripted.prints).toEqual([])
     expect(dockerRun).not.toHaveBeenCalled()
   })

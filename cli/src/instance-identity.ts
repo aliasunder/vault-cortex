@@ -142,8 +142,8 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
 /**
  * Decides this install's name and port before init writes .env:
  * - a re-run over an existing .env keeps its name and port, plus a local
- *   PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when
- *   --instance-name gives a different name;
+ *   PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when that
+ *   name is invalid or --instance-name gives a different one;
  * - --instance-name and --port set them directly;
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
@@ -183,18 +183,18 @@ export const resolveInstanceIdentity = async (
   if (existsSync(existingEnvPath)) {
     const carried = readCarriedIdentity(existingEnvPath, mode)
     const carriedName = carried.INSTANCE_NAME || DEFAULT_INSTANCE_NAME
+    const carriedNameError = describeInvalidInstanceName(carriedName)
 
+    // An invalid kept name gets the error every other command gives it before
+    // init asks anything more, since the re-run would carry it into the new .env.
+    if (carriedNameError) {
+      prompts.error(`INSTANCE_NAME ${carriedNameError} Fix it in ${targetDir}/.env.`)
+      return { kind: "exit" }
+    }
     // Renaming here would leave the old container running and could point
     // the folder at another install's volumes, so the name stays.
     if (flags.instanceName && flags.instanceName !== carriedName) {
-      // An invalid kept name gets the error every other command gives it,
-      // since the rename steps start with a down that would refuse it.
-      const carriedNameError = describeInvalidInstanceName(carriedName)
-      prompts.error(
-        carriedNameError
-          ? `${carriedNameError} Fix it in ${targetDir}/.env.`
-          : renameOnRerunMessage({ carriedName, targetDir }),
-      )
+      prompts.error(renameOnRerunMessage({ carriedName, targetDir }))
       return { kind: "exit" }
     }
     return { kind: "ok", identity: { carried, chosen: flagOverrides } }

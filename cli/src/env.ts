@@ -135,9 +135,10 @@ MEMORY_DIR=About Me
 # starting with a letter or digit.
 # Default: vault-cortex
 # Set it before the first start. To change it later, stop the container first
-# (docker compose down, or npx vault-cortex down), then change it to a name no
-# other install uses: the install starts on a new, empty index volume, and the
-# old one stays until you remove it (docker volume rm <old name>_mcp_data).
+# (docker compose down, or npx vault-cortex@latest down), then change it to a
+# name no other install uses: the install starts on a new, empty index volume,
+# and the old one stays until you remove it
+# (docker volume rm <old name>_mcp_data).
 INSTANCE_NAME=vault-cortex
 
 # Host port to expose (default: 8000).
@@ -301,10 +302,10 @@ MEMORY_DIR=About Me
 # starting with a letter or digit.
 # Default: vault-cortex
 # Set it before the first start. To change it later, stop the container first
-# (docker compose down, or npx vault-cortex down), then change it to a name no
-# other install uses: the install starts on new, empty volumes and downloads
-# the vault again as a new Obsidian Sync device, while the old volumes stay
-# until you remove them.
+# (docker compose down, or npx vault-cortex@latest down), then change it to a
+# name no other install uses: the install starts on new, empty volumes and
+# downloads the vault again as a new Obsidian Sync device, while the old
+# volumes stay until you remove them.
 INSTANCE_NAME=vault-cortex
 
 # Host port to expose (default: 8000).
