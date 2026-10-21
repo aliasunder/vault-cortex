@@ -13,39 +13,36 @@ NOTES=$(cat "$NOTES_FILE")
 DATE=$(date +%Y-%m-%d)
 
 python3 - "$VERSION" "$DATE" "$NOTES" << 'PYTHON'
-import sys, re, os
+import sys, re
+from pathlib import Path
 
 version, date, notes = sys.argv[1], sys.argv[2], sys.argv[3]
 entry = f"## [{version}] — {date}\n\n{notes}"
 
-changelog_path = "CHANGELOG.md"
-if os.path.exists(changelog_path):
-    with open(changelog_path) as f:
-        text = f.read()
-    # Drop an [Unreleased] section; the new entry takes its place below. Never
-    # pass the notes to re.sub as the replacement: it reads backslashes as escapes.
-    text = re.sub(
-        r'^## \[Unreleased\].*?(?=^## \[|\Z)',
-        '',
-        text, count=1, flags=re.DOTALL | re.MULTILINE
-    )
-    # Insert before the first version entry (## [x.y.z])
-    lines = text.split('\n')
-    insert_at = next(
-        (i for i in range(len(lines)) if lines[i].startswith('## [')),
-        len(lines)
-    )
-    # Exactly one blank line on each side of the new entry, so blank lines
-    # under the header can't pile up across releases.
-    header = '\n'.join(lines[:insert_at]).rstrip()
-    earlier_entries = '\n'.join(lines[insert_at:])
-    if earlier_entries:
-        text = f"{header}\n\n{entry}\n\n{earlier_entries}"
-    else:
-        text = f"{header}\n\n{entry}\n"
+changelog = Path("CHANGELOG.md")
+text = changelog.read_text() if changelog.exists() else ""
+# Drop an [Unreleased] section; the new entry takes its place below. Never
+# pass the notes to re.sub as the replacement: it reads backslashes as escapes.
+text = re.sub(
+    r'^## \[Unreleased\].*?(?=^## \[|\Z)',
+    '',
+    text, count=1, flags=re.DOTALL | re.MULTILINE
+)
+# Insert before the first version entry (## [x.y.z])
+lines = text.split('\n')
+insert_at = next(
+    (i for i in range(len(lines)) if lines[i].startswith('## [')),
+    len(lines)
+)
+# Exactly one blank line on each side of the new entry, so blank lines
+# under the header can't pile up across releases. A missing or empty file
+# has no header, so it gets the title.
+header = '\n'.join(lines[:insert_at]).rstrip() or "# Changelog"
+earlier_entries = '\n'.join(lines[insert_at:])
+if earlier_entries:
+    text = f"{header}\n\n{entry}\n\n{earlier_entries}"
 else:
-    text = f"# Changelog\n\n{entry}\n"
+    text = f"{header}\n\n{entry}\n"
 
-with open(changelog_path, 'w') as f:
-    f.write(text)
+changelog.write_text(text)
 PYTHON
