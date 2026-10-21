@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process"
 import {
   chmodSync,
+  closeSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -55,13 +57,13 @@ const runnerPath = (): string => {
 type ScriptRun = { status: number | null; stdout: string; stderr: string }
 
 type ReleaseDir = {
-  /** Runs the script for the version with the notes file at notesPath,
-   *  writing stdin, when given, to the script's standard input. */
+  /** Runs the script for the version with the notes file at notesPath. With
+   *  stdinPath, standard input comes from that file, like a shell's `<`. */
   runScript: (params: {
     version: string
     notesPath: string
     extraEnv?: Record<string, string>
-    stdin?: string
+    stdinPath?: string
   }) => ScriptRun
   /** Writes the notes to a file outside the changelog's directory and runs
    *  the script with it; throws unless the run succeeds without output. */
@@ -90,12 +92,19 @@ const createReleaseDir = (changelog: string | null): ReleaseDir => {
 
   const notesPathFor = (version: string): string => join(tempDir, `notes-${version}.md`)
 
-  const runScript: ReleaseDir["runScript"] = ({ version, notesPath, extraEnv, stdin }) => {
+  const runScript: ReleaseDir["runScript"] = ({ version, notesPath, extraEnv, stdinPath }) => {
+    // A file descriptor, not spawnSync's `input`: on Linux that input arrives
+    // on a socket, which cannot be opened as /dev/stdin.
+    const stdinFd = stdinPath ? openSync(stdinPath, "r") : undefined
+
+    // 0 is a valid file descriptor, so compare with undefined.
+    if (stdinFd !== undefined) onTestFinished(() => closeSync(stdinFd))
+
     const result = spawnSync("bash", [SCRIPT_PATH, version, notesPath], {
       cwd: changelogDir,
       env: { PATH: `${stubDir}:${runnerPath()}`, HOME: tempDir, ...extraEnv },
       encoding: "utf8",
-      input: stdin,
+      stdio: [stdinFd ?? "ignore", "pipe", "pipe"],
     })
     return { status: result.status, stdout: result.stdout, stderr: result.stderr }
   }
@@ -302,13 +311,15 @@ describe("update-changelog.sh", () => {
     )
   })
 
-  it("reads notes piped to /dev/stdin", () => {
+  it("reads notes passed as /dev/stdin", () => {
     const releaseDir = createReleaseDir(`# Changelog\n\n${EARLIER_ENTRIES}`)
+    const notesPath = releaseDir.notesPathFor("0.2.0")
+    writeFileSync(notesPath, NOTES)
 
     const scriptRun = releaseDir.runScript({
       version: "0.2.0",
       notesPath: "/dev/stdin",
-      stdin: NOTES,
+      stdinPath: notesPath,
     })
 
     expect({ scriptRun, changelog: releaseDir.readChangelog() }).toEqual({
