@@ -17,7 +17,9 @@ import sys, re
 from pathlib import Path
 
 version, date, notes = sys.argv[1], sys.argv[2], sys.argv[3]
-entry = f"## [{version}] — {date}\n\n{notes}"
+# rstrip: empty notes would otherwise leave the heading's own blank line
+# beside the separators added below.
+entry = f"## [{version}] — {date}\n\n{notes}".rstrip()
 
 changelog = Path("CHANGELOG.md")
 text = changelog.read_text() if changelog.exists() else ""
