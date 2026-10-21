@@ -1699,7 +1699,7 @@ describe("runInit when the instance name is already in use", () => {
     })
     expect(scripted.errors).toEqual([
       '"Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.',
-      '"out-taken" is also in use on this machine — pick another name.',
+      '"out-taken" is already in use on this machine — pick another name.',
     ])
     expect(readEnvLines(targetDir)).toContain("INSTANCE_NAME=work")
   })
@@ -1797,6 +1797,12 @@ describe("runInit --yes when the instance name is already in use", () => {
       flags: { instanceName: "Work" },
       expectedError:
         '--instance-name: "Work" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.',
+    },
+    {
+      label: "an empty --instance-name",
+      flags: { instanceName: "" },
+      expectedError:
+        '--instance-name: "" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.',
     },
     {
       label: "an invalid --port",

@@ -85,7 +85,7 @@ const askFreeInstanceName = async (
     return askFreeInstanceName(params, deps)
   }
   if (isInstanceNameInUse({ mode, instanceName: answer }, docker)) {
-    prompts.error(`"${answer}" is also in use on this machine — pick another name.`)
+    prompts.error(`"${answer}" is already in use on this machine — pick another name.`)
     return askFreeInstanceName(params, deps)
   }
   return answer
@@ -138,9 +138,10 @@ export const resolveInstanceIdentity = async (
   const { mode, targetDir, flags } = params
   const { prompts, docker } = deps
 
-  const flagNameError = flags.instanceName
-    ? describeInvalidInstanceName(flags.instanceName)
-    : undefined
+  // Compared with undefined so an empty --instance-name is rejected instead of
+  // falling back to the default name without the in-use check.
+  const flagNameError =
+    flags.instanceName === undefined ? undefined : describeInvalidInstanceName(flags.instanceName)
 
   if (flagNameError) {
     prompts.error(`--instance-name: ${flagNameError}`)

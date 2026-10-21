@@ -133,6 +133,13 @@ fi
 # 3. The vault the engine would sync now
 # ---------------------------------------------------------------------------
 
+refuse_unreadable_setup() {
+  echo "[obsidian-sync] ERROR: The Sync client could not read its own setup ($1)." >&2
+  echo "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for." >&2
+  echo "[obsidian-sync] See: $GUIDE_URL" >&2
+  exit 1
+}
+
 PICKED_CONFIG=$(run_ob sync-config --json 2>/dev/null)
 PICK_EXIT=$?
 
@@ -144,19 +151,23 @@ if [ "$PICK_EXIT" -eq 3 ]; then
   exit 0
 fi
 if [ "$PICK_EXIT" -ne 0 ]; then
-  echo "[obsidian-sync] ERROR: The Sync client could not read its own setup (ob sync-config exited $PICK_EXIT)." >&2
-  echo "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for." >&2
-  echo "[obsidian-sync] See: $GUIDE_URL" >&2
-  exit 1
+  refuse_unreadable_setup "ob sync-config exited $PICK_EXIT"
 fi
 
-# Prints "<id><TAB><stored name>" of the setup the engine picked.
+# Prints "<id><TAB><stored name>" of the setup the engine picked, or nothing
+# when its output holds no vault ID.
 PICKED_VAULT=$(printf '%s' "$PICKED_CONFIG" | node --no-warnings -e '
   const config = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
-  console.log(config.vaultId + "\t" + (config.vaultName ?? ""))
-')
+  if (typeof config.vaultId === "string" && config.vaultId) {
+    console.log(config.vaultId + "\t" + (config.vaultName ?? ""))
+  }
+' 2>/dev/null)
 PICKED_ID=$(printf '%s' "$PICKED_VAULT" | cut -f1)
 PICKED_STORED_NAME=$(printf '%s' "$PICKED_VAULT" | cut -f2)
+
+if [ -z "$PICKED_ID" ]; then
+  refuse_unreadable_setup "ob sync-config printed no vault ID"
+fi
 
 if [ "$PICKED_ID" = "$REQUESTED_ID" ]; then
   # A second setup for another vault is dormant while the engine picks this

@@ -412,6 +412,25 @@ describe("check-sync-vault", () => {
     )
   })
 
+  it.each([
+    { label: "output that is not JSON", configJson: "Fetching vaults..." },
+    { label: "JSON without a vault ID", configJson: '{"vaultName":"Work"}' },
+  ])("stops when the engine's setup answer is $label", ({ configJson }) => {
+    const run = runCheck({
+      vaultName: "Work",
+      remoteJson: remoteVaults([VAULT_B]),
+      configJson,
+      configExit: 0,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] ERROR: The Sync client could not read its own setup (ob sync-config printed no vault ID).\n" +
+        "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for.\n" +
+        `[obsidian-sync] See: ${GUIDE_URL}\n`,
+    )
+  })
+
   it("stops when VAULT_NAME is not set", () => {
     const run = runCheck({ vaultName: "", remoteJson: remoteVaults([]), configExit: NO_SETUP_EXIT })
 

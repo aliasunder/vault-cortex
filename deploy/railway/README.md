@@ -347,7 +347,8 @@ again, like a first deploy.
 **A redeploy took as long as the first deploy and downloaded the whole vault
 again.** The volume was replaced, or `/persist/config` was removed, so the
 container started over with a fresh Obsidian Sync connection. Nothing needs
-cleaning up.
+cleaning up. To switch to another vault, don't remove `/persist/config` on
+its own: follow the last step of the next entry.
 
 **`This install is set up to sync a different vault than VAULT_NAME.`** The
 container refused to start because the volume holds the Obsidian Sync setup
