@@ -83,7 +83,7 @@ server.
    ```
 
 3. When the machine already has a `vault-cortex` container or data volume,
-   init asks for the new install's name and port, and offers the first port
+   init asks for the new install's name and port, and suggests the first port
    no other container uses. The name is saved as `INSTANCE_NAME` in the
    install's `.env` and names its container and data.
 4. Pass that `--dir` to every command for the install, such as `upgrade` or

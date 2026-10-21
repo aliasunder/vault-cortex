@@ -255,7 +255,8 @@ npx vault-cortex@latest init --dir ./vault-cortex-work
 
 When this machine already has a `vault-cortex` container or search index
 volume, `init` asks for the new install's name and port, for example `work`
-and `8001`, and points its `PUBLIC_URL` at that port. For a scripted setup,
+and `8001`. It suggests the first port no other container uses, and points
+the install's `PUBLIC_URL` at the port you pick. For a scripted setup,
 add `--yes --vault-path <path> --instance-name work --port 8001`. Then pass
 the same `--dir` to every command for that install:
 

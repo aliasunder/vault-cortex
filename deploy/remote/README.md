@@ -514,8 +514,9 @@ npx vault-cortex@latest init --mode remote --dir ./vault-cortex-work
 ```
 
 When this server already has a `vault-cortex` container or volumes, `init`
-asks for the new install's name and port, for example `work` and `8001`. Then
-pass the same `--dir` to every command for that install:
+asks for the new install's name and port, for example `work` and `8001`. It
+suggests the first port no other container uses. Then pass the same `--dir`
+to every command for that install:
 
 ```bash
 npx vault-cortex@latest upgrade --dir ./vault-cortex-work
