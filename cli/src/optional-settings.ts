@@ -247,7 +247,11 @@ export const describeStrandedPublicUrl = (params: {
   const { envContent, pickedOverrides, appliedOverrides } = params
   const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
 
-  if (!pickedOverrides.PORT || appliedOverrides.PUBLIC_URL || !currentPublicUrl) return undefined
+  // Picking PORT and accepting its pre-filled current value changes nothing.
+  const currentPort = readOptionalValue(envContent, "PORT") || String(DEFAULT_PORT)
+  const portChanged = Boolean(pickedOverrides.PORT) && pickedOverrides.PORT !== currentPort
+
+  if (!portChanged || appliedOverrides.PUBLIC_URL || !currentPublicUrl) return undefined
   return `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`
 }
 

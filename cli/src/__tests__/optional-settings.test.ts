@@ -4,6 +4,7 @@ import {
   applyOptionalSettings,
   askOptionalSettings,
   derivePublicUrlOverride,
+  describeStrandedPublicUrl,
   readOptionalValue,
 } from "../optional-settings.js"
 import { createScriptedPrompts } from "./command-stubs.js"
@@ -141,6 +142,38 @@ describe("derivePublicUrlOverride", () => {
   it("returns the overrides unchanged when PUBLIC_URL is absent", () => {
     const derived = derivePublicUrlOverride("PORT=8000\n", { PORT: "9000" })
     expect(derived).toEqual({ PORT: "9000" })
+  })
+})
+
+describe("describeStrandedPublicUrl", () => {
+  const CUSTOM_URL_ENV = "PUBLIC_URL=https://vault.example.com\nPORT=8000\n"
+
+  it("warns when a new PORT leaves a custom PUBLIC_URL as it was", () => {
+    const warning = describeStrandedPublicUrl({
+      envContent: CUSTOM_URL_ENV,
+      pickedOverrides: { PORT: "9000" },
+      appliedOverrides: { PORT: "9000" },
+    })
+
+    expect(warning).toBe(
+      "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
+    )
+  })
+
+  it.each([
+    { label: "the current port", envContent: CUSTOM_URL_ENV },
+    {
+      label: "the default port behind an empty PORT line",
+      envContent: "PUBLIC_URL=https://vault.example.com\nPORT=\n",
+    },
+  ])("stays quiet when the picked PORT is $label", ({ envContent }) => {
+    const warning = describeStrandedPublicUrl({
+      envContent,
+      pickedOverrides: { PORT: "8000" },
+      appliedOverrides: { PORT: "8000" },
+    })
+
+    expect(warning).toBeUndefined()
   })
 })
 

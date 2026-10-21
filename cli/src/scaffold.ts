@@ -176,20 +176,20 @@ export const detectMode = (envFilePath: string): Mode | undefined => {
 }
 
 /**
- * Patches the OBSIDIAN_AUTH_TOKEN value in an existing .env file.
- * Returns true when the patch succeeded, false when the file is missing
- * or has no active OBSIDIAN_AUTH_TOKEN line (e.g. a local-mode .env).
+ * Patches every active OBSIDIAN_AUTH_TOKEN line in an existing .env, since
+ * `docker run --env-file` lets the last duplicate win. Returns false when the
+ * file is missing or has no active line (e.g. a local-mode .env).
  */
 export const patchEnvObsidianToken = (envFilePath: string, token: string): boolean => {
   if (!existsSync(envFilePath)) return false
   const content = readFileSync(envFilePath, "utf8")
-  /** Matches the full OBSIDIAN_AUTH_TOKEN line for replacement. */
-  const fullTokenLine = /^OBSIDIAN_AUTH_TOKEN=.*$/m
+  /** Matches every full OBSIDIAN_AUTH_TOKEN line for replacement. */
+  const everyTokenLine = /^OBSIDIAN_AUTH_TOKEN=.*$/gm
 
-  if (!fullTokenLine.test(content)) return false
+  if (!OBSIDIAN_AUTH_TOKEN_LINE.test(content)) return false
   // Function replacement avoids $ pattern interpretation ($&, $', etc.)
   // that String.prototype.replace applies to string replacements.
-  const patched = content.replace(fullTokenLine, () => `OBSIDIAN_AUTH_TOKEN=${token}`)
+  const patched = content.replace(everyTokenLine, () => `OBSIDIAN_AUTH_TOKEN=${token}`)
   writeFileSync(envFilePath, patched)
   return true
 }

@@ -1537,7 +1537,7 @@ const PORT_QUESTION = "Host port for the server:"
 const nameCheckSkippedWarning = (instanceName: string): string => {
   return (
     `Docker isn't running, so init can't check whether another install on this machine already uses the name "${instanceName}".\n` +
-    "If one does, give this install its own INSTANCE_NAME and PORT in its .env before you start it, or run init again with Docker running."
+    "If one does, give this install its own INSTANCE_NAME and PORT in its .env before you start it."
   )
 }
 const REPLACE_START_QUESTION =

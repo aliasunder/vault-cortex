@@ -131,10 +131,12 @@ const renameOnRerunMessage = (params: { carriedName: string; targetDir: string }
   )
 }
 
+// The message offers no "run init again" fix: once this run writes .env, a
+// re-run keeps its name and skips the check.
 const nameCheckSkippedMessage = (instanceName: string): string => {
   return (
     `Docker isn't running, so init can't check whether another install on this machine already uses the name "${instanceName}".\n` +
-    `If one does, give this install its own INSTANCE_NAME and PORT in its .env before you start it, or run init again with Docker running.`
+    `If one does, give this install its own INSTANCE_NAME and PORT in its .env before you start it.`
   )
 }
 
@@ -169,7 +171,7 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
  *   --yes cannot ask, so it exits unless --instance-name settles it.
- * The check needs a running Docker daemon; without one it is skipped.
+ * The check needs a running Docker daemon; without one it is skipped with a warning.
  */
 export const resolveInstanceIdentity = async (
   params: { mode: Mode; targetDir: string; flags: InstanceIdentityFlags },

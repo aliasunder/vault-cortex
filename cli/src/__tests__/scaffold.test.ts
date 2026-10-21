@@ -459,6 +459,23 @@ describe("patchEnvObsidianToken", () => {
     )
   })
 
+  it("replaces every active token line, so the last one docker reads is the new token", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "OBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\nOBSIDIAN_AUTH_TOKEN=stale-token\n",
+    )
+
+    const result = patchEnvObsidianToken(envPath, "new-token")
+
+    expect(result).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "OBSIDIAN_AUTH_TOKEN=new-token\nVAULT_NAME=MyVault\nOBSIDIAN_AUTH_TOKEN=new-token\n",
+    )
+    expect(readEnvObsidianToken(envPath)).toBe("new-token")
+  })
+
   it("replaces an empty token value", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
     const envPath = join(targetDir, ".env")
