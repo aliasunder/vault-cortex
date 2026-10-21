@@ -75,6 +75,11 @@ export type DockerRunner = {
   /** True when a named volume exists. */
   volumeExists: (volumeName: string) => boolean
   /**
+   * Host ports that existing containers publish, stopped ones included, each
+   * mapped to its container's name. Empty when the runtime can't list them.
+   */
+  publishedHostPorts: () => ReadonlyMap<number, string>
+  /**
    * Streams `docker logs` to the terminal; resolves with the docker
    * process's exit code once the stream ends.
    */
@@ -195,6 +200,32 @@ export const isContainerNamed = (params: {
   return inspectedName.trim().replace(/^\//, "") === instanceName
 }
 
+/**
+ * Go template that prints a container's name, then each host port it
+ * publishes: "/work 8001". PortBindings is the container's run setting, so a
+ * stopped container's ports print too.
+ */
+const PUBLISHED_PORTS_FORMAT =
+  "{{.Name}}{{range $containerPort, $bindings := .HostConfig.PortBindings}}{{range $bindings}} {{.HostPort}}{{end}}{{end}}"
+
+/** A published host port; an empty HostPort means the runtime picks one at start. */
+const HOST_PORT_PATTERN = /^\d+$/
+
+/** Reads PUBLISHED_PORTS_FORMAT output into host port → container name. */
+export const parsePublishedHostPorts = (inspectOutput: string): ReadonlyMap<number, string> => {
+  const portEntries = inspectOutput.split("\n").flatMap((line) => {
+    const [inspectedName, ...hostPorts] = line.trim().split(/\s+/)
+
+    if (!inspectedName) return []
+    // Docker prints the name with a leading slash; Podman and nerdctl print it bare.
+    const containerName = inspectedName.replace(/^\//, "")
+    return hostPorts
+      .filter((hostPort) => HOST_PORT_PATTERN.test(hostPort))
+      .map((hostPort) => [Number(hostPort), containerName] as const)
+  })
+  return new Map(portEntries)
+}
+
 export const createDockerRunner = (): DockerRunner => ({
   daemonStatus: () => classifyDaemonStatus(spawnSync("docker", ["info"], { timeout: 5_000 })),
   // stdout is discarded: `docker run -d` prints only the container ID there,
@@ -228,6 +259,24 @@ export const createDockerRunner = (): DockerRunner => ({
   },
   volumeExists: (volumeName) => {
     return spawnSync("docker", ["volume", "inspect", volumeName]).status === 0
+  },
+  publishedHostPorts: () => {
+    const listResult = spawnSync("docker", ["container", "ls", "-aq"], { encoding: "utf8" })
+
+    if (listResult.status !== 0) return new Map()
+    const containerIds = listResult.stdout.split("\n").filter(Boolean)
+
+    if (containerIds.length === 0) return new Map()
+    const inspectResult = spawnSync(
+      "docker",
+      ["container", "inspect", "--format", PUBLISHED_PORTS_FORMAT, ...containerIds],
+      { encoding: "utf8" },
+    )
+
+    if (inspectResult.error) return new Map()
+    // Read whatever the exit status: a container removed after the listing
+    // makes inspect exit 1, but it still prints the others.
+    return parsePublishedHostPorts(inspectResult.stdout)
   },
   // Async spawn, not spawnSync: --follow streams until interrupted, and the
   // exit code must be observable after the stream closes.

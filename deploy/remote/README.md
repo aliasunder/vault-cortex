@@ -506,8 +506,8 @@ use the first install's volumes: the container refuses to start rather than
 merge the two vaults (see
 [Another vault's Sync setup](#another-vaults-sync-setup)).
 
-**Set up with the CLI?** Start Docker, so `init` can check which names are
-in use. Then, from the folder you ran `init` in the first time, run it again
+**Set up with the CLI?** Start Docker, so `init` can check which names and
+ports are in use. Then, from the folder you ran `init` in the first time, run it again
 with a new `--dir`:
 
 ```bash

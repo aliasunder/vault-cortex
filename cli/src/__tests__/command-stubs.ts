@@ -169,6 +169,7 @@ export const dockerReady: DockerRunner = {
   stopAndRemoveContainer: () => true,
   containerExists: () => true,
   volumeExists: () => true,
+  publishedHostPorts: () => new Map(),
   streamLogs: async () => 0,
 }
 
@@ -227,6 +228,7 @@ export const dockerDown: DockerRunner = {
   stopAndRemoveContainer: () => false,
   containerExists: () => false,
   volumeExists: () => false,
+  publishedHostPorts: () => new Map(),
   streamLogs: async () => 1,
 }
 

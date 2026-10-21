@@ -1686,6 +1686,17 @@ const dockerWithExisting = (existingNames: ReadonlyArray<string>): DockerRunner 
   }
 }
 
+/** dockerWithExisting, plus host ports other containers publish. */
+const dockerWithPorts = (params: {
+  existingNames: ReadonlyArray<string>
+  publishedPorts: ReadonlyArray<readonly [number, string]>
+}): DockerRunner => {
+  return {
+    ...dockerWithExisting(params.existingNames),
+    publishedHostPorts: () => new Map(params.publishedPorts),
+  }
+}
+
 const readEnvLines = (targetDir: string): string[] => {
   return readFileSync(join(targetDir, ".env"), "utf8").split("\n")
 }
@@ -1833,6 +1844,75 @@ describe("runInit when the instance name is already in use", () => {
       "INSTANCE_NAME=work",
       "PORT=8001",
       "DEVICE_NAME=work",
+    ])
+  })
+
+  it("offers the first free port and asks again for one another container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "own-name",
+      "second",
+      "8001", // taken by the "work" container
+      "8003",
+      [], // no optional settings
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["vault-cortex"],
+          publishedPorts: [
+            [8000, "vault-cortex"],
+            [8001, "work"],
+          ],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls[1]).toEqual({
+      message: PORT_QUESTION,
+      defaultValue: "8002",
+      placeholder: "8002",
+    })
+    expect(scripted.errors).toEqual([
+      'Port 8001 is already used by the "work" container on this machine. Pick another port.',
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8003",
+      "INSTANCE_NAME=second",
+      "PORT=8003",
+    ])
+  })
+
+  it("lets a reuse keep the port the reused install's own container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", "8001", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["vault-cortex"],
+          publishedPorts: [[8001, "vault-cortex"]],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=8001",
     ])
   })
 
@@ -2033,6 +2113,57 @@ describe("runInit when the instance name is already in use", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual(["Any optional settings to change? (press enter to skip)"])
+  })
+})
+
+describe("runInit when another container publishes the new install's port", () => {
+  it("stops --yes on a --port another container publishes, before writing anything", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, yes: true, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: [[9000, "other-app"]] }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine. Re-run with --port and a free port.',
+    ])
+    expect(existsSync(join(targetDir, ".env"))).toBe(false)
+  })
+
+  it("warns and asks for another port when the default one is taken", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["", [], false]) // accept the suggested port
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: [[8000, "other-app"]] }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.warnings).toEqual([
+      'Port 8000 is already used by the "other-app" container on this machine.',
+    ])
+    expect(scripted.textCalls).toEqual([
+      { message: PORT_QUESTION, defaultValue: "8001", placeholder: "8001" },
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=8001",
+    ])
   })
 })
 

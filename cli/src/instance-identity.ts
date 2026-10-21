@@ -142,18 +142,82 @@ const nameCheckSkippedMessage = (instanceName: string): string => {
   )
 }
 
+type PortsInUse = ReadonlyMap<number, string>
+
+type PortSettingResult = { kind: "ok"; settings: Record<string, string> } | { kind: "exit" }
+
+const portInUseMessage = (port: string, containerName: string): string => {
+  return `Port ${port} is already used by the "${containerName}" container on this machine.`
+}
+
+/** The first port above the default that no container publishes. */
+const suggestFreePort = (portsInUse: PortsInUse): string => {
+  const findFreePort = (candidatePort: number): number => {
+    return portsInUse.has(candidatePort) ? findFreePort(candidatePort + 1) : candidatePort
+  }
+  return String(findFreePort(DEFAULT_PORT + 1))
+}
+
+/** Re-prompts until the answer is a valid port no other container on the machine publishes. */
+const askFreePort = async (
+  params: { suggestedPort: string; portsInUse: PortsInUse },
+  prompts: Prompts,
+): Promise<string> => {
+  const answer = await askPort(params.suggestedPort, prompts)
+  const portUser = params.portsInUse.get(Number(answer))
+
+  if (!portUser) return answer
+  prompts.error(`${portInUseMessage(answer, portUser)} Pick another port.`)
+  return askFreePort(params, prompts)
+}
+
+/**
+ * Checks the port a new install publishes, --port or the default, against the
+ * ports other containers publish: a taken port stops --yes, and is asked again
+ * otherwise.
+ */
+const checkRequestedPort = async (
+  params: { flags: InstanceIdentityFlags; portsInUse: PortsInUse },
+  prompts: Prompts,
+): Promise<PortSettingResult> => {
+  const { flags, portsInUse } = params
+  const requestedPort = flags.port ?? String(DEFAULT_PORT)
+  const portUser = portsInUse.get(Number(requestedPort))
+
+  if (!portUser) return { kind: "ok", settings: flags.port ? { PORT: flags.port } : {} }
+  const message = portInUseMessage(requestedPort, portUser)
+
+  if (flags.yes) {
+    prompts.error(`${message} Re-run with --port and a free port.`)
+    return { kind: "exit" }
+  }
+  prompts.warn(message)
+  const port = await askFreePort(
+    { suggestedPort: suggestFreePort(portsInUse), portsInUse },
+    prompts,
+  )
+  return { kind: "ok", settings: { PORT: port } }
+}
+
+/** Start replaces the reused install's container, so its own ports are free for this install. */
+const portsOfOtherContainers = (portsInUse: PortsInUse, containerName: string): PortsInUse => {
+  return new Map([...portsInUse].filter(([, portUser]) => portUser !== containerName))
+}
+
 /**
  * A reused install's .env is in another folder, so its port is asked for
  * rather than assumed to be the default; --yes cannot ask and keeps --port
  * or the default.
  */
 const askReusedPort = async (
-  flags: InstanceIdentityFlags,
+  params: { flags: InstanceIdentityFlags; portsInUse: PortsInUse },
   prompts: Prompts,
-): Promise<Record<string, string>> => {
-  if (flags.port) return { PORT: flags.port }
-  if (flags.yes) return {}
-  return { PORT: await askPort(undefined, prompts) }
+): Promise<PortSettingResult> => {
+  const { flags, portsInUse } = params
+
+  if (flags.port || flags.yes) return checkRequestedPort(params, prompts)
+  const port = await askFreePort({ suggestedPort: String(DEFAULT_PORT), portsInUse }, prompts)
+  return { kind: "ok", settings: { PORT: port } }
 }
 
 const nameInUseWithYesFlagMessage = (instanceName: string): string => {
@@ -173,8 +237,9 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
  * - --instance-name and --port set them directly;
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
- *   --yes cannot ask, so it exits unless --instance-name settles it.
- * The check needs a running Docker daemon; without one it is skipped with a warning.
+ *   --yes cannot ask, so it exits unless --instance-name settles it;
+ * - a new install's port must not be one another container publishes.
+ * The checks need a running Docker daemon; without one they are skipped with a warning.
  */
 export const resolveInstanceIdentity = async (
   params: { mode: Mode; targetDir: string; flags: InstanceIdentityFlags },
@@ -242,6 +307,7 @@ export const resolveInstanceIdentity = async (
   if (!daemonRunning) prompts.warn(nameCheckSkippedMessage(requestedName))
   const requestedNameInUse =
     daemonRunning && isInstanceNameInUse({ mode, instanceName: requestedName }, docker)
+  const portsInUse: PortsInUse = daemonRunning ? docker.publishedHostPorts() : new Map()
   // A new folder's .env starts from the template's device name, so a name
   // given by --instance-name sets it too, whether the name is new or reused.
   const flagSettings = {
@@ -251,12 +317,24 @@ export const resolveInstanceIdentity = async (
 
   // A name not in use, or one Docker could not check, starts a new install.
   if (!requestedNameInUse) {
-    return { kind: "ok", identity: { carried: {}, chosen: flagSettings } }
+    const portSetting = await checkRequestedPort({ flags, portsInUse }, prompts)
+
+    if (portSetting.kind === "exit") return { kind: "exit" }
+    const chosen = { ...flagSettings, ...portSetting.settings }
+    return { kind: "ok", identity: { carried: {}, chosen } }
   }
+  const portsOutsideReusedInstall = portsOfOtherContainers(portsInUse, requestedName)
+
   if (flags.instanceName) {
     prompts.log(`Reusing the data of the existing "${requestedName}" install.`)
-    const reusedPort = await askReusedPort(flags, prompts)
-    return { kind: "ok", identity: { carried: {}, chosen: { ...flagSettings, ...reusedPort } } }
+    const reusedPort = await askReusedPort(
+      { flags, portsInUse: portsOutsideReusedInstall },
+      prompts,
+    )
+
+    if (reusedPort.kind === "exit") return { kind: "exit" }
+    const chosen = { ...flagSettings, ...reusedPort.settings }
+    return { kind: "ok", identity: { carried: {}, chosen } }
   }
   if (flags.yes) {
     prompts.error(nameInUseWithYesFlagMessage(requestedName))
@@ -281,14 +359,21 @@ export const resolveInstanceIdentity = async (
   )
 
   if (choice === "reuse") {
-    const reusedPort = await askReusedPort(flags, prompts)
-    return { kind: "ok", identity: { carried: {}, chosen: { ...flagOverrides, ...reusedPort } } }
+    const reusedPort = await askReusedPort(
+      { flags, portsInUse: portsOutsideReusedInstall },
+      prompts,
+    )
+
+    if (reusedPort.kind === "exit") return { kind: "exit" }
+    const chosen = { ...flagOverrides, ...reusedPort.settings }
+    return { kind: "ok", identity: { carried: {}, chosen } }
   }
   const suggestedName = suggestInstanceName({ mode, targetDir }, docker)
   const instanceName = await askFreeInstanceName({ mode, suggestedName }, deps)
   // The install already using the name most likely holds the default port, so
-  // the next port is offered instead.
-  const port = await askPort(flags.port ?? String(DEFAULT_PORT + 1), prompts)
+  // the first free port above it is offered instead.
+  const suggestedPort = flags.port ?? suggestFreePort(portsInUse)
+  const port = await askFreePort({ suggestedPort, portsInUse }, prompts)
   const chosen = {
     INSTANCE_NAME: instanceName,
     PORT: port,

@@ -8,6 +8,7 @@ import {
   healthTimeoutMessage,
   isContainerNamed,
   LOCAL_IMAGE,
+  parsePublishedHostPorts,
   pollHealth,
   probeHealth,
   REMOTE_IMAGE,
@@ -453,6 +454,28 @@ describe("classifyDaemonStatus", () => {
     })
 
     expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe("not-running")
+  })
+})
+
+describe("parsePublishedHostPorts", () => {
+  it("maps each published host port to its container, with or without a leading slash", () => {
+    const inspectOutput = [
+      "/vault-cortex 8000",
+      "/work 8001 9443",
+      "podman-app 7000",
+      "/no-ports",
+      "/runtime-picked ",
+      "",
+    ].join("\n")
+
+    expect(parsePublishedHostPorts(inspectOutput)).toEqual(
+      new Map([
+        [8000, "vault-cortex"],
+        [8001, "work"],
+        [9443, "work"],
+        [7000, "podman-app"],
+      ]),
+    )
   })
 })
 

@@ -69,9 +69,10 @@ then shows a sign-in page at your `PUBLIC_URL`; set up HTTPS first, since the
 page sends your Obsidian password to the server.
 
 To run a second vault on the same machine, start Docker, so init can check
-which names are in use, then run init again with its own `--dir`. When the
-machine already has a `vault-cortex` container or data volume, init asks you
-to give the new install its own name and port. That name
+which names and ports are in use, then run init again with its own `--dir`.
+When the machine already has a `vault-cortex` container or data volume, init
+asks you to give the new install its own name and port, and offers the first
+port no other container uses. That name
 (`INSTANCE_NAME` in its `.env`) names the install's container and data, and
 every command run with that `--dir` acts only on it. Each install gets its
 own connector in your MCP client.
@@ -86,7 +87,8 @@ Flags:
   (default `vault-cortex`); lowercase letters, digits, `-` and `_`. Naming an
   install that already exists reuses its data, so use it only for the same
   vault set up again
-- `--port <port>` — host port for this install (default `8000`)
+- `--port <port>` — host port for this install (default `8000`); a port
+  another container already publishes is refused
 - `--yes` — non-interactive local setup with defaults; requires `--vault-path`,
   and `--instance-name` when the name is already in use
 
