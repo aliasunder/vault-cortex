@@ -348,8 +348,6 @@ describe("readEnvPublicUrl", () => {
   })
 
   it("returns undefined for an empty PUBLIC_URL= line", () => {
-    // Contrast with hasEnvPublicUrl, which deliberately matches the empty
-    // line for old-compose detection — the value reader must not.
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=\n")

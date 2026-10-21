@@ -393,6 +393,26 @@ describe("runRestart", () => {
     ])
   })
 
+  it("exits 1 when local .env has an empty PUBLIC_URL line", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPUBLIC_URL=\n",
+    )
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
+    ])
+  })
+
   it("exits 1 when local .env has no PUBLIC_URL", async () => {
     const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n")
@@ -405,8 +425,8 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
-        "Add this line to your .env:\n  PUBLIC_URL=http://localhost:8000",
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
     ])
   })
 

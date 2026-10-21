@@ -10,7 +10,6 @@ import {
 import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
 import {
   detectMode,
-  hasEnvPublicUrl,
   readEnvInstanceName,
   readEnvPort,
   readEnvPublicUrl,
@@ -121,15 +120,15 @@ export const resolveDeployment = (
     )
     return undefined
   }
-  if (mode === "local" && !hasEnvPublicUrl(envFilePath)) {
+  const publicUrl = readEnvPublicUrl(envFilePath)
+
+  if (mode === "local" && !publicUrl) {
     prompts.error(
-      `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
-        `Add this line to your .env:\n  PUBLIC_URL=http://localhost:${port}`,
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        `Set this line in your .env:\n  PUBLIC_URL=http://localhost:${port}`,
     )
     return undefined
   }
-
-  const publicUrl = readEnvPublicUrl(envFilePath)
   return { mode, instanceName, targetDir, envFilePath, port, vaultPath, publicUrl }
 }
 

@@ -49,9 +49,6 @@ const ENV_VAULT_PATH_LINES = /^VAULT_PATH=(.*)$/gm
 const ENV_PUBLIC_URL_VALUE_LINES = /^PUBLIC_URL=(.*)$/gm
 const ENV_OBSIDIAN_TOKEN_LINES = /^OBSIDIAN_AUTH_TOKEN=(.*)$/gm
 
-/** Matches an active (uncommented) PUBLIC_URL line. */
-const ENV_PUBLIC_URL_LINE = /^PUBLIC_URL=/m
-
 /** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
 const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m
 
@@ -133,23 +130,10 @@ export const readEnvVaultPath = (envFilePath: string): string | undefined => {
 }
 
 /**
- * Returns true when the .env file has an active (uncommented) PUBLIC_URL line.
- * It's the FALSE result that carries the signal: the old compose-based CLI's
- * generated .env never held a PUBLIC_URL line (the compose file's environment
- * defaults supplied it), so a local .env without one predates the docker-run
- * migration — callers use the negation to ask the user to add the line
- * instead of starting a server missing a required variable.
- */
-export const hasEnvPublicUrl = (envFilePath: string): boolean => {
-  if (!existsSync(envFilePath)) return false
-  return ENV_PUBLIC_URL_LINE.test(readFileSync(envFilePath, "utf8"))
-}
-
-/**
  * Reads the public URL value from a .env file. Returns undefined when the
- * file is missing or has no uncommented, non-empty PUBLIC_URL line —
- * deliberately stricter than hasEnvPublicUrl, whose job is old-compose
- * detection and so matches an empty `PUBLIC_URL=` line too.
+ * file is missing or its last active PUBLIC_URL line is empty or absent,
+ * which is how start spots a .env the server would refuse (including one
+ * from the old compose-based CLI, which never wrote the line).
  */
 export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined

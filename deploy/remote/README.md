@@ -632,7 +632,8 @@ for syncing the new vault instead.
 An **ERROR** that "the Sync client could not read its own setup" means the
 Sync client's answer about which vault it syncs failed or named no vault, so
 the container stopped before syncing any notes. Restart it. If the error
-comes back, the Sync client's own message in the lines above it says why.
+comes back and the lines just above it hold a message from the Sync client,
+that message says why.
 
 ## Memory
 
