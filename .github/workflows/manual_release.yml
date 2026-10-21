@@ -56,6 +56,17 @@ jobs:
           # fails instead of cutting the next version.
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
+      # A server release tagged after this run's dispatch means this run is
+      # a second dispatch queued behind the first: building on the latest
+      # commit would cut another version with nothing new in it.
+      - name: Refuse a duplicate dispatch
+        run: |
+          LATEST_TAG=$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD 2> /dev/null || true)
+          if [ -n "$LATEST_TAG" ] && ! git merge-base --is-ancestor "$LATEST_TAG" "$GITHUB_SHA"; then
+            echo "::error::$LATEST_TAG was released after this run was dispatched. Nothing was pushed; dispatch again if another release is intended."
+            exit 1
+          fi
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
@@ -97,8 +108,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json server.json
-          # Skip the commit when nothing changed — a re-run of this job
-          # after a push failure already has the bump commit as HEAD.
           if ! git diff --cached --quiet; then
             git commit -m "release: v$NEXT"
           fi
@@ -108,7 +117,7 @@ jobs:
           # job (which checks out the tag) would build from the wrong commit.
           if git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
             if [ "$(git rev-parse "refs/tags/v$NEXT")" != "$(git rev-parse HEAD)" ]; then
-              echo "::error::Tag v$NEXT exists but does not point at this bump commit — delete the stale tag on origin (git push origin :refs/tags/v$NEXT) and re-dispatch."
+              echo "::error::Tag v$NEXT exists but does not point at this bump commit. If v$NEXT is a published release, this run is a re-run of it: stop here. Otherwise the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and re-dispatch."
               exit 1
             fi
           else

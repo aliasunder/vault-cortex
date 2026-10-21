@@ -66,6 +66,18 @@ jobs:
           # release fails instead of publishing the next version.
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
+      # A CLI release tagged after this run's dispatch means this run is a
+      # second dispatch queued behind the first: building on the latest
+      # commit would publish another version with nothing new in it.
+      - name: Refuse a duplicate dispatch
+        if: inputs.bump != 'beta'
+        run: |
+          LATEST_TAG=$(git describe --tags --match 'cli-v*' --abbrev=0 HEAD 2> /dev/null || true)
+          if [ -n "$LATEST_TAG" ] && ! git merge-base --is-ancestor "$LATEST_TAG" "$GITHUB_SHA"; then
+            echo "::error::$LATEST_TAG was released after this run was dispatched. Nothing was pushed; dispatch again if another release is intended."
+            exit 1
+          fi
+
       # No registry-url / auth token: publishing uses npm Trusted Publishing
       # (OIDC) — the trusted publisher is configured on npmjs.com for this
       # repo + workflow file, and needs npm >= 11.5.1 (bundled with Node 24).
