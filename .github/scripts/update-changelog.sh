@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Update CHANGELOG.md with release notes for a given version.
+# Update CHANGELOG.md in the current directory with release notes for a
+# given version.
 # Usage: update-changelog.sh <version> <notes-file>
 # The entry goes above the newest version entry, replacing an [Unreleased]
 # section if there is one.
@@ -9,44 +10,39 @@ set -euo pipefail
 VERSION="${1:?Usage: update-changelog.sh <version> <notes-file>}"
 NOTES_FILE="${2:?Usage: update-changelog.sh <version> <notes-file>}"
 
-NOTES=$(cat "$NOTES_FILE")
 DATE=$(date +%Y-%m-%d)
 
-python3 - "$VERSION" "$DATE" "$NOTES" << 'PYTHON'
+python3 - "$VERSION" "$DATE" "$NOTES_FILE" << 'PYTHON'
 import sys, re
 from pathlib import Path
 
-version, date, notes = sys.argv[1], sys.argv[2], sys.argv[3]
-# rstrip: empty notes would otherwise leave the heading's own blank line
-# beside the separators added below.
-entry = f"## [{version}] — {date}\n\n{notes}".rstrip()
+# From an "## [Unreleased]" heading up to the next "## [" heading or the end
+# of the file, the section's trailing blank lines included.
+UNRELEASED_SECTION = re.compile(
+    r'^## \[Unreleased\].*?(?=^## \[|\Z)', re.DOTALL | re.MULTILINE
+)
+# An entry heading: any line starting "## [".
+ENTRY_HEADING = re.compile(r'^## \[', re.MULTILINE)
+
+version, date, notes_file = sys.argv[1:]
+notes = Path(notes_file).read_text()
 
 changelog = Path("CHANGELOG.md")
 text = changelog.read_text() if changelog.exists() else ""
-# Drop an [Unreleased] section; the new entry takes its place below. Never
-# pass the notes to re.sub as the replacement: it reads backslashes as escapes.
-text = re.sub(
-    r'^## \[Unreleased\].*?(?=^## \[|\Z)',
-    '',
-    text, count=1, flags=re.DOTALL | re.MULTILINE
-)
-# Insert before the first version entry (## [x.y.z])
-lines = text.split('\n')
-insert_at = next(
-    (i for i in range(len(lines)) if lines[i].startswith('## [')),
-    len(lines)
-)
-# Exactly one blank line on each side of the new entry, so blank lines
-# under the header can't pile up across releases. A missing or empty file
-# has no header, so it gets the title.
-header = '\n'.join(lines[:insert_at]).rstrip() or "# Changelog"
-# rstrip: an [Unreleased] section removed from the end of the file leaves
-# its separating blank line behind.
-earlier_entries = '\n'.join(lines[insert_at:]).rstrip()
-if earlier_entries:
-    text = f"{header}\n\n{entry}\n\n{earlier_entries}\n"
-else:
-    text = f"{header}\n\n{entry}\n"
+# Remove an [Unreleased] section, and insert the entry at that spot separately:
+# re.sub reads backslashes in a replacement string as escapes.
+text = UNRELEASED_SECTION.sub('', text, count=1)
 
-changelog.write_text(text)
+first_entry = ENTRY_HEADING.search(text)
+header_end = first_entry.start() if first_entry else len(text)
+
+# With no text above the first entry, the title becomes the header.
+header = text[:header_end].rstrip() or "# Changelog"
+entry = f"## [{version}] — {date}\n\n{notes}".rstrip()
+earlier_entries = text[header_end:].rstrip()
+
+# Every part is rstripped, so the join leaves exactly one blank line between
+# parts and a single newline at the end of the file.
+parts = [header, entry, earlier_entries]
+changelog.write_text("\n\n".join(part for part in parts if part) + "\n")
 PYTHON
