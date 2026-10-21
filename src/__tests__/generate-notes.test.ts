@@ -197,6 +197,18 @@ describe("generate-notes.sh", () => {
 
       expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
     })
+
+    it("says there are no notable changes when every commit is left out", () => {
+      const repo = createReleaseRepo()
+      repo.commit("chore(deps-dev): bump a dev tool", { "src/tooling.ts": "tool\n" })
+      repo.commit("docs: update the conventions", { "AGENTS.md": "conventions\n" })
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "No notable changes.\n",
+        stderr: "",
+      })
+    })
   })
 
   describe("contributor-only scopes", () => {
