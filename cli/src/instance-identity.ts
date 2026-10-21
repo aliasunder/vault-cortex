@@ -187,7 +187,14 @@ export const resolveInstanceIdentity = async (
     // Renaming here would leave the old container running and could point
     // the folder at another install's volumes, so the name stays.
     if (flags.instanceName && flags.instanceName !== carriedName) {
-      prompts.error(renameOnRerunMessage({ carriedName, targetDir }))
+      // An invalid kept name gets the error every other command gives it,
+      // since the rename steps start with a down that would refuse it.
+      const carriedNameError = describeInvalidInstanceName(carriedName)
+      prompts.error(
+        carriedNameError
+          ? `${carriedNameError} Fix it in ${targetDir}/.env.`
+          : renameOnRerunMessage({ carriedName, targetDir }),
+      )
       return { kind: "exit" }
     }
     return { kind: "ok", identity: { carried, chosen: flagOverrides } }

@@ -2105,6 +2105,31 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
   })
 
+  it("reports an invalid kept name instead of the rename steps when --instance-name differs", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=Work Vault\n`,
+    )
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "work" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `"Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
+    ])
+  })
+
   it("accepts a re-run whose --instance-name repeats the install's name", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
