@@ -21,6 +21,9 @@ on:
         type: boolean
         default: false
 
+# Shared with cli_release.yml: both release flows push to main. GitHub
+# keeps one queued run per group, so a later dispatch cancels the queued
+# one.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false
@@ -48,24 +51,27 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Full history: the v* tag check and the dispatch-commit diff
+          # below need it.
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
           # First attempt: the branch's latest commit, so a run queued behind
           # a CLI release builds on the commit that release pushed. A re-run
-          # keeps the dispatch-time commit, so re-running a finished release
-          # fails instead of cutting the next version.
+          # passes '', which checkout reads as the dispatch-time commit
+          # (github.sha), so re-running a finished release fails instead of
+          # cutting the next version.
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
-      # Since dispatch, only a CLI release may have landed, and it changes
-      # only cli/package.json. Anything else (a second server release, a
-      # merged PR) would ship under an image label and signature that name
-      # the dispatch commit, so the run stops.
+      # Since dispatch, only a CLI release may have landed, and its one push
+      # in cli_release.yml changes only cli/package.json. Anything else (a
+      # second server release, a merged PR) would ship under an image label
+      # and signature that name the dispatch commit, so the run stops.
       - name: Refuse changes since dispatch other than a CLI release
         run: |
           CHANGED=$(git diff --name-only "$GITHUB_SHA" HEAD)
-          UNEXPECTED=$(printf '%s\n' "$CHANGED" | grep -vx 'cli/package.json' | paste -sd, - || true)
+          UNEXPECTED=$(printf '%s\n' "$CHANGED" | { grep -vxE 'cli/package\.json' || true; } | paste -sd, -)
           if [ -n "$UNEXPECTED" ]; then
-            echo "::error::$GITHUB_REF changed after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again."
+            echo "::error::$GITHUB_REF moved from $GITHUB_SHA to $(git rev-parse HEAD) after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again."
             exit 1
           fi
 
@@ -110,21 +116,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json server.json
-          if ! git diff --cached --quiet; then
-            git commit -m "release: v$NEXT"
-          fi
-          # Tag may already exist from a stranded prior run (fetched by
-          # the deep checkout). If it does, it must point at this bump
-          # commit — a stale tag targets a different tree, and the release
-          # job (which checks out the tag) would build from the wrong commit.
+          git commit -m "release: v$NEXT"
+          # The commit above is new, so an existing v$NEXT tag points at
+          # another commit, such as the one a re-run's first attempt tagged.
           if git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
-            if [ "$(git rev-parse "refs/tags/v$NEXT")" != "$(git rev-parse HEAD)" ]; then
-              echo "::error::Tag v$NEXT exists but does not point at this bump commit. If v$NEXT is a published release, this run is a re-run of it: stop here. Otherwise the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and re-dispatch."
-              exit 1
-            fi
-          else
-            git tag "v$NEXT"
+            echo "::error::Tag v$NEXT exists but does not point at this bump commit. If v$NEXT is a published release, this run is a re-run of it: stop here. Otherwise the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and re-dispatch."
+            exit 1
           fi
+          git tag "v$NEXT"
           # --atomic updates both refs or neither: without it, a rejected
           # branch push can still deliver the tag (stranding it at a commit
           # that never reached main), and a failed tag push can strand an
@@ -132,7 +131,7 @@ jobs:
           # next release. All-or-nothing keeps the failure path a bare
           # re-dispatch with nothing to clean up.
           if ! git push --atomic "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD "refs/tags/v$NEXT"; then
-            echo "::error::Push rejected — main moved during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again (a re-run of this run reuses its stale checkout and cannot succeed)."
+            echo "::error::Push rejected — $GITHUB_REF moved during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again (a re-run checks out the dispatch commit and cannot succeed)."
             exit 1
           fi
 
@@ -209,18 +208,25 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # This job checked out the release tag, but the CHANGELOG commit
+          # goes on main's tip, which may have moved past the tag; the stash
+          # carries the edit across.
           git stash
           git fetch origin main
           git checkout main
           git pull --ff-only origin main
           git stash pop
           git add CHANGELOG.md
+          # Empty when a re-run on the same day finds this entry on main.
           if git diff --cached --quiet; then
             echo "No CHANGELOG.md changes to commit"
             exit 0
           fi
           git commit -m "docs: update CHANGELOG.md for $TAG"
-          git push origin main
+          if ! git push origin main; then
+            echo "::error::CHANGELOG push rejected — main moved after the fetch above, or the push failed. Re-run the failed jobs."
+            exit 1
+          fi
 
       # Idempotent: skip creation if the release already exists so a
       # re-run after a signing failure proceeds to the cosign steps.
@@ -247,11 +253,9 @@ jobs:
           exit 1
 
       - name: Install cosign
-        if: ${{ needs.deploy.outputs.digest-local != '' }}
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Create digest file
-        if: ${{ needs.deploy.outputs.digest-local != '' }}
         env:
           IMAGE: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex
           VERSION: ${{ needs.bump-and-tag.outputs.version }}
@@ -263,11 +267,9 @@ jobs:
           cat digests.txt
 
       - name: Sign digest file
-        if: ${{ needs.deploy.outputs.digest-local != '' }}
         run: cosign sign-blob --yes --bundle digests.txt.sigstore.json digests.txt
 
       - name: Upload signed digests to release
-        if: ${{ needs.deploy.outputs.digest-local != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.bump-and-tag.outputs.tag }}

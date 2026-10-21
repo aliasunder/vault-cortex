@@ -30,6 +30,8 @@ on:
 # Shares the server release/deploy group: both release flows push to
 # main, and a CLI release racing a server release loses its push. A run
 # dispatched while a server release is in flight queues until it's done.
+# GitHub keeps one queued run per group, so a later dispatch cancels the
+# queued one.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false
@@ -58,24 +60,28 @@ jobs:
       # token is supplied only to the push step.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Full history: the cli-v* tag lookups and the dispatch-commit
+          # diff below need it.
           fetch-depth: 0
           persist-credentials: false
           # First attempt: the branch's latest commit, so a run queued behind
           # a server release builds on the commits that release pushed. A
-          # re-run keeps the dispatch-time commit, so re-running a finished
-          # release fails instead of publishing the next version.
+          # re-run passes '', which checkout reads as the dispatch-time commit
+          # (github.sha), so re-running a finished release fails instead of
+          # publishing the next version.
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
-      # Since dispatch, only a server release may have landed, and it changes
-      # only the files below. Anything else (a second CLI release, a merged
-      # PR) would ship under npm provenance that names the dispatch commit,
-      # so the run stops.
+      # Since dispatch, only a server release may have landed, and its two
+      # pushes in manual_release.yml (the bump commit, then the CHANGELOG
+      # commit) change only the files below. Anything else (a second CLI
+      # release, a merged PR) would ship under npm provenance that names the
+      # dispatch commit, so the run stops.
       - name: Refuse changes since dispatch other than a server release
         run: |
           CHANGED=$(git diff --name-only "$GITHUB_SHA" HEAD)
-          UNEXPECTED=$(printf '%s\n' "$CHANGED" | grep -vxE 'package\.json|package-lock\.json|server\.json|CHANGELOG\.md' | paste -sd, - || true)
+          UNEXPECTED=$(printf '%s\n' "$CHANGED" | { grep -vxE 'package\.json|package-lock\.json|server\.json|CHANGELOG\.md' || true; } | paste -sd, -)
           if [ -n "$UNEXPECTED" ]; then
-            echo "::error::$GITHUB_REF changed after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again."
+            echo "::error::$GITHUB_REF moved from $GITHUB_SHA to $(git rev-parse HEAD) after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again."
             exit 1
           fi
 
@@ -98,9 +104,10 @@ jobs:
             exit 1
           fi
           if [ "$BUMP" = "beta" ]; then
-            NEXT="${CURRENT}-beta.${{ github.run_number }}"
+            NEXT="${CURRENT}-beta.${GITHUB_RUN_NUMBER}"
           elif [ "$BUMP" = "none" ]; then
             NEXT="$CURRENT"
+
           # The checked-out version being tagged yet absent from npm is the
           # signature of a release that failed at npm publish. Don't bump
           # past it (silently skips a version) and don't ignore the
@@ -143,6 +150,9 @@ jobs:
         timeout-minutes: 20
         run: npm run test:cli-pty
 
+      # Runs for beta too: npm publish reads the prerelease version from
+      # this file, and the commit step skips beta, so that version is never
+      # committed.
       - name: Bump cli/package.json
         if: inputs.bump != 'none'
         env:
@@ -175,28 +185,34 @@ jobs:
           # breaks the next release's version math. All-or-nothing keeps
           # the failure path a bare re-dispatch with nothing to clean up.
           if ! git push --atomic "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD "refs/tags/cli-v$NEXT"; then
-            echo "::error::Push rejected — main gained commits during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again (a re-run of this run reuses its stale checkout and cannot succeed)."
+            echo "::error::Push rejected — $GITHUB_REF gained commits during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again (a re-run checks out the dispatch commit and cannot succeed)."
             exit 1
           fi
 
       - name: Publish to npm (Trusted Publishing / OIDC)
         env:
           TAG_FLAG: ${{ inputs.bump == 'beta' && '--tag beta' || '' }}
-        run: npm publish ./cli $TAG_FLAG --provenance --access public
+        run: |
+          # TAG_FLAG stays unquoted: "--tag beta" must split into two
+          # arguments, and an empty value must add none.
+          # shellcheck disable=SC2086
+          npm publish ./cli $TAG_FLAG --provenance --access public
 
       - name: Beta summary
         if: inputs.bump == 'beta'
         env:
           BETA_VERSION: ${{ steps.next.outputs.version }}
         run: |
-          echo "### CLI Beta Published" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Version:** \`vault-cortex@${BETA_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Test with:" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`bash" >> "$GITHUB_STEP_SUMMARY"
-          echo "npx vault-cortex@beta" >> "$GITHUB_STEP_SUMMARY"
-          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### CLI Beta Published"
+            echo ""
+            echo "**Version:** \`vault-cortex@${BETA_VERSION}\`"
+            echo ""
+            echo "Test with:"
+            echo "\`\`\`bash"
+            echo "npx vault-cortex@beta"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # --latest=false keeps the "Latest" badge on server releases. Notes
       # list only cli/ commits — server commits interleave on main, so
