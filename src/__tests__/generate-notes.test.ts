@@ -514,11 +514,10 @@ describe("generate-notes.sh", () => {
         }),
       })
 
-      const notesRun = repo.generateNotes()
-
-      expect({ status: notesRun.status, stdout: notesRun.stdout }).toEqual({
+      expect(repo.generateNotes()).toEqual({
         status: 0,
         stdout: "### Maintenance\n\n- **deps:** Bump vitest\n",
+        stderr: "",
       })
     })
   })
