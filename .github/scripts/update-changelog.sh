@@ -40,9 +40,11 @@ insert_at = next(
 # under the header can't pile up across releases. A missing or empty file
 # has no header, so it gets the title.
 header = '\n'.join(lines[:insert_at]).rstrip() or "# Changelog"
-earlier_entries = '\n'.join(lines[insert_at:])
+# rstrip: an [Unreleased] section removed from the end of the file leaves
+# its separating blank line behind.
+earlier_entries = '\n'.join(lines[insert_at:]).rstrip()
 if earlier_entries:
-    text = f"{header}\n\n{entry}\n\n{earlier_entries}"
+    text = f"{header}\n\n{entry}\n\n{earlier_entries}\n"
 else:
     text = f"{header}\n\n{entry}\n"
 
