@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runInit, validatePublicUrl } from "../init.js"
-import { pollHealth, type DockerRunner } from "../docker.js"
+import { LOCAL_IMAGE, pollHealth, type DockerRunner } from "../docker.js"
 import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "../messages.js"
 import { readEnvInstanceName } from "../scaffold.js"
 
@@ -1747,6 +1747,9 @@ const dockerWithExisting = (existingNames: ReadonlyArray<string>): DockerRunner 
   return {
     ...dockerDaemonOnly,
     containerExists: (instanceName) => existingNames.includes(instanceName),
+    containerImage: (instanceName) => {
+      return existingNames.includes(instanceName) ? LOCAL_IMAGE : undefined
+    },
     volumeExists: (volumeName) => existingNames.includes(volumeName),
   }
 }
@@ -1808,7 +1811,10 @@ describe("runInit when the instance name is already in use", () => {
       { mode: "local", vaultPath: vaultDir, dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerWithExisting(["vault-cortex"]),
+        docker: dockerWithPorts({
+          existingNames: ["vault-cortex"],
+          publishedPorts: [[8000, "vault-cortex"]],
+        }),
         fetchFn: fetchNever,
       },
     )
@@ -1821,7 +1827,7 @@ describe("runInit when the instance name is already in use", () => {
       "Any optional settings to change? (press enter to skip)",
       "Start the server now?",
     ])
-    // The install using the default name most likely holds port 8000.
+    // The install using the default name publishes port 8000.
     expect(scripted.textCalls[1]).toEqual({
       message: PORT_QUESTION,
       defaultValue: "8001",
@@ -2026,7 +2032,7 @@ describe("runInit when the instance name is already in use", () => {
     )
     const scripted = createScriptedPrompts([
       true, // re-run setup
-      "8001", // the suggestion: the install's own port
+      "8001", // the install's own port
       [], // no optional settings
       true, // overwrite .env
       false, // don't start now
@@ -2052,7 +2058,7 @@ describe("runInit when the instance name is already in use", () => {
       'Port 9000 is already used by the "other-app" container on this machine.',
     ])
     expect(scripted.textCalls).toEqual([
-      { message: PORT_QUESTION, defaultValue: "8001", placeholder: "8001" },
+      { message: PORT_QUESTION, defaultValue: "8000", placeholder: "8000" },
     ])
     expect(readIdentityLines(targetDir)).toEqual([
       "PUBLIC_URL=http://localhost:8001",
@@ -2110,7 +2116,7 @@ describe("runInit when the instance name is already in use", () => {
     expect(exitCode).toBe(0)
     expect(scripted.textCalls).toEqual([
       { message: PORT_QUESTION, defaultValue: "8000", placeholder: "8000" },
-      { message: PORT_QUESTION, defaultValue: "8001", placeholder: "8001" },
+      { message: PORT_QUESTION, defaultValue: "8000", placeholder: "8000" },
     ])
     expect(scripted.errors).toEqual([
       'Port 9000 is already used by the "other-app" container on this machine. Pick another port.',
@@ -2238,6 +2244,33 @@ describe("runInit when the instance name is already in use", () => {
     expect(exitCode).toBe(0)
     expect(scripted.errors).toEqual([
       "Could not remove the existing container — check: docker rm -f vault-cortex",
+    ])
+    expect(recording.calls).toEqual(["inspect:vault-cortex", "inspect:vault-cortex"])
+  })
+
+  it("leaves a container that runs another image in place and does not offer to start", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    // No answer for a start question: asking one fails the test.
+    const scripted = createScriptedPrompts(["reuse", "8000", []])
+    const recording = createRecordingDocker()
+    const docker: DockerRunner = {
+      ...recording.docker,
+      containerImage: (instanceName) => {
+        recording.calls.push(`inspect:${instanceName}`)
+        return "postgres:16"
+      },
+    }
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so it was left in place.\n` +
+        `Give this install a name no other container uses: change INSTANCE_NAME in ${targetDir}/.env.`,
     ])
     expect(recording.calls).toEqual(["inspect:vault-cortex", "inspect:vault-cortex"])
   })

@@ -5,6 +5,24 @@ import type { Mode } from "./scaffold.js"
 export const LOCAL_IMAGE = "ghcr.io/aliasunder/vault-cortex:latest"
 export const REMOTE_IMAGE = "ghcr.io/aliasunder/vault-cortex:remote"
 
+/** The image on GHCR and on its Docker Hub mirror, which Docker also reports without docker.io/. */
+const VAULT_CORTEX_IMAGE_REPOSITORIES = [
+  "ghcr.io/aliasunder/vault-cortex",
+  "aliasunder/vault-cortex",
+  "docker.io/aliasunder/vault-cortex",
+]
+
+/** True for any tag or digest of the Vault Cortex image. */
+export const isVaultCortexImage = (image: string): boolean => {
+  return VAULT_CORTEX_IMAGE_REPOSITORIES.some((repository) => {
+    return (
+      image === repository ||
+      image.startsWith(`${repository}:`) ||
+      image.startsWith(`${repository}@`)
+    )
+  })
+}
+
 export type DockerRunParams = {
   mode: Mode
   /** The install's INSTANCE_NAME: the container name and the volume prefix. */
@@ -72,6 +90,11 @@ export type DockerRunner = {
   stopAndRemoveContainer: (instanceName: string) => boolean
   /** True when a container with this name exists, running or stopped. */
   containerExists: (instanceName: string) => boolean
+  /**
+   * The image the container with this exact name was created from, or
+   * undefined when no container has the name.
+   */
+  containerImage: (instanceName: string) => string | undefined
   /** True when a named volume exists. */
   volumeExists: (volumeName: string) => boolean
   /**
@@ -200,6 +223,22 @@ export const isContainerNamed = (params: {
   return inspectedName.trim().replace(/^\//, "") === instanceName
 }
 
+/** Go template that prints a container's name and image: "/work ghcr.io/aliasunder/vault-cortex:latest". */
+const NAME_AND_IMAGE_FORMAT = "{{.Name}} {{.Config.Image}}"
+
+/** Reads NAME_AND_IMAGE_FORMAT output into the image, or undefined when it names another container. */
+export const parseContainerImage = (params: {
+  inspectOutput: string
+  instanceName: string
+}): string | undefined => {
+  const [inspectedName = "", image] = params.inspectOutput.trim().split(" ")
+
+  if (!image || !isContainerNamed({ inspectedName, instanceName: params.instanceName })) {
+    return undefined
+  }
+  return image
+}
+
 /**
  * Go template that prints a container's name, then each host port it
  * publishes: "/work 8001". PortBindings is the container's run setting, so a
@@ -256,6 +295,16 @@ export const createDockerRunner = (): DockerRunner => ({
 
     if (inspectResult.status !== 0) return false
     return isContainerNamed({ inspectedName: inspectResult.stdout, instanceName })
+  },
+  containerImage: (instanceName) => {
+    const inspectResult = spawnSync(
+      "docker",
+      ["container", "inspect", "--format", NAME_AND_IMAGE_FORMAT, instanceName],
+      { encoding: "utf8" },
+    )
+
+    if (inspectResult.status !== 0) return undefined
+    return parseContainerImage({ inspectOutput: inspectResult.stdout, instanceName })
   },
   volumeExists: (volumeName) => {
     return spawnSync("docker", ["volume", "inspect", volumeName]).status === 0

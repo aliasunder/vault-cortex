@@ -7,7 +7,9 @@ import {
   healthPollTimeoutMs,
   healthTimeoutMessage,
   isContainerNamed,
+  isVaultCortexImage,
   LOCAL_IMAGE,
+  parseContainerImage,
   parsePublishedHostPorts,
   pollHealth,
   probeHealth,
@@ -491,6 +493,50 @@ describe("isContainerNamed", () => {
     expect(
       isContainerNamed({ inspectedName: "/remote-boot-relative-index-db\n", instanceName: "2025" }),
     ).toBe(false)
+  })
+})
+
+describe("parseContainerImage", () => {
+  it("reads the image of the container with the exact name", () => {
+    expect(
+      parseContainerImage({
+        inspectOutput: "/work ghcr.io/aliasunder/vault-cortex:remote\n",
+        instanceName: "work",
+      }),
+    ).toBe("ghcr.io/aliasunder/vault-cortex:remote")
+  })
+
+  it("returns undefined for a container that inspect found by an ID prefix", () => {
+    expect(
+      parseContainerImage({
+        inspectOutput: "/remote-boot-relative-index-db postgres:16\n",
+        instanceName: "2025",
+      }),
+    ).toBeUndefined()
+  })
+})
+
+describe("isVaultCortexImage", () => {
+  it.each([
+    { label: "the local tag on GHCR", image: "ghcr.io/aliasunder/vault-cortex:latest" },
+    { label: "the remote tag on GHCR", image: "ghcr.io/aliasunder/vault-cortex:remote" },
+    { label: "an untagged GHCR name", image: "ghcr.io/aliasunder/vault-cortex" },
+    { label: "a Docker Hub tag", image: "aliasunder/vault-cortex:remote" },
+    { label: "a fully named Docker Hub tag", image: "docker.io/aliasunder/vault-cortex:0.54.16" },
+    { label: "a digest", image: "ghcr.io/aliasunder/vault-cortex@sha256:0123abcd" },
+  ])("accepts $label", ({ image }) => {
+    expect(isVaultCortexImage(image)).toBe(true)
+  })
+
+  it.each([
+    { label: "another image", image: "postgres:16" },
+    {
+      label: "a repository that only starts with the name",
+      image: "aliasunder/vault-cortex-fork:1",
+    },
+    { label: "another owner's image", image: "ghcr.io/someone/vault-cortex:latest" },
+  ])("rejects $label", ({ image }) => {
+    expect(isVaultCortexImage(image)).toBe(false)
   })
 })
 

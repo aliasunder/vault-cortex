@@ -4,9 +4,9 @@ import { recreateContainer, requireInitializedDir, resolveDeployment } from "./l
 import {
   applyOptionalSettings,
   askOptionalSettings,
-  derivePublicUrlOverride,
   describeStrandedPublicUrl,
   portsOfOtherContainers,
+  withPublicUrlOverride,
 } from "./optional-settings.js"
 import { readEnvInstanceName } from "./scaffold.js"
 import type { DockerRunner } from "./docker.js"
@@ -62,7 +62,7 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
     return 0
   }
 
-  const overrides = derivePublicUrlOverride(envContent, pickedOverrides)
+  const overrides = withPublicUrlOverride({ overrides: pickedOverrides, envContent })
   const changedNames = Object.keys(overrides)
   writeFileSync(envFilePath, applyOptionalSettings(envContent, overrides))
   prompts.log(`Updated ${changedNames.join(", ")} in ${targetDir}/.env.`)

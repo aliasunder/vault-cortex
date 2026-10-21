@@ -14,6 +14,7 @@ import {
 import {
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  isVaultCortexImage,
   pollHealth,
   type DockerRunner,
 } from "./docker.js"
@@ -22,12 +23,12 @@ import {
   describeStrandedCarriedPublicUrl,
   resolveInstanceIdentity,
 } from "./instance-identity.js"
-import { reportPublicUrlProbe, resolveDeployment } from "./lifecycle.js"
+import { foreignContainerMessage, reportPublicUrlProbe, resolveDeployment } from "./lifecycle.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
-  derivePublicUrlOverride,
   describeStrandedPublicUrl,
+  withPublicUrlOverride,
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
@@ -329,9 +330,21 @@ const offerDockerRun = async (
     )
     return "not-started"
   }
+  const existingImage = docker.containerImage(instanceName)
+
+  if (existingImage && !isVaultCortexImage(existingImage)) {
+    prompts.error(
+      foreignContainerMessage({
+        instanceName,
+        image: existingImage,
+        envFilePath: join(targetDir, ".env"),
+      }),
+    )
+    return "not-started"
+  }
   // docker run refuses a name an existing container already holds, so a yes
   // replaces that container the way `start` does, and the question says so.
-  const containerExists = docker.containerExists(instanceName)
+  const containerExists = Boolean(existingImage)
   const startQuestion = containerExists
     ? `Start the server now? This stops and replaces the existing "${instanceName}" container. Its data volumes are kept.`
     : "Start the server now?"
@@ -448,7 +461,10 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
         },
         prompts,
       )
-  const appliedOverrides = derivePublicUrlOverride(generatedEnvContent, optionalOverrides)
+  const appliedOverrides = withPublicUrlOverride({
+    overrides: optionalOverrides,
+    envContent: generatedEnvContent,
+  })
   const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
   const publicUrlWarning =
     describeStrandedPublicUrl({
@@ -489,14 +505,12 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 
   if (!deployment) return 1
   const { instanceName, port } = deployment
-  // A kept remote .env has no VAULT_PATH, so this run's folder is mounted.
-  const mountedVaultPath = deployment.vaultPath ?? vaultPath
 
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
     ? "not-started"
     : await offerDockerRun(
-        { targetDir, instanceName, port, mode: "local", vaultPath: mountedVaultPath },
+        { targetDir, instanceName, port, mode: "local", vaultPath: deployment.vaultPath },
         deps,
       )
   prompts.print(
@@ -585,7 +599,10 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
     { mode: "remote", envContent: generatedEnvContent, portsInUse: identityResult.portsInUse },
     prompts,
   )
-  const appliedOverrides = derivePublicUrlOverride(generatedEnvContent, optionalOverrides)
+  const appliedOverrides = withPublicUrlOverride({
+    overrides: optionalOverrides,
+    envContent: generatedEnvContent,
+  })
   const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
   const publicUrlWarning = describeStrandedPublicUrl({
     envContent: generatedEnvContent,

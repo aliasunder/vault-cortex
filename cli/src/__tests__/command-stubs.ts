@@ -1,4 +1,9 @@
-import type { DockerLogsParams, DockerRunner, DockerRunParams } from "../docker.js"
+import {
+  LOCAL_IMAGE,
+  type DockerLogsParams,
+  type DockerRunner,
+  type DockerRunParams,
+} from "../docker.js"
 import type { Prompts, SelectOption } from "../prompts.js"
 
 /**
@@ -168,6 +173,7 @@ export const dockerReady: DockerRunner = {
   pullImage: () => true,
   stopAndRemoveContainer: () => true,
   containerExists: () => true,
+  containerImage: () => LOCAL_IMAGE,
   volumeExists: () => true,
   publishedHostPorts: () => new Map(),
   streamLogs: async () => 0,
@@ -180,6 +186,7 @@ export const dockerReady: DockerRunner = {
 export const dockerReadyEmptyHost: DockerRunner = {
   ...dockerReady,
   containerExists: () => false,
+  containerImage: () => undefined,
   volumeExists: () => false,
 }
 
@@ -201,6 +208,10 @@ export const createRecordingDocker = (): {
     containerExists: (instanceName) => {
       calls.push(`inspect:${instanceName}`)
       return true
+    },
+    containerImage: (instanceName) => {
+      calls.push(`inspect:${instanceName}`)
+      return LOCAL_IMAGE
     },
     stopAndRemoveContainer: (instanceName) => {
       calls.push(`rm:${instanceName}`)
@@ -227,6 +238,7 @@ export const dockerDown: DockerRunner = {
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
   containerExists: () => false,
+  containerImage: () => undefined,
   volumeExists: () => false,
   publishedHostPorts: () => new Map(),
   streamLogs: async () => 1,

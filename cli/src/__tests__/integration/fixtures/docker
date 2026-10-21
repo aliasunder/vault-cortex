@@ -6,6 +6,8 @@
 #                                 exist; `container ls` lists them, and
 #                                 `container inspect` and `volume inspect`
 #                                 exit 1 for any other name (default: none exist)
+#   DOCKER_SHIM_IMAGE           — the image `container inspect` reports for a
+#                                 present container (default: the local image)
 #   DOCKER_SHIM_RUN_FAIL=1      — `run` exits 1
 #   DOCKER_SHIM_HEALTH_PORT     — port for the background health server (default 8000)
 #   DOCKER_SHIM_PID_FILE        — where to write the health server PID
@@ -54,13 +56,21 @@ case "${1:-}" in
       done
       exit 0
     fi
-    # docker container inspect --format '{{.Name}}' <name> — prints the name
-    # with Docker's leading slash when the container exists
+    # docker container inspect --format <format> <name> — prints the name with
+    # Docker's leading slash when the container exists, followed by its image
+    # when the format asks for it
     container_name="${!#}"
     if ! is_present "$container_name"; then
       exit 1
     fi
-    echo "/$container_name"
+    case "${4:-}" in
+      *.Config.Image*)
+        echo "/$container_name ${DOCKER_SHIM_IMAGE:-ghcr.io/aliasunder/vault-cortex:latest}"
+        ;;
+      *)
+        echo "/$container_name"
+        ;;
+    esac
     ;;
 
   volume)

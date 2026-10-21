@@ -3,6 +3,7 @@ import { join, resolve } from "node:path"
 import {
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  isVaultCortexImage,
   pollHealth,
   probeHealth,
   type DockerRunner,
@@ -194,6 +195,23 @@ export const reportPublicUrlProbe = async (
 }
 
 /**
+ * Refusal for a container that holds the install's name but runs another
+ * image: INSTANCE_NAME then names someone else's container, which a command
+ * must not stop or remove.
+ */
+export const foreignContainerMessage = (params: {
+  instanceName: string
+  image: string
+  envFilePath: string
+}): string => {
+  const { instanceName, image, envFilePath } = params
+  return (
+    `A container named "${instanceName}" runs ${image}, not Vault Cortex, so it was left in place.\n` +
+    `Give this install a name no other container uses: change INSTANCE_NAME in ${envFilePath}.`
+  )
+}
+
+/**
  * Stop-and-remove → docker run → health poll, with the shared messaging.
  * Returns a process exit code. Callers own the daemon check and any
  * image-pull step.
@@ -205,13 +223,24 @@ export const recreateContainer = async (
   const { deployment, healthTimeoutMs } = params
   const { prompts, docker, fetchFn } = deps
   const { instanceName } = deployment
+  const existingImage = docker.containerImage(instanceName)
 
+  if (existingImage && !isVaultCortexImage(existingImage)) {
+    prompts.error(
+      foreignContainerMessage({
+        instanceName,
+        image: existingImage,
+        envFilePath: deployment.envFilePath,
+      }),
+    )
+    return 1
+  }
   // `docker rm -f` on a missing container exits non-zero on engines < 23,
   // so the bare return value can't distinguish "nothing to remove" from a
   // real failure — only treat removal as failed when a container exists.
   // Proceeding after a genuine failure would surface as a confusing
   // "container name already in use" from docker run.
-  if (docker.containerExists(instanceName) && !docker.stopAndRemoveContainer(instanceName)) {
+  if (existingImage && !docker.stopAndRemoveContainer(instanceName)) {
     prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
     return 1
   }
@@ -273,12 +302,17 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
 
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
-  const { instanceName } = initialized
+  const { instanceName, envFilePath } = initialized
+  const existingImage = docker.containerImage(instanceName)
 
-  if (!docker.containerExists(instanceName)) {
+  if (!existingImage) {
     prompts.log(`No ${instanceName} container found — nothing to stop.`)
     prompts.outro("Done.")
     return 0
+  }
+  if (!isVaultCortexImage(existingImage)) {
+    prompts.error(foreignContainerMessage({ instanceName, image: existingImage, envFilePath }))
+    return 1
   }
 
   if (!docker.stopAndRemoveContainer(instanceName)) {

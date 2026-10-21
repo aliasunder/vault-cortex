@@ -96,6 +96,7 @@ describe("runDown", () => {
     const dockerNoContainer: DockerRunner = {
       ...dockerReady,
       containerExists: () => false,
+      containerImage: () => undefined,
       stopAndRemoveContainer: () => {
         removeCalls.push("called")
         return true
@@ -727,6 +728,7 @@ describe("runRestart", () => {
     const dockerFirstStart: DockerRunner = {
       ...dockerReady,
       containerExists: () => false,
+      containerImage: () => undefined,
       stopAndRemoveContainer: () => {
         removeCalls.push("called")
         return false
@@ -824,9 +826,15 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
     writeNamedLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
+    const dockerNoContainer: DockerRunner = {
+      ...dockerReady,
+      containerExists: () => false,
+      containerImage: () => undefined,
+    }
+
     const exitCode = await runDown(
       { dir: targetDir },
-      { prompts: scripted.prompts, docker: { ...dockerReady, containerExists: () => false } },
+      { prompts: scripted.prompts, docker: dockerNoContainer },
     )
 
     expect(exitCode).toBe(0)
@@ -972,6 +980,58 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
     expect(recording.calls).toEqual([])
     expect(scripted.errors).toEqual([
       `INSTANCE_NAME "Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
+    ])
+  })
+})
+
+describe("a container under the install's name that runs another image", () => {
+  const createForeignContainerDocker = (): { docker: DockerRunner; calls: string[] } => {
+    const recording = createRecordingDocker()
+    const docker: DockerRunner = {
+      ...recording.docker,
+      containerImage: (instanceName) => {
+        recording.calls.push(`inspect:${instanceName}`)
+        return "postgres:16"
+      },
+    }
+    return { docker, calls: recording.calls }
+  }
+
+  it("down leaves it in place and exits 1", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-foreign-")
+    writeLocalEnv(targetDir)
+    const foreign = createForeignContainerDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: foreign.docker },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(foreign.calls).toEqual(["inspect:vault-cortex"])
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so it was left in place.\n` +
+        `Give this install a name no other container uses: change INSTANCE_NAME in ${targetDir}/.env.`,
+    ])
+  })
+
+  it("restart leaves it in place and starts nothing", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-foreign-")
+    writeLocalEnv(targetDir)
+    const foreign = createForeignContainerDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: foreign.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(foreign.calls).toEqual(["inspect:vault-cortex"])
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so it was left in place.\n` +
+        `Give this install a name no other container uses: change INSTANCE_NAME in ${targetDir}/.env.`,
     ])
   })
 })

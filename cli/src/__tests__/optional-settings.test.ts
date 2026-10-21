@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest"
 import {
   applyOptionalSettings,
   askOptionalSettings,
-  derivePublicUrlOverride,
   describeStrandedPublicUrl,
   readOptionalValue,
+  withPublicUrlOverride,
 } from "../optional-settings.js"
 import { createScriptedPrompts } from "./command-stubs.js"
 
@@ -94,71 +94,81 @@ describe("applyOptionalSettings", () => {
   })
 })
 
-describe("derivePublicUrlOverride", () => {
+describe("withPublicUrlOverride", () => {
   it("follows a PORT change when PUBLIC_URL is the derived localhost form", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=8000\n", {
-      PORT: "9000",
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=8000\n",
     })
-    expect(derived).toEqual({
+    expect(overrides).toEqual({
       PORT: "9000",
       PUBLIC_URL: "http://localhost:9000",
     })
   })
 
-  it("derives from the current PORT, not the default", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:9100\nPORT=9100\n", {
-      PORT: "9200",
+  it("follows the current PORT, not the default", () => {
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9200" },
+      envContent: "PUBLIC_URL=http://localhost:9100\nPORT=9100\n",
     })
-    expect(derived).toEqual({
+    expect(overrides).toEqual({
       PORT: "9200",
       PUBLIC_URL: "http://localhost:9200",
     })
   })
 
   it("reads an empty PORT line as the default port", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=\n", {
-      PORT: "9000",
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=\n",
     })
-    expect(derived).toEqual({
+    expect(overrides).toEqual({
       PORT: "9000",
       PUBLIC_URL: "http://localhost:9000",
     })
   })
 
   it("follows a PORT change from a value that isn't a port when PUBLIC_URL is on the default port", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=80a0\n", {
-      PORT: "9000",
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=80a0\n",
     })
-    expect(derived).toEqual({
+    expect(overrides).toEqual({
       PORT: "9000",
       PUBLIC_URL: "http://localhost:9000",
     })
   })
 
   it("leaves a default-port PUBLIC_URL beside a valid PORT on another port", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=9100\n", {
-      PORT: "9200",
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9200" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=9100\n",
     })
-    expect(derived).toEqual({ PORT: "9200" })
+    expect(overrides).toEqual({ PORT: "9200" })
   })
 
   it("never touches a custom PUBLIC_URL", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=https://vault.example.com\nPORT=8000\n", {
-      PORT: "9000",
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PUBLIC_URL=https://vault.example.com\nPORT=8000\n",
     })
-    expect(derived).toEqual({ PORT: "9000" })
+    expect(overrides).toEqual({ PORT: "9000" })
   })
 
   it("returns the overrides unchanged without a PORT override", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=8000\n", {
-      MEMORY_ENABLED: "false",
+    const overrides = withPublicUrlOverride({
+      overrides: { MEMORY_ENABLED: "false" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=8000\n",
     })
-    expect(derived).toEqual({ MEMORY_ENABLED: "false" })
+    expect(overrides).toEqual({ MEMORY_ENABLED: "false" })
   })
 
   it("returns the overrides unchanged when PUBLIC_URL is absent", () => {
-    const derived = derivePublicUrlOverride("PORT=8000\n", { PORT: "9000" })
-    expect(derived).toEqual({ PORT: "9000" })
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PORT=8000\n",
+    })
+    expect(overrides).toEqual({ PORT: "9000" })
   })
 })
 

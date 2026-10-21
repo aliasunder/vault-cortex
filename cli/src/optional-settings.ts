@@ -219,10 +219,11 @@ export const applyOptionalSettings = (
  * point at a port nothing listens on. A custom PUBLIC_URL (reverse proxy,
  * remote domain) is the user's own and is never touched.
  */
-export const derivePublicUrlOverride = (
-  envContent: string,
-  overrides: Record<string, string>,
-): Record<string, string> => {
+export const withPublicUrlOverride = (params: {
+  overrides: Record<string, string>
+  envContent: string
+}): Record<string, string> => {
+  const { overrides, envContent } = params
   const newPort = overrides.PORT
 
   if (!newPort) return overrides
@@ -244,7 +245,7 @@ export const derivePublicUrlOverride = (
 
 /**
  * Warns about a picked PORT change that left PUBLIC_URL as it was:
- * derivePublicUrlOverride never rewrites a custom URL, so it may still name
+ * withPublicUrlOverride never rewrites a custom URL, so it may still name
  * the old port. Returns undefined when there is nothing to warn about.
  */
 export const describeStrandedPublicUrl = (params: {
@@ -313,12 +314,12 @@ export const portInUseMessage = (port: string, containerName: string): string =>
   return `Port ${port} is already used by the "${containerName}" container on this machine.`
 }
 
-/** The first port above the default that no container publishes. */
+/** The first port, counting up from the default, that no container publishes. */
 export const suggestFreePort = (portsInUse: PortsInUse): string => {
   const findFreePort = (candidatePort: number): number => {
     return portsInUse.has(candidatePort) ? findFreePort(candidatePort + 1) : candidatePort
   }
-  return String(findFreePort(DEFAULT_PORT + 1))
+  return String(findFreePort(DEFAULT_PORT))
 }
 
 /** Re-prompts until the answer is a valid port no other container on the machine publishes. */

@@ -5,12 +5,12 @@ import { instanceVolumeNames, type DockerRunner } from "./docker.js"
 import {
   applyOptionalSettings,
   askFreePort,
-  derivePublicUrlOverride,
   describeStrandedPublicUrl,
   portInUseMessage,
   portsOfOtherContainers,
   readOptionalValue,
   suggestFreePort,
+  withPublicUrlOverride,
   type PortsInUse,
 } from "./optional-settings.js"
 import {
@@ -192,10 +192,10 @@ const askReusedPort = async (
   const { flags, portsInUse } = params
 
   if (flags.port || flags.yes) return checkRequestedPort(params, prompts)
-  const suggestedPort = portsInUse.has(DEFAULT_PORT)
-    ? suggestFreePort(portsInUse)
-    : String(DEFAULT_PORT)
-  const port = await askFreePort({ suggestedPort, portsInUse }, prompts)
+  const port = await askFreePort(
+    { suggestedPort: suggestFreePort(portsInUse), portsInUse },
+    prompts,
+  )
   return { kind: "ok", settings: { PORT: port } }
 }
 
@@ -363,8 +363,6 @@ export const resolveInstanceIdentity = async (
   }
   const suggestedName = suggestInstanceName({ mode, targetDir }, docker)
   const instanceName = await askFreeInstanceName({ mode, suggestedName }, deps)
-  // The install already using the name most likely holds the default port, so
-  // the first free port above it is offered instead.
   const suggestedPort = flags.port ?? suggestFreePort(portsInUse)
   const port = await askFreePort({ suggestedPort, portsInUse }, prompts)
   const chosen = {
@@ -384,9 +382,13 @@ export const resolveInstanceIdentity = async (
 export const applyInstanceIdentity = (envContent: string, identity: InstanceIdentity): string => {
   const carriedSettings = identity.carried.PUBLIC_URL
     ? identity.carried
-    : derivePublicUrlOverride(envContent, identity.carried)
+    : withPublicUrlOverride({ overrides: identity.carried, envContent })
   const withCarried = applyOptionalSettings(envContent, carriedSettings)
-  return applyOptionalSettings(withCarried, derivePublicUrlOverride(withCarried, identity.chosen))
+  const chosenSettings = withPublicUrlOverride({
+    overrides: identity.chosen,
+    envContent: withCarried,
+  })
+  return applyOptionalSettings(withCarried, chosenSettings)
 }
 
 /**
@@ -404,6 +406,9 @@ export const describeStrandedCarriedPublicUrl = (
   return describeStrandedPublicUrl({
     envContent: withCarried,
     pickedOverrides: identity.chosen,
-    appliedOverrides: derivePublicUrlOverride(withCarried, identity.chosen),
+    appliedOverrides: withPublicUrlOverride({
+      overrides: identity.chosen,
+      envContent: withCarried,
+    }),
   })
 }

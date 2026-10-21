@@ -253,7 +253,7 @@ describe("runConfigure with picked settings", () => {
     ])
     expect(scripted.textCalls).toEqual([
       { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
-      { message: "Host port for the server:", defaultValue: "8001", placeholder: "8001" },
+      { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
     ])
     expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
   })
@@ -459,6 +459,7 @@ describe("runConfigure with picked settings", () => {
     const dockerRunFails: DockerRunner = {
       ...dockerReady,
       containerExists: () => false,
+      containerImage: () => undefined,
       dockerRun: () => false,
     }
     const scripted = createScriptedPrompts([
