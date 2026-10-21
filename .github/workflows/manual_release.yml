@@ -21,9 +21,10 @@ on:
         type: boolean
         default: false
 
-# Shared with cli_release.yml: both release flows push to main. GitHub
-# keeps one queued run per group, so a later dispatch cancels the queued
-# one.
+# Shared with the other release workflows, which also push to main, and
+# the deploy workflows. GitHub keeps one queued run per group, so any
+# later run in the group (a release or deploy dispatch, or a hand-pushed
+# v* tag) cancels the queued one.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false
@@ -71,7 +72,7 @@ jobs:
           CHANGED=$(git diff --name-only "$GITHUB_SHA" HEAD)
           UNEXPECTED=$(printf '%s\n' "$CHANGED" | { grep -vxE 'cli/package\.json' || true; } | paste -sd, -)
           if [ -n "$UNEXPECTED" ]; then
-            echo "::error::$GITHUB_REF moved from $GITHUB_SHA to $(git rev-parse HEAD) after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again."
+            echo "::error::$GITHUB_REF moved from $GITHUB_SHA to $(git rev-parse HEAD) after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again, unless this run duplicated a server release that has since landed."
             exit 1
           fi
 
@@ -131,7 +132,7 @@ jobs:
           # next release. All-or-nothing keeps the failure path a bare
           # re-dispatch with nothing to clean up.
           if ! git push --atomic "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD "refs/tags/v$NEXT"; then
-            echo "::error::Push rejected — $GITHUB_REF moved during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again (a re-run checks out the dispatch commit and cannot succeed)."
+            echo "::error::Push rejected — $GITHUB_REF moved during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again (a re-run checks out the dispatch commit, so its push fails again if $GITHUB_REF has moved)."
             exit 1
           fi
 
@@ -217,7 +218,7 @@ jobs:
           git pull --ff-only origin main
           git stash pop
           git add CHANGELOG.md
-          # Empty when a re-run on the same day finds this entry on main.
+          # Empty when a re-run on the same UTC day finds this entry on main.
           if git diff --cached --quiet; then
             echo "No CHANGELOG.md changes to commit"
             exit 0

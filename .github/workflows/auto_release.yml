@@ -5,8 +5,11 @@ on:
     tags:
       - "v*"
 
+# The tag manual_release.yml pushes as the release App starts a run that
+# skips every job (see validate). That run takes a group of its own:
+# waiting in deploy-prod, it would cancel a release queued there.
 concurrency:
-  group: deploy-prod
+  group: ${{ github.actor == 'vault-cortex-release[bot]' && format('auto-release-skipped-{0}', github.run_id) || 'deploy-prod' }}
   cancel-in-progress: false
 
 # Top-level token is read-only; each job declares the writes it needs.
