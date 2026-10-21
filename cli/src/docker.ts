@@ -5,11 +5,16 @@ import type { Mode } from "./scaffold.js"
 export const LOCAL_IMAGE = "ghcr.io/aliasunder/vault-cortex:latest"
 export const REMOTE_IMAGE = "ghcr.io/aliasunder/vault-cortex:remote"
 
-/** The image on GHCR and on its Docker Hub mirror, which Docker also reports without docker.io/. */
+/**
+ * - The image on GHCR and on its Docker Hub mirror, which Docker also reports
+ *   without docker.io/.
+ * - vault-mcp: the image's name before v0.27.0, which older CLI installs still run.
+ */
 const VAULT_CORTEX_IMAGE_REPOSITORIES = [
   "ghcr.io/aliasunder/vault-cortex",
   "aliasunder/vault-cortex",
   "docker.io/aliasunder/vault-cortex",
+  "ghcr.io/aliasunder/vault-mcp",
 ]
 
 /** True for any tag or digest of the Vault Cortex image. */

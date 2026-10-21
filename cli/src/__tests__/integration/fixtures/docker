@@ -56,21 +56,26 @@ case "${1:-}" in
       done
       exit 0
     fi
-    # docker container inspect --format <format> <name> — prints the name with
-    # Docker's leading slash when the container exists, followed by its image
-    # when the format asks for it
-    container_name="${!#}"
-    if ! is_present "$container_name"; then
-      exit 1
-    fi
-    case "${4:-}" in
-      *.Config.Image*)
-        echo "/$container_name ${DOCKER_SHIM_IMAGE:-ghcr.io/aliasunder/vault-cortex:latest}"
-        ;;
-      *)
-        echo "/$container_name"
-        ;;
-    esac
+    # docker container inspect --format <format> <name>... — one line per present
+    # container: its name with Docker's leading slash, then its image when the
+    # format asks for it. Like docker, exits 1 when any name is missing, after
+    # printing the others.
+    inspect_status=0
+    for container_name in "${@:5}"; do
+      if ! is_present "$container_name"; then
+        inspect_status=1
+        continue
+      fi
+      case "${4:-}" in
+        *.Config.Image*)
+          echo "/$container_name ${DOCKER_SHIM_IMAGE:-ghcr.io/aliasunder/vault-cortex:latest}"
+          ;;
+        *)
+          echo "/$container_name"
+          ;;
+      esac
+    done
+    exit "$inspect_status"
     ;;
 
   volume)

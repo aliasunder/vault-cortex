@@ -524,6 +524,7 @@ describe("isVaultCortexImage", () => {
     { label: "a Docker Hub tag", image: "aliasunder/vault-cortex:remote" },
     { label: "a fully named Docker Hub tag", image: "docker.io/aliasunder/vault-cortex:0.54.16" },
     { label: "a digest", image: "ghcr.io/aliasunder/vault-cortex@sha256:0123abcd" },
+    { label: "the image's name before the rename", image: "ghcr.io/aliasunder/vault-mcp:latest" },
   ])("accepts $label", ({ image }) => {
     expect(isVaultCortexImage(image)).toBe(true)
   })
