@@ -147,7 +147,13 @@ ROOT_MANIFESTS = {"package.json", "package-lock.json"}
 
 def read_json_at(revision, path):
     result = subprocess.run(["git", "show", f"{revision}:{path}"], capture_output=True, text=True)
-    return json.loads(result.stdout) if result.returncode == 0 else None
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        warn(f"{path} at {revision} is not valid JSON ({error}) — listing the commit")
+        return None
 
 def changed_keys(old_mapping, new_mapping):
     keys = old_mapping.keys() | new_mapping.keys()
@@ -155,8 +161,8 @@ def changed_keys(old_mapping, new_mapping):
 
 # Security updates and overrides can use the `deps` scope even when every package
 # they move is a dev dependency. The lockfile marks a package that only
-# devDependencies reach with `"dev": true`. A manifest missing at either revision
-# counts as a user change.
+# devDependencies reach with `"dev": true`. A manifest missing or unreadable at
+# either revision counts as a user change.
 def changes_only_dev_dependencies(commit_hash, paths):
     changes_only_manifests = bool(paths) and set(paths) <= ROOT_MANIFESTS
     if not changes_only_manifests:
