@@ -369,5 +369,42 @@ describe("generate-notes.sh", () => {
           "(Expecting value: line 1 column 1 (char 0)) — listing the commit\n",
       })
     })
+
+    it("keeps a commit whose package.json is not a JSON object, and warns", () => {
+      const repo = createReleaseRepo()
+      const commitHash = repo.commit("chore: empty the manifest", { "package.json": "[]\n" })
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- Empty the manifest\n",
+        stderr:
+          `generate-notes: package.json at ${commitHash} is not a JSON object ` +
+          "— listing the commit\n",
+      })
+    })
+
+    it("keeps a lockfile change when the lockfile has no packages map", () => {
+      const repo = createReleaseRepo()
+      // npm 6's lockfile format lists packages under `dependencies` instead.
+      const npm6LockfileWithZod = (zodVersion: string): string => {
+        return toJsonFile({
+          name: "fixture",
+          lockfileVersion: 1,
+          dependencies: {
+            zod: { version: zodVersion },
+            vitest: { version: "1.0.0", dev: true },
+          },
+        })
+      }
+      repo.commit("chore: switch to the npm 6 lockfile", {
+        "package-lock.json": npm6LockfileWithZod("1.0.0"),
+      })
+      repo.commit("fix(deps): bump zod", { "package-lock.json": npm6LockfileWithZod("1.0.1") })
+
+      expect(repo.generateNotes().stdout).toBe(
+        "### Bug Fixes\n\n- **deps:** Bump zod\n\n" +
+          "### Maintenance\n\n- Switch to the npm 6 lockfile\n",
+      )
+    })
   })
 })

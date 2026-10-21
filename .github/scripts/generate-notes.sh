@@ -150,10 +150,14 @@ def read_json_at(revision, path):
     if result.returncode != 0:
         return None
     try:
-        return json.loads(result.stdout)
+        json_value = json.loads(result.stdout)
     except json.JSONDecodeError as error:
         warn(f"{path} at {revision} is not valid JSON ({error}) — listing the commit")
         return None
+    if not isinstance(json_value, dict):
+        warn(f"{path} at {revision} is not a JSON object — listing the commit")
+        return None
+    return json_value
 
 def changed_keys(old_mapping, new_mapping):
     keys = old_mapping.keys() | new_mapping.keys()
@@ -181,8 +185,13 @@ def changes_only_dev_dependencies(commit_hash, paths):
     # The lockfile's `packages` map keys each installed package by its install
     # path (`node_modules/foo`). Its "" entry is the project itself, which copies
     # package.json's dependency lists but not `overrides`.
-    old_packages = old_lock.get("packages", {})
-    new_packages = new_lock.get("packages", {})
+    old_packages = old_lock.get("packages")
+    new_packages = new_lock.get("packages")
+    has_package_maps = isinstance(old_packages, dict) and isinstance(new_packages, dict)
+
+    # A lockfile without that map (npm 6's lockfileVersion 1) counts as a user change.
+    if not has_package_maps:
+        return False
     for install_path in changed_keys(old_packages, new_packages):
         if install_path == "":
             root_fields = changed_keys(old_packages.get("", {}), new_packages.get("", {}))
