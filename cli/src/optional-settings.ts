@@ -1,4 +1,4 @@
-import { DEFAULT_PORT, stripSurroundingQuotes, type Mode } from "./scaffold.js"
+import { DEFAULT_PORT, isValidPort, stripSurroundingQuotes, type Mode } from "./scaffold.js"
 import type { Prompts, SelectOption } from "./prompts.js"
 
 type OptionalSettingBase = {
@@ -263,17 +263,6 @@ export const describeStrandedPublicUrl = (params: {
  */
 const isEnabledToggleValue = (value: string | undefined): boolean =>
   !["false", "0"].includes((value ?? "").toLowerCase())
-
-/**
- * Plain digits in the TCP port range. Number() coercion is not enough: it
- * accepts "1e4"/"0x1F40"/"+9000", and readEnvPort reads any value that is not
- * plain digits as the default port.
- */
-export const isValidPort = (value: string): boolean => {
-  if (!/^\d+$/.test(value)) return false
-  const port = Number(value)
-  return port >= 1 && port <= 65535
-}
 
 /**
  * The engine's own IANA zone validation: Intl.DateTimeFormat throws a

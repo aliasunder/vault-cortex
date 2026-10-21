@@ -91,21 +91,37 @@ const startServerLine = (targetDir: string): string =>
 const startingInBackgroundLine = (instanceName: string): string =>
   `The server is starting in the background — check progress:\n  docker logs ${instanceName}`
 
-/** Remote start line: running, starting, blocked on the missing sync token, or ready to start. */
+const isHttpsUrl = (url: string): boolean => url.toLowerCase().startsWith("https://")
+
+/**
+ * Without a Sync token in .env, a container that has never signed in serves
+ * its sign-in page at PUBLIC_URL; one that signed in there before keeps that
+ * login. The page asks for the MCP auth token and the Obsidian password.
+ */
+const syncSignInLines = (publicUrl: string): string => {
+  const signInLines =
+    "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
+    `syncing. Open it and sign in with the auth token below:\n  ${publicUrl}`
+
+  if (isHttpsUrl(publicUrl)) return signInLines
+  return `${signInLines}\nSet up HTTPS first: the page sends your Obsidian password to the server.`
+}
+
+/** Remote start line: running, starting, or ready to start, plus sign-in steps when .env has no Sync token. */
 const remoteStartLine = (params: {
   targetDir: string
   instanceName: string
+  publicUrl: string
   startStatus: StartStatus
   obsidianTokenMissing: boolean
 }): string => {
-  const { targetDir, instanceName, startStatus, obsidianTokenMissing } = params
+  const { targetDir, instanceName, publicUrl, startStatus, obsidianTokenMissing } = params
+  const notRunningLine =
+    startStatus === "starting" ? startingInBackgroundLine(instanceName) : startServerLine(targetDir)
+  const statusLine = startStatus === "running" ? "The server is running." : notRunningLine
 
-  if (startStatus === "running") return "The server is running."
-  if (startStatus === "starting") return startingInBackgroundLine(instanceName)
-  if (obsidianTokenMissing) {
-    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${startCommand(targetDir)}`
-  }
-  return startServerLine(targetDir)
+  if (!obsidianTokenMissing) return statusLine
+  return `${statusLine}\n${syncSignInLines(publicUrl)}`
 }
 
 /**
@@ -289,6 +305,7 @@ export const buildRemoteConnectMessage = (params: {
   const startLine = remoteStartLine({
     targetDir,
     instanceName,
+    publicUrl,
     startStatus,
     obsidianTokenMissing,
   })
@@ -301,8 +318,7 @@ export const buildRemoteConnectMessage = (params: {
   // know which case it is, so the http branch states it rather than asking.
   // Case-insensitive: askPublicUrl stores the scheme as typed, so an HTTPS://
   // input is valid and must still route to the https branch.
-  const isHttps = publicUrl.toLowerCase().startsWith("https://")
-  const clientGuidance = isHttps
+  const clientGuidance = isHttpsUrl(publicUrl)
     ? `${connectGuidance(`${publicUrl}/mcp`, instanceName)}
 
 Reachable over https from any MCP client — Claude Desktop, claude.ai (web

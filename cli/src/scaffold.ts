@@ -71,20 +71,40 @@ export const buildFilesToWrite = (envContent: string): FileToWrite[] => [
 ]
 
 /**
- * Reads the host port from the .env that is actually on disk — which may be
- * a pre-existing file this run chose to keep, with a PORT override the
- * generated default doesn't have. The last active line wins, as it does for
- * `docker run --env-file`. Falls back to DEFAULT_PORT when the file or an
- * uncommented PORT line is absent, or the last line's value is not plain digits
- * (an empty `PORT=` included).
+ * Plain digits in the TCP port range. Number() coercion is not enough: it
+ * accepts "1e4", "0x1F40" and "+9000".
  */
-export const readEnvPort = (envFilePath: string): number => {
-  if (!existsSync(envFilePath)) return DEFAULT_PORT
+export const isValidPort = (value: string): boolean => {
+  if (!/^\d+$/.test(value)) return false
+  const port = Number(value)
+  return port >= 1 && port <= 65535
+}
+
+/** The error for a .env PORT value that isn't a port; callers add where to fix it. */
+export const describeInvalidEnvPort = (portValue: string): string => {
+  return `PORT "${portValue}" is not a valid port — use a whole number between 1 and 65535.`
+}
+
+export type PortRead = { kind: "ok"; port: number } | { kind: "invalid"; message: string }
+
+/**
+ * Reads the host port from a .env file:
+ * - the last active line wins, as it does for `docker run --env-file`;
+ * - a missing file, line or empty value means DEFAULT_PORT;
+ * - any other value that is not a port is reported, never corrected, because
+ *   the CLI would map one port while PUBLIC_URL names another.
+ */
+export const readEnvPort = (envFilePath: string): PortRead => {
+  if (!existsSync(envFilePath)) return { kind: "ok", port: DEFAULT_PORT }
   const portLines = [...readFileSync(envFilePath, "utf8").matchAll(ENV_PORT_LINES)]
   const rawValue = portLines.at(-1)?.[1].trim()
   const portValue = rawValue ? stripSurroundingQuotes(rawValue) : ""
 
-  return /^\d+$/.test(portValue) ? Number(portValue) : DEFAULT_PORT
+  if (!portValue) return { kind: "ok", port: DEFAULT_PORT }
+  if (!isValidPort(portValue)) {
+    return { kind: "invalid", message: describeInvalidEnvPort(portValue) }
+  }
+  return { kind: "ok", port: Number(portValue) }
 }
 
 /** Returns why a candidate instance name is invalid, or undefined when it is valid. */

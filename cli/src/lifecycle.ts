@@ -62,8 +62,7 @@ export type Deployment = {
   port: number
   /** Present only in local mode. */
   vaultPath?: string
-  /** The .env's PUBLIC_URL, when set. */
-  publicUrl?: string
+  publicUrl: string
 }
 
 const DEFAULT_TARGET_DIR = "./vault-cortex"
@@ -96,10 +95,16 @@ export const requireInitializedDir = (
   return { targetDir, envFilePath, mode, instanceName: instanceNameRead.instanceName }
 }
 
+/** A local PUBLIC_URL is this machine's own address; a remote one is the user's domain. */
+const missingPublicUrlFix = (mode: Mode, port: number): string => {
+  if (mode === "local") return `Set this line in your .env:\n  PUBLIC_URL=http://localhost:${port}`
+  return "Set it to the address your MCP clients reach this server at, for example:\n  PUBLIC_URL=https://vault.example.com"
+}
+
 /**
  * Resolves --dir to the on-disk deployment and validates its .env for a
- * container start: mode detection, VAULT_PATH (local), and PUBLIC_URL
- * (local). Reports each failure via prompts.error and returns undefined.
+ * container start: mode detection, PORT, VAULT_PATH (local), and PUBLIC_URL.
+ * Reports each failure via prompts.error and returns undefined.
  * Shared by upgrade and restart so their precondition checks can't drift.
  */
 export const resolveDeployment = (
@@ -111,7 +116,13 @@ export const resolveDeployment = (
   if (!initialized) return undefined
   const { targetDir, envFilePath, mode, instanceName } = initialized
 
-  const port = readEnvPort(envFilePath)
+  const portRead = readEnvPort(envFilePath)
+
+  if (portRead.kind === "invalid") {
+    prompts.error(`${portRead.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  const { port } = portRead
   const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
 
   if (mode === "local" && !vaultPath) {
@@ -122,10 +133,10 @@ export const resolveDeployment = (
   }
   const publicUrl = readEnvPublicUrl(envFilePath)
 
-  if (mode === "local" && !publicUrl) {
+  if (!publicUrl) {
     prompts.error(
       `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
-        `Set this line in your .env:\n  PUBLIC_URL=http://localhost:${port}`,
+        missingPublicUrlFix(mode, port),
     )
     return undefined
   }
@@ -146,18 +157,6 @@ export const ensureDaemonRunning = (docker: DockerRunner, prompts: Prompts): boo
       : buildDaemonNotRunningMessage("."),
   )
   return false
-}
-
-/**
- * Whether the post-start public-URL probe should run — and, when it should,
- * proof that publicUrl is set. Local's PUBLIC_URL is the derived localhost
- * URL, so probing it would only duplicate the health check the start cycle
- * just ran.
- */
-const shouldRunPostStartProbe = (
-  deployment: Deployment,
-): deployment is Deployment & { publicUrl: string } => {
-  return deployment.mode === "remote" && deployment.publicUrl !== undefined
 }
 
 /**
@@ -250,8 +249,9 @@ export const recreateContainer = async (
   spinner.stop("Server is up — health check passed.")
 
   // Informational only — the container is confirmed healthy above, so the
-  // public-URL result never changes the exit code.
-  if (shouldRunPostStartProbe(deployment)) {
+  // public-URL result never changes the exit code. A local PUBLIC_URL is the
+  // localhost address the health check just reached, so only remote probes it.
+  if (deployment.mode === "remote") {
     await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
   }
   return 0

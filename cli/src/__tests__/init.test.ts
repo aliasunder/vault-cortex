@@ -520,6 +520,7 @@ describe("runInit remote flow", () => {
       false, // don't generate the token now (declined auto-capture)
       false, // no end-to-end encryption
       [], // no optional settings
+      false, // don't start the server
     ])
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -537,6 +538,7 @@ describe("runInit remote flow", () => {
       "Generate the token now?",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
     ])
     expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false)
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
@@ -544,7 +546,7 @@ describe("runInit remote flow", () => {
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
     expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(scripted.logs).toContain(
-      "No token yet — run this later to add it to your .env:\n" +
+      "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   })
@@ -567,8 +569,8 @@ describe("runInit remote flow", () => {
       },
     )
 
-    // Token generation is always offered (uses the API, not Docker). With a
-    // blank token (capture declined), no start offer is shown.
+    // Token generation is always offered (uses the API, not Docker). Without
+    // Docker installed, no start offer is shown.
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
@@ -625,6 +627,48 @@ describe("runInit remote flow", () => {
       "http://127.0.0.1:8000/healthz",
       "https://vault.example.com/healthz",
     ])
+  })
+
+  it("starts the server without a Sync token and points at its sign-in page", async () => {
+    const targetDir = makeTargetDir()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      false, // don't generate the token now
+      false, // no end-to-end encryption
+      [], // no optional settings
+      true, // start the server now
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReadyEmptyHost,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // The health poll and the public URL probe only run after docker run.
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
+    const connectMessage = scripted.prints.find((message) => {
+      return message.includes("Connect your MCP client")
+    })
+
+    expect(connectMessage).toContain(
+      "The server is running.\n" +
+        "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
+        "syncing. Open it and sign in with the auth token below:\n" +
+        "  https://vault.example.com\n\n",
+    )
   })
 
   it("keeps a successful start at exit 0 when the public URL does not answer", async () => {
@@ -994,6 +1038,7 @@ describe("runInit remote encryption password", () => {
       true, // vault uses end-to-end encryption
       "hunter2", // password (masked prompt)
       [], // no optional settings
+      false, // don't start the server
     ])
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -1089,6 +1134,7 @@ describe("runInit sync-token auto-capture fallback", () => {
       "bad-password", // password
       false, // no encryption
       [], // no optional settings
+      false, // don't start the server
     ])
     await runInit(
       { mode: "remote", dir: targetDir },
@@ -1102,7 +1148,7 @@ describe("runInit sync-token auto-capture fallback", () => {
     expect(scripted.warnings[0]).toBe("Could not sign in: Invalid email or password")
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(scripted.logs).toContain(
-      "No token yet — run this later to add it to your .env:\n" +
+      "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   })
@@ -1604,6 +1650,7 @@ describe("runInit when the instance name is already in use", () => {
       false, // don't generate the token now
       false, // no encryption
       [], // no optional settings
+      false, // don't start the server
     ])
 
     const exitCode = await runInit(
@@ -1638,6 +1685,7 @@ describe("runInit when the instance name is already in use", () => {
       false, // don't generate the token now
       false, // no encryption
       [], // no optional settings
+      false, // don't start the server
     ])
 
     const exitCode = await runInit(
@@ -1765,6 +1813,7 @@ describe("runInit when the instance name is already in use", () => {
       false,
       false,
       [],
+      false,
     ])
 
     const exitCode = await runInit(
@@ -1937,6 +1986,7 @@ describe("runInit --yes when the instance name is already in use", () => {
       false, // don't generate the token now
       false, // no encryption
       [], // no optional settings
+      false, // don't start the server
     ])
 
     const exitCode = await runInit(
@@ -2202,6 +2252,60 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       `INSTANCE_NAME "Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
+    ])
+  })
+
+  it("stops a re-run whose kept PORT is not a port, before asking anything more", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPORT=80a\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PORT "80a" is not a valid port — use a whole number between 1 and 65535. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(scripted.asked).toHaveLength(1)
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+  })
+
+  it("lets --port replace a kept PORT that is not a port, moving the localhost PUBLIC_URL with it", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPORT=80a\nPUBLIC_URL=http://localhost:80a\n`,
+    )
+    // re-run anyway, no optional settings, overwrite .env, don't start
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:9000",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=9000",
     ])
   })
 

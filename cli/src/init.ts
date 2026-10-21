@@ -288,12 +288,23 @@ const reportWrites = (
  * whose INSTANCE_NAME differs from this run's. Reports an invalid value and
  * returns undefined, so init never starts or prints commands for a bad name.
  */
-const readInstanceNameFromDisk = (targetDir: string, prompts: Prompts): string | undefined => {
-  const instanceNameRead = readEnvInstanceName(join(targetDir, ".env"))
+const readInstanceFromDisk = (
+  targetDir: string,
+  prompts: Prompts,
+): { instanceName: string; port: number } | undefined => {
+  const envFilePath = join(targetDir, ".env")
+  const instanceNameRead = readEnvInstanceName(envFilePath)
+  const portRead = readEnvPort(envFilePath)
 
-  if (instanceNameRead.kind === "ok") return instanceNameRead.instanceName
-  prompts.error(`${instanceNameRead.message} Fix it in ${targetDir}/.env.`)
-  return undefined
+  if (instanceNameRead.kind === "invalid") {
+    prompts.error(`${instanceNameRead.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  if (portRead.kind === "invalid") {
+    prompts.error(`${portRead.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  return { instanceName: instanceNameRead.instanceName, port: portRead.port }
 }
 
 /**
@@ -465,10 +476,10 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   // Only a written .env carries the picked port, so a kept one needs no warning.
   if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
-  const port = readEnvPort(join(targetDir, ".env"))
-  const instanceName = readInstanceNameFromDisk(targetDir, prompts)
+  const instanceOnDisk = readInstanceFromDisk(targetDir, prompts)
 
-  if (!instanceName) return 1
+  if (!instanceOnDisk) return 1
+  const { instanceName, port } = instanceOnDisk
 
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
@@ -516,14 +527,14 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // Sign in to Obsidian and capture the Sync token directly via the API.
   // When the user declines or capture fails, fall back to any token already
   // in the on-disk .env (a re-init over an existing deployment). Only show
-  // the "run get-sync-token later" guidance when neither source has a token.
+  // the sign-in guidance when neither source has a token.
   const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
   const existingEnvToken = readEnvObsidianToken(join(targetDir, ".env"))
   const hasSyncToken = Boolean(capturedToken ?? existingEnvToken)
 
   if (!hasSyncToken) {
     prompts.log(
-      "No token yet — run this later to add it to your .env:\n" +
+      "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   }
@@ -574,22 +585,19 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
-  const port = readEnvPort(join(targetDir, ".env"))
+  const instanceOnDisk = readInstanceFromDisk(targetDir, prompts)
+
+  if (!instanceOnDisk) return 1
+  const { instanceName, port } = instanceOnDisk
   // Like PORT above, PUBLIC_URL comes from the .env actually on disk — a kept
   // existing file may hold a different URL than this run's prompt, and the
   // server only reads the file. The prompted value is the fallback for a kept
   // legacy .env that predates PUBLIC_URL.
   const effectivePublicUrl = readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
-  const instanceName = readInstanceNameFromDisk(targetDir, prompts)
 
-  if (!instanceName) return 1
-
-  // Without the sync token the container only opens its setup page and syncs
-  // nothing, so docker run is offered only with a token; otherwise the
-  // closing message says to fill it in before starting.
-  const startStatus: StartStatus = !hasSyncToken
-    ? "not-started"
-    : await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
+  // Started without a Sync token in .env, the container keeps a login saved
+  // on its volume, or serves its sign-in page; the closing message covers both.
+  const startStatus = await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
 
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.

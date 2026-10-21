@@ -238,6 +238,7 @@ describe("init remote", () => {
         send: "\r",
         label: "optional settings → skip",
       },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
     ]
 
     const result = await drivePty({
@@ -249,7 +250,7 @@ describe("init remote", () => {
     expect(result.exitCode).toBe(0)
     expect(result.promptsAnswered).toBe(result.totalPrompts)
     expect(result.transcript).toContain("Done.")
-    expect(result.transcript).toContain("No token yet")
+    expect(result.transcript).toContain("No Sync token in .env")
 
     const envContent = readFileSync(join(configDir, ".env"), "utf8")
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com")
@@ -550,6 +551,7 @@ describe("input validation re-prompts", () => {
         send: "\r",
         label: "optional settings → skip",
       },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
     ]
 
     const result = await drivePty({
@@ -603,6 +605,7 @@ describe("input validation re-prompts", () => {
         send: "\r",
         label: "optional settings → skip",
       },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
     ]
 
     const result = await drivePty({

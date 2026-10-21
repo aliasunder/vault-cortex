@@ -64,7 +64,9 @@ name, and stops if `--instance-name` gives a different one. It keeps the
 port too, unless you change it with `--port` or in the optional settings.
 Existing files are never overwritten without asking. During a remote setup,
 init offers to generate your [Obsidian Sync token](#get-sync-token) as part
-of the flow.
+of the flow. If you skip it, init still offers to start the server, which
+then shows a sign-in page at your `PUBLIC_URL`; set up HTTPS first, since the
+page sends your Obsidian password to the server.
 
 To run a second vault on the same machine, start Docker, so init can check
 which names are in use, then run init again with its own `--dir`. When the

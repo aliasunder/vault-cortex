@@ -120,7 +120,7 @@ describe("readEnvPort", () => {
   it("returns the default 8000 when no .env exists", () => {
     const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
 
-    expect(readEnvPort(missingPath)).toBe(8000)
+    expect(readEnvPort(missingPath)).toEqual({ kind: "ok", port: 8000 })
   })
 
   it("returns the default 8000 when PORT is only present as a comment", () => {
@@ -128,7 +128,7 @@ describe("readEnvPort", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# PORT=9000\n")
 
-    expect(readEnvPort(envPath)).toBe(8000)
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 8000 })
   })
 
   it("returns an uncommented PORT override", () => {
@@ -136,7 +136,7 @@ describe("readEnvPort", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPORT=9000\n")
 
-    expect(readEnvPort(envPath)).toBe(9000)
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 9000 })
   })
 
   it("strips surrounding double quotes from the port value", () => {
@@ -144,7 +144,7 @@ describe("readEnvPort", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPORT="9000"\n')
 
-    expect(readEnvPort(envPath)).toBe(9000)
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 9000 })
   })
 
   it("takes the last active PORT line, as docker --env-file does", () => {
@@ -152,7 +152,7 @@ describe("readEnvPort", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "PORT=8000\nMCP_AUTH_TOKEN=abc\nPORT=8001\n")
 
-    expect(readEnvPort(envPath)).toBe(8001)
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 8001 })
   })
 
   it("reads an empty last PORT line as the default port, not an earlier line's port", () => {
@@ -160,8 +160,28 @@ describe("readEnvPort", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "PORT=9000\nMCP_AUTH_TOKEN=abc\nPORT=\n")
 
-    expect(readEnvPort(envPath)).toBe(8000)
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 8000 })
   })
+
+  it.each([
+    { label: "letters", portValue: "abc", reportedValue: "abc" },
+    { label: "digits then letters", portValue: "80a", reportedValue: "80a" },
+    { label: "zero", portValue: "0", reportedValue: "0" },
+    { label: "a number above 65535", portValue: "70000", reportedValue: "70000" },
+    { label: "a quoted value padded with spaces", portValue: '" 9000 "', reportedValue: " 9000 " },
+  ])(
+    "reports $label as an invalid port instead of using the default",
+    ({ portValue, reportedValue }) => {
+      const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+      const envPath = join(targetDir, ".env")
+      writeFileSync(envPath, `PORT=9000\nPORT=${portValue}\n`)
+
+      expect(readEnvPort(envPath)).toEqual({
+        kind: "invalid",
+        message: `PORT "${reportedValue}" is not a valid port — use a whole number between 1 and 65535.`,
+      })
+    },
+  )
 })
 
 describe("readEnvInstanceName", () => {

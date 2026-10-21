@@ -424,8 +424,8 @@ VAULT_PASSWORD=${answers.vaultPassword}`
 
   const obsidianTokenComment = answers.obsidianAuthToken
     ? `# Obsidian Sync auth token.`
-    : `# Obsidian Sync auth token — FILL THIS IN before starting the server.
-# Generate once with:
+    : `# Obsidian Sync auth token. Leave empty to sign in on the server's sign-in
+# page at your PUBLIC_URL once it starts (over HTTPS), or generate one with:
 #   npx vault-cortex@latest get-sync-token`
 
   return `# vault-cortex — remote quickstart (Obsidian Sync)

@@ -6,13 +6,14 @@ import {
   applyOptionalSettings,
   askPort,
   derivePublicUrlOverride,
-  isValidPort,
   readOptionalValue,
 } from "./optional-settings.js"
 import {
   DEFAULT_INSTANCE_NAME,
   DEFAULT_PORT,
+  describeInvalidEnvPort,
   describeInvalidInstanceName,
+  isValidPort,
   type Mode,
 } from "./scaffold.js"
 import type { Prompts } from "./prompts.js"
@@ -165,8 +166,9 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
 /**
  * Decides this install's name and port before init writes .env:
  * - a re-run over an existing .env keeps its name and port, plus a local
- *   PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when that
- *   name is invalid or --instance-name gives a different one;
+ *   PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when the name
+ *   or port is invalid (--port replaces the port) or --instance-name gives a
+ *   different name;
  * - --instance-name and --port set them directly;
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
@@ -212,6 +214,14 @@ export const resolveInstanceIdentity = async (
     // init asks anything more, since the re-run would carry it into the new .env.
     if (carriedNameError) {
       prompts.error(`INSTANCE_NAME ${carriedNameError} Fix it in ${targetDir}/.env.`)
+      return { kind: "exit" }
+    }
+    // The same holds for a kept port, unless --port replaces it.
+    const carriedPortError =
+      carried.PORT && !isValidPort(carried.PORT) ? describeInvalidEnvPort(carried.PORT) : undefined
+
+    if (carriedPortError && !flags.port) {
+      prompts.error(`${carriedPortError} Fix it in ${targetDir}/.env.`)
       return { kind: "exit" }
     }
     // Renaming here would leave the old container running and could point

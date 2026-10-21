@@ -430,6 +430,50 @@ describe("runRestart", () => {
     ])
   })
 
+  it("exits 1 when remote .env has an empty PUBLIC_URL line", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=MyVault\nPUBLIC_URL=\n",
+    )
+    const scripted = createScriptedPrompts()
+    const recording = createRecordingDocker()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        "Set it to the address your MCP clients reach this server at, for example:\n" +
+        "  PUBLIC_URL=https://vault.example.com",
+    ])
+    expect(recording.runParams).toEqual([])
+  })
+
+  it("exits 1 when .env's PORT is not a port", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPORT=80a\nPUBLIC_URL=http://localhost:8000\n",
+    )
+    const scripted = createScriptedPrompts()
+    const recording = createRecordingDocker()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PORT "80a" is not a valid port — use a whole number between 1 and 65535. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(recording.runParams).toEqual([])
+  })
+
   it("exits 1 when Docker daemon is not running", async () => {
     const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeLocalEnv(targetDir)
