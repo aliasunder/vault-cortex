@@ -73,13 +73,16 @@ jobs:
 
       # Since dispatch, only a server release may have landed: the bump and
       # CHANGELOG commits manual_release.yml pushes with github-actions[bot]
-      # as committer (GitHub is the committer of every merged PR). Anything
-      # else (a second CLI release, a merged PR, a dependency update, a
-      # rewound branch) would ship under npm provenance that names the
-      # dispatch commit, so the run stops.
+      # as committer (GitHub is the committer of every PR merged on GitHub).
+      # Anything else (a second CLI release, a merged PR, a dependency
+      # update, a rewound branch) would ship under npm provenance that names
+      # the dispatch commit, so the run stops.
       - name: Refuse commits since dispatch other than a server release
         run: |
-          git merge-base --is-ancestor "$GITHUB_SHA" HEAD
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" HEAD; then
+            echo "::error::$GITHUB_REF no longer contains $GITHUB_SHA, the commit this run was dispatched from. Nothing was pushed; dispatch again."
+            exit 1
+          fi
           COMMITS=$(git log --format='%cn: %s' "$GITHUB_SHA..HEAD")
           UNEXPECTED=$(printf '%s\n' "$COMMITS" | { grep -vxE 'github-actions\[bot\]: (release: v[0-9.]+|docs: update CHANGELOG\.md for v[0-9.]+)' || true; } | paste -sd, -)
           if [ -n "$UNEXPECTED" ]; then
