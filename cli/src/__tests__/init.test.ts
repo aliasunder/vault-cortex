@@ -2099,8 +2099,8 @@ describe("runInit re-run keeps the instance identity", () => {
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       `--instance-name: the install in ${targetDir} is named "work", and init keeps that name.\n` +
-        `To rename it, stop it first (npx vault-cortex down --dir ${targetDir}), then change INSTANCE_NAME in its .env:\n` +
-        "it starts on new, empty volumes under the new name.",
+        `To rename it, stop it first (npx vault-cortex@latest down --dir "${targetDir}"), then change INSTANCE_NAME in its .env\n` +
+        "to a name no other install uses: it starts on new, empty volumes under the new name.",
     ])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
   })

@@ -126,8 +126,8 @@ const renameOnRerunMessage = (params: { carriedName: string; targetDir: string }
   const { carriedName, targetDir } = params
   return (
     `--instance-name: the install in ${targetDir} is named "${carriedName}", and init keeps that name.\n` +
-    `To rename it, stop it first (npx vault-cortex down --dir ${targetDir}), then change INSTANCE_NAME in its .env:\n` +
-    `it starts on new, empty volumes under the new name.`
+    `To rename it, stop it first (npx vault-cortex@latest down --dir "${targetDir}"), then change INSTANCE_NAME in its .env\n` +
+    `to a name no other install uses: it starts on new, empty volumes under the new name.`
   )
 }
 
@@ -143,7 +143,7 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
  * Decides this install's name and port before init writes .env:
  * - a re-run over an existing .env keeps its name and port, plus a local
  *   PUBLIC_URL or a remote DEVICE_NAME (`carried`), and exits when
- *   --instance-name names a different install;
+ *   --instance-name gives a different name;
  * - --instance-name and --port set them directly;
  * - a new install whose name is already in use on the machine asks for its own
  *   name and port, or confirms reuse of the existing data for the same vault.
