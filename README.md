@@ -496,6 +496,8 @@ Every path runs the same image, `ghcr.io/aliasunder/vault-cortex` — `:latest` 
 
 **Cost:** A remote setup needs a VPS or a hosted platform plan, plus $4 USD/mo for [Obsidian Sync](https://obsidian.md/sync). A 2 GiB instance handles semantic search fine for a typical vault; 4 GiB adds headroom for concurrent search and larger vaults. Skip semantic search entirely to go smaller still. Local-only is free. The [reference AWS deployment](./ARCHITECTURE.md#cost) runs ~$17–29 USD/mo all-in.
 
+**More than one vault?** Each vault runs as its own install, with its own container, data and connector. On your own machine or server, give each install its own name: see **Run more than one vault** in the [local](./deploy/local/README.md#run-more-than-one-vault) and [remote](./deploy/remote/README.md#run-more-than-one-vault) guides. On Render or Railway, deploy a separate service for each vault.
+
 ### One-click deploy
 
 Buttons and prerequisites are in [Quick Start → Remote](#remote-access-from-anywhere). Each guide walks through the deploy, where to find your URL and token, how to update, and how to delete: [`deploy/render/`](./deploy/render/) (from the [`render.yaml`](./render.yaml) Blueprint at the repo root) · [`deploy/railway/`](./deploy/railway/) (from a published template).
