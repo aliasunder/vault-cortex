@@ -369,6 +369,35 @@ describe("check-sync-vault", () => {
     )
   })
 
+  it("words the gone-vault fixes for the single-volume hosted layout under STORAGE_ROOT", () => {
+    const deletedVault = { id: "ddd444", name: "Old Work" }
+    const run = runCheck({
+      vaultName: "Work",
+      remoteJson: remoteVaults([VAULT_B]),
+      configJson: pickedConfig(deletedVault.id, deletedVault.name),
+      configExit: 0,
+      setupFiles: { [deletedVault.id]: setupFile(deletedVault) },
+      storageRoot: "/persist",
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(
+      [
+        "[obsidian-sync] ERROR: This install is set up to sync a different vault than VAULT_NAME.",
+        "[obsidian-sync] VAULT_NAME is 'Work' (bbb222), but its Sync setup is for 'Old Work' (ddd444), which is no longer in your account.",
+        "[obsidian-sync] Syncing now would merge the two vaults' notes. Nothing was changed. To fix it:",
+        "[obsidian-sync]   - If VAULT_NAME is a mistake, set it back and restart.",
+        "[obsidian-sync]   - To sync 'Work' as well, run it as a separate service.",
+        "[obsidian-sync]   - If you re-created this same vault in Obsidian and the notes here are its notes,",
+        `[obsidian-sync]     remove only the old setup folder: ${run.syncRoot}/ddd444`,
+        "[obsidian-sync]   - To switch this install to 'Work' on purpose, remove /persist/vault and /persist/config together.",
+        "[obsidian-sync]     Removing only the Sync config would upload the old vault's notes into the new one.",
+        `[obsidian-sync] See: ${GUIDE_URL}`,
+        "",
+      ].join("\n"),
+    )
+  })
+
   it("names a picked vault that is shared with the account by its current name", () => {
     const run = runCheck({
       vaultName: "Work",

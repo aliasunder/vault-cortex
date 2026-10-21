@@ -176,18 +176,20 @@ export const resolveInstanceIdentity = async (
   const requestedNameInUse =
     docker.daemonStatus() === "running" &&
     isInstanceNameInUse({ mode, instanceName: requestedName }, docker)
+  // A new folder's .env starts from the template's device name, so a name
+  // given by --instance-name sets it too, whether the name is new or reused.
+  const flagSettings = {
+    ...flagOverrides,
+    ...(flags.instanceName ? buildDeviceNameSetting(mode, flags.instanceName) : {}),
+  }
 
   // A name not in use, or one Docker could not check, starts a new install.
   if (!requestedNameInUse) {
-    const chosen = {
-      ...flagOverrides,
-      ...(flags.instanceName ? buildDeviceNameSetting(mode, flags.instanceName) : {}),
-    }
-    return { kind: "ok", identity: { carried: {}, chosen } }
+    return { kind: "ok", identity: { carried: {}, chosen: flagSettings } }
   }
   if (flags.instanceName) {
     prompts.log(`Reusing the data of the existing "${requestedName}" install.`)
-    return { kind: "ok", identity: { carried: {}, chosen: flagOverrides } }
+    return { kind: "ok", identity: { carried: {}, chosen: flagSettings } }
   }
   if (flags.yes) {
     prompts.error(nameInUseWithYesFlagMessage(requestedName))

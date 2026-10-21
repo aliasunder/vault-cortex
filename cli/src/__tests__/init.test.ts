@@ -1890,6 +1890,35 @@ describe("runInit --yes when the instance name is already in use", () => {
     expect(readEnvInstanceName(join(targetDir, ".env"))).toEqual({ kind: "ok", instanceName })
   })
 
+  it("gives a remote install reusing a name from --instance-name that name as its device name", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://work.example.com", // public URL
+      "Work", // vault name
+      false, // don't generate the token now
+      false, // no encryption
+      [], // no optional settings
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir, instanceName: "work", port: "8001" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.logs).toContain('Reusing the data of the existing "work" install.')
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://work.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+      "DEVICE_NAME=work",
+    ])
+  })
+
   it.each([
     {
       label: "an invalid --instance-name",
@@ -1979,6 +2008,33 @@ describe("runInit re-run keeps the instance identity", () => {
       true, // overwrite the existing file
       false, // don't start now
     ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("points a generated PUBLIC_URL at a quoted carried port without its quotes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT="8001"\n`,
+    )
+    const scripted = createScriptedPrompts([true, [], true, false])
 
     const exitCode = await runInit(
       { mode: "local", vaultPath: vaultDir, dir: targetDir },

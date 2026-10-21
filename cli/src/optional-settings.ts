@@ -1,4 +1,4 @@
-import { DEFAULT_PORT, type Mode } from "./scaffold.js"
+import { DEFAULT_PORT, stripSurroundingQuotes, type Mode } from "./scaffold.js"
 import type { Prompts, SelectOption } from "./prompts.js"
 
 type OptionalSettingBase = {
@@ -172,13 +172,16 @@ const commentedLinePattern = (name: string): RegExp => new RegExp(`^# ${name}=.*
  * Reads a var's current value from .env content. A commented-out or missing
  * line returns undefined — both mean "the server uses its built-in default",
  * which is exactly what the prompts need to distinguish. Duplicate lines
- * report the LAST value, matching docker --env-file precedence — hints,
- * prompt seeding, and the PUBLIC_URL derivation must reason from the value
- * that actually takes effect.
+ * report the LAST value, matching docker --env-file precedence, and lose one
+ * pair of surrounding quotes, as stripEnvQuotedValues removes them before
+ * docker run. Hints, prompt seeding, and the PUBLIC_URL derivation must
+ * reason from the value that actually takes effect.
  */
 export const readOptionalValue = (envContent: string, name: string): string | undefined => {
   const matches = [...envContent.matchAll(new RegExp(`^${name}=(.*)$`, "gm"))]
-  return matches.at(-1)?.[1].trim()
+  const lastMatch = matches.at(-1)
+
+  return lastMatch && stripSurroundingQuotes(lastMatch[1].trim())
 }
 
 /**

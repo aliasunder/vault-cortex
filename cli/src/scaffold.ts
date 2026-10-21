@@ -60,7 +60,7 @@ const QUOTED_ENV_VALUE = /^([A-Za-z_][A-Za-z0-9_]*=)(["'])(.*)\2(\s*)$/gm
  * `'bar'` → `bar`, `unquoted` → `unquoted`. Only strips when the
  * opening and closing quote characters match.
  */
-const stripSurroundingQuotes = (value: string): string => {
+export const stripSurroundingQuotes = (value: string): string => {
   const quoteMatch = /^(["'])(.*)\1$/.exec(value)
   return quoteMatch ? quoteMatch[2] : value
 }

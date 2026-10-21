@@ -24,6 +24,17 @@ describe("readOptionalValue", () => {
   it("returns undefined for a missing line", () => {
     expect(readOptionalValue("PORT=9000\n", "TZ")).toBeUndefined()
   })
+
+  it.each([
+    { label: "double quotes", envContent: 'PORT="9000"\n' },
+    { label: "single quotes", envContent: "PORT='9000'\n" },
+  ])("drops one pair of surrounding $label, as the server reads the value", ({ envContent }) => {
+    expect(readOptionalValue(envContent, "PORT")).toBe("9000")
+  })
+
+  it("returns an empty string for a line with no value", () => {
+    expect(readOptionalValue("PORT=\n", "PORT")).toBe("")
+  })
 })
 
 describe("applyOptionalSettings", () => {
