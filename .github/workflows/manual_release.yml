@@ -64,13 +64,15 @@ jobs:
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
       # Since dispatch, only a CLI release may have landed: the one bump
-      # commit cli_release.yml makes as github-actions[bot]. Any other
-      # commit (a second server release, a merged PR) would ship under an
-      # image label and signature that name the dispatch commit, so the run
-      # stops.
+      # commit cli_release.yml pushes with github-actions[bot] as committer
+      # (GitHub is the committer of every merged PR). Anything else (a
+      # second server release, a merged PR, a rewound branch) would ship
+      # under an image label and signature that name the dispatch commit,
+      # so the run stops.
       - name: Refuse commits since dispatch other than a CLI release
         run: |
-          COMMITS=$(git log --format='%an: %s' "$GITHUB_SHA..HEAD")
+          git merge-base --is-ancestor "$GITHUB_SHA" HEAD
+          COMMITS=$(git log --format='%cn: %s' "$GITHUB_SHA..HEAD")
           UNEXPECTED=$(printf '%s\n' "$COMMITS" | { grep -vxE 'github-actions\[bot\]: release\(cli\): v[0-9.]+' || true; } | paste -sd, -)
           if [ -n "$UNEXPECTED" ]; then
             echo "::error::$GITHUB_REF moved from $GITHUB_SHA to $(git rev-parse HEAD) after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again, unless this run duplicated a server release that has since landed."
