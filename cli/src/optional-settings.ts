@@ -265,9 +265,9 @@ const isEnabledToggleValue = (value: string | undefined): boolean =>
   !["false", "0"].includes((value ?? "").toLowerCase())
 
 /**
- * Plain digits in the TCP port range. Number() coercion is not enough:
- * it accepts "1e4"/"0x1F40"/"+9000", which readEnvPort's /^PORT=(\d+)/
- * would later fail to read back — silently falling to the default port.
+ * Plain digits in the TCP port range. Number() coercion is not enough: it
+ * accepts "1e4"/"0x1F40"/"+9000", and readEnvPort reads any value that is not
+ * plain digits as the default port.
  */
 export const isValidPort = (value: string): boolean => {
   if (!/^\d+$/.test(value)) return false

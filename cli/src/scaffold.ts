@@ -26,10 +26,10 @@ export const DEFAULT_PORT = 8000
 export const DEFAULT_INSTANCE_NAME = "vault-cortex"
 
 /**
- * Matches every active (uncommented) PORT line, with optional surrounding
- * quotes. Global, because `docker run --env-file` lets the last duplicate win.
+ * Matches every active (uncommented) PORT line, capturing its raw value.
+ * Global, because `docker run --env-file` lets the last duplicate win.
  */
-const ENV_PORT_LINES = /^PORT=["']?(\d+)["']?\s*$/gm
+const ENV_PORT_LINES = /^PORT=(.*)$/gm
 
 /** Matches every active (uncommented) INSTANCE_NAME line, capturing its raw value. */
 const ENV_INSTANCE_NAME_LINES = /^INSTANCE_NAME=(.*)$/gm
@@ -78,13 +78,16 @@ export const buildFilesToWrite = (envContent: string): FileToWrite[] => [
  * a pre-existing file this run chose to keep, with a PORT override the
  * generated default doesn't have. The last active line wins, as it does for
  * `docker run --env-file`. Falls back to DEFAULT_PORT when the file or an
- * uncommented PORT line is absent.
+ * uncommented PORT line is absent, or the last line's value is not plain digits
+ * (an empty `PORT=` included).
  */
 export const readEnvPort = (envFilePath: string): number => {
   if (!existsSync(envFilePath)) return DEFAULT_PORT
   const portLines = [...readFileSync(envFilePath, "utf8").matchAll(ENV_PORT_LINES)]
-  const lastPortLine = portLines.at(-1)
-  return lastPortLine ? Number(lastPortLine[1]) : DEFAULT_PORT
+  const rawValue = portLines.at(-1)?.[1].trim()
+  const portValue = rawValue ? stripSurroundingQuotes(rawValue) : ""
+
+  return /^\d+$/.test(portValue) ? Number(portValue) : DEFAULT_PORT
 }
 
 /** Returns why a candidate instance name is invalid, or undefined when it is valid. */
@@ -118,13 +121,15 @@ export const readEnvInstanceName = (envFilePath: string): InstanceNameRead => {
 
 /**
  * Reads the host vault path from a .env file. Returns undefined when the
- * file is missing or has no uncommented VAULT_PATH line.
+ * file is missing, has no uncommented VAULT_PATH line, or the last one is empty.
  */
 export const readEnvVaultPath = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
   const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_VAULT_PATH_LINES)].at(-1)
   const rawValue = match?.[1].trim()
-  return rawValue ? stripSurroundingQuotes(rawValue) : undefined
+  const vaultPath = rawValue ? stripSurroundingQuotes(rawValue) : ""
+
+  return vaultPath || undefined
 }
 
 /**
@@ -193,13 +198,17 @@ export const patchEnvObsidianToken = (envFilePath: string, token: string): boole
 /**
  * Reads the OBSIDIAN_AUTH_TOKEN value from an existing .env file. Returns
  * undefined when the file is missing, has no active line, or the value is
- * empty — an empty `OBSIDIAN_AUTH_TOKEN=` line is not a valid token. Quotes
- * stay in the value, because init writes it back into the regenerated .env.
+ * empty — `OBSIDIAN_AUTH_TOKEN=""` included, since the CLI strips quotes
+ * before docker run. Quotes stay in a returned value, because init writes it
+ * back into the regenerated .env.
  */
 export const readEnvObsidianToken = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
   const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_OBSIDIAN_TOKEN_LINES)].at(-1)
-  return match?.[1].trim() || undefined
+  const rawValue = match?.[1].trim()
+  const unquotedValue = rawValue ? stripSurroundingQuotes(rawValue).trim() : ""
+
+  return unquotedValue ? rawValue : undefined
 }
 
 /**

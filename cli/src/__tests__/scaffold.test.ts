@@ -154,6 +154,14 @@ describe("readEnvPort", () => {
 
     expect(readEnvPort(envPath)).toBe(8001)
   })
+
+  it("reads an empty last PORT line as the default port, not an earlier line's port", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "PORT=9000\nMCP_AUTH_TOKEN=abc\nPORT=\n")
+
+    expect(readEnvPort(envPath)).toBe(8000)
+  })
 })
 
 describe("readEnvInstanceName", () => {
@@ -265,6 +273,14 @@ describe("readEnvVaultPath", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH='/Users/me/My Vault'\n")
 
     expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
+  })
+
+  it("returns undefined when the value is an empty pair of quotes", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_PATH=""\n')
+
+    expect(readEnvVaultPath(envPath)).toBeUndefined()
   })
 
   it("takes the last active line, as docker --env-file does", () => {
@@ -549,6 +565,20 @@ describe("readEnvObsidianToken", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Test\n")
 
     expect(readEnvObsidianToken(envPath)).toBeUndefined()
+  })
+
+  it("returns undefined when the value is an empty pair of quotes", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, 'OBSIDIAN_AUTH_TOKEN=old-token\nOBSIDIAN_AUTH_TOKEN=""\n')
+
+    expect(readEnvObsidianToken(envPath)).toBeUndefined()
+  })
+
+  it("keeps the quotes around a quoted token", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, 'OBSIDIAN_AUTH_TOKEN="my-token"\n')
+
+    expect(readEnvObsidianToken(envPath)).toBe('"my-token"')
   })
 
   it("takes the last active line, as docker --env-file does", () => {
