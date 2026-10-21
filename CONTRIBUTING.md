@@ -254,8 +254,14 @@ What each release's notes list:
     decides what the image build copies, or `.env.example`, which DEPLOY.md
     has deployers copy), or files under `.claude/`,
     `.devin/` or `.husky/`
-- **CLI releases** (`.github/workflows/cli_release.yml`): every commit that
-  touches `cli/`, dependency bumps included (`deps-dev` too).
+- **CLI releases** (`.github/scripts/generate-cli-notes.sh`): every commit
+  that changes `cli/`, dependency bumps included, except commits whose added
+  and removed lines under `cli/` are all:
+  - blank
+  - in files under `cli/src/__tests__/`
+  - the `"version"` line of `cli/package.json` (the release bump)
+  - comment lines in `.ts` files, including the `#` lines of the `.env`
+    templates in `cli/src/env.ts`; every line of `cli/README.md` counts
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
