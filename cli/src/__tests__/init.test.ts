@@ -1561,6 +1561,12 @@ describe("runInit when the instance name is already in use", () => {
       "Any optional settings to change? (press enter to skip)",
       "Start the server now?",
     ])
+    // The install using the default name most likely holds port 8000.
+    expect(scripted.textCalls[1]).toEqual({
+      message: PORT_QUESTION,
+      defaultValue: "8001",
+      placeholder: "8001",
+    })
     expect(readIdentityLines(targetDir)).toEqual([
       "PUBLIC_URL=http://localhost:8001",
       "INSTANCE_NAME=work",

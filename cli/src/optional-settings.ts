@@ -271,7 +271,7 @@ export const askPort = async (
   const answer = (
     await prompts.text("Host port for the server:", {
       defaultValue: currentValue ?? String(DEFAULT_PORT),
-      placeholder: String(DEFAULT_PORT),
+      placeholder: currentValue ?? String(DEFAULT_PORT),
     })
   ).trim()
 

@@ -9,7 +9,12 @@ import {
   isValidPort,
   readOptionalValue,
 } from "./optional-settings.js"
-import { DEFAULT_INSTANCE_NAME, describeInvalidInstanceName, type Mode } from "./scaffold.js"
+import {
+  DEFAULT_INSTANCE_NAME,
+  DEFAULT_PORT,
+  describeInvalidInstanceName,
+  type Mode,
+} from "./scaffold.js"
 import type { Prompts } from "./prompts.js"
 
 /** The .env values that tell one install on a machine apart from another. */
@@ -211,7 +216,9 @@ export const resolveInstanceIdentity = async (
   }
   const suggestedName = suggestInstanceName({ mode, targetDir }, docker)
   const instanceName = await askFreeInstanceName({ mode, suggestedName }, deps)
-  const port = await askPort(flags.port, prompts)
+  // The install already using the name most likely holds the default port, so
+  // the next port is offered instead.
+  const port = await askPort(flags.port ?? String(DEFAULT_PORT + 1), prompts)
   const chosen = {
     INSTANCE_NAME: instanceName,
     PORT: port,
