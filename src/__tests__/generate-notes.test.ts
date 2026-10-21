@@ -283,6 +283,22 @@ describe("generate-notes.sh", () => {
       expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
     })
 
+    it("leaves out an override the lockfile also records in the project's own entry", () => {
+      const repo = createReleaseRepo()
+      commitListedFeature(repo)
+      repo.commit("fix(deps): override esbuild for a security fix", {
+        "package.json": toJsonFile({ ...BASE_MANIFEST, overrides: { esbuild: "0.25.0" } }),
+        "package-lock.json": toJsonFile(
+          lockfileWith({
+            "": { ...BASE_LOCKFILE.packages[""], overrides: { esbuild: "0.25.0" } },
+            "node_modules/esbuild": { version: "0.25.0", dev: true },
+          }),
+        ),
+      })
+
+      expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
+    })
+
     it("keeps a commit that changes the dependencies the app installs", () => {
       const repo = createReleaseRepo()
       repo.commit("chore(deps): bump zod", {

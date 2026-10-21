@@ -136,14 +136,20 @@ def is_contributor_only_path(path):
         or path.startswith((".claude/", ".devin/", ".husky/"))
     )
 
+# No paths keeps the commit listed, so a failed lookup lists it with a warning.
 def changed_paths(commit_hash):
     result = subprocess.run(
         ["git", "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit_hash],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True,
     )
+    if result.returncode != 0:
+        warn(f"git diff-tree {commit_hash} failed (exit {result.returncode}): "
+             f"{result.stderr.strip()} — listing the commit")
+        return []
     return [path for path in result.stdout.split("\x00") if path]
 
 ROOT_MANIFESTS = {"package.json", "package-lock.json"}
+DEV_ONLY_MANIFEST_FIELDS = {"devDependencies", "overrides"}
 
 def read_json_at(revision, path):
     result = subprocess.run(["git", "show", f"{revision}:{path}"], capture_output=True, text=True)
@@ -179,12 +185,12 @@ def changes_only_dev_dependencies(commit_hash, paths):
     new_lock = read_json_at(commit_hash, "package-lock.json")
     if None in (old_manifest, new_manifest, old_lock, new_lock):
         return False
-    if not set(changed_keys(old_manifest, new_manifest)) <= {"devDependencies", "overrides"}:
+    if not set(changed_keys(old_manifest, new_manifest)) <= DEV_ONLY_MANIFEST_FIELDS:
         return False
 
     # The lockfile's `packages` map keys each installed package by its install
-    # path (`node_modules/foo`). Its "" entry is the project itself, which copies
-    # package.json's dependency lists but not `overrides`.
+    # path (`node_modules/foo`). Its "" entry is the project itself, which
+    # copies fields from package.json.
     old_packages = old_lock.get("packages")
     new_packages = new_lock.get("packages")
     has_package_maps = isinstance(old_packages, dict) and isinstance(new_packages, dict)
@@ -195,7 +201,7 @@ def changes_only_dev_dependencies(commit_hash, paths):
     for install_path in changed_keys(old_packages, new_packages):
         if install_path == "":
             root_fields = changed_keys(old_packages.get("", {}), new_packages.get("", {}))
-            if not set(root_fields) <= {"devDependencies"}:
+            if not set(root_fields) <= DEV_ONLY_MANIFEST_FIELDS:
                 return False
             continue
         lock_entries = [
