@@ -361,8 +361,7 @@ names both vaults. Then do one of these:
 - To serve the other vault as well, deploy it as a separate Railway service
   with its own volume, and leave this one on its original vault. The new
   service has its own URL and `MCP_AUTH_TOKEN`, so connect it as its own
-  server in your MCP client. Give it its own `DEVICE_NAME` to tell the two
-  apart in Obsidian Sync's history.
+  server in your MCP client.
 - To switch this service to the new vault, delete the volume
   (**Settings → Volumes**), add a new one at `/persist`, then **Redeploy**.
   The container downloads the new vault like a first deploy, and the old

@@ -500,8 +500,7 @@ volumes, port, Obsidian Sync device and connector. Give every install after
 the first its own `INSTANCE_NAME` before its first start. Docker uses that
 name for the install's container and volumes (`<name>_vault_data`,
 `<name>_mcp_data` and `<name>_obsidian_config`); the first install keeps the
-default, `vault-cortex`. Give each install its own `DEVICE_NAME` too, so
-Obsidian Sync's history tells their changes apart. A second vault must never
+default, `vault-cortex`. A second vault must never
 use the first install's volumes: the container refuses to start rather than
 merge the two vaults (see
 [Another vault's Sync setup](#another-vaults-sync-setup)).
@@ -515,9 +514,8 @@ npx vault-cortex@latest init --mode remote --dir ./vault-cortex-work
 ```
 
 When this server already has a `vault-cortex` container or volumes, `init`
-asks for the new install's name and port, for example `work` and `8001`, and
-sets its `DEVICE_NAME` to that name. Then pass the same `--dir` to every
-command for that install:
+asks for the new install's name and port, for example `work` and `8001`. Then
+pass the same `--dir` to every command for that install:
 
 ```bash
 npx vault-cortex@latest upgrade --dir ./vault-cortex-work
@@ -526,9 +524,9 @@ npx vault-cortex@latest logs --dir ./vault-cortex-work
 
 **Set up with Docker Compose?** Set up a new folder as in **Manual setup**
 under [Setup](#setup), with its own `MCP_AUTH_TOKEN`, `VAULT_NAME` and
-`PUBLIC_URL`. In its `.env`, also set a new `INSTANCE_NAME` and
-`DEVICE_NAME` (see [Configuration](#configuration)) and a free `PORT`. Run
-each install's `docker compose` commands from its own folder.
+`PUBLIC_URL`. In its `.env`, also set a new `INSTANCE_NAME` (see
+[Configuration](#configuration)) and a free `PORT`. Run each install's
+`docker compose` commands from its own folder.
 
 **Set up with `docker run`?** Set up a new folder with its own `.env` as
 above, but leave `PORT` at `8000`, because the `docker run` command does not
@@ -742,7 +740,7 @@ These optional settings are worth knowing about:
 | `DISABLED_TOOLS`        | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `SYNC_CONFIGS`          | daily notes, plugins, and app | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `INSTANCE_NAME`         | `vault-cortex`                | Names this install's container, Compose project and volumes. Set it before the first start to run another vault on the same server (see [Run more than one vault](#run-more-than-one-vault))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log; give each install on a server its own (see [Run more than one vault](#run-more-than-one-vault))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (edits made on the server stay on the server and are never uploaded), or `mirror-remote` (Obsidian Sync overwrites edits made on the server, so the server always matches your vault). An invalid value stops the container at boot.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `CONFLICT_STRATEGY`     | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `SYNC_EXCLUDED_FOLDERS` | _(empty)_                     | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |

@@ -333,8 +333,7 @@ names both vaults. Then do one of these:
 - To serve the other vault as well, deploy the Blueprint again for it, as a
   separate service with its own disk, and leave this one on its original
   vault. The new service has its own URL and `MCP_AUTH_TOKEN`, so connect it
-  as its own server in your MCP client. Give it its own `DEVICE_NAME` to tell
-  the two apart in Obsidian Sync's history.
+  as its own server in your MCP client.
 - To switch to the new vault, deploy the Blueprint again for it, then delete
   this service (see [Restart, stop, delete](#restart-stop-delete)). The new
   service downloads the new vault like a first deploy, and the old vault

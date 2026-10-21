@@ -116,10 +116,7 @@ const suggestInstanceName = (
   return folderName
 }
 
-/**
- * A new remote install's Sync device takes the install's name, so Obsidian
- * Sync's history tells its changes apart from the first install's.
- */
+/** Labels a new remote install's changes in its vault's sync log with the install's name. */
 const buildDeviceNameSetting = (mode: Mode, instanceName: string): Record<string, string> => {
   return mode === "remote" ? { DEVICE_NAME: instanceName } : {}
 }
