@@ -254,6 +254,17 @@ describe("generate-notes.sh", () => {
       expect(repo.generateNotes().stdout).toBe("### CI / Infrastructure\n\n- Run tests on push\n")
     })
 
+    it("keeps a commit that changes only .dockerignore, which decides what the image build copies", () => {
+      const repo = createReleaseRepo()
+      repo.commit("build: copy the rootfs scripts into the image", {
+        ".dockerignore": "node_modules\n",
+      })
+
+      expect(repo.generateNotes().stdout).toBe(
+        "### Other Changes\n\n- Copy the rootfs scripts into the image\n",
+      )
+    })
+
     it("keeps a commit that changes a contributor-only file and a shipped file", () => {
       const repo = createReleaseRepo()
       repo.commit("fix: handle empty notes", {

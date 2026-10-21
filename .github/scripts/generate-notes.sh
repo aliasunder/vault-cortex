@@ -7,7 +7,8 @@
 # - release bump commits
 # - dev-dependency bumps and Claude Code hook changes (scopes `deps-dev`, `hooks`)
 # - commits that change only AGENTS.md, CHANGELOG.md, dotfiles at the repository
-#   root (.gitignore, .trivyignore), or files under .claude/, .devin/ or .husky/
+#   root (.gitignore, .trivyignore; not .dockerignore), or files under .claude/,
+#   .devin/ or .husky/
 # - commits that change only `devDependencies` or `overrides` in the root
 #   package.json, and in package-lock.json only packages marked `"dev": true`
 #
@@ -128,8 +129,8 @@ CONTRIBUTOR_ONLY_SCOPES = {"deps-dev", "hooks"}
 # A commit that changes only these paths changes nothing a user installs.
 def is_contributor_only_path(path):
     # The "/" check leaves out dot-folders such as .github/, so CI changes stay
-    # in the notes.
-    is_root_dotfile = path.startswith(".") and "/" not in path
+    # in the notes. .dockerignore decides what the image build copies.
+    is_root_dotfile = path.startswith(".") and "/" not in path and path != ".dockerignore"
     return (
         is_root_dotfile
         or path in ("AGENTS.md", "CHANGELOG.md")
@@ -140,7 +141,7 @@ def is_contributor_only_path(path):
 def changed_paths(commit_hash):
     result = subprocess.run(
         ["git", "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit_hash],
-        capture_output=True, text=True,
+        capture_output=True, text=True, errors="replace",
     )
     if result.returncode != 0:
         warn(f"git diff-tree {commit_hash} failed (exit {result.returncode}): "
@@ -152,7 +153,9 @@ ROOT_MANIFESTS = {"package.json", "package-lock.json"}
 DEV_ONLY_MANIFEST_FIELDS = {"devDependencies", "overrides"}
 
 def read_json_at(revision, path):
-    result = subprocess.run(["git", "show", f"{revision}:{path}"], capture_output=True, text=True)
+    result = subprocess.run(
+        ["git", "show", f"{revision}:{path}"], capture_output=True, text=True, errors="replace"
+    )
     if result.returncode != 0:
         return None
     try:
@@ -190,7 +193,7 @@ def changes_only_dev_dependencies(commit_hash, paths):
 
     # The lockfile's `packages` map keys each installed package by its install
     # path (`node_modules/foo`). Its "" entry is the project itself, which
-    # copies fields from package.json.
+    # copies package.json's dependency lists (npm leaves out `overrides`).
     old_packages = old_lock.get("packages")
     new_packages = new_lock.get("packages")
     has_package_maps = isinstance(old_packages, dict) and isinstance(new_packages, dict)

@@ -249,7 +249,8 @@ What each release's notes list:
     and in `package-lock.json` only packages marked `"dev": true`
   - Claude Code hook changes (commit scope `hooks`)
   - commits that change only `AGENTS.md`, `CHANGELOG.md`, dotfiles at the
-    repository root (`.gitignore`, `.trivyignore`), or files under `.claude/`,
+    repository root (`.gitignore`, `.trivyignore`; not `.dockerignore`, which
+    decides what the image build copies), or files under `.claude/`,
     `.devin/` or `.husky/`
 - **CLI releases** (`.github/workflows/cli_release.yml`): every commit that
   touches `cli/`, dependency bumps included (`deps-dev` too).
