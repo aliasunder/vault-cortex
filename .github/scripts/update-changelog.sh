@@ -12,7 +12,9 @@ NOTES_FILE="${2:?Usage: update-changelog.sh <version> <notes-file>}"
 
 DATE=$(date +%Y-%m-%d)
 
-python3 - "$VERSION" "$DATE" "$NOTES_FILE" << 'PYTHON'
+# Python reads this program from fd 3, not stdin, so a notes file of
+# /dev/stdin still reads the caller's stdin.
+python3 /dev/fd/3 "$VERSION" "$DATE" "$NOTES_FILE" 3<< 'PYTHON'
 import sys, re
 from pathlib import Path
 
@@ -29,14 +31,14 @@ notes = Path(notes_file).read_text(encoding="utf-8")
 
 changelog = Path("CHANGELOG.md")
 text = changelog.read_text(encoding="utf-8") if changelog.exists() else ""
-# Remove an [Unreleased] section, and insert the entry at that spot separately:
+# Remove an [Unreleased] section rather than replace it with the entry:
 # re.sub reads backslashes in a replacement string as escapes.
 text = UNRELEASED_SECTION.sub('', text, count=1)
 
 first_entry = ENTRY_HEADING.search(text)
 header_end = first_entry.start() if first_entry else len(text)
 
-# With no text above the first entry, the title becomes the header.
+# With no text above the first entry, the header is a "# Changelog" title.
 header = text[:header_end].rstrip() or "# Changelog"
 entry = f"## [{version}] — {date}\n\n{notes}".rstrip()
 earlier_entries = text[header_end:].rstrip()

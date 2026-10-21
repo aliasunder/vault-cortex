@@ -55,11 +55,13 @@ const runnerPath = (): string => {
 type ScriptRun = { status: number | null; stdout: string; stderr: string }
 
 type ReleaseDir = {
-  /** Runs the script for the version with the notes file at notesPath. */
+  /** Runs the script for the version with the notes file at notesPath,
+   *  writing stdin, when given, to the script's standard input. */
   runScript: (params: {
     version: string
     notesPath: string
     extraEnv?: Record<string, string>
+    stdin?: string
   }) => ScriptRun
   /** Writes the notes to a file outside the changelog's directory and runs
    *  the script with it; throws unless the run succeeds without output. */
@@ -88,11 +90,12 @@ const createReleaseDir = (changelog: string | null): ReleaseDir => {
 
   const notesPathFor = (version: string): string => join(tempDir, `notes-${version}.md`)
 
-  const runScript: ReleaseDir["runScript"] = ({ version, notesPath, extraEnv }) => {
+  const runScript: ReleaseDir["runScript"] = ({ version, notesPath, extraEnv, stdin }) => {
     const result = spawnSync("bash", [SCRIPT_PATH, version, notesPath], {
       cwd: changelogDir,
       env: { PATH: `${stubDir}:${runnerPath()}`, HOME: tempDir, ...extraEnv },
       encoding: "utf8",
+      input: stdin,
     })
     return { status: result.status, stdout: result.stdout, stderr: result.stderr }
   }
@@ -297,6 +300,21 @@ describe("update-changelog.sh", () => {
     expect(releaseDir.readChangelog()).toBe(
       `# Changelog\n\n## [0.2.0] — ${RELEASE_DATE}\n\n${nonAsciiNotes}\n${EARLIER_ENTRIES}`,
     )
+  })
+
+  it("reads notes piped to /dev/stdin", () => {
+    const releaseDir = createReleaseDir(`# Changelog\n\n${EARLIER_ENTRIES}`)
+
+    const scriptRun = releaseDir.runScript({
+      version: "0.2.0",
+      notesPath: "/dev/stdin",
+      stdin: NOTES,
+    })
+
+    expect({ scriptRun, changelog: releaseDir.readChangelog() }).toEqual({
+      scriptRun: { status: 0, stdout: "", stderr: "" },
+      changelog: `# Changelog\n\n## [0.2.0] — ${RELEASE_DATE}\n\n${NOTES}\n${EARLIER_ENTRIES}`,
+    })
   })
 
   it("fails without changing CHANGELOG.md when the notes file is missing", () => {
