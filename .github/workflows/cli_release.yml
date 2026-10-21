@@ -60,8 +60,8 @@ jobs:
       # token is supplied only to the push step.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the cli-v* tag lookups and the dispatch-commit
-          # diff below need it.
+          # Full history: the cli-v* tag lookups and the commit check
+          # below need it.
           fetch-depth: 0
           persist-credentials: false
           # First attempt: the branch's latest commit, so a run queued behind
@@ -71,15 +71,15 @@ jobs:
           # publishing the next version.
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
-      # Since dispatch, only a server release may have landed, and its two
-      # pushes in manual_release.yml (the bump commit, then the CHANGELOG
-      # commit) change only the files below. Anything else (a second CLI
-      # release, a merged PR) would ship under npm provenance that names the
-      # dispatch commit, so the run stops.
-      - name: Refuse changes since dispatch other than a server release
+      # Since dispatch, only a server release may have landed: the bump and
+      # CHANGELOG commits manual_release.yml makes as github-actions[bot].
+      # Any other commit (a second CLI release, a merged PR, a dependency
+      # update) would ship under npm provenance that names the dispatch
+      # commit, so the run stops.
+      - name: Refuse commits since dispatch other than a server release
         run: |
-          CHANGED=$(git diff --name-only "$GITHUB_SHA" HEAD)
-          UNEXPECTED=$(printf '%s\n' "$CHANGED" | { grep -vxE 'package\.json|package-lock\.json|server\.json|CHANGELOG\.md' || true; } | paste -sd, -)
+          COMMITS=$(git log --format='%an: %s' "$GITHUB_SHA..HEAD")
+          UNEXPECTED=$(printf '%s\n' "$COMMITS" | { grep -vxE 'github-actions\[bot\]: (release: v[0-9.]+|docs: update CHANGELOG\.md for v[0-9.]+)' || true; } | paste -sd, -)
           if [ -n "$UNEXPECTED" ]; then
             echo "::error::$GITHUB_REF moved from $GITHUB_SHA to $(git rev-parse HEAD) after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again, unless this run duplicated a CLI release that has since landed."
             exit 1

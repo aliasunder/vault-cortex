@@ -52,8 +52,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the v* tag check and the dispatch-commit diff
-          # below need it.
+          # Full history: the v* tag check and the commit check below
+          # need it.
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
           # First attempt: the branch's latest commit, so a run queued behind
@@ -63,14 +63,15 @@ jobs:
           # cutting the next version.
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
-      # Since dispatch, only a CLI release may have landed, and its one push
-      # in cli_release.yml changes only cli/package.json. Anything else (a
-      # second server release, a merged PR) would ship under an image label
-      # and signature that name the dispatch commit, so the run stops.
-      - name: Refuse changes since dispatch other than a CLI release
+      # Since dispatch, only a CLI release may have landed: the one bump
+      # commit cli_release.yml makes as github-actions[bot]. Any other
+      # commit (a second server release, a merged PR) would ship under an
+      # image label and signature that name the dispatch commit, so the run
+      # stops.
+      - name: Refuse commits since dispatch other than a CLI release
         run: |
-          CHANGED=$(git diff --name-only "$GITHUB_SHA" HEAD)
-          UNEXPECTED=$(printf '%s\n' "$CHANGED" | { grep -vxE 'cli/package\.json' || true; } | paste -sd, -)
+          COMMITS=$(git log --format='%an: %s' "$GITHUB_SHA..HEAD")
+          UNEXPECTED=$(printf '%s\n' "$COMMITS" | { grep -vxE 'github-actions\[bot\]: release\(cli\): v[0-9.]+' || true; } | paste -sd, -)
           if [ -n "$UNEXPECTED" ]; then
             echo "::error::$GITHUB_REF moved from $GITHUB_SHA to $(git rev-parse HEAD) after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again, unless this run duplicated a server release that has since landed."
             exit 1
