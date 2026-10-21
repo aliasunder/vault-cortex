@@ -192,6 +192,16 @@ describe("describeStrandedPublicUrl", () => {
 
     expect(warning).toBeUndefined()
   })
+
+  it("stays quiet when the localhost PUBLIC_URL already names the new port", () => {
+    const warning = describeStrandedPublicUrl({
+      envContent: "PUBLIC_URL=http://localhost:9000\nPORT=8000\n",
+      pickedOverrides: { PORT: "9000" },
+      appliedOverrides: { PORT: "9000" },
+    })
+
+    expect(warning).toBeUndefined()
+  })
 })
 
 describe("askOptionalSettings chooser", () => {

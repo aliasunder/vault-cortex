@@ -258,8 +258,11 @@ export const describeStrandedPublicUrl = (params: {
   // Picking PORT and accepting its pre-filled current value changes nothing.
   const currentPort = readOptionalValue(envContent, "PORT") || String(DEFAULT_PORT)
   const portChanged = Boolean(pickedOverrides.PORT) && pickedOverrides.PORT !== currentPort
+  // A localhost URL that already names the new port still reaches the server.
+  const publicUrlNamesNewPort = currentPublicUrl === `http://localhost:${pickedOverrides.PORT}`
 
   if (!portChanged || appliedOverrides.PUBLIC_URL || !currentPublicUrl) return undefined
+  if (publicUrlNamesNewPort) return undefined
   return `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`
 }
 
