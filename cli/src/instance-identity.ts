@@ -151,7 +151,13 @@ export const resolveInstanceIdentity = async (
   const nameCheckPossible = docker.daemonStatus() === "running"
 
   if (!nameCheckPossible || !isInstanceNameInUse({ mode, instanceName: requestedName }, docker)) {
-    return { kind: "ok", identity: { carried: {}, chosen: flagOverrides } }
+    // A free name from --instance-name is a new install, so a remote one gets
+    // the matching device name, as the interactive "own name" answer gives it.
+    const chosen = {
+      ...flagOverrides,
+      ...(mode === "remote" && flags.instanceName ? { DEVICE_NAME: flags.instanceName } : {}),
+    }
+    return { kind: "ok", identity: { carried: {}, chosen } }
   }
   if (flags.instanceName) {
     prompts.log(`Reusing the data of the existing "${requestedName}" install.`)

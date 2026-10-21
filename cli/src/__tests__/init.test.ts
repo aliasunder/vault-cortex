@@ -1593,6 +1593,36 @@ describe("runInit when the instance name is already in use", () => {
     expect(envLines).toContain("DEVICE_NAME=work")
   })
 
+  it("gives a remote install the device name of a free --instance-name", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://work.example.com", // public URL
+      "Work", // vault name
+      false, // don't generate the token now
+      false, // no encryption
+      [], // no optional settings
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir, instanceName: "work", port: "8001" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked[0]).toBe(
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+    )
+    const envLines = readEnvLines(targetDir)
+    expect(envLines).toContain("INSTANCE_NAME=work")
+    expect(envLines).toContain("PORT=8001")
+    expect(envLines).toContain("DEVICE_NAME=work")
+    expect(envLines).not.toContain("DEVICE_NAME=vault-cortex")
+  })
+
   it("writes nothing extra when the user reuses the existing data", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
