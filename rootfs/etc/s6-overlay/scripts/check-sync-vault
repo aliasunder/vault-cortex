@@ -181,12 +181,17 @@ fi
 if [ "$PICKED_ID" = "$REQUESTED_ID" ]; then
   # A second setup for another vault is dormant while the engine picks this
   # one, so the boot continues; removing it keeps it from being picked later.
+  # Only setups whose path is this folder are listed, since ob never picks one
+  # stored for another folder.
   # The listing only feeds this warning, so a failed listing is reported as a
   # warning instead of stopping a boot the checks above already passed.
   if ! LOCAL_SETUPS=$(run_ob sync-list-local --json 2>/dev/null) ||
     ! OTHER_IDS=$(printf '%s' "$LOCAL_SETUPS" | REQUESTED_ID="$REQUESTED_ID" node --no-warnings -e '
+      const { resolve } = require("node:path")
       const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
-      const otherIds = listed.vaults.map((vault) => vault.id).filter((id) => id !== process.env.REQUESTED_ID)
+      const isOtherSetupForThisFolder = (vault) =>
+        vault.id !== process.env.REQUESTED_ID && resolve(vault.path) === resolve(".")
+      const otherIds = listed.vaults.filter(isOtherSetupForThisFolder).map((vault) => vault.id)
       if (otherIds.length > 0) console.log(otherIds.join(" "))
     ' 2>/dev/null); then
     echo "[obsidian-sync] WARNING: Could not list this install's Sync setups, so a setup for another vault would not be reported here." >&2

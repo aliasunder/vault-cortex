@@ -31,6 +31,7 @@ import {
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
+  detectMode,
   readEnvObsidianToken,
   stripEnvQuotedValues,
   writeFiles,
@@ -244,6 +245,23 @@ const confirmOverwrite =
     prompts.confirm(`${name} already exists and differs — overwrite?`, false)
 
 /**
+ * The refusal for a folder whose .env belongs to the other mode's install:
+ * start, restart and upgrade read the mode from that file, so a re-run must
+ * not write the other mode's settings over it or start the other image.
+ */
+const describeModeMismatch = (params: { targetDir: string; mode: Mode }): string | undefined => {
+  const { targetDir, mode } = params
+  const existingMode = detectMode(join(targetDir, ".env"))
+
+  if (!existingMode || existingMode === mode) return undefined
+  return (
+    `${targetDir} holds a ${existingMode} install, and this run sets up a ${mode} one.\n` +
+    `To start the existing install: ${startCommand(targetDir)}\n` +
+    `To set up a ${mode} install, run init again with another --dir.`
+  )
+}
+
+/**
  * Re-init guard, fired the moment the target dir is known (prompt answer or
  * --dir flag): an existing .env there means a live deployment, so the flow
  * checks intent before any further questions are spent — re-running init over
@@ -390,6 +408,12 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
   const targetDir = resolve(expandTilde(requestedTargetDir))
+  const modeMismatch = describeModeMismatch({ targetDir, mode: "local" })
+
+  if (modeMismatch) {
+    prompts.error(modeMismatch)
+    return 1
+  }
 
   // --yes skips the guard: it's non-interactive by contract, and its own
   // conflict policy (refuse to overwrite, exit 1) already protects the dir.
@@ -493,6 +517,12 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
   const targetDir = resolve(expandTilde(requestedTargetDir))
+  const modeMismatch = describeModeMismatch({ targetDir, mode: "remote" })
+
+  if (modeMismatch) {
+    prompts.error(modeMismatch)
+    return 1
+  }
 
   const continueReinit = await confirmReinitOverExistingEnv(targetDir, prompts)
 

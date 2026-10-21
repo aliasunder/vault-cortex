@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -56,10 +57,17 @@ const pickedConfig = (vaultId: string, vaultName: string): string => {
   )
 }
 
+/**
+ * Stands for the run's vault folder in a listing. runCheck swaps in the
+ * folder's real path, the form ob sync-setup stores, since the temp folder
+ * sits under a symlink on macOS.
+ */
+const RUN_VAULT_FOLDER = "<run vault folder>"
+
 /** `ob sync-list-local --json` output: one row per setup, raw stored path. */
 const localSetups = (vaultIds: ReadonlyArray<string>): string => {
   return JSON.stringify({
-    vaults: vaultIds.map((id) => ({ id, path: "/vault", host: "sync-1.obsidian.md" })),
+    vaults: vaultIds.map((id) => ({ id, path: RUN_VAULT_FOLDER, host: "sync-1.obsidian.md" })),
   })
 }
 
@@ -172,6 +180,11 @@ const runCheck = (options: CheckOptions): CheckRun => {
   writeFileSync(cwdLogPath, "")
 
   if (options.syncRootUnreadable) chmodSync(syncRoot, 0o000)
+  const storedVaultPath = options.vaultPathMissing ? vaultPath : realpathSync(vaultPath)
+  const localJson = (options.localJson ?? localSetups([])).replaceAll(
+    RUN_VAULT_FOLDER,
+    storedVaultPath,
+  )
 
   const result = spawnSync("sh", [SCRIPT_PATH], {
     encoding: "utf8",
@@ -186,7 +199,7 @@ const runCheck = (options: CheckOptions): CheckRun => {
       OB_CONFIG_JSON: options.configJson ?? "",
       OB_CONFIG_EXIT: String(options.configExit),
       OB_CONFIG_STDERR: options.configStderr ?? "",
-      OB_LOCAL_JSON: options.localJson ?? localSetups([]),
+      OB_LOCAL_JSON: localJson,
       OB_LOCAL_EXIT: String(options.localExit ?? 0),
       OB_CWD_LOG: cwdLogPath,
       ...(options.storageRoot ? { STORAGE_ROOT: options.storageRoot } : {}),
@@ -471,6 +484,27 @@ describe("check-sync-vault", () => {
       "[obsidian-sync] WARNING: This install also holds Sync setups for other vaults: bbb222\n" +
         `[obsidian-sync] They are not used now. Remove each one's folder under ${run.syncRoot} so it can't be picked later.\n` +
         "[obsidian-sync] Vault check: continue — set up for 'Personal' (aaa111).\n",
+    )
+    expect(run.stdout).toBe("aaa111\n")
+  })
+
+  it("leaves out another vault's setup stored for a different folder, which ob never picks here", () => {
+    const run = runCheck({
+      vaultName: "Personal",
+      remoteJson: remoteVaults([VAULT_A, VAULT_B]),
+      configJson: pickedConfig(VAULT_A.id, VAULT_A.name),
+      configExit: 0,
+      localJson: JSON.stringify({
+        vaults: [
+          { id: VAULT_A.id, path: RUN_VAULT_FOLDER, host: "sync-1.obsidian.md" },
+          { id: VAULT_B.id, path: "/old-vault", host: "sync-1.obsidian.md" },
+        ],
+      }),
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] Vault check: continue — set up for 'Personal' (aaa111).\n",
     )
     expect(run.stdout).toBe("aaa111\n")
   })

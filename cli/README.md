@@ -65,8 +65,11 @@ server.
 
 **Re-running init** where a setup already exists:
 
-- Asks first. Declining leaves everything unchanged and points you to
-  [`configure`](#configure), the command for changing settings in place.
+- Stops when the folder holds an install of the other mode (a remote install
+  for a local setup, or the reverse), and points you to [`start`](#start).
+- Otherwise asks before anything else. Declining leaves everything unchanged
+  and points you to [`configure`](#configure), the command for changing
+  settings in place.
 - Never overwrites existing files without asking.
 - Keeps the install's name, and stops if `--instance-name` gives a different
   one.

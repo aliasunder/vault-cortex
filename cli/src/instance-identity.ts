@@ -165,7 +165,8 @@ const askFreePort = async (
 
   if (!portUser) return answer
   prompts.error(`${portInUseMessage(answer, portUser)} Pick another port.`)
-  return askFreePort(params, prompts)
+  // A free suggestion, so pressing enter can't offer the taken port again.
+  return askFreePort({ ...params, suggestedPort: suggestFreePort(params.portsInUse) }, prompts)
 }
 
 /**
@@ -213,7 +214,10 @@ const askReusedPort = async (
   const { flags, portsInUse } = params
 
   if (flags.port || flags.yes) return checkRequestedPort(params, prompts)
-  const port = await askFreePort({ suggestedPort: String(DEFAULT_PORT), portsInUse }, prompts)
+  const suggestedPort = portsInUse.has(DEFAULT_PORT)
+    ? suggestFreePort(portsInUse)
+    : String(DEFAULT_PORT)
+  const port = await askFreePort({ suggestedPort, portsInUse }, prompts)
   return { kind: "ok", settings: { PORT: port } }
 }
 

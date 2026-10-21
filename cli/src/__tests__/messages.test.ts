@@ -293,8 +293,9 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).toContain(
       `Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"\n` +
         "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
-        "syncing. Open it and sign in with the auth token below:\n" +
-        "  https://vault.example.com\n\n",
+        "syncing. Open the page:\n" +
+        "  https://vault.example.com\n" +
+        "It asks for the auth token below and your Obsidian password.\n\n",
     )
   })
 
@@ -309,8 +310,9 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).toContain(
       "The server is running.\n" +
         "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
-        "syncing. Open it and sign in with the auth token below:\n" +
-        "  https://vault.example.com\n\n",
+        "syncing. Open the page:\n" +
+        "  https://vault.example.com\n" +
+        "It asks for the auth token below and your Obsidian password.\n\n",
     )
   })
 
@@ -323,8 +325,9 @@ describe("buildRemoteConnectMessage", () => {
     })
 
     expect(message).toContain(
-      "sign in with the auth token below:\n" +
+      "syncing. Open the page:\n" +
         "  http://203.0.113.5:8000\n" +
+        "It asks for the auth token below and your Obsidian password.\n" +
         "Set up HTTPS first: the page sends your Obsidian password to the server.\n\n",
     )
   })

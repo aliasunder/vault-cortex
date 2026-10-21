@@ -101,7 +101,8 @@ const isHttpsUrl = (url: string): boolean => url.toLowerCase().startsWith("https
 const syncSignInLines = (publicUrl: string): string => {
   const signInLines =
     "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
-    `syncing. Open it and sign in with the auth token below:\n  ${publicUrl}`
+    `syncing. Open the page:\n  ${publicUrl}\n` +
+    "It asks for the auth token below and your Obsidian password."
 
   if (isHttpsUrl(publicUrl)) return signInLines
   return `${signInLines}\nSet up HTTPS first: the page sends your Obsidian password to the server.`

@@ -3,7 +3,8 @@
 # Shadows the real docker when its directory is prepended to PATH.
 # Behavior is controllable via environment variables:
 #   DOCKER_SHIM_PRESENT         — space-separated container and volume names that
-#                                 exist; `container inspect` and `volume inspect`
+#                                 exist; `container ls` lists them, and
+#                                 `container inspect` and `volume inspect`
 #                                 exit 1 for any other name (default: none exist)
 #   DOCKER_SHIM_RUN_FAIL=1      — `run` exits 1
 #   DOCKER_SHIM_HEALTH_PORT     — port for the background health server (default 8000)
@@ -45,6 +46,14 @@ case "${1:-}" in
     ;;
 
   container)
+    # docker container ls -aq — one line per present name, standing in for the
+    # container IDs; the inspect below prints no ports for them
+    if [ "${2:-}" = "ls" ]; then
+      for present_name in ${DOCKER_SHIM_PRESENT:-}; do
+        echo "$present_name"
+      done
+      exit 0
+    fi
     # docker container inspect --format '{{.Name}}' <name> — prints the name
     # with Docker's leading slash when the container exists
     container_name="${!#}"
