@@ -53,7 +53,8 @@ MAX_PDF_RENDER_PAGES=5
 # moved to .trash under that setting are cleaned up — notes you or Obsidian
 # put there are never touched. The server tracks its trashed notes even while
 # this is none, so switching none to a number cleans up the older backlog on
-# the next restart.
+# the next restart. Notes trashed by version 0.54.11 or earlier are kept;
+# empty .trash by hand to remove them.
 TRASH_RETENTION_DAYS=30
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
@@ -93,23 +94,27 @@ READONLY_MODE=false
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
-# Daily notes folder and filename format (default: read from the
-# vault's .obsidian/daily-notes.json, falling back to "Daily Notes" and
-# YYYY-MM-DD). Folder is any vault-relative path (Journal, Planner/Daily);
-# format takes the same tokens as Obsidian's date format setting.
+# Daily notes folder and filename format. Default: read from the vault's
+# .obsidian/daily-notes.json, or "Daily Notes" and YYYY-MM-DD when that file
+# is missing or unreadable. An empty folder in that file means Obsidian's
+# location for new notes. Folder is any vault-relative path (Journal,
+# Planner/Daily), or / for the vault root; format takes the same tokens as
+# Obsidian's date format setting.
 # DAILY_NOTES_FOLDER=Journal
 # DAILY_NOTES_FORMAT=YYYY-MM-DD
 
 # Comma-separated folders protected from deletion and moves. Default: MEMORY_DIR plus
 # the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json
-# (default "Daily Notes"). When set, replaces the whole default — include the
-# daily notes folder in your list if needed.
+# (default "Daily Notes"; none when that setting is the vault root or empty).
+# When set, replaces the whole default — include the daily notes folder in
+# your list if needed.
 # PROTECTED_PATHS=About Me,Daily Notes
 
 # Comma-separated folders excluded from orphan detection.
 # Default: the daily notes folder, Templates, and MEMORY_DIR.
 # DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is reread
-# on each query, falling back to "Daily Notes". Root-level daily notes remain eligible.
+# on each query, falling back to "Daily Notes". A vault-root or empty folder
+# setting adds no daily folder, so those daily notes remain eligible.
 # When set, replaces the whole default — include every folder to keep excluded.
 # Set ORPHAN_EXCLUDE_FOLDERS=, to exclude nothing; an empty value uses the defaults.
 # To apply environment changes, run the CLI's restart command
@@ -241,24 +246,29 @@ READONLY_MODE=false
 # Memory folder name in your vault (default: About Me).
 MEMORY_DIR=About Me
 
-# Daily notes folder and filename format (default: read from the
-# vault's .obsidian/daily-notes.json, synced to the server via SYNC_CONFIGS
-# below; falls back to "Daily Notes" and YYYY-MM-DD). Folder is any
-# vault-relative path (Journal, Planner/Daily); format takes the same tokens
-# as Obsidian's date format setting.
+# Daily notes folder and filename format. Default: read from the vault's
+# .obsidian/daily-notes.json, synced to the server via SYNC_CONFIGS below, or
+# "Daily Notes" and YYYY-MM-DD when that file is missing or unreadable. An
+# empty folder in that file means Obsidian's location for new notes, which
+# syncs only when SYNC_CONFIGS includes app; without it, the server uses the
+# vault root. Folder is any vault-relative path (Journal, Planner/Daily), or
+# / for the vault root; format takes the same tokens as Obsidian's date format
+# setting.
 # DAILY_NOTES_FOLDER=Journal
 # DAILY_NOTES_FORMAT=YYYY-MM-DD
 
 # Comma-separated folders protected from deletion and moves. Default: MEMORY_DIR plus
 # the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json
-# (default "Daily Notes"). When set, replaces the whole default — include the
-# daily notes folder in your list if needed.
+# (default "Daily Notes"; none when that setting is the vault root or empty).
+# When set, replaces the whole default — include the daily notes folder in
+# your list if needed.
 # PROTECTED_PATHS=About Me,Daily Notes
 
 # Comma-separated folders excluded from orphan detection.
 # Default: the daily notes folder, Templates, and MEMORY_DIR.
 # DAILY_NOTES_FOLDER wins; otherwise .obsidian/daily-notes.json is reread
-# on each query, falling back to "Daily Notes". Root-level daily notes remain eligible.
+# on each query, falling back to "Daily Notes". A vault-root or empty folder
+# setting adds no daily folder, so those daily notes remain eligible.
 # When set, replaces the whole default — include every folder to keep excluded.
 # Set ORPHAN_EXCLUDE_FOLDERS=, to exclude nothing; an empty value uses the defaults.
 # To apply environment changes, run the CLI's restart command
@@ -346,15 +356,15 @@ SYNC_EXCLUDED_FOLDERS=
 SYNC_FILE_TYPES=
 
 # Obsidian settings categories to sync into the server's .obsidian/ folder
-# (default: the two the server reads — daily notes settings and community
-# plugin settings such as the Tasks plugin's format; "none" disables).
+# (default: daily notes settings, community plugin settings such as the
+# Tasks plugin's format, and app for the new-note location; "none" disables).
 # A category only syncs after your desktop pushes it: Obsidian Settings →
 # Sync → "Vault configuration sync" (per device). Some community plugins
 # keep API keys in their settings — server tools never read .obsidian/,
 # but synced settings do live on the server volume. Values: app,
 # appearance, appearance-data, hotkey, core-plugin, core-plugin-data,
 # community-plugin, community-plugin-data — comma-separated.
-SYNC_CONFIGS=core-plugin-data,community-plugin-data
+SYNC_CONFIGS=core-plugin-data,community-plugin-data,app
 `
 
 // sync:remote-optional:end

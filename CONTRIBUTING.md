@@ -6,7 +6,11 @@ to get started.
 ## Quick Start
 
 1. **Prerequisites:** Node.js >= 24 (see `.nvmrc`), Docker (optional, for
-   container mode)
+   container mode), `curl`, and `tar` with xz support (both preinstalled on
+   macOS and most Linux distributions). The first `npm run lint:shell`, or
+   the first commit that changes a shell script, uses them to download the
+   [ShellCheck](https://www.shellcheck.net) release the repo pins for macOS
+   and Linux on x86_64 and arm64
 
 2. **Clone and install:**
 
@@ -46,6 +50,11 @@ every tool and prompt over real HTTP. The integration tests verify that
 each config combination serves the correct tool surface, that auth
 rejects invalid tokens, that write operations actually mutate the vault
 (read-back verified), and that misconfiguration fails fast at boot.
+
+Some tests deny access to a file and expect the access to fail. Root
+ignores file permissions, so those tests skip when you run the suite as
+root (inside a container, for example). To run them from a root shell,
+use `npm run test:as-nobody`, which runs the suite as the `nobody` user.
 
 `npm run test:coverage` runs the same suite with a statement-coverage
 report (V8 provider); the `coverage/` output directory is gitignored.
@@ -98,9 +107,8 @@ development. A test fails if the versions drift.
 - Test: `npm test` includes `cli/src/**/*.test.ts`
 - Try it: `node cli/dist/bin.js init --help`
 
-**Template sync rule:** `cli/templates/` holds verbatim copies of
-The optional env blocks in `cli/src/env.ts` are derived from `deploy/*/.env.example`.
-If you change any `.env.example`, run
+**Env block sync:** The optional env blocks in `cli/src/env.ts` are derived
+from `deploy/*/.env.example`. If you change any `.env.example`, run
 `npm run sync:cli-env-blocks` in the same PR — drift tests fail CI otherwise.
 
 **Publishing:** CLI releases are explicit and independent of server releases —
@@ -140,16 +148,19 @@ truth. Key points:
 1. **Branch from `main`** — use a descriptive prefix (`feat/`, `fix/`, `docs/`,
    `refactor/`, `chore/`)
 2. **Keep PRs focused** — one logical change per PR
-3. **Run the full check suite** before pushing:
+3. **Check before pushing** — every commit runs the pre-commit hook: the
+   typecheck, knip, and ESLint, Prettier, markdownlint and ShellCheck on
+   the staged files. Before pushing, run the two checks it leaves out:
 
    ```bash
-   npm run prettier:check && npm run lint && npm run markdownlint && npm run knip && npm test && npm run build
+   npm test && npm run build
    ```
 
-4. **Fill out the PR template** — the checklist mirrors CI
+4. **Fill out the PR template** — its checklist repeats step 3
 5. **Required checks must pass** — the `main` ruleset requires all seven;
    each blocks the merge and the finding details are in its job log:
-   - `checks` — prettier, lint, markdownlint, knip, test, and build
+   - `checks` — prettier, lint, markdownlint, lint:shell, knip, test, and
+     build
    - `cli-smoke (22)` / `cli-smoke (24)` — builds the
      CLI and runs `init` on the engines floor (22.12) and the newest
      major (24), catching APIs too new for the CLI's `engines` range;

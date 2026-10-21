@@ -136,6 +136,8 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 
 Group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry — annotations are declared once, and a new gating axis is one new predicate, not new branching in every module. Availability-keyed cross-references in tool descriptions and prompts disappear whenever their target does; a small number of durable API-level references (e.g. error-section alternatives naming sibling tools) remain. Search, indexing, and the file watcher are unaffected by `READONLY_MODE` and `DISABLED_TOOLS` — they write to the index database outside the vault, not to the vault itself.
 
+The wrapper also builds each tool's input with `createStrictInputObject`, so a parameter the tool doesn't declare is rejected with an error naming the accepted ones; tools with no parameters accept any key.
+
 ### Vault read/write
 
 | Tool                      | Input                                                                             | Annotation       |
@@ -150,7 +152,7 @@ Group modules register through a gated wrapper that skips disabled names and inj
 | `vault_list_notes`        | `folder?, glob?`                                                                  | readOnlyHint     |
 | `vault_delete_note`       | `path, prune_empty_folders?`                                                      | destructiveHint  |
 | `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint  |
-| `vault_update_properties` | `path, properties`                                                                | destructiveHint  |
+| `vault_update_properties` | `path, properties, replace?`                                                      | destructiveHint  |
 
 `vault_read_note` supports four read shapes:
 
@@ -169,11 +171,24 @@ The edit tools differ in how they locate the lines they change — by heading, b
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
-`vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+`vault_update_properties` merges properties — sets new keys, overwrites matching keys, deletes keys set to `null` — and keeps the body, adding only a missing final newline. With `replace: true` it replaces the whole properties block instead, without parsing the old one, so it can repair any block a merge refuses.
+
+Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
+
+- **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
+- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in every backlink source it reads to plan its rewrites, even one whose link needs no change, and a list, a single value or a tag only in a note where it must rewrite a link.
+- **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit that removes the text above such lines, or a call that removes every property.
+- **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
+  - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
+  - For a `vault_write_note` overwrite of such a note, which replaces the body anyway, the steps skip the prose: replace the block, then run the overwrite again. These steps need only `vault_read_note` and `vault_update_properties`; if either is not served, it points at Obsidian.
+  - For a write that would open the note with a block the server could not read or keep, the ways around it: give the note a property, put text above the `---` lines, or remove them.
+- **YAML comments** are not kept. A rewrite writes the block from its parsed properties, so it drops any comments, and a block holding only comments reads as no properties and is written back as none.
+
+Unlike a read that parses the block, such as `vault_read_note` with `properties_only`, `outline` or `heading`, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 
-- **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes
+- **Default set:** the memory dir plus the daily notes folder, resolved on every delete and move as [Daily notes](#property-discovery--daily-notes) describes; a vault-root or blank folder setting adds no folder
 - **Unreadable `daily-notes.json`:** a file that exists but cannot be read or parsed refuses the delete or move, because the folder to protect is unknown; setting `DAILY_NOTES_FOLDER` skips the file
 - **Override:** `PROTECTED_PATHS` replaces the default set entirely, and `daily-notes.json` is not read
 
@@ -182,7 +197,8 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
-- **Minimal rewrites:** a link is rewritten only when leaving it unchanged would break it
+- **Canvas files:** links in text cards are rewritten like note links, and a file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
+- **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
 Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to clean up parent directories left empty by the operation.
@@ -192,7 +208,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 | Tool                     | Input                                                                | Annotation   |
 | ------------------------ | -------------------------------------------------------------------- | ------------ |
 | `vault_search`           | `query, filters?, limit?, snippet_tokens?, include_leading_callout?` | readOnlyHint |
-| `vault_search_by_tag`    | `tag, exact?`                                                        | readOnlyHint |
+| `vault_search_by_tag`    | `tag, exact?, limit?`                                                | readOnlyHint |
 | `vault_search_by_folder` | `folder, recursive?, limit?`                                         | readOnlyHint |
 | `vault_list_tags`        | —                                                                    | readOnlyHint |
 | `vault_recent_notes`     | `sort_by?, limit?`                                                   | readOnlyHint |
@@ -204,7 +220,13 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 - `folder`, `tags`, `related`, `type`, and `properties` (arbitrary frontmatter keys)
 - `created` / `modified` — date bounds `{ before, on, after }` in YYYY-MM-DD, both server-local (before/after exclusive, on exact). `created` matches the frontmatter created day and never matches notes without a parseable value for the property; `modified` matches the filesystem-mtime day
 
-`limit`, `snippet_tokens`, and `include_leading_callout` are top-level pagination/projection params alongside `query`.
+`limit`, `snippet_tokens`, and `include_leading_callout` sit beside `query`, outside `filters`: they set how many results come back and what each result carries.
+
+`vault_search_by_tag` matches a frontmatter tag and every tag nested under it (`project` matches `project/a/b` but not `projects`), or the tag alone with `exact: true`. It returns the most recently modified notes first, up to `limit` (default 20).
+
+Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tags` filter on `vault_search`) ignores letter case and, unless `exact: true` is set on `vault_search_by_tag`, matches nested tags the same way. Both sides of a comparison are folded with `toLowerCase()`, the rule Obsidian's Tags view groups spellings by. A leading `#` on an input is dropped, and an input that is only `#` is rejected.
+
+`vault_list_tags` merges spellings that differ only in letter case into one entry. The entry shows the spelling with the most occurrences, where a repeat within one note counts again, and its count is the number of notes carrying any of the spellings.
 
 `vault_recent_notes` sorts by `sort_by` — `"created"` or `"modified"` (default `"modified"`).
 
@@ -217,16 +239,21 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 | `vault_list_property_values` | `key, folder?, limit?`        | readOnlyHint |
 | `vault_search_by_property`   | `key, value, folder?, limit?` | readOnlyHint |
 
-**Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
+**Promoted properties:** Five frontmatter keys — `title`, `tags` (the first key so spelled in any letter case), `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`).
 
+- **Tags column:** holds the tags Obsidian's Tags view shows for the note, read by `obsidian-markdown/tags.ts` from the first key spelled `tags` in any letter case. A text value is one tag, so `tags: a, b` gives no tags, because a tag name cannot contain `,`. A list keeps its text entries. Each entry loses a leading `#` and a trailing `/`, and only names Obsidian accepts as tags are kept (no spaces, none of the punctuation Obsidian rejects such as `,`, `:` or `+`, and not digits only).
+- **Other properties:** every unpromoted key lives in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
 - **Listing values:** `vault_list_property_values`, and the `sample_values` in `vault_list_property_keys`, count each value by the text the tool returns. The number `1` and the text `"1"` both return `"1"`, so they share one count; the text `"1.0"` keeps its own. Counting happens before `limit` and sample selection apply, and each item of a list property counts on its own.
 - **Matching a value:** `vault_search_by_property` matches text exactly. A value written as a whole, finite number in [YAML 1.2 core schema](https://yaml.org/spec/1.2.2/#1032-tag-resolution) form (`4`, `-0.5`, `1e3`, `0x1F`, `0o17`) also matches stored numbers equal to it as [JavaScript numbers](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number#number_encoding). So `"04"` matches the number `4` and the text `"04"`, but not the text `"4"`. Checkbox values match only `"1"` and `"0"`.
 
 **Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`).
 
 - **Read on every call:** a folder or format change in Obsidian applies to the next call, and a config file that arrives after boot needs no restart
+- **File folder normalized like Obsidian:** in `daily-notes.json`, runs of `/` or `\` become one `/` and leading and trailing slashes are dropped, so Obsidian's `"/"` is the vault root; no-break spaces become plain spaces and the name is NFC-normalized. `DAILY_NOTES_FOLDER` takes `/` for the vault root and is otherwise validated as a vault folder name
+- **Blank folder in the file:** Obsidian's new-note location (`newFileLocation: "folder"` plus `newFileFolderPath` in `.obsidian/app.json`), otherwise the vault root
 - **Missing file:** takes the fallbacks
 - **Unparseable file:** takes the fallbacks and logs a `warn`
+- **Shared folder:** a vault-root or blank folder setting puts daily notes beside other notes, so it adds no folder to the delete and move guard, the orphan exclusion, or forward-reference handling (broken links into the daily folder, flagged `daily_note_forward_ref` by `vault_get_outgoing_links` and left out of `vault-orientation`'s broken-link count)
 
 ### Memory
 
@@ -290,10 +317,10 @@ Link queries use a `links` table populated during indexing:
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
 - **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness.
-- **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (`DAILY_NOTES_FOLDER` → `.obsidian/daily-notes.json` → `Daily Notes`), `Templates`, and the memory dir.
+- **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (resolved as [Daily notes](#property-discovery--daily-notes) describes), `Templates`, and the memory dir.
   - `ORPHAN_EXCLUDE_FOLDERS` replaces that list; a tool call's `exclude_folders` replaces it for that call.
   - An unreadable or malformed config logs a warning and uses `Daily Notes`; a missing file uses that fallback without a warning.
-  - An empty Obsidian folder setting uses the `Daily Notes` fallback. A whitespace-only folder adds no daily-folder exclusion. Neither excludes the whole vault, so root-level daily notes remain eligible.
+  - A vault-root, blank, or whitespace-only folder setting adds no daily-folder exclusion, so those daily notes remain eligible.
 
 ### Files
 
@@ -334,7 +361,7 @@ The extension-to-representation routing above is implemented by the `vault-opera
 | Tool                | Input                                                                                                                                                                                                             | Annotation       |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
 | `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`                                                   | readOnlyHint     |
-| `vault_create_task` | `path, description, block_id, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                   | !destructiveHint |
+| `vault_create_task` | `path, description, block_id?, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                  | !destructiveHint |
 | `vault_update_task` | `path, block_id?, line?, status?, priority?, recurrence?, on_completion?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
 
 A `tasks` table in the same SQLite database stores checkbox task lines, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
@@ -363,6 +390,7 @@ Four design choices shape the query surface:
 - **Field ordering is guaranteed** — description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
 - **Always todo** (`[ ]` by default, or the status registry's configured todo symbol) — creating a task is not starting it.
 - **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body. Within a heading, `position` selects the slot: `"top"`, `"bottom"`, or a 1-based integer for exact placement among the lane's top-level cards.
+- **Block IDs** — required on every task except a sub-task on a Kanban board, where a `block_id` is refused. On a board, checklist text ending in a block ID is refused too, since checklist items are always indented. When the [Kanban plugin](https://github.com/mgmeyers/obsidian-kanban) saves a board, it copies an indented line's block ID onto its card, replacing the card's own. The result's `line` is the handle for such a sub-task.
 
 `vault_update_task` applies status, priority, recurrence, on_completion, description, dates, task_id, depends_on, block_id assignment, heading moves, position reordering, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
 
@@ -372,6 +400,9 @@ Four design choices shape the query surface:
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
 - **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder (rejected when the task sits above the first heading or the lane's heading name is duplicated). A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
+- **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, no new ID goes on an indented line, for the reason given above: `assign_block_id` is refused there, as is any edit that would leave the line ending in a new `^id`, such as a description ending in one with no fields after it. A checklist item ending in a `^id` is refused under any card on a board.
+
+Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
 
 `vault_create_task` and `vault_update_task` read the Tasks plugin's format and date toggles on every write, so a change in Obsidian applies to the next write. The plugin's status registry is read once at boot, so `vault_list_tasks` and the two write tools always agree on which checkboxes are tasks; a status-type change needs a restart.
 
@@ -464,11 +495,22 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs three passes, then returns so the server can start accepting requests:
+**Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 runs in the background:
 
 1. **Pass 1** — index notes (FTS5 + metadata)
 2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
-3. **Pass 3 (background)** — embed notes, then file content. Search works with FTS-only until vectors are ready
+3. **Pass 3 (background)** — embed notes, then file content. Until a note's vectors exist, search finds it by keyword only
+
+**Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
+
+1. The watcher starts holding: from then on, it records each path chokidar reports as changed instead of indexing it. Startup waits for chokidar's initial scan to finish.
+2. `rebuildFromVault` runs. The watcher is the index's only other writer, because a tool's vault write reaches the index as a watcher event. The watcher is holding, so nothing else writes while the rebuild reads.
+3. The watcher goes live. In the same step, it removes each held path whose latest event was a deletion, and marks every held path so that a live change to it takes over from the step 4 batch.
+4. One batch checks each held path against the disk, `INDEXING_FILE_READ_CONCURRENCY` (16) at a time. Paths gone from disk are removed first. The rest are read again within the rebuild's limits: other files 16 at a time, then the PDFs whose text is extracted, `PDF_EXTRACTION_CONCURRENCY` (4) at a time.
+
+The server starts accepting requests once the step 4 batch has finished writing to the index, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. A held path that a live change takes over is indexed by that change, which can finish just after the server starts.
+
+A file that is created after step 1 and deleted within chokidar's 2 s write-stability window emits no event, so if the rebuild read it, it stays searchable until the next restart.
 
 **Startup cleanup:** before resetting the source tables, the rebuild removes vectors whose parent chunk or memory-entry row is missing and retains vectors with surviving parents.
 
@@ -557,7 +599,7 @@ The search query and indexing layer is split into seven modules (the embedding p
 | `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`, `upsertFileContent`, `removeFileContent`), embedder + reranker wiring                                                                                                                         |
 | `search-queries.ts` | `SearchQueryContext` + 16 query methods — `fullTextSearch`, `memoryRecall`, `searchByTag`, `searchByFolder`, `listTasks`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
 | `hybrid-search.ts`  | `hybridSearch` — runs the note FTS, note vector, file-content FTS, and file-content vector legs, fuses them with RRF, applies cross-encoder reranking; falls back to FTS-only when no embeddings are available                                                                                                             |
-| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), filters (`noteMatchesSearchFilters`), snippet construction                                                                                                                                |
+| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), filters (`noteMatchesSearchFilters`), tag comparison (`foldTag`, `NESTED_TAG_PREDICATE`), snippet construction                                                                            |
 | `fts-query.ts`      | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                                               |
 | `rrf.ts`            | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                                            |
 | `reranker.ts`       | Cross-encoder factory (`createReranker`, ms-marco-MiniLM-L-6-v2) + position-aware score blending (`blendScores`, `normalizeScores`)                                                                                                                                                                                        |
@@ -900,8 +942,9 @@ graph LR
    both processes read/write the shared `/vault` volume. On startup: bootstraps
    memory templates if the memory folder
    doesn't exist, `MEMORY_ENABLED` is not `false`, and the server is not in
-   `READONLY_MODE`, builds the FTS5 search index including those templates,
-   then starts the file watcher.
+   `READONLY_MODE`, starts the file watcher, builds the FTS5 search index
+   including those templates, then applies the changes the watcher saw while
+   the index was built (see **Startup order** under [Indexing](#indexing)).
 
 `svc-vault-mcp` declares `svc-obsidian-sync` in its `dependencies.d`, so the
 MCP server starts only after the full init chain has finished and the sync
@@ -1164,36 +1207,30 @@ Docker hardening, and durability seatbelts above.
   `withExclusiveMultiFileLock` (all-or-nothing fail-fast) acquires all
   locks in one synchronous tick — used by note-mover, which must lock the
   source, destination, and every backlink source for the whole
-  read-plan-write span. The trash move, the orphan purge, and the
-  retention sweep share one serializing key for the whole `.trash/`
+  read-plan-write span. The trash move and the cleanup in
+  `trash-sweeper.ts` share one serializing key for the whole `.trash/`
   domain.
-- **Trash claim loop** (`moveNoteToTrash` in `vault-filesystem.ts`): a
-  delete under Obsidian's `system` (default) or `local` trash setting
-  moves the note into `.trash/`. Each candidate name is claimed with an
-  exclusive create, so an existing trash copy is never overwritten.
-  `system`-mapped moves are recorded in the index DB's `trash_entries`
-  table. Recording is fail-open — a failed row write logs a warning, the
-  delete still succeeds, and an unrecorded entry is never swept. The
-  table's primary key is the case-folded path, so a case alias replaces
-  its stale row instead of leaving one that could purge the wrong sibling
-  on a case-insensitive mount.
-- **Recorded trash bookkeeping** (`trash-sweeper.ts`): two row-driven
-  operations (neither walks the folder):
-  - **Orphan purge** — runs once at boot regardless of
-    `TRASH_RETENTION_DAYS`. Drops rows whose `.trash/` entry no longer
-    exists on disk (uses lstat, so dangling symlinks are kept), so
-    manual emptying or `retention=none` never leaves
-    unbounded stale rows.
-  - **Retention sweep** — runs at startup and daily. Purges recorded
-    entries older than `TRASH_RETENTION_DAYS`. Each unlink is
-    double-guarded: the resolved path and the parent directory's
-    realpath must both sit inside `.trash/`, so a corrupted row or a
-    directory symlink cannot reach live notes.
-  - Both share a serializing lock with the trash move and re-read each
-    row under it before acting, so neither operates on a stale snapshot.
+- **Properties-block guard** (`frontmatter.ts`): every rewrite refuses a
+  note whose properties block it cannot keep, and every write's result is
+  checked before it reaches disk, so no write silently drops a block's
+  properties.
+  [Vault read/write](#vault-readwrite) gives the full rules and the
+  repair path.
+- **Trash handling** (`moveNoteToTrash` in `vault-filesystem.ts`,
+  `trash-sweeper.ts`): a delete under Obsidian's `system` (default) or
+  `local` trash setting moves the note into `.trash/` and never overwrites
+  an existing trash copy. The server records `system` moves with the
+  trashed file's identity, and its daily retention sweep deletes only
+  those recorded files once they pass `TRASH_RETENTION_DAYS`. Before
+  deleting, it checks that the file still sits inside `.trash/` and is
+  still the unchanged file it trashed, so a corrupted record, a symlink,
+  or a note Obsidian later trashed under the same name is left alone.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
-  lock, `moveNote` first scans the filesystem for backlinks the search
-  index missed (closing a lag race); then reads every affected file and
+  lock, `moveNote` first scans notes and Canvas files for backlinks the
+  search index missed (closing a lag race) or never records (links in
+  Canvas text cards). The scan skips a file it cannot read or parse, with
+  a warning, so an unreadable file aborts the move only when the index
+  lists it as a backlink. The move then reads every affected file and
   computes every rewrite _before_ touching anything. If any read fails, no
   file is mutated. Destination is written first via exclusive create;
   source is deleted last — a failure at any step leaves both copies rather
@@ -1238,7 +1275,8 @@ Docker hardening, and durability seatbelts above.
   `join`, bypassing `resolveSafePath`'s hidden-path guard).
 - **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus the
   daily notes folder, from `DAILY_NOTES_FOLDER`, then
-  `.obsidian/daily-notes.json`, then `Daily Notes`) blocks deleting
+  `.obsidian/daily-notes.json`, then `Daily Notes`; none for a vault-root or
+  blank folder setting) blocks deleting
   notes in, moving notes out of, and moving notes into configured
   folders. The check (`isProtectedPath()`, shared by delete and move)
   runs on the canonical vault-relative path with a case-folded
@@ -1269,13 +1307,28 @@ Docker hardening, and durability seatbelts above.
 
 #### Error boundary + info-leak prevention
 
-- **`safeHandler()`** (`tool-helpers.ts`): wraps every MCP tool handler
-  with try/catch. Errors return a structured `isError` response with the
-  message only — no stack traces, no absolute paths. A buggy tool never
-  crashes the server.
+- **`safeHandler()`** (built per server by `createSafeHandlers` in
+  `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
+  return a structured `isError` response with the error's name and message,
+  plus how to fix a properties-block refusal — no stack traces. A buggy tool
+  never crashes the server.
+- **Library errors**: an image sharp cannot decode, a password-protected
+  PDF, a damaged PDF, and a PDF reader that fails to start (pdf.js or the
+  canvas library failing to load, whose error quotes install paths) each
+  return the server's own message, with the library's error kept as the
+  cause.
+- **Vault-relative error paths**: `describeErrorRelativeTo`
+  (`src/utils/describe-error.ts`) rewrites the paths in a Node error's
+  message (a filesystem failure or an invalid path argument) relative to
+  the vault root, for `safeHandler()` and the prompts' fallback messages.
+  Errors the server throws itself keep their text, since they can quote the
+  caller's input. The `tool_error`, `prompt_error` and
+  `pdf_page_render_failed` logs, and the logs of PDFs the search index or
+  file watcher cannot read, keep the full message
+  and the cause of a wrapped error (`describeErrorForLog`).
 - **In-lock existence checks**: `deleteNote` and `moveNote` check file
-  existence inside the lock, returning a vault-relative "not found"
-  instead of ENOENT (whose message leaks the absolute container path).
+  existence inside the lock, so a missing note returns the "note not found"
+  error the tools document instead of Node's ENOENT text.
 - **Graceful shutdown** (`server.ts`): SIGTERM handler drains in-flight
   requests with a 10-second force-exit fallback, so a write is never
   interrupted mid-rename.

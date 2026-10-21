@@ -55,6 +55,10 @@ type OptionalSetting =
 /** Matches Moment.js [...] literal escape groups, splitting format spans from literal content. */
 const MOMENT_BRACKET_ESCAPE = /\[([^\]]*)\]/g
 
+/** Matches a value made only of forward or back slashes, which the server
+ *  reads as the vault root. */
+const VAULT_ROOT_FOLDER_RE = /^[\\/]+$/
+
 // The curated prompt set — settings users most often want without reading
 // .env comments. Everything else stays documented-only in the generated
 // optional block, deliberately: every extra prompt costs init flow length.
@@ -80,6 +84,8 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     question: "Vault folder for daily notes:",
     placeholder: "blank = use your vault's daily notes settings",
     validate: (value) => {
+      // "/" names the vault root, so the absolute-path check below must not catch it.
+      if (VAULT_ROOT_FOLDER_RE.test(value)) return undefined
       if (value.includes("..")) return "Path traversal (..) is not allowed in folder names."
       if (value.startsWith("/"))
         return "Absolute paths are not allowed — use a vault-relative folder name."

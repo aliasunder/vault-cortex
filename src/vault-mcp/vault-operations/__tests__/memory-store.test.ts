@@ -12,9 +12,14 @@ import {
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { parseNote } from "../../obsidian-markdown/frontmatter.js"
+import {
+  parseNote,
+  UnkeepableOpeningBlockError,
+  UnsupportedPropertiesBlockError,
+} from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
+import { runsAsRoot } from "../../../__tests__/runs-as-root.js"
 vi.mock("node:fs/promises", { spy: true })
 
 const createBlockedMemoryReads = async (vaultPath: string) => {
@@ -172,14 +177,17 @@ describe("getMemory", () => {
     expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutSymlink)
   })
 
-  it("rejects an unreadable memory file with a vault-relative message in the all-files read", async () => {
-    // afterEach deletes the vault, which removes a mode-000 file inside it, so
-    // the permissions need no restore.
-    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
-    await expect(getMemory({ vaultPath: vault }, logger)).rejects.toThrow(
-      new Error('cannot read memory file "About Me/Opinions.md"'),
-    )
-  })
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory file with a vault-relative message in the all-files read",
+    async () => {
+      // afterEach deletes the vault, which removes a mode-000 file inside it, so
+      // the permissions need no restore.
+      await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+      await expect(getMemory({ vaultPath: vault }, logger)).rejects.toThrow(
+        new Error('cannot read memory file "About Me/Opinions.md"'),
+      )
+    },
+  )
 
   it("concatenates all memory files when no file specified", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
@@ -267,23 +275,26 @@ describe("getMemory", () => {
     )
   })
 
-  it("rejects an unreadable memory file with a vault-relative message in the named read and logs the raw error", async () => {
-    const lockedFile = join(vault, "About Me", "Opinions.md")
-    // afterEach deletes the vault, which removes a mode-000 file inside it, so
-    // the permissions need no restore.
-    await chmod(lockedFile, 0o000)
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-    onTestFinished(() => warnSpy.mockRestore())
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory file with a vault-relative message in the named read and logs the raw error",
+    async () => {
+      const lockedFile = join(vault, "About Me", "Opinions.md")
+      // afterEach deletes the vault, which removes a mode-000 file inside it, so
+      // the permissions need no restore.
+      await chmod(lockedFile, 0o000)
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
 
-    await expect(getMemory({ vaultPath: vault, file: "Opinions" }, logger)).rejects.toThrow(
-      new Error('cannot read memory file "About Me/Opinions.md"'),
-    )
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith("cannot read memory file", {
-      file: "Opinions.md",
-      error: `[Error]: EACCES: permission denied, open '${lockedFile}'`,
-    })
-  })
+      await expect(getMemory({ vaultPath: vault, file: "Opinions" }, logger)).rejects.toThrow(
+        new Error('cannot read memory file "About Me/Opinions.md"'),
+      )
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("cannot read memory file", {
+        file: "Opinions.md",
+        error: `[Error]: EACCES: permission denied, open '${lockedFile}'`,
+      })
+    },
+  )
 
   it("throws on non-existent section", async () => {
     await expect(
@@ -561,23 +572,26 @@ created: 2026-01-01T00:00:00-05:00
     expect(result).toBe("- **2026-05-15**: first entry")
   })
 
-  it("rejects an unreadable memory file with a vault-relative message", async () => {
-    // afterEach deletes the vault, which removes a mode-000 file inside it, so
-    // the permissions need no restore.
-    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
-    await expect(
-      updateMemory(
-        {
-          vaultPath: vault,
-          file: "Opinions",
-          section: "Code patterns",
-          entry: "never written",
-          date: "2026-05-15",
-        },
-        logger,
-      ),
-    ).rejects.toThrow(new Error('cannot read memory file "About Me/Opinions.md"'))
-  })
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory file with a vault-relative message",
+    async () => {
+      // afterEach deletes the vault, which removes a mode-000 file inside it, so
+      // the permissions need no restore.
+      await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+      await expect(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Opinions",
+            section: "Code patterns",
+            entry: "never written",
+            date: "2026-05-15",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('cannot read memory file "About Me/Opinions.md"'))
+    },
+  )
 
   it("leaves a symlink to a folder in place when it has the memory file's name", async () => {
     await mkdir(join(vault, "linked-folder"))
@@ -1870,15 +1884,18 @@ describe("listMemoryFiles", () => {
     expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
-  it("rejects an unreadable memory file with a vault-relative message", async () => {
-    const lockedFile = join(vault, "About Me", "Opinions.md")
-    // afterEach deletes the vault, which removes a mode-000 file inside it, so
-    // the permissions need no restore.
-    await chmod(lockedFile, 0o000)
-    await expect(listMemoryFiles({ vaultPath: vault }, logger)).rejects.toThrow(
-      new Error('cannot read memory file "About Me/Opinions.md"'),
-    )
-  })
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory file with a vault-relative message",
+    async () => {
+      const lockedFile = join(vault, "About Me", "Opinions.md")
+      // afterEach deletes the vault, which removes a mode-000 file inside it, so
+      // the permissions need no restore.
+      await chmod(lockedFile, 0o000)
+      await expect(listMemoryFiles({ vaultPath: vault }, logger)).rejects.toThrow(
+        new Error('cannot read memory file "About Me/Opinions.md"'),
+      )
+    },
+  )
 
   it("returns outlines sorted by filename", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
@@ -1973,6 +1990,37 @@ describe("listMemoryFiles", () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const living = outlines.find((outline) => outline.file === "Living")
     expect(living?.entry_policy).toBe("living")
+  })
+
+  it("reads entry-policy living as the last property of a file with Windows line endings", async () => {
+    const content = [
+      "---",
+      "title: Living",
+      "entry-policy: living",
+      "---",
+      "",
+      "# Living",
+      "",
+      "## Upcoming (newest first)",
+      "- **2026-07-11**: a current-state entry",
+      "",
+    ].join("\r\n")
+    await writeFile(join(vault, "About Me/Living.md"), content, "utf8")
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const living = outlines.find((outline) => outline.file === "Living")
+
+    expect(living).toEqual({
+      file: "Living",
+      title: "Living",
+      bytes: Buffer.byteLength(content, "utf8"),
+      entry_policy: "living",
+      leading_callout: null,
+      headings: [
+        { level: 1, text: "Living" },
+        { level: 2, text: "Upcoming (newest first)", entry_count: 1 },
+      ],
+    })
   })
 
   it("treats an unrecognized entry-policy value as append-only", async () => {
@@ -2119,27 +2167,30 @@ describe("listMemoryFileNames", () => {
     ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
   })
 
-  it("rejects an unreadable memory folder with a vault-relative message and logs the raw error", async () => {
-    const vaultWithLockedMemoryFolder = await mkdtemp(join(tmpdir(), "locked-memory-folder-"))
-    onTestFinished(() => rm(vaultWithLockedMemoryFolder, { recursive: true }))
-    const memoryFolder = join(vaultWithLockedMemoryFolder, "About Me")
-    await mkdir(memoryFolder)
-    await chmod(memoryFolder, 0o000)
-    // Registered after the removal so that it runs first, which makes the
-    // folder readable again before the vault is removed.
-    onTestFinished(() => chmod(memoryFolder, 0o700))
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-    onTestFinished(() => warnSpy.mockRestore())
+  it.skipIf(runsAsRoot)(
+    "rejects an unreadable memory folder with a vault-relative message and logs the raw error",
+    async () => {
+      const vaultWithLockedMemoryFolder = await mkdtemp(join(tmpdir(), "locked-memory-folder-"))
+      onTestFinished(() => rm(vaultWithLockedMemoryFolder, { recursive: true }))
+      const memoryFolder = join(vaultWithLockedMemoryFolder, "About Me")
+      await mkdir(memoryFolder)
+      await chmod(memoryFolder, 0o000)
+      // Registered after the removal so that it runs first, which makes the
+      // folder readable again before the vault is removed.
+      onTestFinished(() => chmod(memoryFolder, 0o700))
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
 
-    await expect(
-      listMemoryFileNames({ vaultPath: vaultWithLockedMemoryFolder }, logger),
-    ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
-    expect(warnSpy).toHaveBeenCalledTimes(1)
-    expect(warnSpy).toHaveBeenCalledWith("cannot list memory folder", {
-      folder: "About Me",
-      error: `[Error]: EACCES: permission denied, scandir '${memoryFolder}'`,
-    })
-  })
+      await expect(
+        listMemoryFileNames({ vaultPath: vaultWithLockedMemoryFolder }, logger),
+      ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith("cannot list memory folder", {
+        folder: "About Me",
+        error: `[Error]: EACCES: permission denied, scandir '${memoryFolder}'`,
+      })
+    },
+  )
 })
 
 describe("custom memoryDir", () => {
@@ -3032,5 +3083,351 @@ created: 2026-01-01T00:00:00-05:00
     await expect(
       getMemoryEntries({ vaultPath: vault, file: "Ghost", onOrAfter: "2026-05-01" }, logger),
     ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+  })
+})
+
+describe("memory file with a properties block the server cannot read or keep", () => {
+  /** Awaits a call that must reject and returns what it rejected with. */
+  const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
+    try {
+      await pending
+    } catch (error) {
+      return error
+    }
+    throw new Error("expected the call to reject, but it resolved")
+  }
+
+  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
+  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
+    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
+    return { kind: thrown.kind, message: thrown.message }
+  }
+
+  const UNCLOSED_FLOW_MESSAGE =
+    "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
+
+  /** A memory body under a given block, holding one entry deleteMemory can match. */
+  const buildMemoryFile = (block: string): string => {
+    return `${block}# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry\n`
+  }
+
+  const BROKEN_MD = buildMemoryFile("---\ntitle: [unclosed\n---\n")
+
+  const BROKEN_REFUSAL = {
+    kind: "invalid-yaml",
+    message: `memory file "About Me/Broken.md": ${UNCLOSED_FLOW_MESSAGE}`,
+  }
+
+  const plantBrokenFile = async (content: string): Promise<void> => {
+    await writeFile(join(vault, "About Me/Broken.md"), content, "utf8")
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
+  }
+
+  it.each([
+    {
+      label: "listMemoryFiles",
+      read: () => listMemoryFiles({ vaultPath: vault }, logger),
+    },
+    {
+      label: "getMemory with no file",
+      read: () => getMemory({ vaultPath: vault }, logger),
+    },
+    {
+      label: "getMemory for the file",
+      read: () => getMemory({ vaultPath: vault, file: "Broken" }, logger),
+    },
+    {
+      label: "getMemory for a section of the file",
+      read: () => getMemory({ vaultPath: vault, file: "Broken", section: "Notes" }, logger),
+    },
+    {
+      label: "getMemoryEntries for the file",
+      read: () => {
+        return getMemoryEntries(
+          { vaultPath: vault, file: "Broken", onOrAfter: "2026-01-01" },
+          logger,
+        )
+      },
+    },
+  ])("$label names the unreadable file", async ({ read }) => {
+    await plantBrokenFile(BROKEN_MD)
+
+    expect(describeRefusal(await captureRejection(read()))).toEqual(BROKEN_REFUSAL)
+  })
+
+  it("updateMemory names the unreadable file and leaves it unchanged", async () => {
+    await plantBrokenFile(BROKEN_MD)
+
+    const refusal = await captureRejection(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Broken",
+          section: "Notes (newest first)",
+          entry: "new entry",
+          date: "2026-05-06",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeRefusal(refusal)).toEqual(BROKEN_REFUSAL)
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(BROKEN_MD)
+  })
+
+  it("deleteMemory names the unreadable file and leaves it unchanged", async () => {
+    await plantBrokenFile(BROKEN_MD)
+
+    const refusal = await captureRejection(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Broken",
+          section: "Notes (newest first)",
+          date: "2026-05-05",
+          entry: "kept entry",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeRefusal(refusal)).toEqual(BROKEN_REFUSAL)
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(BROKEN_MD)
+  })
+
+  const UNKEEPABLE_BLOCK_CASES = [
+    {
+      label: "a list block",
+      content: buildMemoryFile("---\n- a\n- b\n---\n"),
+      refusal: {
+        kind: "not-key-value",
+        message:
+          'memory file "About Me/Broken.md": properties block holds a list, not key-value pairs, so rewriting the note would delete it',
+      },
+    },
+    {
+      label: "an explicitly tagged block",
+      content: buildMemoryFile("---\nstatus: !done\n---\n"),
+      refusal: {
+        kind: "explicit-tag",
+        message:
+          'memory file "About Me/Broken.md": properties block uses the YAML tag !done, which rewriting the note would drop',
+      },
+    },
+  ]
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "updateMemory refuses $label, keeping its kind, and leaves the file unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await plantBrokenFile(content)
+
+      const refusal = await captureRejection(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Broken",
+            section: "Notes (newest first)",
+            entry: "new entry",
+            date: "2026-05-06",
+          },
+          logger,
+        ),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "deleteMemory refuses $label, keeping its kind, and leaves the file unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await plantBrokenFile(content)
+
+      const refusal = await captureRejection(
+        deleteMemory(
+          {
+            vaultPath: vault,
+            file: "Broken",
+            section: "Notes (newest first)",
+            date: "2026-05-05",
+            entry: "kept entry",
+          },
+          logger,
+        ),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
+    },
+  )
+
+  // The writes above refuse these blocks; the reads below must still accept them
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "listMemoryFiles lists a file holding $label",
+    async ({ content }) => {
+      await plantBrokenFile(content)
+
+      const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+
+      expect(outlines.find((outline) => outline.file === "Broken")).toEqual({
+        file: "Broken",
+        title: "Broken",
+        bytes: Buffer.byteLength(content, "utf8"),
+        entry_policy: "append-only",
+        leading_callout: null,
+        headings: [
+          { level: 1, text: "Broken" },
+          { level: 2, text: "Notes (newest first)", entry_count: 1 },
+        ],
+      })
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "getMemory with no file reads a file holding $label",
+    async ({ content }) => {
+      await plantBrokenFile(content)
+      // Only the planted file stays, so the read returns its body alone
+      await rm(join(vault, "About Me/Principles.md"))
+      await rm(join(vault, "About Me/Opinions.md"))
+
+      expect(await getMemory({ vaultPath: vault }, logger)).toBe(
+        "# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry",
+      )
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "getMemory for the file reads a file holding $label",
+    async ({ content }) => {
+      await plantBrokenFile(content)
+
+      expect(await getMemory({ vaultPath: vault, file: "Broken" }, logger)).toBe(
+        "# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry",
+      )
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "getMemory for a section reads a file holding $label",
+    async ({ content }) => {
+      await plantBrokenFile(content)
+
+      expect(await getMemory({ vaultPath: vault, file: "Broken", section: "Notes" }, logger)).toBe(
+        "- **2026-05-05**: kept entry",
+      )
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "getMemoryEntries reads a file holding $label",
+    async ({ content }) => {
+      await plantBrokenFile(content)
+
+      expect(
+        await getMemoryEntries(
+          { vaultPath: vault, file: "Broken", onOrAfter: "2026-01-01" },
+          logger,
+        ),
+      ).toEqual([
+        {
+          section: "Notes (newest first)",
+          date: "2026-05-05",
+          text: "- **2026-05-05**: kept entry",
+          entryIndex: 0,
+        },
+      ])
+    },
+  )
+
+  /** An empty block reads as no properties, so a rewrite writes none and the
+   *  body's own --- lines would become the file's first block. */
+  const STACKED_BLOCK_MD = buildMemoryFile("---\n---\n---\nJust a paragraph.\n---\n")
+
+  /** The parts of a write's output refusal: an UnkeepableOpeningBlockError
+   *  naming the file, caused by the unnamed refusal, whose own cause is the
+   *  block refusal. */
+  const describeOutputRefusal = (
+    thrown: unknown,
+  ): { message: string; causeMessage: string | null; rootIsBlockRefusal: boolean } | null => {
+    if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
+
+    const unnamedRefusal = thrown.cause instanceof UnkeepableOpeningBlockError ? thrown.cause : null
+    return {
+      message: thrown.message,
+      causeMessage: unnamedRefusal?.message ?? null,
+      rootIsBlockRefusal: unnamedRefusal?.cause instanceof UnsupportedPropertiesBlockError,
+    }
+  }
+
+  const UNNAMED_OPENING_BLOCK_MESSAGE =
+    "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it"
+
+  const OPENING_BLOCK_REFUSAL = {
+    message: `memory file "About Me/Broken.md": ${UNNAMED_OPENING_BLOCK_MESSAGE}`,
+    causeMessage: UNNAMED_OPENING_BLOCK_MESSAGE,
+    rootIsBlockRefusal: true,
+  }
+
+  it("updateMemory refuses a write that would open the file with --- lines it cannot keep", async () => {
+    await plantBrokenFile(STACKED_BLOCK_MD)
+
+    const refusal = await captureRejection(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Broken",
+          section: "Notes (newest first)",
+          entry: "new entry",
+          date: "2026-05-06",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(STACKED_BLOCK_MD)
+  })
+
+  it("updateMemory refuses a new section that would open the file with --- lines it cannot keep", async () => {
+    await plantBrokenFile(STACKED_BLOCK_MD)
+
+    const refusal = await captureRejection(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Broken",
+          section: "Brand new section",
+          entry: "new entry",
+          date: "2026-05-06",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(STACKED_BLOCK_MD)
+  })
+
+  it("deleteMemory refuses a write that would open the file with --- lines it cannot keep", async () => {
+    await plantBrokenFile(STACKED_BLOCK_MD)
+
+    const refusal = await captureRejection(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Broken",
+          section: "Notes (newest first)",
+          date: "2026-05-05",
+          entry: "kept entry",
+        },
+        logger,
+      ),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(STACKED_BLOCK_MD)
   })
 })

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { crc32 } from "node:zlib"
 import sharp from "sharp"
 import { fitImageToByteBudget } from "../fit-image-to-byte-budget.js"
 
@@ -23,6 +24,35 @@ const noiseImage = (params: {
     .toBuffer()
 }
 
+/** A PNG that declares its size and holds no pixel data — enough for sharp to
+ *  read the size and refuse an image over its pixel limit (about 268 million
+ *  pixels) without the test allocating one. */
+const pngHeaderOnly = (params: { width: number; height: number }): Buffer => {
+  const buildChunk = (chunkType: string, chunkData: Buffer): Buffer => {
+    const lengthField = Buffer.alloc(4)
+    lengthField.writeUInt32BE(chunkData.length)
+    const typeAndData = Buffer.concat([Buffer.from(chunkType, "ascii"), chunkData])
+    const checksumField = Buffer.alloc(4)
+    checksumField.writeUInt32BE(crc32(typeAndData))
+    return Buffer.concat([lengthField, typeAndData, checksumField])
+  }
+
+  const imageHeader = Buffer.alloc(13)
+  imageHeader.writeUInt32BE(params.width, 0)
+  imageHeader.writeUInt32BE(params.height, 4)
+  // 8 bits per channel, truecolour (RGB)
+  imageHeader.writeUInt8(8, 8)
+  imageHeader.writeUInt8(2, 9)
+
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  return Buffer.concat([
+    pngSignature,
+    buildChunk("IHDR", imageHeader),
+    buildChunk("IDAT", Buffer.alloc(0)),
+    buildChunk("IEND", Buffer.alloc(0)),
+  ])
+}
+
 describe("fitImageToByteBudget", () => {
   it("passes a small supported image through untouched", async () => {
     const original = await sharp({
@@ -39,8 +69,8 @@ describe("fitImageToByteBudget", () => {
       buffer: original,
       budgetBytes: 49152,
     })
-    expect(fitted.data.equals(original)).toBe(true)
-    expect(fitted).toMatchObject({
+    expect(fitted).toEqual({
+      data: original,
       mimeType: "image/png",
       width: 100,
       height: 80,
@@ -80,7 +110,9 @@ describe("fitImageToByteBudget", () => {
   })
 
   it("shrinks dimensions below 1568 when the quality ladder alone cannot fit", async () => {
-    const original = await noiseImage({ width: 3000, height: 3000 })
+    // Just over 1568px, so the ladder runs at 1568px and any narrower result
+    // proves the dimensions shrank
+    const original = await noiseImage({ width: 1600, height: 1600 })
     // Small enough that no 1568px JPEG of gaussian noise can fit.
     const budgetBytes = 8192
     const fitted = await fitImageToByteBudget({ buffer: original, budgetBytes })
@@ -108,19 +140,44 @@ describe("fitImageToByteBudget", () => {
     expect(fitted.height).toBeGreaterThan(fitted.width)
   })
 
-  it("throws when no attempt can fit the budget", async () => {
-    const original = await noiseImage({ width: 3000, height: 3000 })
+  it("throws after the quality ladder and one attempt at the 64px floor when nothing fits", async () => {
+    // No image encodes into 10 bytes, so a small plain source takes the same
+    // five attempts a large one would, without the large one's encoding time
+    const original = await sharp({
+      create: { width: 200, height: 200, channels: 3, background: { r: 10, g: 200, b: 50 } },
+    })
+      .png()
+      .toBuffer()
+
+    // The last attempt's size depends on the JPEG encoder's build, so only
+    // its digits are matched
     await expect(fitImageToByteBudget({ buffer: original, budgetBytes: 10 })).rejects.toThrow(
-      /^image cannot be fitted into 10 bytes/,
+      /^image cannot be fitted into 10 bytes \(last attempt was \d+ bytes after 5 attempts\)$/,
     )
   })
 
-  it("throws a decode error for a non-image buffer", async () => {
-    await expect(
-      fitImageToByteBudget({
-        buffer: Buffer.from("not an image at all"),
-        budgetBytes: 49152,
-      }),
-    ).rejects.toThrow("Input buffer contains unsupported image format")
-  })
+  it.each([
+    {
+      label: "a non-image buffer",
+      buffer: Buffer.from("not an image at all"),
+      decoderMessage: "Input buffer contains unsupported image format",
+    },
+    { label: "an empty buffer", buffer: Buffer.alloc(0), decoderMessage: "Input Buffer is empty" },
+    {
+      label: "an image over the decoder's pixel limit",
+      buffer: pngHeaderOnly({ width: 20_000, height: 20_000 }),
+      decoderMessage: "Input image exceeds pixel limit",
+    },
+  ])(
+    "throws its own decode error for $label, with the decoder's as the cause",
+    async ({ buffer, decoderMessage }) => {
+      // toMatchObject, not toEqual: sharp's native addon gives some errors an
+      // enumerable message, which an Error built here never equals
+      await expect(fitImageToByteBudget({ buffer, budgetBytes: 49152 })).rejects.toMatchObject({
+        message:
+          "could not decode image (the file is empty, damaged, not an image, or over about 268 million pixels)",
+        cause: { message: decoderMessage },
+      })
+    },
+  )
 })

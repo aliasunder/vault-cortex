@@ -437,8 +437,10 @@ starts. The server then runs these startup tasks:
 
 1. Create memory template files if the memory folder doesn't exist (skipped
    when `MEMORY_ENABLED=false` or `READONLY_MODE=true`).
-2. Rebuild the search index, including any new memory template files.
-3. Start the file watcher.
+2. Start the file watcher, which holds the changes it sees until step 4.
+3. Rebuild the search index, including any new memory template files.
+4. Apply the changes the watcher held, so search reflects notes added, edited
+   or deleted while the server started.
 
 Restarting the container re-runs this flow (useful when testing bootstrap
 behavior). The command is the same for every setup
@@ -539,29 +541,47 @@ in `.obsidian/daily-notes.json`, and in remote mode the server only receives
 that file when settings syncing is turned on in two places:
 
 - **Server side** — `SYNC_CONFIGS` defaults to
-  `core-plugin-data,community-plugin-data`, the two categories the server
-  reads: daily notes settings and community plugin settings (e.g. the Tasks
-  plugin's format). It takes a comma-separated list of Obsidian's settings
-  categories (`app`, `appearance`, `appearance-data`, `hotkey`,
-  `core-plugin`, `core-plugin-data`, `community-plugin`,
-  `community-plugin-data`); set `SYNC_CONFIGS=none` in `.env` to disable.
+  `core-plugin-data,community-plugin-data,app`: daily notes settings
+  (Obsidian's **Core plugin settings** toggle), community plugin settings
+  such as the Tasks plugin's format (**Installed community plugins**), and
+  the new-note location (**Main settings**). It takes a
+  comma-separated list of Obsidian's settings categories (`app`,
+  `appearance`, `appearance-data`, `hotkey`, `core-plugin`,
+  `core-plugin-data`, `community-plugin`, `community-plugin-data`); set
+  `SYNC_CONFIGS=none` in `.env` to disable.
 - **Desktop side** — Obsidian Settings → Sync → **Vault configuration sync**,
   enabled per device. Obsidian only pushes categories you enable there.
 
 Some community plugins keep API keys in their settings. Server tools never
-read `.obsidian/`, and the server itself opens only the two config files
-above — synced settings otherwise just sit in the config volume.
+read `.obsidian/`, and the server itself opens only `daily-notes.json`, the
+Tasks plugin's settings, and `app.json` (for the new-note location, when the
+daily notes folder is blank) — other synced settings just sit in the vault's
+`.obsidian/` folder.
 
 If you turn on **Core plugin settings** syncing after the server is
 already running, `daily-notes.json` is picked up automatically once it
 lands; no restart needed.
 
+If the folder box in Obsidian's Daily notes options is empty, Obsidian puts
+daily notes where **Default location for new notes** says, a setting stored
+in `.obsidian/app.json`. The server reads that file once **Main settings** is
+turned on under Vault configuration sync; until then it looks in the vault
+root. **Same folder as current file** also means the vault root, as it does
+in Obsidian for daily notes. If you can't sync Main settings, set
+`DAILY_NOTES_FOLDER`, as described below.
+
+Daily notes in the vault root, or in the new-note folder because the folder
+box is empty, aren't protected from delete and move and can appear in orphan
+results; the [main README's Daily notes section](../../README.md#daily-notes)
+explains why.
+
 If the settings can't sync — or you use the Periodic Notes plugin, whose
 settings the core config file doesn't track — set `DAILY_NOTES_FOLDER` (any
-vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT`
-(same tokens as Obsidian's date format setting) in `.env`. You can set one
-or both — a set value always wins over the config file. Without either
-source, the server falls back to the `Daily Notes` folder and `YYYY-MM-DD`.
+vault-relative path: `Journal`, `Planner/Daily`, or `/` for the vault root)
+and `DAILY_NOTES_FORMAT` (same tokens as Obsidian's date format setting) in
+`.env`. You can set one or both — a set value always wins over the config
+file. A value you leave unset while `daily-notes.json` hasn't reached the
+server comes from the fallbacks: the `Daily Notes` folder and `YYYY-MM-DD`.
 
 `.env` edits take effect when the container is re-created: set up with the
 CLI, run `npx vault-cortex@latest restart`; with Compose, `docker compose up -d`;
@@ -584,7 +604,7 @@ These optional settings are worth knowing about:
 | `FILE_TOOLS_ENABLED`    | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `READONLY_MODE`         | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `DISABLED_TOOLS`        | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `SYNC_CONFIGS`          | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `SYNC_CONFIGS`          | daily notes, plugins, and app | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (edits made on the server stay on the server and are never uploaded), or `mirror-remote` (Obsidian Sync overwrites edits made on the server, so the server always matches your vault). An invalid value stops the container at boot.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `CONFLICT_STRATEGY`     | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |

@@ -44,8 +44,13 @@ const FONT_RESOURCE_NAMES: Record<NonNullable<PdfTextOp["font"]>, string> = {
 
 /** Assembles numbered PDF objects (each a full "N 0 obj … endobj" block, in
  *  object-number order starting at 1) into a valid PDF 1.4 buffer with a
- *  correct xref table and trailer. */
-const assemblePdf = (objects: readonly string[]): Buffer => {
+ *  correct xref table and trailer; `extraTrailerEntries` go into the trailer
+ *  dictionary after /Root. */
+const assemblePdf = (
+  objects: readonly string[],
+  options: { extraTrailerEntries?: string } = {},
+): Buffer => {
+  const { extraTrailerEntries = "" } = options
   const header = "%PDF-1.4\n\n"
 
   // The xref table needs each object's byte offset, so the body is built
@@ -68,7 +73,7 @@ const assemblePdf = (objects: readonly string[]): Buffer => {
     `0 ${xrefEntries.length}`,
     ...xrefEntries,
     "trailer",
-    `<< /Size ${xrefEntries.length} /Root 1 0 R >>`,
+    `<< /Size ${xrefEntries.length} /Root 1 0 R${extraTrailerEntries} >>`,
     "startxref",
     String(xrefOffset),
     "%%EOF",
@@ -126,6 +131,32 @@ export const buildEmptyStreamPdf = (): Buffer => {
     ].join("\n"),
     "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj",
   ])
+}
+
+/** Builds a PDF whose page tree is empty: it opens, but has no page to render. */
+export const buildZeroPagePdf = (): Buffer => {
+  return assemblePdf([
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+    "2 0 obj\n<< /Type /Pages /Kids [] /Count 0 >>\nendobj",
+  ])
+}
+
+/** Builds a PDF that needs a user password to open. Its standard security
+ *  handler (RC4, revision 2) holds password hashes that no password matches,
+ *  so pdf.js asks for one even with the empty password tried first. The
+ *  content is never decrypted, so it stays a plain one-page catalog. */
+export const buildPasswordProtectedPdf = (): Buffer => {
+  const unmatchableHash = `<${"ab".repeat(32)}>`
+  const documentId = `<${"cd".repeat(16)}>`
+  return assemblePdf(
+    [
+      "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+      "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj",
+      "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
+      `4 0 obj\n<< /Filter /Standard /V 1 /R 2 /O ${unmatchableHash} /U ${unmatchableHash} /P -44 >>\nendobj`,
+    ],
+    { extraTrailerEntries: ` /Encrypt 4 0 R /ID [${documentId} ${documentId}]` },
+  )
 }
 
 /** Wraps a fixture buffer as the Uint8Array view extractPdfText expects —

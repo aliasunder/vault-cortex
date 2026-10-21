@@ -1,4 +1,5 @@
 #!/command/with-contenv sh
+# shellcheck shell=sh # ShellCheck cannot read the with-contenv shebang
 # One-shot first sync: run `ob sync` (no --continuous) to COMPLETION before
 # svc-obsidian-sync and svc-vault-mcp start — otherwise the server boots
 # against a still-empty vault, bootstraps default About Me/ templates, and
@@ -180,8 +181,10 @@ ACTIVE_SYNC_STATE="$SYNC_STATE_ROOT/$SYNC_VAULT_ID/state.db"
 queue_never_downloaded_files() {
   # A device that has never synced has no store yet, so nothing to queue.
   [ -e "$ACTIVE_SYNC_STATE" ] || { echo 0; return 0; }
+
   # As the obsidian user, so any SQLite journal files stay writable by the
   # Sync client.
+  # shellcheck disable=SC2016 # the JavaScript's ${table}, "$.uid" and "$.deleted" must reach node unexpanded
   s6-setuidgid obsidian node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite")
     const db = new DatabaseSync(process.argv[1])

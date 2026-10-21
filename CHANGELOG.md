@@ -1,119 +1,111 @@
 # Changelog
 
+## [0.54.16] — 2026-10-20
 
+### Features
 
+- **tools:** Reject unknown tool parameters instead of ignoring them (#684)
 
+### Bug Fixes
 
+- **move:** Point Canvas file cards at a moved note's new path (#683)
+- **remote:** Sync app.json by default so a blank daily-notes folder follows Obsidian's new-note folder (#682)
+- **search:** Index vault changes that land while the server starts (#679)
+- **tools:** Reword the edit tools' empty-line rule and correct nine tool descriptions (#678)
 
+### Documentation
 
+- Fix the Ask DeepWiki badge (#685)
+- Update CHANGELOG.md for v0.54.15
 
+## [0.54.15] — 2026-10-17
 
+### Bug Fixes
 
+- **daily-notes:** Read the vault-root and blank folder settings the way Obsidian does (#677)
+- Read and edit notes with Windows line endings without a stray carriage return (#680)
 
+### Documentation
 
+- Update CHANGELOG.md for v0.54.14
 
+## [0.54.14] — 2026-10-16
 
+### Documentation
 
+- Update CHANGELOG.md for v0.54.13
 
+### Maintenance
 
+- **deps:** Bump github/codeql-action/upload-sarif from 4.38.2 to 4.38.3 (#675)
+- **deps-dev:** Bump the development group with 8 updates (#674)
+- **deps:** Bump the production group with 4 updates (#673)
+- **deps:** Bump ossf/scorecard-action from 2.4.4 to 2.5.0 (#672)
+- **deps:** Bump actions/setup-node from 7.0.0 to 7.1.0 (#671)
+- **deps:** Bump actions/create-github-app-token from 3.2.0 to 3.3.0 (#676)
+- **tests:** Skip the permission tests as root, and remove the root-test hook (#670)
 
+## [0.54.13] — 2026-10-11
 
+### Bug Fixes
 
+- Return tool errors with vault-relative paths and the server's own messages (#666)
+- Say when a date filter or task date names a day the calendar lacks (#668)
 
+### Documentation
 
+- Update CHANGELOG.md for v0.54.12
 
+## [0.54.12] — 2026-10-10
 
+### Bug Fixes
 
+- **trash:** Never sweep a note Obsidian trashed under a name the server recorded (#665)
+- **search:** Compare frontmatter tags ignoring letter case and store them by Obsidian's tag rule (#667)
+- **search:** Index a note whose properties block is not valid YAML from its body (#664)
+- **hooks:** Install with the same Node the session's commands use (#659)
+- **hooks:** Install and recover dependencies only under the install lock (#658)
+- **hooks:** Stop npx-flag, npm-config and later-cd test runs as root (#657)
 
+### Documentation
 
+- Update CHANGELOG.md for v0.54.11
 
+### CI / Infrastructure
 
+- Lint the repo's shell scripts with ShellCheck in CI and pre-commit (#660)
 
+### Maintenance
 
+- **deps:** Bump the production group with 4 updates (#662)
+- **deps:** Bump node from `8ec5d75` to `173f125` (#661)
+- **deps-dev:** Bump the development group with 6 updates (#663)
 
+## [0.54.11] — 2026-10-08
 
+### Features
 
+- **tools:** Add limit to vault_search_by_tag (#653)
 
+### Bug Fixes
 
+- **tasks:** Keep block IDs off sub-tasks on Kanban boards (#656)
+- **tests:** Stop test servers when their tests end, and run a root session's tests as nobody (#654)
+- **tools:** Tighten seven tool definitions (#652)
+- **notes:** Refuse writes that would lose a properties block, and repair one with replace: true (#641)
 
+### Documentation
 
+- **agents:** List folders, not files, in the Structure tree (#651)
+- Update CHANGELOG.md for v0.54.10
 
+### Maintenance
 
+- **hooks:** Put nvm's Node first on PATH for later commands (#655)
 
+### Other Changes
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+- **memory:** Assert complete file ordering (#650)
 
 ## [0.54.10] — 2026-10-06
 
@@ -2681,13 +2673,11 @@
 
 - Update CHANGELOG.md for v0.12.1
 
-
 ## [0.12.1] — 2026-05-18
 
 ### Bug Fixes
 
 - Prevent port 8000 wipe by avoiding ForceNew on InstancePublicPorts (#42)
-
 
 ## [0.12.0] — 2026-05-18
 
@@ -2698,7 +2688,6 @@
 ### Maintenance
 
 - Remove unneeded type
-
 
 ## [0.11.3] — 2026-05-17
 
@@ -2714,7 +2703,6 @@
 
 - Add gitleaks secret scanning (#38)
 
-
 ## [0.11.2] — 2026-05-16
 
 ### Documentation
@@ -2726,13 +2714,11 @@
 
 - Align Node references on Node 24 and fix doc inaccuracies (#37)
 
-
 ## [0.11.1] — 2026-05-16
 
 ### Bug Fixes
 
 - Env-var import — default import, not namespace (#35)
-
 
 ## [0.11.0] — 2026-05-16
 
@@ -2745,7 +2731,6 @@
 - README rewrite and deployment docs for open-source (#33)
 - Update CHANGELOG.md for v0.10.0
 
-
 ## [0.10.0] — 2026-05-16
 
 ### Features
@@ -2756,7 +2741,6 @@
 ### Documentation
 
 - Update CHANGELOG.md for v0.9.0
-
 
 ## [0.9.0] — 2026-05-16
 
@@ -2773,14 +2757,12 @@
 
 - **deps:** Update all dependencies, Node 24, TypeScript 6 (#27)
 
-
 ## [0.8.1] — 2026-05-15
 
 ### Documentation
 
 - Improve tool descriptions for structural edit safety (#23)
 - Update CHANGELOG.md for v0.8.0
-
 
 ## [0.8.0] — 2026-05-15
 
@@ -2793,11 +2775,9 @@
 - Document sort order in search-by-tag/folder/property tool descriptions
 - Update CHANGELOG.md for v0.7.0
 
-
 ## [0.7.0] — 2026-05-14
 
 No notable changes.
-
 
 ## [0.6.4] — 2026-05-14
 
@@ -2808,7 +2788,6 @@ No notable changes.
 ### Documentation
 
 - Update CHANGELOG.md for v0.6.3
-
 
 ## [0.6.3] — 2026-05-14
 
@@ -2821,7 +2800,6 @@ No notable changes.
 
 - Update CHANGELOG.md for v0.6.2
 
-
 ## [0.6.2] — 2026-05-14
 
 ### Bug Fixes
@@ -2831,7 +2809,6 @@ No notable changes.
 ### Documentation
 
 - Update CHANGELOG.md for v0.6.1
-
 
 ## [0.6.1] — 2026-05-14
 
@@ -2847,7 +2824,6 @@ No notable changes.
 
 - Update .gitignore
 
-
 ## [0.6.0] — 2026-05-13
 
 ### Features
@@ -2857,7 +2833,6 @@ No notable changes.
 ### Documentation
 
 - Update CHANGELOG.md for v0.5.0
-
 
 ## [0.5.0] — 2026-05-13
 
@@ -2881,7 +2856,6 @@ No notable changes.
 
 - **vault-mcp:** Cover server.ts helpers and mcp-router.ts (#14)
 
-
 ## [0.4.0] — 2026-05-13
 
 ### Features
@@ -2896,7 +2870,6 @@ No notable changes.
 
 - Update CHANGELOG.md for v0.3.0
 
-
 ## [0.3.0] — 2026-05-12
 
 ### Features
@@ -2906,7 +2879,6 @@ No notable changes.
 ### Documentation
 
 - Update CHANGELOG.md for v0.2.0
-
 
 ## [0.2.0] — 2026-05-11
 
@@ -2924,7 +2896,6 @@ No notable changes.
 ### Bug Fixes
 
 - **ci:** Inline deploy + release in manual_release so the chain fires (#6)
-
 
 ## [0.1.1] — 2026-05-11
 

@@ -58,6 +58,20 @@ describe("resolveEffectiveProtectedPaths", () => {
     ).toEqual(["About Me"])
   })
 
+  it.each([
+    { label: "daily notes in the vault root", settings: '{"folder":"/"}' },
+    { label: "daily notes in Obsidian's new-note folder", settings: '{"folder":""}' },
+  ])("protects only memory for $label", async ({ settings }) => {
+    const vaultPath = await createVault(settings)
+    await writeFile(
+      join(vaultPath, ".obsidian/app.json"),
+      '{"newFileLocation":"folder","newFileFolderPath":"Inbox"}',
+    )
+    expect(
+      await resolveEffectiveProtectedPaths({ config: loadConfig({}), vaultPath }, logger),
+    ).toEqual(["About Me"])
+  })
+
   it("preserves spaces in a nonblank file-configured daily folder", async () => {
     const vaultPath = await createVault('{"folder":" Journal "}')
     expect(
@@ -100,6 +114,14 @@ describe("resolveEffectiveProtectedPaths", () => {
     expect(requestLogger.warn).not.toHaveBeenCalled()
   })
 
+  it("protects only memory for DAILY_NOTES_FOLDER=/ without reading the file", async () => {
+    const vaultPath = await createVault('{"folder":"Journal"}')
+    const config = loadConfig({ DAILY_NOTES_FOLDER: "/" })
+    expect(await resolveEffectiveProtectedPaths({ config, vaultPath }, logger)).toEqual([
+      "About Me",
+    ])
+  })
+
   it("reads the file folder when only DAILY_NOTES_FORMAT is set", async () => {
     const vaultPath = await createVault('{"folder":"Journal"}')
     const config = loadConfig({ DAILY_NOTES_FORMAT: "DD-MM-YYYY" })
@@ -139,6 +161,16 @@ describe("resolveEffectiveOrphanExcludeFolders", () => {
         orphanExcludeFoldersOverride: null,
         memoryDir: "About Me",
         dailyNotesFolder: "   ",
+      }),
+    ).toEqual(["Templates", "About Me"])
+  })
+
+  it("omits the daily folder when daily notes share a folder with other notes", () => {
+    expect(
+      resolveEffectiveOrphanExcludeFolders({
+        orphanExcludeFoldersOverride: null,
+        memoryDir: "About Me",
+        dailyNotesFolder: null,
       }),
     ).toEqual(["Templates", "About Me"])
   })
@@ -186,8 +218,25 @@ describe("readEffectiveOrphanExcludeFolders", () => {
       env: {},
       expected: ["Templates", "About Me"],
     },
+    {
+      label: "vault-root file folder",
+      settings: '{"folder":"/"}',
+      env: {},
+      expected: ["Templates", "About Me"],
+    },
+    {
+      label: "empty file folder, which follows the new-note folder",
+      settings: '{"folder":""}',
+      env: {},
+      expected: ["Templates", "About Me"],
+    },
   ])("uses $label", async ({ settings, env, expected }) => {
     const vaultPath = await createVault(settings)
+    // The new-note folder is where a blank daily folder resolves; it must not be excluded
+    await writeFile(
+      join(vaultPath, ".obsidian/app.json"),
+      '{"newFileLocation":"folder","newFileFolderPath":"Inbox"}',
+    )
     expect(
       await readEffectiveOrphanExcludeFolders({ config: loadConfig(env), vaultPath }, logger),
     ).toEqual(expected)
@@ -198,6 +247,11 @@ describe("readEffectiveOrphanExcludeFolders", () => {
       label: "daily folder override",
       env: { DAILY_NOTES_FOLDER: "Env/Journal" },
       expected: ["Env/Journal", "Templates", "About Me"],
+    },
+    {
+      label: "vault-root daily folder override",
+      env: { DAILY_NOTES_FOLDER: "/" },
+      expected: ["Templates", "About Me"],
     },
     {
       label: "explicit orphan override",

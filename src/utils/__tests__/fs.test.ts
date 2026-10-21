@@ -14,6 +14,7 @@ import {
   lstatOrNull,
   statOrNull,
 } from "../fs.js"
+import { runsAsRoot } from "../../__tests__/runs-as-root.js"
 
 const makeTempDir = async (): Promise<string> => {
   const dir = await mkdtemp(join(tmpdir(), "utils-fs-test-"))
@@ -62,11 +63,14 @@ describe("readFileOrNull", () => {
     expect(await readFileOrNull(dir)).toBeNull()
   })
 
-  it("rethrows a permission error rather than swallowing it as missing", async () => {
-    const dir = await makeTempDir()
-    const lockedDir = await makeUnreadableDir(dir)
-    await expect(readFileOrNull(join(lockedDir, "inner.md"))).rejects.toThrow(/EACCES/)
-  })
+  it.skipIf(runsAsRoot)(
+    "rethrows a permission error rather than swallowing it as missing",
+    async () => {
+      const dir = await makeTempDir()
+      const lockedDir = await makeUnreadableDir(dir)
+      await expect(readFileOrNull(join(lockedDir, "inner.md"))).rejects.toThrow(/EACCES/)
+    },
+  )
 })
 
 describe("readdirOrNull", () => {
@@ -132,7 +136,7 @@ describe("statOrNull", () => {
     expect(await statOrNull(join(filePath, "child"))).toBeNull()
   })
 
-  it("rethrows a permission error rather than swallowing it", async () => {
+  it.skipIf(runsAsRoot)("rethrows a permission error rather than swallowing it", async () => {
     const dir = await makeTempDir()
     const lockedDir = await makeUnreadableDir(dir)
     await expect(statOrNull(join(lockedDir, "inner.md"))).rejects.toThrow(/EACCES/)
@@ -169,7 +173,7 @@ describe("lstatOrNull", () => {
     expect(await lstatOrNull(join(filePath, "child"))).toBeNull()
   })
 
-  it("rethrows a permission error rather than swallowing it", async () => {
+  it.skipIf(runsAsRoot)("rethrows a permission error rather than swallowing it", async () => {
     const dir = await makeTempDir()
     const lockedDir = await makeUnreadableDir(dir)
     await expect(lstatOrNull(join(lockedDir, "inner.md"))).rejects.toThrow(/EACCES/)
@@ -199,7 +203,7 @@ describe("realpathOrNull", () => {
     expect(await realpathOrNull(join(filePath, "child"))).toBeNull()
   })
 
-  it("rethrows a permission error rather than swallowing it", async () => {
+  it.skipIf(runsAsRoot)("rethrows a permission error rather than swallowing it", async () => {
     const dir = await makeTempDir()
     const lockedDir = await makeUnreadableDir(dir)
     await expect(realpathOrNull(join(lockedDir, "inner.md"))).rejects.toThrow(/EACCES/)
@@ -226,9 +230,12 @@ describe("fileExists", () => {
     expect(await fileExists(join(filePath, "child.md"))).toBe(false)
   })
 
-  it("rethrows a permission error rather than reporting the path missing", async () => {
-    const dir = await makeTempDir()
-    const lockedDir = await makeUnreadableDir(dir)
-    await expect(fileExists(join(lockedDir, "inner.md"))).rejects.toThrow(/EACCES/)
-  })
+  it.skipIf(runsAsRoot)(
+    "rethrows a permission error rather than reporting the path missing",
+    async () => {
+      const dir = await makeTempDir()
+      const lockedDir = await makeUnreadableDir(dir)
+      await expect(fileExists(join(lockedDir, "inner.md"))).rejects.toThrow(/EACCES/)
+    },
+  )
 })

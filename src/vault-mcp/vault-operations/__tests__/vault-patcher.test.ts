@@ -3,6 +3,10 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
+import {
+  UnkeepableOpeningBlockError,
+  UnsupportedPropertiesBlockError,
+} from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const {
@@ -2066,6 +2070,85 @@ describe("patchNote errors", () => {
     ).rejects.toThrow(
       "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
     )
+  })
+})
+
+describe("patchNote — properties block a rewrite would lose", () => {
+  /** Awaits a call that must reject and returns what it rejected with. */
+  const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
+    try {
+      await pending
+    } catch (error) {
+      return error
+    }
+    throw new Error("expected the call to reject, but it resolved")
+  }
+
+  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
+  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
+    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
+    return { kind: thrown.kind, message: thrown.message }
+  }
+
+  it.each([
+    {
+      label: "a list block",
+      content: "---\n- a\n- b\n---\nbody\n",
+      refusal: {
+        kind: "not-key-value",
+        message:
+          "properties block holds a list, not key-value pairs, so rewriting the note would delete it",
+      },
+    },
+    {
+      label: "an explicitly tagged block",
+      content: "---\nstatus: !done\n---\nbody\n",
+      refusal: {
+        kind: "explicit-tag",
+        message: "properties block uses the YAML tag !done, which rewriting the note would drop",
+      },
+    },
+  ])(
+    "append refuses $label and leaves the note unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await writeTestNote("kept.md", content)
+      expect(await readTestNote("kept.md")).toBe(content)
+
+      const refusal = await captureRejection(
+        patchNote(
+          { vaultPath: vault, path: "kept.md", operation: "append", content: "added" },
+          logger,
+        ),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readTestNote("kept.md")).toBe(content)
+    },
+  )
+
+  it("refuses a prepend that would open a note with no properties with --- lines it cannot keep", async () => {
+    const original = "Intro\n"
+    await writeTestNote("plain.md", original)
+    expect(await readTestNote("plain.md")).toBe(original)
+
+    const refusal = await captureRejection(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "plain.md",
+          operation: "prepend",
+          content: "---\nJust a paragraph.\n---\n",
+        },
+        logger,
+      ),
+    )
+
+    expect(refusal).toBeInstanceOf(UnkeepableOpeningBlockError)
+    expect(refusal).toHaveProperty(
+      "message",
+      "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it",
+    )
+    expect(await readTestNote("plain.md")).toBe(original)
   })
 })
 
@@ -4863,6 +4946,196 @@ duplicate beta
           message: "concurrent write in progress",
         }),
       }),
+    )
+  })
+})
+
+describe("Windows line breaks (CRLF)", () => {
+  const CRLF_NOTE = "---\r\ntitle: C\r\n---\r\n# H\r\nA\r\n- [ ] task\r\nB\r\n"
+  const LF_NOTE = "---\ntitle: C\n---\n# H\nA\n- [ ] task\nB\n"
+  const NOTES = [
+    { label: "an LF note", note: LF_NOTE },
+    { label: "a CRLF note", note: CRLF_NOTE },
+  ]
+  const CRLF_CONTENT = "X1\r\nX2"
+
+  describe("replaceInNote", () => {
+    it("matches old_text copied with CRLF line breaks", async () => {
+      await writeTestNote("crlf.md", CRLF_NOTE)
+      const result = await replaceInNote(
+        {
+          vaultPath: vault,
+          path: "crlf.md",
+          oldText: "- [ ] task\r\n",
+          newText: "- [x] task\n",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({ message: "Replaced 1 occurrence in crlf.md", count: 1 })
+      expect(await readTestNote("crlf.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [x] task\nB\n")
+    })
+
+    it("converts new_text's CRLF line breaks to LF", async () => {
+      await writeTestNote("lf.md", LF_NOTE)
+      await replaceInNote(
+        { vaultPath: vault, path: "lf.md", oldText: "task", newText: "one\r\ntwo" },
+        logger,
+      )
+
+      expect(await readTestNote("lf.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [ ] one\ntwo\nB\n")
+    })
+
+    it("removes every CRLF match as the LF old_text would, keeping each match's wider gap", async () => {
+      // The wider gap sits below the first match, so measuring the gaps with
+      // the unconverted old_text, which is longer, would change the output.
+      await writeTestNote(
+        "gaps.md",
+        "---\r\ntitle: Gaps\r\n---\r\nA\r\n\r\nX\r\nY\r\n\r\n\r\n\r\nB\r\n\r\nX\r\nY\r\n\r\nC\r\n",
+      )
+      const result = await replaceInNote(
+        {
+          vaultPath: vault,
+          path: "gaps.md",
+          oldText: "X\r\nY\r\n",
+          newText: "",
+          replaceAllOccurrences: true,
+        },
+        logger,
+      )
+
+      expect(result).toEqual({ message: "Replaced 2 occurrences in gaps.md", count: 2 })
+      expect(await readTestNote("gaps.md")).toBe("---\ntitle: Gaps\n---\nA\n\n\n\nB\n\nC\n")
+    })
+
+    it("quotes old_text as sent, CRLF line breaks included, when it matches nothing", async () => {
+      await writeTestNote("crlf.md", CRLF_NOTE)
+
+      await expect(
+        replaceInNote(
+          { vaultPath: vault, path: "crlf.md", oldText: "missing\r\n", newText: "" },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('text not found in "crlf.md": "missing\r\n"'))
+      expect(await readTestNote("crlf.md")).toBe(CRLF_NOTE)
+    })
+
+    it("still finds no match for a lone carriage return", async () => {
+      await writeTestNote("crlf.md", CRLF_NOTE)
+
+      await expect(
+        replaceInNote({ vaultPath: vault, path: "crlf.md", oldText: "\r", newText: "" }, logger),
+      ).rejects.toThrow(new Error('text not found in "crlf.md": "\r"'))
+      expect(await readTestNote("crlf.md")).toBe(CRLF_NOTE)
+    })
+  })
+
+  describe("content with CRLF line breaks", () => {
+    it.each(NOTES)("appends it to $label with LF line breaks", async ({ note }) => {
+      await writeTestNote("note.md", note)
+      await patchNote(
+        { vaultPath: vault, path: "note.md", operation: "append", content: CRLF_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nB\n\nX1\nX2\n",
+      )
+    })
+
+    it.each(NOTES)(
+      "prepends it under a heading of $label with LF line breaks",
+      async ({ note }) => {
+        await writeTestNote("note.md", note)
+        await patchNote(
+          {
+            vaultPath: vault,
+            path: "note.md",
+            operation: "prepend",
+            heading: "H",
+            content: CRLF_CONTENT,
+          },
+          logger,
+        )
+
+        expect(await readTestNote("note.md")).toBe(
+          "---\ntitle: C\n---\n# H\nX1\nX2\nA\n- [ ] task\nB\n",
+        )
+      },
+    )
+
+    it.each(NOTES)("replaces a span of $label with it, using LF line breaks", async ({ note }) => {
+      await writeTestNote("note.md", note)
+      await replaceSpan(
+        { vaultPath: vault, path: "note.md", startAnchor: "task", content: CRLF_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\nX1\nX2\nB\n")
+    })
+
+    it.each(NOTES)("inserts it into $label with LF line breaks", async ({ note }) => {
+      await writeTestNote("note.md", note)
+      await insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          anchor: "task",
+          position: "after",
+          content: CRLF_CONTENT,
+        },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nX1\nX2\nB\n",
+      )
+    })
+
+    it("counts the blank CRLF lines at the edges of replacement content as empty lines", async () => {
+      await writeTestNote("gaps.md", "---\ntitle: Gaps\n---\n\nA\n\nX\n\nB\n")
+      await replaceSpan(
+        { vaultPath: vault, path: "gaps.md", startAnchor: "X", content: "\r\n\r\nY\r\n\r\n" },
+        logger,
+      )
+
+      expect(await readTestNote("gaps.md")).toBe("---\ntitle: Gaps\n---\n\nA\n\n\nY\n\n\nB\n")
+    })
+
+    it("still refuses content that repeats the target heading with a CRLF line break", async () => {
+      await writeTestNote("note.md", "---\r\ntitle: C\r\n---\r\n## H\r\nA\r\n")
+
+      await expect(
+        patchNote(
+          {
+            vaultPath: vault,
+            path: "note.md",
+            operation: "append",
+            heading: "H",
+            content: "## H\r\nX",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        new Error(
+          'content begins with the heading "## H", which would duplicate it — heading-targeted ops keep the matched heading, so omit the heading line from content.',
+        ),
+      )
+    })
+  })
+
+  it("edits a CRLF note whose last property is a list of quoted links, keeping its properties", async () => {
+    await writeTestNote(
+      "related.md",
+      '---\r\ntitle: "C"\r\nrelated:\r\n  - "[[Note]]"\r\n---\r\nA\r\n',
+    )
+    await patchNote(
+      { vaultPath: vault, path: "related.md", operation: "append", content: "Z" },
+      logger,
+    )
+
+    expect(await readTestNote("related.md")).toBe(
+      '---\ntitle: C\nrelated:\n  - "[[Note]]"\n---\nA\n\nZ\n',
     )
   })
 })

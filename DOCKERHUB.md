@@ -13,7 +13,6 @@
 [![npm](https://img.shields.io/npm/v/vault-cortex?logo=npm&label=npm&cacheSeconds=43200)](https://www.npmjs.com/package/vault-cortex)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/aliasunder/vault-cortex/badge)](https://scorecard.dev/viewer/?uri=github.com/aliasunder/vault-cortex)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14162/badge)](https://www.bestpractices.dev/projects/14162)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/aliasunder/vault-cortex)
 [![vault-cortex MCP server](https://glama.ai/mcp/servers/aliasunder/vault-cortex/badges/score.svg)](https://glama.ai/mcp/servers/aliasunder/vault-cortex)
 
 </div>
@@ -108,7 +107,7 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 | **Properties** | `vault_list_property_keys` | All property keys with sample values |
 |  | `vault_list_property_values` | Distinct values for a property key |
 |  | `vault_search_by_property` | Find notes by property key-value |
-|  | `vault_update_properties` | Add or update properties without touching the body |
+|  | `vault_update_properties` | Add, update, or replace properties without touching the body |
 | **Links** | `vault_get_backlinks` | Notes linking to a given path |
 |  | `vault_get_outgoing_links` | Links from a given note |
 |  | `vault_find_orphans` | Notes with no incoming links |
@@ -151,7 +150,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 All settings are environment variables with sensible defaults. Some defaults derive from other settings — the Default column shows each derivation, and a value you set replaces the whole derived default. Remote deployments also forward Obsidian Sync's own settings — `DEVICE_NAME`, `SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_CONFIGS`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES` — documented in the [remote guide's configuration table](https://github.com/aliasunder/vault-cortex/tree/main/deploy/remote/README.md#configuration).
 
 | Variable | Required? | Default | Description |
-| --------------------------- | ----------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| --------------------------- | ----------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN` | Yes | — | Bearer token for authentication (also the JWT signing key) |
 | `VAULT_PATH` | Local only | — | Host path to your vault (bind mount source; remote uses a named volume). Must not contain `*`, `?`, or `[` — rejected at startup. |
 | `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset |
@@ -166,10 +165,10 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `READONLY_MODE` | — | `false` | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit. |
 | `DISABLED_TOOLS` | — | — | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Tool column in the [tools table](https://github.com/aliasunder/vault-cortex#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately. |
 | `MEMORY_DIR` | — | `About Me` | Vault folder for structured memory files |
-| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders that `vault_delete_note` and `vault_move_note` refuse to touch. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`). Overrides the default entirely when set. |
-| `ORPHAN_EXCLUDE_FOLDERS` | — | daily notes folder, `Templates`, `MEMORY_DIR` | Folders excluded from orphan detection. `DAILY_NOTES_FOLDER` wins; otherwise `.obsidian/daily-notes.json` is reread per query (fallback `Daily Notes`). Set a list to replace all defaults, or `ORPHAN_EXCLUDE_FOLDERS=,` to exclude nothing. An empty value uses the defaults. Root-level daily notes remain eligible. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
-| `DAILY_NOTES_FOLDER` | — | from vault config | Sets the folder your daily notes live in. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
-| `DAILY_NOTES_FORMAT` | — | from vault config | Sets the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
+| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders that `vault_delete_note` and `vault_move_note` refuse to touch. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. Overrides the default entirely when set. |
+| `ORPHAN_EXCLUDE_FOLDERS` | — | daily notes folder, `Templates`, `MEMORY_DIR` | Folders excluded from orphan detection. The daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`); see [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes) for root and empty settings. Set a list to replace all defaults, or `ORPHAN_EXCLUDE_FOLDERS=,` to exclude nothing. An empty value uses the defaults. |
+| `DAILY_NOTES_FOLDER` | — | from `daily-notes.json` | Sets the folder your daily notes live in. When unset, read from `.obsidian/daily-notes.json`; `Daily Notes` when that file is missing or unreadable. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
+| `DAILY_NOTES_FORMAT` | — | from `daily-notes.json` | Sets the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
 | `TZ` | — | `UTC` | IANA timezone for timestamps and daily note resolution |
 | `SERVICE_DOCUMENTATION_URL` | — | GitHub repo URL | URL returned in OAuth discovery metadata |
 | `LOG_LEVEL` | — | `info` | Logging verbosity: `debug`, `info`, `warn`, `error` |

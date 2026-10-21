@@ -1,8 +1,8 @@
 // ── Query methods bound by createSearchIndex ─────────────────
 
 import type Database from "better-sqlite3"
-import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
+import { classifyIsoDate } from "../../utils/classify-iso-date.js"
 import { describeError } from "../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
@@ -18,6 +18,9 @@ import {
   folderLikePattern,
   stripTrailingSlashes,
   dayToEpochMsRange,
+  normalizeTagQuery,
+  nestedTagLikePattern,
+  NESTED_TAG_PREDICATE,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
@@ -137,17 +140,26 @@ type FileContentMetadataRow = {
   bytes: number
 }
 
-// ── Full-text search ───────────────────────────────────────────
+// ── Date filter validation ─────────────────────────────────────
 
-/** Rejects a malformed date filter bound with remediation text — shared by
- *  the note created/modified filters and the task date filters.
- *  `fromFormat` with `yyyy-MM-dd` pins both the format (no time component,
- *  no shorthand) and calendar correctness (2026-02-31 fails) in one call. */
+/** Rejects a date filter bound that isn't in YYYY-MM-DD form or names a day
+ *  the calendar lacks.
+ *  - Used by the note created/modified filters and the task date filters
+ *  - vault_search and vault_list_tasks quote both messages in their Errors sections */
 const assertFilterDate = (value: string, filterName: string): void => {
-  if (!DateTime.fromFormat(value, "yyyy-MM-dd").isValid) {
+  const dateClass = classifyIsoDate(value)
+
+  if (dateClass === "calendar-date") return
+
+  if (dateClass === "malformed") {
     throw new Error(`invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`)
   }
+  throw new Error(
+    `${filterName} date "${value}" is not a calendar date. Pass a real date in YYYY-MM-DD format.`,
+  )
 }
+
+// ── Full-text search ───────────────────────────────────────────
 
 export const fullTextSearch = (
   context: SearchQueryContext,
@@ -173,9 +185,12 @@ export const fullTextSearch = (
   }
 
   if (params.filters?.tags) {
+    // Each listed tag matches the tag itself or any tag nested under it, as
+    // Obsidian's tag: search operator does; the JavaScript mirror is
+    // noteMatchesSearchFilters
     for (const tag of params.filters.tags) {
-      conditions.push("EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)")
-      queryParams.push(tag)
+      conditions.push(`EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${NESTED_TAG_PREDICATE})`)
+      queryParams.push(nestedTagLikePattern(tag))
     }
   }
 
@@ -254,6 +269,8 @@ export const fullTextSearch = (
   if (params.filters?.modified) {
     const { on, before, after } = params.filters.modified
 
+    // assertFilterDate checks each bound before dayToEpochMsRange converts it,
+    // so a bad bound gets assertFilterDate's message, never the converter's
     if (on !== undefined) {
       assertFilterDate(on, "modified.on")
       const dayRange = dayToEpochMsRange(on)
@@ -762,35 +779,32 @@ export const memoryRecall = async (
 
 // ── Discovery queries ──────────────────────────────────────────
 
-/** Finds notes with a specific tag. Supports hierarchical prefix matching. */
+/** Finds notes with a tag, ignoring letter case. Unless `exact` is set, a tag
+ *  nested under it matches too (`project` matches `project/a`, not `projects`). */
 export const searchByTag = (
   context: SearchQueryContext,
   params: {
     tag: string
-    exactMatch?: boolean | undefined
+    exact?: boolean | undefined
     limit?: number | undefined
   },
   logger: Logger,
 ): NoteMetadata[] => {
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
-  const condition = params.exactMatch
-    ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
-    : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')"
-
-  const queryParams: unknown[] = params.exactMatch
-    ? [params.tag, limit]
-    : [params.tag, escapeLikeWildcards(params.tag), limit]
+  const tagMatch = params.exact
+    ? { predicate: "fold_tag(value) = ?", boundValue: normalizeTagQuery(params.tag) }
+    : { predicate: NESTED_TAG_PREDICATE, boundValue: nestedTagLikePattern(params.tag) }
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes n
-    WHERE ${condition}
+    WHERE EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${tagMatch.predicate})
     ORDER BY mtime DESC, path
     LIMIT ?
   `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...queryParams)
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(tagMatch.boundValue, limit)
   const results = rows.map(rowToMetadata)
   logger.info("search by tag", {
     tag: params.tag,
@@ -993,8 +1007,15 @@ export const listTasks = (
     { column: "created", filter: params.created },
     { column: "cancelled", filter: params.cancelled },
   ]
+
+  // column does two jobs:
+  // - names the SQL column, safe to interpolate because its type allows only
+  //   the six names above
+  // - names the filter in error messages, which vault_list_tasks' Errors
+  //   section quotes ("invalid due.before date: …")
   for (const { column, filter } of dateFilters) {
-    if (filter === undefined) continue
+    if (!filter) continue
+
     if (filter.on !== undefined) {
       assertFilterDate(filter.on, `${column}.on`)
       conditions.push(`t.${column} = ?`)
@@ -1034,12 +1055,11 @@ export const listTasks = (
   }
 
   if (params.tag !== undefined) {
-    // Same nested-tag semantics as searchByTag's prefix mode: "project"
-    // matches both #project and #project/vault-cortex.
-    conditions.push(
-      "EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')",
-    )
-    queryParams.push(params.tag, escapeLikeWildcards(params.tag))
+    // Same nested-tag semantics as searchByTag without `exact`: "project"
+    // matches the stored task tags project and project/vault-cortex (kept
+    // without "#"), in any letter case.
+    conditions.push(`EXISTS (SELECT 1 FROM json_each(t.tags) WHERE ${NESTED_TAG_PREDICATE})`)
+    queryParams.push(nestedTagLikePattern(params.tag))
   }
 
   if (params.heading !== undefined) {
@@ -1123,16 +1143,39 @@ export const listTasks = (
   return { total, tasks: taskEntries }
 }
 
-/** Returns all tags in the vault with their note counts. */
+/** Returns all tags in the vault with their note counts, spellings that differ
+ *  only in letter case merged under the most-used spelling. */
 export const listAllTags = (
   context: SearchQueryContext,
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
+  // Spellings that fold to the same lowercase tag form one group:
+  // - the group's count is the number of distinct notes carrying any of its
+  //   spellings, so a note tagged both `Project` and `project` counts once;
+  // - the spelling shown is the one with the most occurrences, a repeat within
+  //   one note counting again, which is Obsidian's Tags view rule;
+  // - a tie goes to the spelling first in SQLite's default BINARY collation
+  //   (byte order).
   const sql = `
-    SELECT value as tag, COUNT(DISTINCT notes.path) as count
-    FROM notes, json_each(notes.tags)
-    GROUP BY value
+    WITH spelling AS (
+      SELECT fold_tag(value) AS folded, value AS tag, COUNT(*) AS occurrences
+      FROM notes, json_each(notes.tags)
+      GROUP BY folded, tag
+    ),
+    folded_count AS (
+      SELECT fold_tag(value) AS folded, COUNT(DISTINCT notes.path) AS count
+      FROM notes, json_each(notes.tags)
+      GROUP BY folded
+    ),
+    ranked AS (
+      SELECT spelling.folded, spelling.tag,
+             ROW_NUMBER() OVER (PARTITION BY spelling.folded ORDER BY spelling.occurrences DESC, spelling.tag) AS rank
+      FROM spelling
+    )
+    SELECT ranked.tag AS tag, folded_count.count AS count
+    FROM ranked JOIN folded_count ON folded_count.folded = ranked.folded
+    WHERE ranked.rank = 1
     ORDER BY count DESC, tag
   `
   const results = context.db.prepare<unknown[], TagCount>(sql).all()
@@ -1419,9 +1462,10 @@ export const getBacklinks = (
  *  "file" for resolved non-markdown files (.canvas, .base, images, etc.),
  *  defaulting to "note" for unresolved (broken) links. Accepts both
  *  .md and .canvas paths — canvas file-node references appear as outgoing.
- *  When the caller passes the vault's daily notes folder (resolved fresh
- *  via readDailyNotesConfig), broken links under it are flagged
- *  daily_note_forward_ref — expected "create on click" navigation. */
+ *  When the caller passes the vault's daily notes folder (readDailyNotesConfig's
+ *  dedicatedFolder), broken links under it are flagged
+ *  daily_note_forward_ref — expected "create on click" navigation. Null, for a
+ *  vault-root or blank setting, flags none. */
 export const getOutgoingLinks = (
   context: SearchQueryContext,
   params: { path: string; dailyNotesFolder?: string | null },
@@ -1482,7 +1526,7 @@ export const getOutgoingLinks = (
 /** Finds notes with no incoming links (orphans). */
 export const findOrphans = (
   context: SearchQueryContext,
-  params: { excludeFolders?: string[] | undefined; limit?: number | undefined },
+  params: { excludeFolders?: readonly string[] | undefined; limit?: number | undefined },
   logger: Logger,
 ): NoteMetadata[] => {
   const excludeFolders = params.excludeFolders ?? []
@@ -1542,10 +1586,11 @@ type BrokenLinkResult = {
 
 /** Counts unique broken link targets — links whose targets exist in
  *  neither the notes table nor the non_md_files table. When the caller
- *  passes the vault's daily notes folder (resolved fresh via
- *  readDailyNotesConfig), broken links under it are excluded — they are
+ *  passes the vault's daily notes folder (readDailyNotesConfig's
+ *  dedicatedFolder), broken links under it are excluded — they are
  *  forward-references (intentional "create on click" navigation), not
- *  genuinely broken. Returns the count plus exclusion metadata so
+ *  genuinely broken. Null, for a vault-root or blank setting, excludes none.
+ *  Returns the count plus exclusion metadata so
  *  callers can communicate what was filtered. */
 export const brokenLinkCount = (
   context: SearchQueryContext,

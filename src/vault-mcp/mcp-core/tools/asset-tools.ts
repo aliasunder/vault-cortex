@@ -6,7 +6,7 @@ import type { AssetReadResult } from "../../vault-operations/asset-operations.js
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js"
+import { describeTextWindow } from "./tool-helpers.js"
 
 type ContentBlock =
   { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
@@ -74,6 +74,8 @@ const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
 
 export const registerAssetTools = ({
   registerTool,
+  safeHandler,
+  safeHandlerContent,
   vaultPath,
   logger: sessionLogger,
   config,
@@ -87,38 +89,40 @@ export const registerAssetTools = ({
 Example: vault_read_file({ path: "attachments/diagram.png" }) — the image itself, shrunk when too large
 Example: vault_read_file({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
 Example: vault_read_file({ path: "exports/data.json" }) — the file content as text
-Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines, preceded by a metadata line stating the window and total line count
+Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines
 Example: vault_read_file({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 
 What each file type returns:
 - Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds the image output budget (MAX_IMAGE_OUTPUT_BYTES, ${config.maxImageOutputBytes} bytes) or 1568 pixels on its longer side, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed.
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels.
-- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes relative to the body text), code blocks and inline code (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved.
+- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes relative to the body text), code blocks and inline code (from monospace fonts), page separators, and a deduplicated links footer.
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
 
 raw: true switches a canvas or PDF to its other form:
 - Canvas: the exact JSON source (geometry, ids, colors — full fidelity) instead of the outline.
-- PDF: each page rendered and returned as an image block instead of extracted text, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Only the first ${config.maxPdfRenderPages} pages are rendered; the text read (without raw) covers every page.
+- PDF: each page rendered and returned as an image block instead of extracted text, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Only the first ${config.maxPdfRenderPages} pages are rendered; later pages are readable only as text, without raw.
 
-Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a 1-based line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; a read without paging inputs stays byte-exact.
+Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; an unpaged read of a text format returns the file byte-exact.
 
-When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. vault_search also indexes canvas, PDF, and text-format content, but not images or other files. For .md notes use vault_read_note — this tool rejects them. To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
+When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. vault_search also indexes canvas, PDF, and text-format content, but not images or other files. For .md notes use vault_read_note. To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
 Errors:
-- "not a file" — the path ends in .md; read notes with vault_read_note
-- "file not found" — nothing exists at that path; discover valid paths via vault_list_files
+- "not a file: … is a markdown note" — the path ends in .md; read notes with vault_read_note
+- "file not found" / "ENAMETOOLONG: …" — no file exists at that path (a folder is not a file), or the path (or a name in it) is longer than the filesystem allows; discover valid paths via vault_list_files
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable, matching Obsidian)
-- "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB)
+- "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's owner can raise
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
 - "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input; paging applies only to text results, and an image always comes back as its image block
-- "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
+- "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content; ask for a UTF-8 copy
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
-- "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
-- "image cannot be fitted" — the image could not be compressed under the image output budget
-- an image that cannot be decoded (corrupt, empty, or not an image despite its extension) fails with the decoder's message, e.g. "Input buffer contains unsupported image format"; replace or re-export the file
-- unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
+- "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
+- "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; replace or re-export the file
+- "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead. If that read also finds no text, this tool can't read the PDF
+- "image cannot be fitted" — the image could not be compressed under the image output budget; ask for a smaller export
+- "EACCES: …" or another filesystem error code — the file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
+- "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
 
 Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,
       inputSchema: {
@@ -126,13 +130,13 @@ Returns: for images, an image content block plus a one-line metadata text block;
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the file, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md" — notes are read with vault_read_note. Use the exact letter case.',
+            'Vault-relative path to the file, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md". Use the exact letter case.',
           ),
         raw: z
           .boolean()
           .optional()
           .describe(
-            "Return the file's alternative form: JSON source for .canvas, page images for .pdf. Changes nothing for text formats, which already return their source. Rejected for images.",
+            "Return a canvas's or PDF's alternative form. Changes nothing for text formats, which already return their source.",
           ),
         start_line: z
           .number()

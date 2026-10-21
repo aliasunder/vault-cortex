@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
-import { readFile, readdir, stat, writeFile } from "node:fs/promises"
+import { readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { fileExists } from "../../utils/fs.js"
@@ -76,6 +76,41 @@ it("indexes newly bootstrapped memory templates before accepting requests", asyn
     expectedPreferences,
   )
 })
+
+// Startup holds file-watcher events until its index batch ends, so a server
+// that never stopped holding would never index this note.
+it("indexes a note written after startup once the file watcher reports it", async () => {
+  const server = await startServer(await freePort())
+  onTestFinished(server.cleanup)
+  const client = await createTestClient(server.port)
+  onTestFinished(() => client.close())
+
+  const writeResult = await callTool({
+    client,
+    name: "vault_write_note",
+    args: { path: "watcher-smoke.md", body: "watchersmokeopal\n" },
+  })
+  expect(writeResult.isError).not.toBe(true)
+
+  // Polls without throwing, so a server that never indexes the note fails on
+  // the exact assertion below rather than on a timeout.
+  const pollDeadline = DateTime.now().plus({ seconds: 10 })
+  const searchUntilFound = async (): Promise<string[]> => {
+    const searchResult = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "watchersmokeopal" },
+    })
+    const foundPaths = JSON.parse(textContent(searchResult)).results.map(
+      (entry: { path: string }) => entry.path,
+    )
+
+    if (foundPaths.length > 0 || DateTime.now() > pollDeadline) return foundPaths
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    return searchUntilFound()
+  }
+  expect(await searchUntilFound()).toEqual(["watcher-smoke.md"])
+}, 30_000)
 
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string => {
@@ -234,7 +269,7 @@ describe("default config", () => {
       expect(text).toContain("Orphan Note.md")
       // The Multi Column fixture opens with `--- start-multi-column:` —
       // its presence proves the server booted without crashing on a note
-      // whose first line gray-matter alone would reject (issue #485)
+      // whose first line gray-matter alone would reject
       expect(text).toContain("Multi Column Template.md")
     })
 
@@ -912,6 +947,95 @@ describe("default config", () => {
       expect(topLevelCards[0]?.includes("Reorder test card")).toBe(false)
       expect(topLevelCards[1]?.includes("Reorder test card")).toBe(true)
     })
+
+    it("vault_create_task — a Kanban sub-task is written without a block id", async () => {
+      const todayDate = DateTime.now().toISODate()
+      const setupResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/kb-subtask.md",
+          properties: { "kanban-plugin": "board" },
+          body: "## Active\n\n- [ ] Card ^kb-card\n\t- [ ] Existing item\n",
+        },
+      })
+      onTestFinished(async () => {
+        await callTool({
+          client,
+          name: "vault_delete_note",
+          args: { path: "Projects/kb-subtask.md" },
+        })
+      })
+      expect(setupResult.isError).not.toBe(true)
+
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/kb-subtask.md",
+          description: "Write the tests",
+          parent_block_id: "kb-card",
+          due: "2026-11-02",
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+      expect(JSON.parse(textContent(createResult))).toEqual({
+        path: "Projects/kb-subtask.md",
+        line: 8,
+        description: "Write the tests",
+        heading: "Active",
+        changes: [`created: (none) → ${todayDate}`, "due: (none) → 2026-11-02"],
+      })
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/kb-subtask.md", heading: "Active" },
+      })
+      expect(textContent(readback)).toBe(
+        `## Active\n\n- [ ] Card ^kb-card\n\t- [ ] Existing item\n\t- [ ] Write the tests ➕ ${todayDate} 📅 2026-11-02\n`,
+      )
+    })
+
+    it("vault_update_task — assign_block_id null removes the block id", async () => {
+      const setupResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/remove-block-id.md",
+          body: "## Tasks\n\n- [ ] Keep the text 📅 2026-11-02 ^old-id\n",
+        },
+      })
+      onTestFinished(async () => {
+        await callTool({
+          client,
+          name: "vault_delete_note",
+          args: { path: "Projects/remove-block-id.md" },
+        })
+      })
+      expect(setupResult.isError).not.toBe(true)
+
+      const updateResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: { path: "Projects/remove-block-id.md", block_id: "old-id", assign_block_id: null },
+      })
+      expect(updateResult.isError).not.toBe(true)
+      expect(JSON.parse(textContent(updateResult))).toEqual({
+        path: "Projects/remove-block-id.md",
+        line: 3,
+        description: "Keep the text",
+        heading: "Tasks",
+        changes: ["block_id: old-id → (none)"],
+      })
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/remove-block-id.md" },
+      })
+      expect(textContent(readback)).toBe("## Tasks\n\n- [ ] Keep the text 📅 2026-11-02\n")
+    })
   })
 
   describe("daily note tool", () => {
@@ -1515,12 +1639,14 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
 describe("READONLY_MODE=true", () => {
   let client: Client
   let cleanup: (() => Promise<void>) | undefined
+  let vaultPath: string
 
   beforeAll(async () => {
     const server = await startServer(await freePort(), {
       READONLY_MODE: "true",
     })
     cleanup = server.cleanup
+    vaultPath = server.vaultPath
     client = await createTestClient(server.port)
   }, 30_000)
 
@@ -1574,6 +1700,23 @@ describe("READONLY_MODE=true", () => {
     })
     expect(result.isError).not.toBe(true)
     expect(textContent(result)).toContain("Projects/alpha.md")
+  })
+
+  it("points an unreadable properties block at Obsidian, since no repair tool is served", async () => {
+    const notePath = "Broken Properties.md"
+    await writeFile(join(vaultPath, notePath), "---\ntitle: [unclosed\n---\nBody line\n")
+    onTestFinished(() => rm(join(vaultPath, notePath)))
+
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: notePath, properties_only: true },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      "[Error]: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]. Fix the properties block in Obsidian.",
+    )
   })
 })
 

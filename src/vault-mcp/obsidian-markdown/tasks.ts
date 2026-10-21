@@ -19,7 +19,9 @@
  *
  *  Like links.ts, the raw grammar regexes stay module-private behind the
  *  `tasks` namespace: one is `/g` (shared `lastIndex` footgun) and the
- *  `$`-anchored field regexes are only meaningful inside the stripping loop. */
+ *  `$`-anchored field regexes are only meaningful inside the stripping loop.
+ *  BLOCK_LINK_RE is the one exported regex: it is non-global and reads a
+ *  whole line's trailing block id, so it is safe to use outside the loop. */
 
 import { DateTime } from "luxon"
 import { advanceComment, advanceFence, type OpenFence, splitIntoLines } from "./lines.js"
@@ -1518,7 +1520,21 @@ const assignBlockId = ({ taskLine, blockId }: { taskLine: string; blockId: strin
   return `${trimmedLine} ^${blockId}${trailingWhitespace}`
 }
 
-/** Removes the trailing `^block-id` from a task line, if it has one. */
+/** Removes a task line's trailing `^block-id`, keeping trailing whitespace
+ *  (a markdown hard break) as assignBlockId does; a line without one is
+ *  returned unchanged. */
+const removeBlockId = (taskLine: string): string => {
+  const trimmedLine = taskLine.trimEnd()
+  const trailingWhitespace = taskLine.slice(trimmedLine.length)
+  const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine)
+
+  if (!blockLinkMatch) return taskLine
+  return `${trimmedLine.slice(0, blockLinkMatch.index)}${trailingWhitespace}`
+}
+
+/** Removes the trailing `^block-id` from a task line, if it has one, and
+ *  drops trailing whitespace either way — unlike removeBlockId, which keeps a
+ *  hard break. Used to start a spawned occurrence's line. */
 const stripBlockLink = (taskLine: string): string => {
   const trimmedLine = taskLine.trimEnd()
   const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine)
@@ -1544,7 +1560,7 @@ const getTaskIndent = (line: string): number => {
 /** Parameters for building a complete task line. */
 type BuildTaskLineParams = {
   description: string
-  blockId: string
+  blockId?: string | undefined
   priority?: TaskPriority | undefined
   recurrence?: string | undefined
   onCompletion?: string | undefined
@@ -1583,7 +1599,7 @@ const buildTaskLine = (params: BuildTaskLineParams, config: TaskFormatConfig): s
     ...optionalDateFields,
     ...(params.taskId ? [formatTaskId(params.taskId, format)] : []),
     ...(params.dependsOn?.length ? [formatDependsOn(params.dependsOn, format)] : []),
-    `^${params.blockId}`,
+    ...(params.blockId ? [`^${params.blockId}`] : []),
   ]
   return parts.join(" ")
 }
@@ -1856,6 +1872,7 @@ export const tasks = {
   describeTaskLine,
   diffTaskRoundTrip,
   assignBlockId,
+  removeBlockId,
   getTaskIndent,
   buildTaskLine,
   buildNextOccurrenceLine,

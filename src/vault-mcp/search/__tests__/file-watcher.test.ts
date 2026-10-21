@@ -10,17 +10,19 @@ import {
   symlink,
   utimes,
   readFile,
+  readdir,
 } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { watch, FSWatcher } from "chokidar"
 import Database from "better-sqlite3"
+import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 import { createSearchIndex } from "../search-index.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
 import { readdirOrNull, statOrNull } from "../../../utils/fs.js"
 import type { SearchIndex } from "../search-index.js"
-import { startFileWatcher } from "../file-watcher.js"
+import { watchVaultAndBuildIndex } from "../file-watcher.js"
 import { logger } from "../../../logger.js"
 
 // Auto-spy chokidar: spy: true keeps the real implementation, so the
@@ -37,6 +39,25 @@ vi.mock("../../obsidian-markdown/pdf.js", { spy: true })
 
 let vault: string
 let index: SearchIndex
+
+type WatcherOptions = NonNullable<Parameters<typeof watchVaultAndBuildIndex>[0]["watcherOptions"]>
+
+/** Starts the watcher with the startup rebuild stubbed to find nothing, so the
+ *  only indexing a test sees comes from the watcher's own events and rescans,
+ *  including for files the test wrote before starting it. */
+const startWatcherWithoutRebuild = async (
+  target: Readonly<{ vaultPath: string; search: SearchIndex }>,
+  watcherOptions?: WatcherOptions,
+): Promise<void> => {
+  vi.spyOn(target.search, "rebuildFromVault").mockResolvedValue({
+    count: 0,
+    embedding: Promise.resolve(),
+  })
+  await watchVaultAndBuildIndex(
+    { ...target, ...(watcherOptions ? { watcherOptions } : {}) },
+    logger,
+  )
+}
 
 /** Poll until a condition is met, with timeout. */
 const waitFor = async (check: () => boolean, timeoutMs = 8000, intervalMs = 100): Promise<void> => {
@@ -75,24 +96,29 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   registerSharedVaultHooks()
 
   it("indexes a new .md file", { timeout: 15000 }, async () => {
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "test.md"), "---\ntitle: Test\n---\n\nHello watcher\n", "utf8")
 
     await waitFor(() => index.fullTextSearch({ query: "watcher" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "watcher" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("test.md")
+    expect(results.map((result) => result.path)).toEqual(["test.md"])
   })
 
   it("re-indexes a modified file", { timeout: 15000 }, async () => {
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "modify.md"), "original content\n", "utf8")
     await waitFor(() => index.fullTextSearch({ query: "original" }, logger).length > 0)
@@ -101,14 +127,17 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     await waitFor(() => index.fullTextSearch({ query: "updated" }, logger).length > 0)
 
     const results = index.fullTextSearch({ query: "updated" }, logger)
-    expect(results).toHaveLength(1)
+    expect(results.map((result) => result.path)).toEqual(["modify.md"])
   })
 
   it("removes a deleted file from index", { timeout: 15000 }, async () => {
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "delete-me.md"), "ephemeral\n", "utf8")
     await waitFor(() => index.fullTextSearch({ query: "ephemeral" }, logger).length > 0)
@@ -121,10 +150,13 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   })
 
   it("ignores non-.md files", { timeout: 15000 }, async () => {
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "data.json"), '{"key": "value"}', "utf8")
     await writeFile(join(vault, "check.md"), "check file\n", "utf8")
@@ -148,10 +180,13 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       vi.mocked(statOrNull).mockRestore()
     })
 
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "vanished.png"), "gone", "utf8")
     await writeFile(join(vault, "kept.png"), "here", "utf8")
@@ -167,16 +202,22 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     // must not upsert (without the guard, reading .size off null would throw
     // inside the watcher callback).
     await waitFor(() => upsertNonMdFileSpy.mock.calls.length > 0)
-    expect(upsertNonMdFileSpy.mock.calls.map(([path]) => path)).toEqual(["kept.png"])
+    expect(upsertNonMdFileSpy).toHaveBeenCalledExactlyOnceWith(
+      "kept.png",
+      Buffer.byteLength("here"),
+    )
   })
 
   it("ignores hidden directories", { timeout: 15000 }, async () => {
     await mkdir(join(vault, ".obsidian"), { recursive: true })
 
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, ".obsidian/workspace.md"), "hidden content\n", "utf8")
     await writeFile(join(vault, "visible.md"), "visible content\n", "utf8")
@@ -190,10 +231,13 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   it("indexes a symlinked .md file", { timeout: 15000 }, async () => {
     await writeFile(join(vault, "real.md"), "symlink watcher target\n", "utf8")
 
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await symlink("real.md", join(vault, "linked.md"))
 
@@ -205,6 +249,8 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     const paths = index
       .fullTextSearch({ query: "symlink watcher" }, logger)
       .map((result) => result.path)
+    // On macOS a late event for real.md, written just before the watcher
+    // started, can index it too, so only the link's presence is asserted.
     expect(paths).toContain("linked.md")
   })
 
@@ -217,10 +263,13 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       capturedVersion.resolve(sourceVersion)
       return sourceVersion
     })
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(
       join(vault, "embed-test.md"),
@@ -244,11 +293,14 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     "indexes a note atomically written into a brand-new directory",
     { timeout: 15000 },
     async () => {
-      await startFileWatcher(vault, index, {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-        newDirectoryRescanDelay: 500,
-      })
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: index },
+        {
+          stabilityThreshold: 200,
+          pollInterval: 50,
+          newDirectoryRescanDelay: 500,
+        },
+      )
 
       // vault_write_note's sequence — mkdir -p, stage a temp file, rename over
       // the target — is the pattern that races chokidar's new-directory scan.
@@ -260,8 +312,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 
       await waitFor(() => index.fullTextSearch({ query: "raced" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "raced" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("brand-new/nested/note.md")
+      expect(results.map((result) => result.path)).toEqual(["brand-new/nested/note.md"])
     },
   )
 
@@ -269,18 +320,20 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   // WSL2 bridge). It works on any filesystem, so this verifies the usePolling
   // option is wired through and indexing still happens under polling.
   it("indexes a new .md file when polling", { timeout: 15000 }, async () => {
-    await startFileWatcher(vault, index, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-      usePolling: true,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: index },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+        usePolling: true,
+      },
+    )
 
     await writeFile(join(vault, "polled.md"), "polled content\n", "utf8")
 
     await waitFor(() => index.fullTextSearch({ query: "polled" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "polled" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("polled.md")
+    expect(results.map((result) => result.path)).toEqual(["polled.md"])
   })
 })
 
@@ -293,10 +346,13 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     })
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
 
-    await startFileWatcher(vault, fileIndex, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: fileIndex },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "notes.txt"), "deployment checklist for production release", "utf8")
 
@@ -315,10 +371,13 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
     const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
 
-    await startFileWatcher(vault, fileIndex, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: fileIndex },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "temp.csv"), "id,name\n1,ephemeral-data-row", "utf8")
     await waitFor(() => upsertSpy.mock.calls.length > 0)
@@ -337,10 +396,13 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     })
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
 
-    await startFileWatcher(vault, fileIndex, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: fileIndex },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     await waitFor(() => upsertSpy.mock.calls.length > 0)
@@ -364,10 +426,13 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
       return sourceVersion
     })
 
-    await startFileWatcher(vault, fileIndex, {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    })
+    await startWatcherWithoutRebuild(
+      { vaultPath: vault, search: fileIndex },
+      {
+        stabilityThreshold: 200,
+        pollInterval: 50,
+      },
+    )
 
     await writeFile(join(vault, "data.csv"), "id,name,value\n1,deploy,active\n", "utf8")
 
@@ -380,7 +445,7 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
   })
 })
 
-describe("startFileWatcher — obsolete events and embedding queues", () => {
+describe("file watcher — obsolete events and embedding queues", () => {
   const createControlledWatcher = async (embedder?: Parameters<typeof createSearchIndex>[1]) => {
     const testVault = await mkdtemp(join(tmpdir(), "watcher-events-"))
     onTestFinished(() => rm(testVault, { recursive: true }))
@@ -397,7 +462,7 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
       watchMock.mockRestore()
       await watcher.close()
     })
-    const starting = startFileWatcher(testVault, search)
+    const starting = startWatcherWithoutRebuild({ vaultPath: testVault, search })
     watcher.emit("ready")
     await starting
 
@@ -411,6 +476,42 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     }
     return { testVault, search, database, fire }
   }
+
+  it("re-indexes a changed note whose block is not valid YAML from its body, with no error", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    await writeFile(join(testVault, "note.md"), "---\ntags: [plan]\n---\nolder amber text\n")
+    await fire("add", "note.md")
+    expect(search.fullTextSearch({ query: "amber" }, logger).map((hit) => hit.path)).toEqual([
+      "note.md",
+    ])
+    const errorSpy = vi.spyOn(logger, "error")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => {
+      errorSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+
+    await writeFile(
+      join(testVault, "note.md"),
+      "---\ntitle: Meeting: Q3 plan\n---\nnewer opal text\n",
+    )
+    await fire("change", "note.md")
+
+    expect(errorSpy).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "indexed note without its unreadable properties block",
+      {
+        path: "note.md",
+        error:
+          "[Error]: properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+      },
+    )
+    expect(search.fullTextSearch({ query: "amber" }, logger)).toEqual([])
+    expect(search.fullTextSearch({ query: "opal" }, logger).map((hit) => hit.path)).toEqual([
+      "note.md",
+    ])
+    expect(search.searchByTag({ tag: "plan" }, logger)).toEqual([])
+  })
 
   it.each([{ event: "add" }, { event: "change" }] as const)(
     "contains a non-markdown stat failure during $event and recovers",
@@ -701,9 +802,14 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
     async ({ event }) => {
       const { testVault, search, database, fire } = await createControlledWatcher()
       await writeFile(join(testVault, "doc.pdf"), "controlled PDF bytes")
+      // A wrapped error, so the log must carry the cause as well as the wrapper
       const extractSpy = vi
         .mocked(extractPdfText)
-        .mockRejectedValueOnce(new Error("controlled PDF extraction failure"))
+        .mockRejectedValueOnce(
+          new Error("PDF reader could not start", {
+            cause: new Error("controlled PDF engine failure"),
+          }),
+        )
         .mockResolvedValueOnce({ text: "recoveredopal", totalPages: 1 })
       const contentSpy = vi.spyOn(search, "upsertFileContent")
       const warnSpy = vi.spyOn(logger, "warn")
@@ -716,7 +822,8 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
       expect(extractSpy).toHaveBeenCalledTimes(1)
       expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content indexing failed", {
         path: "doc.pdf",
-        error: "[Error]: controlled PDF extraction failure",
+        error: "[Error]: PDF reader could not start",
+        cause: "[Error]: controlled PDF engine failure",
       })
       expect(contentSpy).not.toHaveBeenCalled()
       expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([{ path: "doc.pdf" }])
@@ -1340,14 +1447,1354 @@ describe("startFileWatcher — obsolete events and embedding queues", () => {
   })
 })
 
-describe("startFileWatcher — chokidar watch options", () => {
+/** Pauses the first readFile of one path. "before-disk" waits before reading,
+ *  so the read sees the disk as it is on release; "after-disk" reads first and
+ *  waits before returning what it read. */
+const gateFirstRead = async (filePath: string, placement: "before-disk" | "after-disk") => {
+  const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+  const reached = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<undefined>()
+  const gatedPaths = new Set<string>()
+  vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+    const isGatedRead = requestedPath === filePath && !gatedPaths.has(filePath)
+
+    if (!isGatedRead) return actualFs.readFile(requestedPath, options)
+    gatedPaths.add(filePath)
+    if (placement === "before-disk") {
+      reached.resolve(undefined)
+      await release.promise
+      return actualFs.readFile(requestedPath, options)
+    }
+    const content = await actualFs.readFile(requestedPath, options)
+    reached.resolve(undefined)
+    await release.promise
+    return content
+  })
+  onTestFinished(() => vi.mocked(readFile).mockRestore())
+  return { reached: reached.promise, release: () => release.resolve(undefined) }
+}
+
+/** Pauses the first readdir of the vault root after it has read the folder,
+ *  so the startup batch's presence checks use names from before whatever the
+ *  test does while the listing waits. */
+const gateRootListing = async (testVault: string) => {
+  const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+  const reached = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<undefined>()
+  const gateState = { used: false }
+  vi.mocked(readdir).mockImplementation(async (requestedPath, options) => {
+    const isGatedListing = requestedPath === testVault && !gateState.used
+
+    if (!isGatedListing) return actualFs.readdir(requestedPath, options)
+    gateState.used = true
+    const names = await actualFs.readdir(requestedPath, options)
+    reached.resolve(undefined)
+    await release.promise
+    return names
+  })
+  onTestFinished(() => vi.mocked(readdir).mockRestore())
+  return { reached: reached.promise, release: () => release.resolve(undefined) }
+}
+
+describe("watchVaultAndBuildIndex — changes during startup", () => {
+  /** A controlled watcher whose startup rebuild waits for finishRebuild, unless
+   *  realRebuild is set. The database lives outside the vault, so its own files
+   *  never appear among the held changes. */
+  const createControlledStartup = async (setup?: {
+    embedder?: Parameters<typeof createSearchIndex>[1]
+    heldChangesDeadline?: number
+    newDirectoryRescanDelay?: number
+    rebuild?: "stubbed" | "real"
+    seedNotes?: Readonly<Record<string, string>>
+    /** Runs against the empty vault before the watcher starts, e.g. to write
+     *  files the real rebuild reads or to gate one of those reads. */
+    beforeStart?: (testVault: string) => Promise<void>
+  }) => {
+    const testVault = await mkdtemp(join(tmpdir(), "watcher-startup-vault-"))
+    const dataDirectory = await mkdtemp(join(tmpdir(), "watcher-startup-data-"))
+    onTestFinished(async () => {
+      await rm(testVault, { recursive: true })
+      await rm(dataDirectory, { recursive: true })
+    })
+    const databasePath = join(dataDirectory, "index.db")
+    const search = createSearchIndex(databasePath, setup?.embedder, undefined, {
+      fileToolsEnabled: true,
+    })
+    const database = new Database(databasePath, { readonly: true })
+    sqliteVec.load(database)
+    onTestFinished(() => {
+      database.close()
+    })
+    for (const [fileName, content] of Object.entries(setup?.seedNotes ?? {})) {
+      search.upsertNote(
+        { filePath: fileName, rawContent: content, fileStat: { mtimeMs: 0, size: content.length } },
+        logger,
+      )
+    }
+    const rebuildGate = Promise.withResolvers<undefined>()
+
+    if (setup?.rebuild !== "real") {
+      vi.spyOn(search, "rebuildFromVault").mockImplementation(async () => {
+        await rebuildGate.promise
+        return { count: 0, embedding: Promise.resolve() }
+      })
+    }
+    await setup?.beforeStart?.(testVault)
+    const watcher = new FSWatcher()
+    const watchMock = vi.mocked(watch).mockReturnValue(watcher)
+    onTestFinished(async () => {
+      watchMock.mockRestore()
+      await watcher.close()
+    })
+    const heldChangesDeadline = setup?.heldChangesDeadline
+    const newDirectoryRescanDelay = setup?.newDirectoryRescanDelay
+    const watcherOptions = {
+      ...(heldChangesDeadline ? { heldChangesDeadline } : {}),
+      ...(newDirectoryRescanDelay ? { newDirectoryRescanDelay } : {}),
+    }
+    const startup = watchVaultAndBuildIndex(
+      { vaultPath: testVault, search, watcherOptions },
+      logger,
+    )
+    watcher.emit("ready")
+
+    const fire = async (
+      event: "add" | "change" | "unlink" | "addDir",
+      fileName: string,
+    ): Promise<void> => {
+      const handler = watcher.listeners(event)[0]
+
+      if (!handler) throw new Error(`${event} handler was not registered`)
+      await handler(join(testVault, fileName))
+    }
+    const notePaths = (): unknown[] => {
+      return database.prepare("SELECT path FROM notes ORDER BY path").all()
+    }
+    return {
+      testVault,
+      search,
+      database,
+      watcher,
+      fire,
+      notePaths,
+      startup,
+      finishRebuild: () => rebuildGate.resolve(undefined),
+      failRebuild: (error: Error) => rebuildGate.reject(error),
+    }
+  }
+
+  const spyOnLogger = (level: "debug" | "info" | "warn" | "error") => {
+    const levelSpy = vi.spyOn(logger, level)
+    onTestFinished(() => levelSpy.mockRestore())
+    return levelSpy
+  }
+
+  it("indexes a change held during the rebuild once the rebuild returns", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
+    const debugSpy = spyOnLogger("debug")
+    const infoSpy = spyOnLogger("info")
+    await writeFile(join(testVault, "note.md"), "heldamber text\n")
+
+    await fire("add", "note.md")
+
+    expect(debugSpy).toHaveBeenCalledWith("held a change until startup indexing ends", {
+      path: "note.md",
+    })
+    expect(search.fullTextSearch({ query: "heldamber" }, logger)).toEqual([])
+    finishRebuild()
+    await startup
+    expect(search.fullTextSearch({ query: "heldamber" }, logger).map((hit) => hit.path)).toEqual([
+      "note.md",
+    ])
+    expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+      heldPaths: 1,
+    })
+  })
+
+  it("removes a held deletion's rows even when a change for the path arrives after it", async () => {
+    const { search, database, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "gone.md": "ghostquartz text links [[other]]\n\n- [ ] ghost task\n" },
+    })
+    const debugSpy = spyOnLogger("debug")
+    const linkRows = () => database.prepare("SELECT source, target FROM links").all()
+    const taskRows = () => {
+      return database.prepare("SELECT note_path FROM tasks").all()
+    }
+    expect(search.fullTextSearch({ query: "ghostquartz" }, logger).map((hit) => hit.path)).toEqual([
+      "gone.md",
+    ])
+    expect(linkRows()).toEqual([{ source: "gone.md", target: "other" }])
+    expect(taskRows()).toEqual([{ note_path: "gone.md" }])
+
+    await fire("unlink", "gone.md")
+    await fire("change", "gone.md")
+
+    expect(debugSpy).toHaveBeenCalledWith("held a deletion until startup indexing ends", {
+      path: "gone.md",
+    })
+    expect(search.fullTextSearch({ query: "ghostquartz" }, logger).map((hit) => hit.path)).toEqual([
+      "gone.md",
+    ])
+    finishRebuild()
+    await startup
+    expect(search.fullTextSearch({ query: "ghostquartz" }, logger)).toEqual([])
+    expect(database.prepare("SELECT path FROM notes").all()).toEqual([])
+    expect(linkRows()).toEqual([])
+    expect(taskRows()).toEqual([])
+  })
+
+  it("reads a held path whose last event was an unlink but which exists again", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "back.md": "oldtext\n" },
+    })
+    await writeFile(join(testVault, "back.md"), "returnedopal\n")
+    expect(search.fullTextSearch({ query: "oldtext" }, logger).map((hit) => hit.path)).toEqual([
+      "back.md",
+    ])
+
+    await fire("change", "back.md")
+    await fire("unlink", "back.md")
+    finishRebuild()
+    await startup
+
+    expect(search.fullTextSearch({ query: "returnedopal" }, logger).map((hit) => hit.path)).toEqual(
+      ["back.md"],
+    )
+    expect(search.fullTextSearch({ query: "oldtext" }, logger)).toEqual([])
+  })
+
+  // chokidar sends an unlink for every file it tracks, so the batch leaves a
+  // path that vanished by its read to that live event.
+  it("removes a held path deleted between its check and its read when its unlink arrives during the read", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "late.md": "oldtext\n" },
+    })
+    const notePath = join(testVault, "late.md")
+    await writeFile(notePath, "newer text\n")
+    const readGate = await gateFirstRead(notePath, "before-disk")
+    expect(notePaths()).toEqual([{ path: "late.md" }])
+
+    await fire("change", "late.md")
+    finishRebuild()
+    await readGate.reached
+    await unlink(notePath)
+    await fire("unlink", "late.md")
+    readGate.release()
+    await startup
+
+    expect(notePaths()).toEqual([])
+  })
+
+  it("leaves a held path deleted between its check and its read to its unlink after startup", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "late.md": "oldtext\n" },
+    })
+    const notePath = join(testVault, "late.md")
+    await writeFile(notePath, "newer text\n")
+    const readGate = await gateFirstRead(notePath, "before-disk")
+    const infoSpy = spyOnLogger("info")
+    expect(notePaths()).toEqual([{ path: "late.md" }])
+
+    await fire("change", "late.md")
+    finishRebuild()
+    await readGate.reached
+    await unlink(notePath)
+    readGate.release()
+    await startup
+    // The batch's read found the file gone and changed nothing, and the batch
+    // still completed.
+    expect(notePaths()).toEqual([{ path: "late.md" }])
+    expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+      heldPaths: 1,
+    })
+    await fire("unlink", "late.md")
+
+    expect(notePaths()).toEqual([])
+  })
+
+  it("removes a renamed note before reading its new path, so incoming links follow", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
+    })
+    await mkdir(join(testVault, "folder"))
+    await writeFile(join(testVault, "folder", "B.md"), "new home\n")
+    await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
+    const linkFromSource = () => {
+      const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+      return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
+    }
+    expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
+
+    await fire("add", "folder/B.md")
+    await fire("unlink", "B.md")
+    finishRebuild()
+    await startup
+
+    expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
+  })
+
+  it("removes a renamed note's old path before reading its new one when the old path's latest held event is a change", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
+    })
+    await mkdir(join(testVault, "folder"))
+    await writeFile(join(testVault, "folder", "B.md"), "new home\n")
+    await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
+    const linkFromSource = () => {
+      const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+      return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
+    }
+    expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
+
+    // The held change makes B.md's latest event a change, so going live does
+    // not remove it; the batch's removal step does, before the reads.
+    await fire("unlink", "B.md")
+    await fire("change", "B.md")
+    await fire("add", "folder/B.md")
+    finishRebuild()
+    await startup
+
+    expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
+  })
+
+  // A path's latest held event decides what going live does, so a change held
+  // before B.md's deletion must not keep B.md indexed.
+  it.each([
+    { label: "its deletion", heldEvents: ["unlink"] },
+    { label: "a change then its deletion", heldEvents: ["change", "unlink"] },
+  ] as const)(
+    "points incoming links at a renamed note whose new path arrives live during the batch, after $label was held",
+    async ({ heldEvents }) => {
+      const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+        seedNotes: { "B.md": "old home\n", "source.md": "points at [[B]]\n" },
+      })
+      await writeFile(join(testVault, "source.md"), "points at [[B]]\n")
+      const listingGate = await gateRootListing(testVault)
+      const linkFromSource = () => {
+        const outgoingLinks = search.getOutgoingLinks({ path: "source.md" }, logger)
+        return outgoingLinks.map((link) => ({ path: link.path, exists: link.exists }))
+      }
+      expect(linkFromSource()).toEqual([{ path: "B.md", exists: true }])
+
+      for (const heldEvent of heldEvents) {
+        await fire(heldEvent, "B.md")
+      }
+      finishRebuild()
+      await listingGate.reached
+      await mkdir(join(testVault, "folder"))
+      await writeFile(join(testVault, "folder", "B.md"), "new home\n")
+      await fire("add", "folder/B.md")
+      listingGate.release()
+      await startup
+
+      expect(linkFromSource()).toEqual([{ path: "folder/B.md", exists: true }])
+    },
+  )
+
+  it("keeps a note that a live add indexed while the batch checked its held deletion", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "P.md": "oldtext\n" },
+    })
+    const listingGate = await gateRootListing(testVault)
+    const pathsFor = (query: string) => {
+      return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+    }
+    expect(pathsFor("oldtext")).toEqual(["P.md"])
+
+    await fire("unlink", "P.md")
+    finishRebuild()
+    // The root listing was read before P.md came back, so P.md's check finds it missing.
+    await listingGate.reached
+    await writeFile(join(testVault, "P.md"), "liveopal\n")
+    await fire("add", "P.md")
+    expect(pathsFor("liveopal")).toEqual(["P.md"])
+    listingGate.release()
+    await startup
+
+    expect(pathsFor("liveopal")).toEqual(["P.md"])
+  })
+
+  it("keeps a live add for a held path whose check waits behind 16 others", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "P.md": "oldtext\n" },
+    })
+    const blockerNames = Array.from(
+      { length: 16 },
+      (_unused, blockerIndex) => `blocker-${blockerIndex}.md`,
+    )
+    for (const blockerName of blockerNames) {
+      await writeFile(join(testVault, blockerName), "blockertext\n")
+    }
+    // The 16 blocker checks fill the batch's first group and wait at their stat,
+    // so P.md's check starts only after its live add. The root listing those
+    // checks shared was read before P.md came back.
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const statGate = Promise.withResolvers<undefined>()
+    const blockerStats = { started: 0 }
+    const blockerPathPrefix = join(testVault, "blocker-")
+    vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      const isBlockerCheck =
+        requestedPath.startsWith(blockerPathPrefix) && blockerStats.started < 16
+
+      if (isBlockerCheck) {
+        blockerStats.started += 1
+        await statGate.promise
+      }
+      return actualFsUtils.statOrNull(requestedPath)
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+    for (const blockerName of blockerNames) {
+      await fire("change", blockerName)
+    }
+    await fire("unlink", "P.md")
+
+    finishRebuild()
+    await vi.waitFor(() => {
+      expect(blockerStats.started).toBe(16)
+    })
+    await writeFile(join(testVault, "P.md"), "liveopal\n")
+    await fire("add", "P.md")
+    statGate.resolve(undefined)
+    await startup
+
+    expect(search.fullTextSearch({ query: "liveopal" }, logger).map((hit) => hit.path)).toEqual([
+      "P.md",
+    ])
+  })
+
+  it("removes a held deletion of a re-created note when going live, then reads it again", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "back.md": "oldtext\n" },
+    })
+    const debugSpy = spyOnLogger("debug")
+    await writeFile(join(testVault, "back.md"), "returnedopal\n")
+
+    await fire("unlink", "back.md")
+    finishRebuild()
+    await startup
+
+    expect(debugSpy).toHaveBeenCalledWith("removed from index", { path: "back.md" })
+    expect(search.fullTextSearch({ query: "returnedopal" }, logger).map((hit) => hit.path)).toEqual(
+      ["back.md"],
+    )
+    expect(search.fullTextSearch({ query: "oldtext" }, logger)).toEqual([])
+  })
+
+  it("applies live events from during the batch, so the latest state on disk wins", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "P.md": "oldamber\n", "Q.md": "quartzrow\n" },
+    })
+    const infoSpy = spyOnLogger("info")
+    const pPath = join(testVault, "P.md")
+    await writeFile(pPath, "oldamber\n")
+    await writeFile(join(testVault, "Q.md"), "quartzrow\n")
+    const readGate = await gateFirstRead(pPath, "after-disk")
+    const pathsFor = (query: string) => {
+      return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+    }
+    expect(pathsFor("oldamber")).toEqual(["P.md"])
+    expect(pathsFor("quartzrow")).toEqual(["Q.md"])
+
+    await fire("change", "P.md")
+    finishRebuild()
+    await readGate.reached
+    await writeFile(pPath, "newopal\n")
+    await fire("change", "P.md")
+    await unlink(join(testVault, "Q.md"))
+    await fire("unlink", "Q.md")
+    await fire("change", "Q.md")
+    await writeFile(join(testVault, "R.md"), "replayjade\n")
+    await fire("change", "R.md")
+    readGate.release()
+    await startup
+
+    expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+      heldPaths: 1,
+    })
+    expect(pathsFor("newopal")).toEqual(["P.md"])
+    expect(pathsFor("oldamber")).toEqual([])
+    expect(pathsFor("quartzrow")).toEqual([])
+    expect(pathsFor("replayjade")).toEqual(["R.md"])
+  })
+
+  it("contains a failed read and keeps applying the other held paths", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
+    const errorSpy = spyOnLogger("error")
+    const failingPath = join(testVault, "locked.md")
+    await writeFile(failingPath, "lockedtext\n")
+    await writeFile(join(testVault, "fine.md"), "finetext\n")
+    const accessFailure = Object.assign(new Error("controlled access failure"), { code: "EACCES" })
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === failingPath) throw accessFailure
+      return actualFs.readFile(requestedPath, options)
+    })
+    onTestFinished(() => vi.mocked(readFile).mockRestore())
+
+    await fire("change", "locked.md")
+    await fire("change", "fine.md")
+    finishRebuild()
+    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
+
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
+      path: "locked.md",
+      error: "[Error]: controlled access failure",
+    })
+    expect(search.fullTextSearch({ query: "finetext" }, logger).map((hit) => hit.path)).toEqual([
+      "fine.md",
+    ])
+  })
+
+  it("leaves a path whose check fails to its read, which reports the failure", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
+    const errorSpy = spyOnLogger("error")
+    const failingPath = join(testVault, "locked.md")
+    await writeFile(failingPath, "lockedtext\n")
+    await writeFile(join(testVault, "fine.md"), "finetext\n")
+    const accessFailure = Object.assign(new Error("controlled stat failure"), { code: "EACCES" })
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === failingPath) throw accessFailure
+      return actualFs.stat(requestedPath, options)
+    })
+    onTestFinished(() => vi.mocked(stat).mockRestore())
+
+    await fire("change", "locked.md")
+    await fire("change", "fine.md")
+    finishRebuild()
+    await startup
+
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
+      path: "locked.md",
+      error: "[Error]: controlled stat failure",
+    })
+    expect(search.fullTextSearch({ query: "finetext" }, logger).map((hit) => hit.path)).toEqual([
+      "fine.md",
+    ])
+  })
+
+  it("goes live and resolves startup when the batch throws unexpectedly", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "gone.md": "ghostquartz text\n" },
+    })
+    const errorSpy = spyOnLogger("error")
+    // No batch step catches its own debug line, so a throw here escapes the batch.
+    spyOnLogger("debug").mockImplementation((message) => {
+      if (message === "removing a held path that is gone from disk") {
+        throw new Error("controlled batch failure")
+      }
+    })
+
+    await fire("unlink", "gone.md")
+    finishRebuild()
+    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+      "failed to apply the changes held during startup",
+      { error: "[Error]: controlled batch failure" },
+    )
+
+    await writeFile(join(testVault, "live.md"), "livetopaz\n")
+    await fire("add", "live.md")
+    expect(search.fullTextSearch({ query: "livetopaz" }, logger).map((hit) => hit.path)).toEqual([
+      "live.md",
+    ])
+  })
+
+  it("reports a note embedding that fails during the batch once, with no unhandled rejection", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn(async (text: string) => {
+        if (text === "failing\n\nfailingtext") throw new Error("controlled model failure")
+        return vector
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      embedder,
+    })
+    const errorSpy = spyOnLogger("error")
+    const slowPath = join(testVault, "slow.md")
+    await writeFile(join(testVault, "failing.md"), "failingtext\n")
+    await writeFile(slowPath, "slowtext\n")
+    const readGate = await gateFirstRead(slowPath, "before-disk")
+
+    await fire("change", "failing.md")
+    await fire("change", "slow.md")
+    finishRebuild()
+    await readGate.reached
+    await vi.waitFor(() => {
+      expect(embedder.embedText).toHaveBeenCalledWith("failing\n\nfailingtext")
+    })
+    // One macrotask lets Node report the rejection as unhandled if nothing
+    // caught it while the other path's read is still held open.
+    await new Promise((resolve) => setImmediate(resolve))
+    readGate.release()
+    await startup
+
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
+      path: "failing.md",
+      error: "[Error]: controlled model failure",
+    })
+    expect(search.fullTextSearch({ query: "slowtext" }, logger).map((hit) => hit.path)).toEqual([
+      "slow.md",
+    ])
+  })
+
+  it("lets startup finish while held paths' embeddings are still running", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const modelReady = Promise.withResolvers<undefined>()
+    const embedder = {
+      embedText: vi.fn(async () => {
+        await modelReady.promise
+        return vector
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => {
+        await modelReady.promise
+        return texts.map(() => vector)
+      }),
+    }
+    const { testVault, search, database, fire, startup, finishRebuild } =
+      await createControlledStartup({ embedder })
+    await writeFile(join(testVault, "note.md"), "pendingopal\n")
+    await writeFile(join(testVault, "content.txt"), "pendingjade")
+
+    await fire("change", "note.md")
+    await fire("change", "content.txt")
+    finishRebuild()
+    const waitForStartup = async (): Promise<string> => {
+      await startup
+      return "resolved"
+    }
+    const startupOutcome = await Promise.race([
+      waitForStartup(),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 1000)),
+    ])
+
+    expect(startupOutcome).toBe("resolved")
+    expect(search.fullTextSearch({ query: "pendingopal" }, logger).map((hit) => hit.path)).toEqual([
+      "note.md",
+    ])
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([
+      { path: "content.txt" },
+    ])
+    expect(database.prepare("SELECT note_path FROM note_chunks").all()).toEqual([])
+    modelReady.resolve(undefined)
+    await vi.waitFor(() => {
+      expect(database.prepare("SELECT note_path, chunk_text FROM note_chunks").all()).toEqual([
+        { note_path: "note.md", chunk_text: "note\n\npendingopal" },
+      ])
+    })
+  })
+
+  it("reads at most 16 held files at once", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
+    const fileNames = Array.from({ length: 40 }, (_unused, noteIndex) => `bulk-${noteIndex}.md`)
+    for (const fileName of fileNames) {
+      await writeFile(join(testVault, fileName), "bulktopaz\n")
+    }
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const readCounts = { inFlight: 0, peak: 0 }
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      readCounts.inFlight += 1
+      readCounts.peak = Math.max(readCounts.peak, readCounts.inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      try {
+        return await actualFs.readFile(requestedPath, options)
+      } finally {
+        readCounts.inFlight -= 1
+      }
+    })
+    onTestFinished(() => vi.mocked(readFile).mockRestore())
+
+    for (const fileName of fileNames) {
+      await fire("add", fileName)
+    }
+    finishRebuild()
+    await startup
+
+    expect(readCounts.peak).toBe(16)
+    const indexedPaths = search
+      .fullTextSearch({ query: "bulktopaz", limit: 50 }, logger)
+      .map((hit) => hit.path)
+    expect(indexedPaths.toSorted()).toEqual(fileNames.toSorted())
+  })
+
+  it("indexes a change that follows a deletion of the same path during the batch", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "note.md": "oldtext\n" },
+    })
+    const batchPath = join(testVault, "batch.md")
+    await writeFile(batchPath, "batchonyx\n")
+    const readGate = await gateFirstRead(batchPath, "before-disk")
+    const pathsFor = (query: string) => {
+      return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+    }
+
+    await fire("add", "batch.md")
+    finishRebuild()
+    await readGate.reached
+    await writeFile(join(testVault, "note.md"), "newopal\n")
+    await fire("unlink", "note.md")
+    await fire("change", "note.md")
+    readGate.release()
+    await startup
+
+    expect(pathsFor("newopal")).toEqual(["note.md"])
+    expect(pathsFor("oldtext")).toEqual([])
+  })
+
+  it("drops a queued read of the old spelling when a case-only rename lands during the batch", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "note.md": "caseopal\n" },
+    })
+    const oldPath = join(testVault, "note.md")
+    const renamedPath = join(testVault, "Note.md")
+    await writeFile(oldPath, "caseopal\n")
+    const blockerNames = Array.from(
+      { length: 16 },
+      (_unused, blockerIndex) => `blocker-${blockerIndex}.md`,
+    )
+    for (const blockerName of blockerNames) {
+      await writeFile(join(testVault, blockerName), "blockertext\n")
+    }
+    // The 16 blocker reads fill the batch's first group and wait for
+    // blockerGate, so note.md's read stays queued after its check saw it on
+    // disk. Once renamed, a case-insensitive filesystem still answers for the
+    // old spelling, so reading it would index note.md again.
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const blockerGate = Promise.withResolvers<undefined>()
+    const blockerReads = { started: 0 }
+    const renameState = { renamed: false }
+    const blockerPathPrefix = join(testVault, "blocker-")
+    const asFoundOnDisk = <RequestedPath>(requestedPath: RequestedPath): RequestedPath | string => {
+      return renameState.renamed && requestedPath === oldPath ? renamedPath : requestedPath
+    }
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      return actualFs.stat(asFoundOnDisk(requestedPath), options)
+    })
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      const isBlockerRead =
+        typeof requestedPath === "string" && requestedPath.startsWith(blockerPathPrefix)
+
+      if (isBlockerRead) {
+        blockerReads.started += 1
+        await blockerGate.promise
+      }
+      return actualFs.readFile(asFoundOnDisk(requestedPath), options)
+    })
+    onTestFinished(() => {
+      vi.mocked(stat).mockRestore()
+      vi.mocked(readFile).mockRestore()
+    })
+    for (const blockerName of blockerNames) {
+      await fire("change", blockerName)
+    }
+    await fire("change", "note.md")
+
+    finishRebuild()
+    await vi.waitFor(() => {
+      expect(blockerReads.started).toBe(16)
+    })
+    await rename(oldPath, renamedPath)
+    renameState.renamed = true
+    await fire("unlink", "note.md")
+    await fire("add", "Note.md")
+    blockerGate.resolve(undefined)
+    await startup
+
+    const expectedPaths = ["Note.md", ...blockerNames].toSorted()
+    expect(notePaths()).toEqual(expectedPaths.map((path) => ({ path })))
+  })
+
+  it("skips a folder rescan that was scheduled before a failed rebuild closed the watcher", async () => {
+    const { testVault, watcher, fire, startup, failRebuild } = await createControlledStartup({
+      newDirectoryRescanDelay: 50,
+    })
+    const debugSpy = spyOnLogger("debug")
+    const freshFolder = join(testVault, "fresh")
+    await mkdir(freshFolder)
+    await writeFile(join(freshFolder, "note.md"), "freshtext\n")
+    const addSpy = vi.spyOn(watcher, "add")
+
+    await fire("addDir", "fresh")
+    failRebuild(new Error("controlled rebuild failure"))
+    await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    await vi.waitFor(() => {
+      expect(debugSpy).toHaveBeenCalledWith("rescan skipped, watcher closed", { path: "fresh" })
+    })
+
+    expect(vi.mocked(readdirOrNull)).not.toHaveBeenCalledWith(freshFolder)
+    expect(addSpy).not.toHaveBeenCalled()
+    expect(watcher.closed).toBe(true)
+  })
+
+  it("indexes and watches nothing from a rescan that was running when the watcher closed", async () => {
+    const { testVault, watcher, fire, startup, failRebuild } = await createControlledStartup({
+      newDirectoryRescanDelay: 20,
+    })
+    const debugSpy = spyOnLogger("debug")
+    const freshNote = join(testVault, "fresh", "note.md")
+    await mkdir(join(testVault, "fresh"))
+    await writeFile(freshNote, "freshtext\n")
+    // Older than the stability window, so the rescan watches and indexes it at once.
+    const settledSeconds = DateTime.now().minus({ minutes: 10 }).toUnixInteger()
+    await utimes(freshNote, settledSeconds, settledSeconds)
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const statReached = Promise.withResolvers<undefined>()
+    const statRelease = Promise.withResolvers<undefined>()
+    // Holds the rescan's stat of the note until the watcher has closed.
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === freshNote) {
+        statReached.resolve(undefined)
+        await statRelease.promise
+      }
+      return actualFs.stat(requestedPath, options)
+    })
+    onTestFinished(() => vi.mocked(stat).mockRestore())
+    const addSpy = vi.spyOn(watcher, "add")
+
+    await fire("addDir", "fresh")
+    await statReached.promise
+    failRebuild(new Error("controlled rebuild failure"))
+    await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    statRelease.resolve(undefined)
+    await vi.waitFor(() => {
+      expect(debugSpy).toHaveBeenCalledWith("rescan indexing missed file", {
+        path: join("fresh", "note.md"),
+      })
+    })
+
+    // The rescan logs just before handleChange, which would read the note
+    // before its first await.
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(freshNote, "utf8")
+    expect(addSpy).not.toHaveBeenCalled()
+    expect(watcher.closed).toBe(true)
+  })
+
+  it("returns 10 seconds after the rebuild by default while held changes are still applied", async () => {
+    const { testVault, fire, startup, finishRebuild } = await createControlledStartup()
+    const infoSpy = spyOnLogger("info")
+    const slowPath = join(testVault, "slow.md")
+    await writeFile(slowPath, "slowtext\n")
+    const readGate = await gateFirstRead(slowPath, "before-disk")
+    onTestFinished(() => readGate.release())
+    // Fake only setTimeout, so the batch's real filesystem work still runs.
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+
+    await fire("change", "slow.md")
+    finishRebuild()
+    await readGate.reached
+    await vi.advanceTimersByTimeAsync(9_999)
+
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      "startup continues while the changes held during it are still applied",
+      { heldPaths: 1, heldChangesDeadline: 10_000 },
+    )
+    await vi.advanceTimersByTimeAsync(1)
+    expect(infoSpy).toHaveBeenCalledWith(
+      "startup continues while the changes held during it are still applied",
+      { heldPaths: 1, heldChangesDeadline: 10_000 },
+    )
+    await startup
+  })
+
+  it("extracts at most 4 held PDFs at once", async () => {
+    const { testVault, database, fire, startup, finishRebuild } = await createControlledStartup()
+    const fileNames = Array.from({ length: 10 }, (_unused, pdfIndex) => `doc-${pdfIndex}.pdf`)
+    // Extraction is stubbed, so the bytes only need to exist.
+    for (const fileName of fileNames) {
+      await writeFile(join(testVault, fileName), "controlled PDF bytes")
+    }
+    const extractionCounts = { inFlight: 0, peak: 0 }
+    const extractionSpy = vi.mocked(extractPdfText).mockImplementation(async () => {
+      extractionCounts.inFlight += 1
+      extractionCounts.peak = Math.max(extractionCounts.peak, extractionCounts.inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      extractionCounts.inFlight -= 1
+      return { text: "pdftopaz", totalPages: 1 }
+    })
+    onTestFinished(() => extractionSpy.mockRestore())
+
+    for (const fileName of fileNames) {
+      await fire("add", fileName)
+    }
+    finishRebuild()
+    await startup
+
+    expect(extractionCounts.peak).toBe(4)
+    expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual(
+      fileNames.toSorted().map((path) => ({ path })),
+    )
+  })
+
+  it("returns at the deadline and finishes the held changes in the background", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup({
+      heldChangesDeadline: 50,
+    })
+    const infoSpy = spyOnLogger("info")
+    const debugSpy = spyOnLogger("debug")
+    const slowPath = join(testVault, "slow.md")
+    await writeFile(slowPath, "slowtext\n")
+    const readGate = await gateFirstRead(slowPath, "before-disk")
+    const pathsFor = (query: string) => {
+      return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+    }
+
+    await fire("change", "slow.md")
+    finishRebuild()
+    const waitForStartup = async (): Promise<string> => {
+      await startup
+      return "resolved"
+    }
+    const startupOutcome = await Promise.race([
+      waitForStartup(),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 1000)),
+    ])
+
+    expect(startupOutcome).toBe("resolved")
+    expect(infoSpy).toHaveBeenCalledWith(
+      "startup continues while the changes held during it are still applied",
+      { heldPaths: 1, heldChangesDeadline: 50 },
+    )
+    expect(pathsFor("slowtext")).toEqual([])
+    // The watcher went live before the batch started, so a change while the
+    // batch's read is still gated is indexed at once.
+    await writeFile(join(testVault, "S.md"), "aftertext\n")
+    await fire("change", "S.md")
+    expect(pathsFor("aftertext")).toEqual(["S.md"])
+    expect(debugSpy).not.toHaveBeenCalledWith("held a change until startup indexing ends", {
+      path: "S.md",
+    })
+    readGate.release()
+    await vi.waitFor(() => {
+      expect(pathsFor("slowtext")).toEqual(["slow.md"])
+    })
+  })
+
+  it("does not index the old name again after a case-only rename", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "note.md": "caseopal\n" },
+    })
+    const renamedPath = join(testVault, "Note.md")
+    const oldPath = join(testVault, "note.md")
+    await writeFile(renamedPath, "caseopal\n")
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    // A case-insensitive filesystem answers for the old spelling too; the
+    // folder listing still holds only the new one.
+    const asFoundOnDisk = <RequestedPath>(requestedPath: RequestedPath): RequestedPath | string => {
+      return requestedPath === oldPath ? renamedPath : requestedPath
+    }
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      return actualFs.stat(asFoundOnDisk(requestedPath), options)
+    })
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      return actualFs.readFile(asFoundOnDisk(requestedPath), options)
+    })
+    onTestFinished(() => {
+      vi.mocked(stat).mockRestore()
+      vi.mocked(readFile).mockRestore()
+    })
+
+    await fire("unlink", "note.md")
+    await fire("add", "Note.md")
+    finishRebuild()
+    await startup
+
+    expect(notePaths()).toEqual([{ path: "Note.md" }])
+  })
+
+  it("does not index the old path again after a case-only rename of its folder", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "notes/x.md": "folderjade\n" },
+    })
+    const oldFolder = join(testVault, "notes")
+    const renamedFolder = join(testVault, "Notes")
+    await mkdir(renamedFolder)
+    await writeFile(join(renamedFolder, "x.md"), "folderjade\n")
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    // A case-insensitive filesystem answers for the old folder spelling too;
+    // only the vault root's listing holds the new one.
+    const asFoundOnDisk = <RequestedPath>(requestedPath: RequestedPath): RequestedPath | string => {
+      if (typeof requestedPath !== "string") return requestedPath
+      if (requestedPath !== oldFolder && !requestedPath.startsWith(`${oldFolder}/`)) {
+        return requestedPath
+      }
+      return `${renamedFolder}${requestedPath.slice(oldFolder.length)}`
+    }
+    vi.mocked(readdir).mockImplementation(async (requestedPath, options) => {
+      return actualFs.readdir(asFoundOnDisk(requestedPath), options)
+    })
+    vi.mocked(stat).mockImplementation(async (requestedPath, options) => {
+      return actualFs.stat(asFoundOnDisk(requestedPath), options)
+    })
+    vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      return actualFs.readFile(asFoundOnDisk(requestedPath), options)
+    })
+    onTestFinished(() => {
+      vi.mocked(readdir).mockRestore()
+      vi.mocked(stat).mockRestore()
+      vi.mocked(readFile).mockRestore()
+    })
+    expect(notePaths()).toEqual([{ path: "notes/x.md" }])
+
+    // On macOS, chokidar reports a case-only folder rename as a change to the
+    // old path, never an unlink.
+    await fire("change", "notes/x.md")
+    await fire("add", "Notes/x.md")
+    finishRebuild()
+    await startup
+
+    expect(notePaths()).toEqual([{ path: "Notes/x.md" }])
+  })
+
+  it("removes a held note whose path is now a folder", async () => {
+    const { testVault, notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "shape.md": "shapeopal\n" },
+    })
+    const errorSpy = spyOnLogger("error")
+    await mkdir(join(testVault, "shape.md"))
+    expect(notePaths()).toEqual([{ path: "shape.md" }])
+
+    await fire("change", "shape.md")
+    finishRebuild()
+    await startup
+
+    expect(notePaths()).toEqual([])
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it("removes a held note whose folder is gone, with no listing warning", async () => {
+    const { notePaths, fire, startup, finishRebuild } = await createControlledStartup({
+      seedNotes: { "gone-folder/note.md": "folderopal\n" },
+    })
+    const warnSpy = spyOnLogger("warn")
+    expect(notePaths()).toEqual([{ path: "gone-folder/note.md" }])
+
+    await fire("unlink", "gone-folder/note.md")
+    finishRebuild()
+    await startup
+
+    expect(notePaths()).toEqual([])
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it("reads a held note whose folder cannot be listed", async () => {
+    const { testVault, search, fire, startup, finishRebuild } = await createControlledStartup()
+    const warnSpy = spyOnLogger("warn")
+    const lockedFolder = join(testVault, "locked")
+    await mkdir(lockedFolder)
+    await writeFile(join(lockedFolder, "note.md"), "listedopal\n")
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const listingFailure = Object.assign(new Error("controlled listing failure"), {
+      code: "EACCES",
+    })
+    vi.mocked(readdir).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === lockedFolder) throw listingFailure
+      return actualFs.readdir(requestedPath, options)
+    })
+    onTestFinished(() => vi.mocked(readdir).mockRestore())
+
+    await fire("change", "locked/note.md")
+    finishRebuild()
+    await startup
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "could not list a folder of held changes, so stat checks its files",
+      { path: "locked", error: "[Error]: controlled listing failure" },
+    )
+    expect(search.fullTextSearch({ query: "listedopal" }, logger).map((hit) => hit.path)).toEqual([
+      "locked/note.md",
+    ])
+  })
+
+  it("keeps a held file's rows when its stat fails during the batch", async () => {
+    const { testVault, search, database, fire, startup, finishRebuild } =
+      await createControlledStartup()
+    const errorSpy = spyOnLogger("error")
+    const imagePath = join(testVault, "image.png")
+    await writeFile(imagePath, "image data")
+    await writeFile(join(testVault, "fine.md"), "finetext\n")
+    search.upsertNonMdFile("image.png", 10)
+    const assetPaths = () => database.prepare("SELECT path FROM non_md_files").all()
+    expect(assetPaths()).toEqual([{ path: "image.png" }])
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const statFailure = Object.assign(new Error("controlled stat failure"), { code: "EACCES" })
+    vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      if (requestedPath === imagePath) throw statFailure
+      return actualFsUtils.statOrNull(requestedPath)
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+
+    await fire("change", "image.png")
+    await fire("change", "fine.md")
+    finishRebuild()
+    await startup
+
+    expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to stat non-md file", {
+      path: "image.png",
+      error: "[Error]: controlled stat failure",
+    })
+    expect(assetPaths()).toEqual([{ path: "image.png" }])
+    expect(search.fullTextSearch({ query: "finetext" }, logger).map((hit) => hit.path)).toEqual([
+      "fine.md",
+    ])
+  })
+
+  it("removes a held file's rows when it is deleted between its check and its read and its unlink arrives", async () => {
+    const { testVault, search, database, fire, startup, finishRebuild } =
+      await createControlledStartup()
+    const contentPath = join(testVault, "content.txt")
+    await writeFile(contentPath, "vanishjade")
+    search.upsertNonMdFile("content.txt", 10)
+    search.upsertFileContent(
+      { filePath: "content.txt", rawContent: "vanishjade", fileStat: { mtimeMs: 0, size: 10 } },
+      logger,
+    )
+    const fileRows = () => ({
+      assets: database.prepare("SELECT path FROM non_md_files").all(),
+      contents: database.prepare("SELECT path FROM file_content").all(),
+    })
+    expect(fileRows()).toEqual({
+      assets: [{ path: "content.txt" }],
+      contents: [{ path: "content.txt" }],
+    })
+    // The batch's check sees the file, which is deleted before the check
+    // returns, so only the read that follows can find it gone.
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const checkedPaths = new Set<string>()
+    vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
+      const fileStat = await actualFsUtils.statOrNull(requestedPath)
+
+      if (requestedPath === contentPath && !checkedPaths.has(contentPath)) {
+        checkedPaths.add(contentPath)
+        await unlink(contentPath)
+      }
+      return fileStat
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+    const infoSpy = spyOnLogger("info")
+
+    await fire("change", "content.txt")
+    finishRebuild()
+    await startup
+    // The batch's read finds the file gone and leaves it to the unlink
+    // chokidar sends for it, and the batch still completes.
+    expect(checkedPaths).toEqual(new Set([contentPath]))
+    expect(fileRows()).toEqual({
+      assets: [{ path: "content.txt" }],
+      contents: [{ path: "content.txt" }],
+    })
+    expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+      heldPaths: 1,
+    })
+    await fire("unlink", "content.txt")
+
+    expect(fileRows()).toEqual({ assets: [], contents: [] })
+  })
+
+  it("closes the watcher and rejects with the rebuild's error when the rebuild fails", async () => {
+    const { watcher, startup, failRebuild } = await createControlledStartup()
+    expect(watcher.closed).toBe(false)
+
+    failRebuild(new Error("controlled rebuild failure"))
+
+    await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    expect(watcher.closed).toBe(true)
+  })
+
+  it("keeps the rebuild's error when closing the watcher also fails", async () => {
+    const { watcher, startup, failRebuild } = await createControlledStartup()
+    const errorSpy = spyOnLogger("error")
+    vi.spyOn(watcher, "close").mockRejectedValueOnce(new Error("controlled close failure"))
+
+    failRebuild(new Error("controlled rebuild failure"))
+
+    await expect(startup).rejects.toThrow(new Error("controlled rebuild failure"))
+    expect(errorSpy).toHaveBeenCalledWith("failed to close the file watcher", {
+      error: "[Error]: controlled close failure",
+    })
+  })
+
+  it("lets a held change win over the rebuild's older read of the same note", async () => {
+    const readGates: Array<Awaited<ReturnType<typeof gateFirstRead>>> = []
+    const { testVault, search, fire, startup } = await createControlledStartup({
+      rebuild: "real",
+      beforeStart: async (emptyVault) => {
+        await writeFile(join(emptyVault, "note.md"), "oldquartz\n")
+        readGates.push(await gateFirstRead(join(emptyVault, "note.md"), "after-disk"))
+      },
+    })
+    const [readGate] = readGates
+    const notePath = join(testVault, "note.md")
+    const pathsFor = (query: string) => {
+      return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+    }
+
+    if (!readGate) throw new Error("the rebuild's read gate was not installed")
+    await readGate.reached
+    await writeFile(notePath, "newopal\n")
+    await fire("change", "note.md")
+    readGate.release()
+    await startup
+
+    expect(pathsFor("newopal")).toEqual(["note.md"])
+    expect(pathsFor("oldquartz")).toEqual([])
+  })
+})
+
+describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCHER_RETRY, () => {
+  it(
+    "indexes edits, creations and deletions that land while the rebuild reads the vault",
+    { timeout: 20000 },
+    async () => {
+      const testVault = await mkdtemp(join(tmpdir(), "watcher-startup-real-"))
+      const dataDirectory = await mkdtemp(join(tmpdir(), "watcher-startup-real-data-"))
+      onTestFinished(async () => {
+        await rm(testVault, { recursive: true })
+        await rm(dataDirectory, { recursive: true })
+      })
+      const databasePath = join(dataDirectory, "index.db")
+      const search = createSearchIndex(databasePath, undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const database = new Database(databasePath, { readonly: true })
+      onTestFinished(() => {
+        database.close()
+      })
+      const modifiedPath = join(testVault, "modified.md")
+      const deletedPath = join(testVault, "deleted.md")
+      const deletedTextPath = join(testVault, "deleted.txt")
+      await writeFile(deletedPath, "ghostquartz links [[modified]]\n")
+      await writeFile(modifiedPath, "oldtext\n")
+      await writeFile(deletedTextPath, "ghostquartz")
+      const { mtime: modifiedTimeTheRebuildSaw } = await stat(modifiedPath)
+
+      // The rebuild's read of modified.md is held after it read "oldtext";
+      // deleted.md's read is only observed, so the test deletes the file
+      // after the rebuild has read it.
+      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      const modifiedReadReached = Promise.withResolvers<undefined>()
+      const releaseModifiedRead = Promise.withResolvers<undefined>()
+      const deletedNoteRead = Promise.withResolvers<undefined>()
+      const gatedPaths = new Set<string>()
+      vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+        const content = await actualFs.readFile(requestedPath, options)
+
+        if (requestedPath === deletedPath) deletedNoteRead.resolve(undefined)
+        if (requestedPath === modifiedPath && !gatedPaths.has(modifiedPath)) {
+          gatedPaths.add(modifiedPath)
+          modifiedReadReached.resolve(undefined)
+          await releaseModifiedRead.promise
+        }
+        return content
+      })
+      onTestFinished(() => vi.mocked(readFile).mockRestore())
+
+      // A path counts as delivered once the watcher either holds its event
+      // (the intended path) or writes it to the index at once (a broken hold),
+      // so the state assertions below decide which happened.
+      const deliveredPaths = new Set<string>()
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation((message, fields) => {
+        const isHeldLine = message.startsWith("held a ")
+        const heldPath = fields?.path
+
+        if (isHeldLine && typeof heldPath === "string") deliveredPaths.add(heldPath)
+      })
+      const infoSpy = vi.spyOn(logger, "info")
+      onTestFinished(() => {
+        debugSpy.mockRestore()
+        infoSpy.mockRestore()
+      })
+      const recordDeliveredPath = <Arguments extends unknown[], Result>(
+        operation: (...operationArguments: Arguments) => Result,
+        pathOf: (...operationArguments: Arguments) => string,
+      ) => {
+        return (...operationArguments: Arguments): Result => {
+          deliveredPaths.add(pathOf(...operationArguments))
+          return operation(...operationArguments)
+        }
+      }
+      // The real functions are captured before spying, because inside
+      // mockImplementation's argument the property already holds the spy,
+      // and wrapping the spy would recurse.
+      const { upsertNote, upsertNonMdFile, removeNote, removeNonMdFile } = search
+      vi.spyOn(search, "upsertNote").mockImplementation(
+        recordDeliveredPath(upsertNote, (params) => params.filePath),
+      )
+      vi.spyOn(search, "upsertNonMdFile").mockImplementation(
+        recordDeliveredPath(upsertNonMdFile, (filePath) => filePath),
+      )
+      vi.spyOn(search, "removeNote").mockImplementation(
+        recordDeliveredPath(removeNote, (filePath) => filePath),
+      )
+      vi.spyOn(search, "removeNonMdFile").mockImplementation(
+        recordDeliveredPath(removeNonMdFile, (filePath) => filePath),
+      )
+
+      const startup = watchVaultAndBuildIndex(
+        {
+          vaultPath: testVault,
+          search,
+          watcherOptions: { stabilityThreshold: 100, pollInterval: 25 },
+        },
+        logger,
+      )
+      await modifiedReadReached.promise
+      await deletedNoteRead.promise
+      await writeFile(modifiedPath, "newopal is longer than the old text\n")
+      // Sync writes with equal access and modification times; the old
+      // modification time shows the outcome does not depend on it changing.
+      await utimes(modifiedPath, modifiedTimeTheRebuildSaw, modifiedTimeTheRebuildSaw)
+      await unlink(deletedPath)
+      await unlink(deletedTextPath)
+      await writeFile(join(testVault, "created.md"), "newjade\n")
+      await vi.waitFor(
+        () => {
+          expect([...deliveredPaths].toSorted()).toEqual([
+            "created.md",
+            "deleted.md",
+            "deleted.txt",
+            "modified.md",
+          ])
+        },
+        { timeout: 8000 },
+      )
+      releaseModifiedRead.resolve(undefined)
+      await startup
+
+      const pathsFor = (query: string) => {
+        return search.fullTextSearch({ query }, logger).map((hit) => hit.path)
+      }
+      expect(pathsFor("newopal")).toEqual(["modified.md"])
+      expect(pathsFor("oldtext")).toEqual([])
+      expect(pathsFor("newjade")).toEqual(["created.md"])
+      expect(pathsFor("ghostquartz")).toEqual([])
+      expect(
+        database.prepare("SELECT source FROM links WHERE source = 'deleted.md'").all(),
+      ).toEqual([])
+      expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([])
+      expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+      expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+        heldPaths: 4,
+      })
+    },
+  )
+})
+
+describe("file watcher — chokidar watch options", () => {
   registerSharedVaultHooks()
 
   type FakeWatcher = {
     on: (event: string, handler: (...args: unknown[]) => void) => FakeWatcher
   }
 
-  /** Chainable watcher stub that fires "ready" so startFileWatcher resolves. */
+  /** Chainable watcher stub that fires "ready" so the watcher becomes ready. */
   const createFakeWatcher = (): FakeWatcher => {
     const watcher: FakeWatcher = {
       on(event, handler) {
@@ -1358,45 +2805,66 @@ describe("startFileWatcher — chokidar watch options", () => {
     return watcher
   }
 
-  /** Starts the watcher with the given FileWatcherOptions (chokidar.watch stubbed
-   *  for this one test) and returns the options object chokidar.watch was called
-   *  with. mockRestore (via onTestFinished) hands the real, spied watch back to
-   *  the integration tests. */
-  const chokidarOptionsFrom = async (
-    watcherOptions?: Parameters<typeof startFileWatcher>[2],
-  ): Promise<Record<string, unknown>> => {
+  /** Starts the watcher with the given FileWatcherOptions, with chokidar.watch
+   *  stubbed for this one test. mockRestore (via onTestFinished) hands the
+   *  real, spied watch back to the integration tests. */
+  const startWatcherWithStubbedChokidar = async (
+    watcherOptions?: WatcherOptions,
+  ): Promise<void> => {
     const watchMock = vi.mocked(watch)
     watchMock.mockReset()
     watchMock.mockImplementation(() => createFakeWatcher() as unknown as ReturnType<typeof watch>)
     onTestFinished(() => watchMock.mockRestore())
-    await startFileWatcher("/vault", index, watcherOptions)
-    expect(watchMock).toHaveBeenCalledTimes(1)
-    return watchMock.mock.calls[0]?.[1] as Record<string, unknown>
+    await startWatcherWithoutRebuild({ vaultPath: "/vault", search: index }, watcherOptions)
   }
 
+  // The options every watcher passes chokidar. The whole object is asserted,
+  // so an interval key passed without polling fails the match.
+  const sharedChokidarOptions = {
+    ignored: expect.any(Function),
+    persistent: true,
+    ignoreInitial: true,
+  }
+  const defaultWriteFinish = { stabilityThreshold: 2000, pollInterval: 100 }
+
   it("defaults to native events (usePolling false) with no interval when unset", async () => {
-    const chokidarOptions = await chokidarOptionsFrom()
-    expect(chokidarOptions.usePolling).toBe(false)
-    expect("interval" in chokidarOptions).toBe(false)
+    await startWatcherWithStubbedChokidar()
+
+    expect(vi.mocked(watch)).toHaveBeenCalledExactlyOnceWith("/vault", {
+      ...sharedChokidarOptions,
+      usePolling: false,
+      awaitWriteFinish: defaultWriteFinish,
+    })
   })
 
   it("omits interval when usePolling is false", async () => {
-    const chokidarOptions = await chokidarOptionsFrom({ usePolling: false })
-    expect(chokidarOptions.usePolling).toBe(false)
-    expect("interval" in chokidarOptions).toBe(false)
+    await startWatcherWithStubbedChokidar({ usePolling: false })
+
+    expect(vi.mocked(watch)).toHaveBeenCalledExactlyOnceWith("/vault", {
+      ...sharedChokidarOptions,
+      usePolling: false,
+      awaitWriteFinish: defaultWriteFinish,
+    })
   })
 
   it("passes interval (300ms) only when usePolling is true", async () => {
-    const chokidarOptions = await chokidarOptionsFrom({ usePolling: true })
-    expect(chokidarOptions.usePolling).toBe(true)
-    expect(chokidarOptions.interval).toBe(300)
+    await startWatcherWithStubbedChokidar({ usePolling: true })
+
+    expect(vi.mocked(watch)).toHaveBeenCalledExactlyOnceWith("/vault", {
+      ...sharedChokidarOptions,
+      usePolling: true,
+      interval: 300,
+      awaitWriteFinish: defaultWriteFinish,
+    })
   })
 
   it("defaults awaitWriteFinish to 2000ms stability and 100ms poll interval", async () => {
-    const chokidarOptions = await chokidarOptionsFrom()
-    expect(chokidarOptions.awaitWriteFinish).toEqual({
-      stabilityThreshold: 2000,
-      pollInterval: 100,
+    await startWatcherWithStubbedChokidar()
+
+    expect(vi.mocked(watch)).toHaveBeenCalledExactlyOnceWith("/vault", {
+      ...sharedChokidarOptions,
+      usePolling: false,
+      awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 100 },
     })
   })
 })
@@ -1406,7 +2874,7 @@ describe("startFileWatcher — chokidar watch options", () => {
 // outside, so these tests drive the reconciliation directly: a fake watcher
 // captures the addDir handler, reports test-controlled tracking via
 // getWatched(), and records add() calls — against a real temp vault and index.
-describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
+describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
   registerSharedVaultHooks()
 
   const RESCAN_TEST_OPTIONS = {
@@ -1420,13 +2888,10 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
     addedPaths: string[]
   }
 
-  /** Stubs chokidar.watch with a fake exposing what the rescan consumes, then
-   *  starts the file watcher against it. mockRestore (via onTestFinished)
-   *  hands the real, spied watch back to the integration tests. */
-  const startWatcherWithFakeChokidar = async (
-    watchedChildren: Record<string, string[]>,
-    watcherOptions: Parameters<typeof startFileWatcher>[2],
-  ): Promise<RescanFakeWatcher> => {
+  /** Stubs chokidar.watch with a fake exposing what the rescan consumes.
+   *  mockRestore (via onTestFinished) hands the real, spied watch back to the
+   *  integration tests. */
+  const installFakeChokidar = (watchedChildren: Record<string, string[]>): RescanFakeWatcher => {
     const handlers = new Map<string, (path: string) => void>()
     const addedPaths: string[] = []
     const fakeWatcher = {
@@ -1444,7 +2909,6 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
     watchMock.mockReset()
     watchMock.mockImplementation(() => fakeWatcher as unknown as ReturnType<typeof watch>)
     onTestFinished(() => watchMock.mockRestore())
-    await startFileWatcher(vault, index, watcherOptions)
 
     const fireAddDir = (dirPath: string): void => {
       const addDirHandler = handlers.get("addDir")
@@ -1455,6 +2919,16 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
       addDirHandler(dirPath)
     }
     return { fireAddDir, addedPaths }
+  }
+
+  /** Starts the file watcher against a fake chokidar (see installFakeChokidar). */
+  const startWatcherWithFakeChokidar = async (
+    watchedChildren: Record<string, string[]>,
+    watcherOptions: WatcherOptions,
+  ): Promise<RescanFakeWatcher> => {
+    const fakeChokidar = installFakeChokidar(watchedChildren)
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, watcherOptions)
+    return fakeChokidar
   }
 
   /** Backdates a file's mtime (10 minutes) so the rescan's "still being
@@ -1476,12 +2950,70 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
 
     await waitFor(() => index.fullTextSearch({ query: "missed" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "missed" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("new-folder/missed.md")
+    expect(results.map((result) => result.path)).toEqual(["new-folder/missed.md"])
     // The file must also be registered with chokidar — indexed but
     // untracked, its later deletion would emit no unlink (ghost entry).
     expect(addedPaths).toEqual([missedPath])
   })
+
+  it(
+    "holds a rescan's indexing until the startup rebuild returns",
+    { timeout: 15000 },
+    async () => {
+      const newDirectory = join(vault, "new-folder")
+      await mkdir(newDirectory)
+      const missedPath = join(newDirectory, "missed.md")
+      await writeFile(missedPath, "missed during startup\n", "utf8")
+      await backdateMtime(missedPath)
+      const rebuildGate = Promise.withResolvers<undefined>()
+      vi.spyOn(index, "rebuildFromVault").mockImplementation(async () => {
+        await rebuildGate.promise
+        return { count: 0, embedding: Promise.resolve() }
+      })
+      // Resolves when the rescan reaches the missed file, whether it holds the
+      // change (the intended path) or indexes it at once (a broken hold), so the
+      // state assertion below decides which happened.
+      const missedFileReached = Promise.withResolvers<undefined>()
+      const debugSpy = vi.spyOn(logger, "debug").mockImplementation((message, fields) => {
+        const isMissedFileHeld =
+          message === "held a change until startup indexing ends" &&
+          fields?.path === "new-folder/missed.md"
+
+        if (isMissedFileHeld) missedFileReached.resolve(undefined)
+      })
+      const realUpsertNote = index.upsertNote
+      vi.spyOn(index, "upsertNote").mockImplementation((params, requestLogger) => {
+        missedFileReached.resolve(undefined)
+        return realUpsertNote(params, requestLogger)
+      })
+      const infoSpy = vi.spyOn(logger, "info")
+      onTestFinished(() => {
+        debugSpy.mockRestore()
+        infoSpy.mockRestore()
+      })
+      const { fireAddDir } = installFakeChokidar({})
+      const startup = watchVaultAndBuildIndex(
+        { vaultPath: vault, search: index, watcherOptions: RESCAN_TEST_OPTIONS },
+        logger,
+      )
+      await vi.waitFor(() => {
+        expect(index.rebuildFromVault).toHaveBeenCalledTimes(1)
+      })
+
+      fireAddDir(newDirectory)
+      await missedFileReached.promise
+
+      expect(index.fullTextSearch({ query: "missed" }, logger)).toEqual([])
+      rebuildGate.resolve(undefined)
+      await startup
+      expect(index.fullTextSearch({ query: "missed" }, logger).map((hit) => hit.path)).toEqual([
+        "new-folder/missed.md",
+      ])
+      expect(infoSpy).toHaveBeenCalledWith("applied the changes held during startup indexing", {
+        heldPaths: 1,
+      })
+    },
+  )
 
   it("does not re-index a file chokidar already tracks", { timeout: 15000 }, async () => {
     const newDirectory = join(vault, "new-folder")
@@ -1503,8 +3035,14 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
     // The untracked sibling getting indexed proves the rescan ran — the
     // tracked file being skipped can't be a silent no-op.
     await waitFor(() => index.fullTextSearch({ query: "sibling" }, logger).length > 0)
-    expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-    expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/missed.md")
+    expect(upsertNoteSpy).toHaveBeenCalledExactlyOnceWith(
+      {
+        filePath: "new-folder/missed.md",
+        rawContent: "missed sibling note\n",
+        fileStat: { mtimeMs: expect.any(Number), size: 20 },
+      },
+      logger,
+    )
     // Only the missed file is registered — the tracked one is not re-added.
     expect(addedPaths).toEqual([missedPath])
   })
@@ -1553,8 +3091,7 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
 
     await waitFor(() => index.fullTextSearch({ query: "nested" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "nested" }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("new-folder/missed-subdir/nested.md")
+    expect(results.map((result) => result.path)).toEqual(["new-folder/missed-subdir/nested.md"])
     // The subdirectory and the missed file are both handed back to chokidar
     // so they gain watches and future events (unlink included) fire.
     expect(addedPaths).toEqual([missedSubdirectory, nestedPath])
@@ -1600,9 +3137,8 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
 
     await waitFor(() => index.fullTextSearch({ query: "symlinked" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "symlinked" }, logger)
-    expect(results).toHaveLength(1)
     // Indexed under the link path, matching chokidar's followSymlinks view.
-    expect(results[0]?.path).toBe("new-folder/linked-dir/inside.md")
+    expect(results.map((result) => result.path)).toEqual(["new-folder/linked-dir/inside.md"])
     // The inner file registers during the recursion, then the link itself.
     expect(addedPaths).toEqual([join(linkedDirectory, "inside.md"), linkedDirectory])
   })
@@ -1638,8 +3174,7 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
 
       await waitFor(() => index.fullTextSearch({ query: "symlinked" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "symlinked" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("new-folder/linked-dir/inside.md")
+      expect(results.map((result) => result.path)).toEqual(["new-folder/linked-dir/inside.md"])
       // Registration order proves the retry ran: the symlinked directory
       // registered during the rescan; the file only after its retry settled.
       expect(addedPaths).toEqual([linkedDirectory, join(linkedDirectory, "inside.md")])
@@ -1669,8 +3204,14 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
       // Give a (broken) unbounded recursion time to produce extra upserts
       // before asserting the exact count.
       await new Promise((finished) => setTimeout(finished, 300))
-      expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-      expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/settled.md")
+      expect(upsertNoteSpy).toHaveBeenCalledExactlyOnceWith(
+        {
+          filePath: "new-folder/settled.md",
+          rawContent: "settled beside a cycle\n",
+          fileStat: { mtimeMs: expect.any(Number), size: 23 },
+        },
+        logger,
+      )
       // readdir order isn't guaranteed, so compare sorted ("loop" < "settled.md").
       expect([...addedPaths].sort()).toEqual([loopLink, settledPath])
     },
@@ -1699,10 +3240,16 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
     // swallowed — not merely absent from the listing.
     expect(debugSpy).toHaveBeenCalledWith("rescan skipped unreadable entry", {
       path: "new-folder/dangling.md",
-      error: expect.stringContaining("ENOENT"),
+      error: `[Error]: ENOENT: no such file or directory, stat '${danglingLink}'`,
     })
-    expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-    expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/settled.md")
+    expect(upsertNoteSpy).toHaveBeenCalledExactlyOnceWith(
+      {
+        filePath: "new-folder/settled.md",
+        rawContent: "settled beside a broken link\n",
+        fileStat: { mtimeMs: expect.any(Number), size: 29 },
+      },
+      logger,
+    )
     expect(addedPaths).toEqual([settledPath])
   })
 
@@ -1827,8 +3374,7 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
 
       await waitFor(() => index.fullTextSearch({ query: "skew" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "skew" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("new-folder/skewed.md")
+      expect(results.map((result) => result.path)).toEqual(["new-folder/skewed.md"])
       expect(addedPaths).toEqual([skewedPath])
     },
   )

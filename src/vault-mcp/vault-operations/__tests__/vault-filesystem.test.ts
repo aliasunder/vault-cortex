@@ -27,9 +27,18 @@ import {
   atomicWriteFile,
   atomicWriteFileExclusive,
   pruneEmptyParents,
+  readTrashFileState,
   resolveSafePath,
+  trashDomainLockKey,
 } from "../vault-filesystem.js"
-import { parseNote } from "../../obsidian-markdown/frontmatter.js"
+import { withFileLock } from "../../../utils/file-write-lock.js"
+import {
+  OverwriteBlockedError,
+  parseNote,
+  parseNoteForRewrite,
+  UnkeepableOpeningBlockError,
+  UnsupportedPropertiesBlockError,
+} from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const {
@@ -39,12 +48,76 @@ const {
   readNoteProperties,
   writeNote,
   updateProperties,
+  replaceProperties,
   deleteNote,
   listNotes,
   listAssets,
   readAsset,
   statAssets,
 } = vaultFs
+
+const LIST_BLOCK_MESSAGE =
+  "properties block holds a list, not key-value pairs, so rewriting the note would delete it"
+
+const SINGLE_VALUE_MESSAGE =
+  "properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it"
+
+const DONE_TAG_MESSAGE =
+  "properties block uses the YAML tag !done, which rewriting the note would drop"
+
+const UNCLOSED_FLOW_MESSAGE =
+  "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
+
+/** A list block and a tagged block: reads accept both, a rewrite would lose both. */
+const UNKEEPABLE_BLOCK_CASES = [
+  {
+    label: "a list block",
+    content: "---\n- a\n- b\n---\nbody\n",
+    refusal: { kind: "not-key-value", message: LIST_BLOCK_MESSAGE },
+  },
+  {
+    label: "an explicitly tagged block",
+    content: "---\nstatus: !done\n---\nbody\n",
+    refusal: { kind: "explicit-tag", message: DONE_TAG_MESSAGE },
+  },
+]
+
+/** Awaits a call that must reject and returns what it rejected with. */
+const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
+  try {
+    await pending
+  } catch (error) {
+    return error
+  }
+  throw new Error("expected the call to reject, but it resolved")
+}
+
+/** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
+const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
+  if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
+  return { kind: thrown.kind, message: thrown.message }
+}
+
+/** The refusal parseNoteForRewrite gives a note's content, or null when a rewrite keeps it. */
+const describeRewriteRefusal = (content: string): { kind: string; message: string } | null => {
+  try {
+    parseNoteForRewrite(content)
+    return null
+  } catch (error) {
+    return describeRefusal(error)
+  }
+}
+
+/** The message of an output refusal, an UnkeepableOpeningBlockError whose cause is the block refusal. */
+const describeOutputRefusal = (
+  thrown: unknown,
+): { message: string; causeIsBlockRefusal: boolean } | null => {
+  if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
+  return {
+    message: thrown.message,
+    causeIsBlockRefusal: thrown.cause instanceof UnsupportedPropertiesBlockError,
+  }
+}
 
 let vault: string
 
@@ -386,6 +459,12 @@ describe("markdown path requirement", () => {
     await expect(
       updateProperties({ vaultPath: vault, path: "Projects/Plan", properties: { a: 1 } }, logger),
     ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+  })
+
+  it("replaceProperties rejects a path without the .md extension", async () => {
+    await expect(
+      replaceProperties({ vaultPath: vault, path: "Projects/Plan", properties: { a: 1 } }, logger),
+    ).rejects.toThrow(new Error('path must end in ".md" (received "Projects/Plan")'))
   })
 
   it("deleteNote rejects a path without the .md extension", async () => {
@@ -962,6 +1041,144 @@ describe("deleteNote", () => {
   })
 })
 
+describe("readTrashFileState", () => {
+  /** A whole-second timestamp, so every file set to it has the same mtimeNs. */
+  const FIXED_EPOCH_SECONDS = 1_700_000_000
+
+  /** Linux stamps inode times from a clock that advances once per scheduler
+   *  tick (up to 10 ms), so two changes inside one tick share a change time.
+   *  Waiting past a tick makes the next change land a new one. */
+  const waitPastTimestampTick = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+
+  it("reads the link's own inode number, size, modification time and change time", async () => {
+    await writeFile(join(vault, "target.md"), "a longer target body", "utf8")
+    await symlink(join(vault, "target.md"), join(vault, "link.md"))
+    const linkStats = await lstat(join(vault, "link.md"), { bigint: true })
+    const targetStats = await lstat(join(vault, "target.md"), { bigint: true })
+    // The link and its target differ in inode and size, so reading through
+    // the link would change the expected identity.
+    expect(linkStats.ino).not.toBe(targetStats.ino)
+
+    const linkState = await readTrashFileState(join(vault, "link.md"))
+
+    expect(linkState).toEqual({
+      identity: `${linkStats.ino}:${linkStats.size}:${linkStats.mtimeNs}`,
+      changeTimeNs: linkStats.ctimeNs,
+    })
+  })
+
+  it("stays the same when the file is only read", async () => {
+    const notePath = join(vault, "read-only.md")
+    await writeFile(notePath, "content", "utf8")
+    const stateBeforeRead = await readTrashFileState(notePath)
+    await waitPastTimestampTick()
+
+    await readFile(notePath, "utf8")
+
+    expect(await readTrashFileState(notePath)).toEqual(stateBeforeRead)
+  })
+
+  it("keeps the identity but moves the change time when the file is renamed out of .trash/ and back", async () => {
+    // A trashed note restored by hand and trashed again keeps its inode, size
+    // and modification time; only the change time records the two renames.
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "restored.md"), "content", "utf8")
+    const stateWhenTrashed = await readTrashFileState(join(vault, ".trash", "restored.md"))
+    await waitPastTimestampTick()
+
+    await rename(join(vault, ".trash", "restored.md"), join(vault, "restored.md"))
+    await rename(join(vault, "restored.md"), join(vault, ".trash", "restored.md"))
+
+    const stateWhenRetrashed = await readTrashFileState(join(vault, ".trash", "restored.md"))
+    expect(stateWhenRetrashed.identity).toBe(stateWhenTrashed.identity)
+    expect(stateWhenRetrashed.changeTimeNs).toBeGreaterThan(stateWhenTrashed.changeTimeNs)
+  })
+
+  it("keeps the identity but moves the change time when only the file's attributes change", async () => {
+    const notePath = join(vault, "chmodded.md")
+    await writeFile(notePath, "content", "utf8")
+    const originalState = await readTrashFileState(notePath)
+    await waitPastTimestampTick()
+
+    await chmod(notePath, 0o600)
+
+    const chmoddedState = await readTrashFileState(notePath)
+    expect(chmoddedState.identity).toBe(originalState.identity)
+    expect(chmoddedState.changeTimeNs).toBeGreaterThan(originalState.changeTimeNs)
+  })
+
+  it("differs by inode number for another file with the same size and modification time", async () => {
+    await writeFile(join(vault, "first.md"), "same", "utf8")
+    await writeFile(join(vault, "second.md"), "same", "utf8")
+    await utimes(join(vault, "first.md"), FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    await utimes(join(vault, "second.md"), FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const firstStats = await lstat(join(vault, "first.md"), { bigint: true })
+    const secondStats = await lstat(join(vault, "second.md"), { bigint: true })
+    // Same size and modification time, so the inode number is the only field
+    // left to tell the two files apart.
+    expect([secondStats.size, secondStats.mtimeNs]).toEqual([firstStats.size, firstStats.mtimeNs])
+
+    const firstState = await readTrashFileState(join(vault, "first.md"))
+    const secondState = await readTrashFileState(join(vault, "second.md"))
+
+    expect(secondState.identity).not.toBe(firstState.identity)
+  })
+
+  it("differs by modification time after the file is rewritten in place at the same size", async () => {
+    const notePath = join(vault, "rewritten.md")
+    await writeFile(notePath, "aaaa", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const originalStats = await lstat(notePath, { bigint: true })
+    const originalState = await readTrashFileState(notePath)
+
+    await writeFile(notePath, "bbbb", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS + 60, FIXED_EPOCH_SECONDS + 60)
+
+    // Same inode and size; the rewrite moved the modification time.
+    const rewrittenStats = await lstat(notePath, { bigint: true })
+    expect([rewrittenStats.ino, rewrittenStats.size]).toEqual([
+      originalStats.ino,
+      originalStats.size,
+    ])
+    const rewrittenState = await readTrashFileState(notePath)
+    expect(rewrittenState.identity).not.toBe(originalState.identity)
+  })
+
+  it("differs by size after the file grows, even with its modification time restored", async () => {
+    const notePath = join(vault, "resized.md")
+    await writeFile(notePath, "short", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+    const originalStats = await lstat(notePath, { bigint: true })
+    const originalState = await readTrashFileState(notePath)
+
+    await writeFile(notePath, "much longer content", "utf8")
+    await utimes(notePath, FIXED_EPOCH_SECONDS, FIXED_EPOCH_SECONDS)
+
+    const resizedStats = await lstat(notePath, { bigint: true })
+    expect([resizedStats.ino, resizedStats.mtimeNs]).toEqual([
+      originalStats.ino,
+      originalStats.mtimeNs,
+    ])
+    const resizedState = await readTrashFileState(notePath)
+    expect(resizedState.identity).not.toBe(originalState.identity)
+  })
+
+  it("rejects with lstat's ENOENT when nothing is at the path", async () => {
+    // The sweep reads the error code to tell a missing file from a failed
+    // read. A partial match, because the error also carries a stack trace.
+    const absentPath = join(vault, "absent.md")
+
+    await expect(readTrashFileState(absentPath)).rejects.toMatchObject({
+      message: `ENOENT: no such file or directory, lstat '${absentPath}'`,
+      code: "ENOENT",
+      syscall: "lstat",
+      path: absentPath,
+    })
+  })
+})
+
 describe("deleteNote — trash behavior", () => {
   it('moves the note to .trash/ when trashOption is "local"', async () => {
     await writeFile(join(vault, "trash-me.md"), "content", "utf8")
@@ -1091,10 +1308,11 @@ describe("deleteNote — trash behavior", () => {
     await expect(stat(join(vault, "sys.md"))).rejects.toThrow(/ENOENT/)
   })
 
-  it("reports the landed trash path to recordTrashEntry exactly once, suffixes included", async () => {
+  it("reports the landed trash path and the landed file's identity to recordTrashEntry exactly once, suffixes included", async () => {
     // The recorded path must be where the file actually landed — a collision
     // shifts it to a suffixed name, and recording the original would make the
-    // retention sweep act on someone else's trash copy.
+    // retention sweep act on someone else's trash copy. The identity must
+    // describe that landed file, or the sweep would never match it.
     await mkdir(join(vault, ".trash"), { recursive: true })
     await writeFile(join(vault, ".trash", "rec.md"), "older copy", "utf8")
     await writeFile(join(vault, "rec.md"), "fresh", "utf8")
@@ -1113,14 +1331,57 @@ describe("deleteNote — trash behavior", () => {
     )
 
     expect(result.trashLocation).toBe(".trash/rec 1.md")
+    const landedStats = await lstat(join(vault, ".trash", "rec 1.md"), { bigint: true })
     expect(recordTrashEntry).toHaveBeenCalledTimes(1)
-    expect(recordTrashEntry).toHaveBeenCalledWith(".trash/rec 1.md")
+    expect(recordTrashEntry).toHaveBeenCalledWith({
+      trashPath: ".trash/rec 1.md",
+      fileIdentity: `${landedStats.ino}:${landedStats.size}:${landedStats.mtimeNs}`,
+    })
+  })
+
+  it("contains a failed identity read — warns, clears the stale row, and the delete still succeeds", async () => {
+    // The identity is read after the rename, so its failure must take the same
+    // fail-open path as a failed row write, never the claim cleanup that
+    // would delete the moved note.
+    await writeFile(join(vault, "noident.md"), "survives", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const recordTrashEntry = vi.fn()
+    const clearStaleTrashEntry = vi.fn()
+    // The delete path's only lstat call is the identity read on the landed file.
+    vi.mocked(lstat).mockImplementationOnce(async () => {
+      throw new Error("EIO: injected lstat failure")
+    })
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "noident.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry,
+        clearStaleTrashEntry,
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/noident.md")
+    const trashedContent = await readFile(join(vault, ".trash", "noident.md"), "utf8")
+    expect(trashedContent).toBe("survives")
+    expect(recordTrashEntry).not.toHaveBeenCalled()
+    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1)
+    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/noident.md")
+    expect(warnSpy).toHaveBeenCalledWith("failed to record trash entry", {
+      path: ".trash/noident.md",
+      error: "[Error]: EIO: injected lstat failure",
+    })
   })
 
   it("contains a throwing recordTrashEntry — warns, and the delete still succeeds with the note intact in .trash/", async () => {
-    // Recording is fail-open: the rename has already happened, so a throw
-    // must not reach the claim-cleanup path, which would delete the moved
-    // note itself. An unrecorded entry is simply never swept.
+    // The rename has already happened when recording runs, so a throw must
+    // not reach the claim cleanup, which would delete the moved note itself.
+    // An unrecorded entry is never swept.
     await writeFile(join(vault, "unrec.md"), "survives", "utf8")
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
@@ -1536,6 +1797,45 @@ describe("deleteNote — trash behavior", () => {
     expect(await readFile(join(vault, resultB.trashLocation), "utf8")).toBe("payload-b")
   })
 
+  it("creates the trash folder under the trash-domain lock, so a sweep's folder prune cannot fail the move", async () => {
+    await mkdir(join(vault, "Projects"), { recursive: true })
+    await writeFile(join(vault, "Projects", "late.md"), "content", "utf8")
+    // As soon as the move's trash folder exists, queue what the retention
+    // sweep does after unlinking that folder's last expired file: prune it
+    // under the shared trash-domain lock. A folder created before the move
+    // takes the lock is still empty when the queued prune runs, so the prune
+    // removes it and the move's claim fails.
+    const queuedSweepPrunes: Promise<number>[] = []
+    vi.mocked(mkdir).mockImplementationOnce(async () => {
+      await mkdir(join(vault, ".trash", "Projects"), { recursive: true })
+      queuedSweepPrunes.push(
+        withFileLock(trashDomainLockKey(vault), () => {
+          return pruneEmptyParents(
+            { vaultPath: join(vault, ".trash"), path: "Projects/swept.md" },
+            logger,
+          )
+        }),
+      )
+      return undefined
+    })
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "Projects/late.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    // The prune ran after the move, found the trashed note, and removed nothing.
+    expect(await Promise.all(queuedSweepPrunes)).toEqual([0])
+    expect(result.trashLocation).toBe(".trash/Projects/late.md")
+    expect(await readFile(join(vault, ".trash", "Projects", "late.md"), "utf8")).toBe("content")
+  })
+
   it("removes its claim placeholder and preserves the source when the rename fails", async () => {
     await writeFile(join(vault, "renamefail.md"), "keep me", "utf8")
     const warnSpy = vi.spyOn(logger, "warn")
@@ -1928,6 +2228,19 @@ describe("readNoteProperties", () => {
     expect(properties.tags).toEqual(["one", "two"])
     expect(properties.related).toEqual(["[[Note A]]"])
   })
+
+  it("returns an empty object for a note whose properties block holds a list", async () => {
+    const content = "---\n- a\n- b\n---\nbody\n"
+    await writeFile(join(vault, "list-block.md"), content, "utf8")
+    // A rewrite refuses this block, so the read below shows that reads still accept it
+    expect(describeRewriteRefusal(content)).toEqual({
+      kind: "not-key-value",
+      message: LIST_BLOCK_MESSAGE,
+    })
+
+    const properties = await readNoteProperties({ vaultPath: vault, path: "list-block.md" }, logger)
+    expect(properties).toEqual({})
+  })
 })
 
 describe("updateProperties", () => {
@@ -1961,6 +2274,18 @@ describe("updateProperties", () => {
     )
     const written = await readFile(join(vault, "rules.md"), "utf8")
     expect(written).toBe("---\ntitle: Original\nstatus: active\n---\n---\nbody after rule\n")
+  })
+
+  it("keeps a CRLF note's last property without a carriage return and its body's bytes", async () => {
+    await writeFile(join(vault, "crlf.md"), "---\r\ntitle: C\r\ntype: x\r\n---\r\nbody\r\n", "utf8")
+    await updateProperties(
+      { vaultPath: vault, path: "crlf.md", properties: { status: "active" } },
+      logger,
+    )
+
+    // The new block uses LF; the body keeps its CRLF line breaks
+    const written = await readFile(join(vault, "crlf.md"), "utf8")
+    expect(written).toBe("---\ntitle: C\ntype: x\nstatus: active\n---\nbody\r\n")
   })
 
   it("merges new keys without changing body", async () => {
@@ -2143,6 +2468,307 @@ describe("updateProperties", () => {
       ),
     ).rejects.toThrow("path traversal blocked")
   })
+
+  it("refuses a block that is not valid YAML and leaves the note unchanged", async () => {
+    const content = "---\ntitle: [unclosed\n---\nbody\n"
+    await writeFile(join(vault, "broken.md"), content, "utf8")
+    expect(await readFile(join(vault, "broken.md"), "utf8")).toBe(content)
+
+    const refusal = await captureRejection(
+      updateProperties(
+        { vaultPath: vault, path: "broken.md", properties: { status: "x" } },
+        logger,
+      ),
+    )
+
+    expect(describeRefusal(refusal)).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
+    expect(await readFile(join(vault, "broken.md"), "utf8")).toBe(content)
+  })
+
+  it("refuses to remove the last property when the body would then open with a block it cannot keep", async () => {
+    const original = "---\nold: 1\n---\n---\n\nSome text\n\n---\n"
+    await writeFile(join(vault, "merge.md"), original, "utf8")
+    expect(await readFile(join(vault, "merge.md"), "utf8")).toBe(original)
+
+    const refusal = await captureRejection(
+      updateProperties({ vaultPath: vault, path: "merge.md", properties: { old: null } }, logger),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${SINGLE_VALUE_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+    expect(await readFile(join(vault, "merge.md"), "utf8")).toBe(original)
+  })
+})
+
+describe("writes refuse a properties block a rewrite would lose", () => {
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "updateProperties refuses $label and leaves the note unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await writeFile(join(vault, "kept.md"), content, "utf8")
+      expect(await readFile(join(vault, "kept.md"), "utf8")).toBe(content)
+
+      const refusal = await captureRejection(
+        updateProperties({ vaultPath: vault, path: "kept.md", properties: { title: "T" } }, logger),
+      )
+
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readFile(join(vault, "kept.md"), "utf8")).toBe(content)
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "writeNote overwrite with properties refuses $label and leaves the note unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await writeFile(join(vault, "kept.md"), content, "utf8")
+      expect(await readFile(join(vault, "kept.md"), "utf8")).toBe(content)
+
+      const refusal = await captureRejection(
+        writeNote(
+          {
+            vaultPath: vault,
+            path: "kept.md",
+            body: "new body\n",
+            properties: { title: "T" },
+            overwrite: true,
+          },
+          logger,
+        ),
+      )
+
+      // The overwrite subclass is what gives the client overwrite-specific repair steps
+      expect(refusal).toBeInstanceOf(OverwriteBlockedError)
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readFile(join(vault, "kept.md"), "utf8")).toBe(content)
+    },
+  )
+
+  it.each(UNKEEPABLE_BLOCK_CASES)(
+    "writeNote overwrite without properties refuses $label and leaves the note unchanged",
+    async ({ content, refusal: expectedRefusal }) => {
+      await writeFile(join(vault, "kept.md"), content, "utf8")
+      expect(await readFile(join(vault, "kept.md"), "utf8")).toBe(content)
+
+      const refusal = await captureRejection(
+        writeNote(
+          { vaultPath: vault, path: "kept.md", body: "new body\n", overwrite: true },
+          logger,
+        ),
+      )
+
+      expect(refusal).toBeInstanceOf(OverwriteBlockedError)
+      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
+      expect(await readFile(join(vault, "kept.md"), "utf8")).toBe(content)
+    },
+  )
+
+  it("writeNote overwrite refuses a body that would open the note with --- lines it cannot keep", async () => {
+    const original = "body\n"
+    await writeFile(join(vault, "plain.md"), original, "utf8")
+    expect(await readFile(join(vault, "plain.md"), "utf8")).toBe(original)
+
+    const refusal = await captureRejection(
+      writeNote(
+        {
+          vaultPath: vault,
+          path: "plain.md",
+          body: "---\nJust a paragraph.\n---\n",
+          overwrite: true,
+        },
+        logger,
+      ),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${SINGLE_VALUE_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+    expect(await readFile(join(vault, "plain.md"), "utf8")).toBe(original)
+  })
+
+  it("writeNote without overwrite still refuses an existing broken note as existing", async () => {
+    const content = "---\ntitle: [unclosed\n---\nbody\n"
+    await writeFile(join(vault, "broken.md"), content, "utf8")
+    expect(await readFile(join(vault, "broken.md"), "utf8")).toBe(content)
+
+    await expect(
+      writeNote(
+        { vaultPath: vault, path: "broken.md", body: "new body\n", overwrite: false },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('note already exists: "broken.md"'))
+    expect(await readFile(join(vault, "broken.md"), "utf8")).toBe(content)
+  })
+})
+
+describe("replaceProperties", () => {
+  /** Blocks a merge cannot repair, plus a valid one; `rewriteRefusal` is the planted precondition. */
+  const REPLACEABLE_BLOCKS = [
+    {
+      label: "an unreadable",
+      block: "---\ntitle: [unclosed\n---\n",
+      rewriteRefusal: { kind: "invalid-yaml", message: UNCLOSED_FLOW_MESSAGE },
+    },
+    {
+      label: "a list",
+      block: "---\n- a\n- b\n---\n",
+      rewriteRefusal: { kind: "not-key-value", message: LIST_BLOCK_MESSAGE },
+    },
+    {
+      label: "a tagged",
+      block: "---\nstatus: !done\n---\n",
+      rewriteRefusal: { kind: "explicit-tag", message: DONE_TAG_MESSAGE },
+    },
+    {
+      label: "a valid",
+      block: "---\nold: 1\nkeep: 2\n---\n",
+      rewriteRefusal: null,
+    },
+  ]
+
+  const BODIES = [
+    { label: "a body ending in a newline", body: "body\n" },
+    { label: "a body with no trailing newline", body: "body" },
+    { label: "an empty body", body: "" },
+  ]
+
+  const buildReplaceCasesForBlock = (blockCase: (typeof REPLACEABLE_BLOCKS)[number]) => {
+    return BODIES.map((bodyCase) => ({
+      label: `${blockCase.label} block over ${bodyCase.label}`,
+      original: `${blockCase.block}${bodyCase.body}`,
+      body: bodyCase.body,
+      rewriteRefusal: blockCase.rewriteRefusal,
+    }))
+  }
+
+  const REPLACE_CASES = REPLACEABLE_BLOCKS.flatMap(buildReplaceCasesForBlock)
+
+  it.each(REPLACE_CASES)(
+    "replaces $label with exactly the new block and the body's bytes",
+    async ({ original, body, rewriteRefusal }) => {
+      await writeFile(join(vault, "repair.md"), original, "utf8")
+      expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(original)
+      expect(describeRewriteRefusal(original)).toEqual(rewriteRefusal)
+
+      await replaceProperties(
+        { vaultPath: vault, path: "repair.md", properties: { title: "Fixed" } },
+        logger,
+      )
+
+      expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(
+        `---\ntitle: Fixed\n---\n${body}`,
+      )
+    },
+  )
+
+  it("removes the block when the properties are empty", async () => {
+    const original = "---\ntitle: [unclosed\n---\nbody\n"
+    await writeFile(join(vault, "repair.md"), original, "utf8")
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(original)
+
+    await replaceProperties({ vaultPath: vault, path: "repair.md", properties: {} }, logger)
+
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe("body\n")
+  })
+
+  it("adds a block to a note that has none", async () => {
+    await writeFile(join(vault, "plain.md"), "body\n", "utf8")
+    expect(await readFile(join(vault, "plain.md"), "utf8")).toBe("body\n")
+
+    await replaceProperties(
+      { vaultPath: vault, path: "plain.md", properties: { title: "Fixed" } },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "plain.md"), "utf8")).toBe("---\ntitle: Fixed\n---\nbody\n")
+  })
+
+  it("writes a null value as an empty property", async () => {
+    await writeFile(join(vault, "repair.md"), "---\nold: 1\n---\nbody\n", "utf8")
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe("---\nold: 1\n---\nbody\n")
+
+    await replaceProperties(
+      { vaultPath: vault, path: "repair.md", properties: { due: null } },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe("---\ndue:\n---\nbody\n")
+  })
+
+  it("refuses to remove a block when the body would then open with a block it cannot keep", async () => {
+    const original = "---\nold: 1\n---\n---\n\nSome text\n\n---\n"
+    await writeFile(join(vault, "repair.md"), original, "utf8")
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(original)
+
+    const refusal = await captureRejection(
+      replaceProperties({ vaultPath: vault, path: "repair.md", properties: {} }, logger),
+    )
+
+    expect(describeOutputRefusal(refusal)).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${SINGLE_VALUE_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(original)
+  })
+
+  it("replaces the block above a body that opens with --- lines it cannot keep", async () => {
+    // Replacing with {} refuses this note; with a property in front, the body's
+    // --- lines are no longer the note's first block
+    const original = "---\nold: 1\n---\n---\n\nSome text\n\n---\n"
+    await writeFile(join(vault, "repair.md"), original, "utf8")
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(original)
+
+    await replaceProperties(
+      { vaultPath: vault, path: "repair.md", properties: { title: "Fixed" } },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "repair.md"), "utf8")).toBe(
+      "---\ntitle: Fixed\n---\n---\n\nSome text\n\n---\n",
+    )
+  })
+
+  it("refuses a note that does not exist and creates nothing", async () => {
+    await expect(
+      replaceProperties(
+        { vaultPath: vault, path: "missing.md", properties: { title: "Fixed" } },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('note not found: "missing.md"'))
+    await expect(readFile(join(vault, "missing.md"), "utf8")).rejects.toThrow("ENOENT")
+  })
+
+  it("blocks path traversal", async () => {
+    await expect(
+      replaceProperties(
+        { vaultPath: vault, path: "../escape.md", properties: { title: "Fixed" } },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('path traversal blocked: "../escape.md" escapes vault root'))
+  })
+
+  it("repairs a broken memory file", async () => {
+    const original = "---\ntitle: [unclosed\n---\n# Broken\n"
+    await mkdir(join(vault, "About Me"))
+    await writeFile(join(vault, "About Me/Broken.md"), original, "utf8")
+    expect(describeRewriteRefusal(original)).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
+
+    await replaceProperties(
+      { vaultPath: vault, path: "About Me/Broken.md", properties: { title: "Broken" } },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(
+      "---\ntitle: Broken\n---\n# Broken\n",
+    )
+  })
 })
 
 describe("write size logging", () => {
@@ -2193,6 +2819,45 @@ describe("write size logging", () => {
       beforeBytes: Buffer.byteLength(original, "utf8"),
       afterBytes: Buffer.byteLength(written, "utf8"),
     })
+  })
+
+  it("replaceProperties logs before/after byte counts", async () => {
+    // 30 bytes before; 26 bytes after ("---\ntitle: Fixed\n---\nbody\n")
+    await writeFile(join(vault, "r.md"), "---\ntitle: [unclosed\n---\nbody\n", "utf8")
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await replaceProperties(
+      { vaultPath: vault, path: "r.md", properties: { title: "Fixed" } },
+      logger,
+    )
+
+    expect(infoSpy).toHaveBeenCalledWith("replaced properties", {
+      path: "r.md",
+      beforeBytes: 30,
+      afterBytes: 26,
+    })
+  })
+
+  it("updateProperties does not log a replace", async () => {
+    // 29 bytes before; 44 bytes after ("---\ntitle: Original\nstatus: active\n---\nbody\n")
+    await writeFile(join(vault, "p.md"), "---\ntitle: Original\n---\nbody\n", "utf8")
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await updateProperties(
+      { vaultPath: vault, path: "p.md", properties: { status: "active" } },
+      logger,
+    )
+
+    // The merge ran and logged its own line, so the absence below is not a no-op
+    expect(infoSpy).toHaveBeenCalledWith("updated properties", {
+      path: "p.md",
+      beforeBytes: 29,
+      afterBytes: 44,
+    })
+    // Any payload under this message would be wrong, so the match is deliberately open
+    expect(infoSpy).not.toHaveBeenCalledWith("replaced properties", expect.anything())
   })
 })
 
@@ -2248,6 +2913,24 @@ describe("readNoteOutline", () => {
           text: "Active",
           bytes: Buffer.byteLength("## Active\n\n- one\n- two\n", "utf8"),
         },
+      ],
+    })
+  })
+
+  it("outlines a note whose properties block holds a list the way it outlines its body alone", async () => {
+    const content = "---\n- a\n- b\n---\nIntro\n\n## Plan\nStep one\n"
+    await writeFile(join(vault, "list-block.md"), content, "utf8")
+    // A rewrite refuses this block, so the read below shows that reads still accept it
+    expect(describeRewriteRefusal(content)).toEqual({
+      kind: "not-key-value",
+      message: LIST_BLOCK_MESSAGE,
+    })
+
+    expect(await readNoteOutline({ vaultPath: vault, path: "list-block.md" }, logger)).toEqual({
+      ...(await getExpectedFileMetadata("list-block.md")),
+      leading_content: "Intro",
+      headings: [
+        { level: 2, text: "Plan", bytes: Buffer.byteLength("## Plan\nStep one\n", "utf8") },
       ],
     })
   })
@@ -2551,6 +3234,33 @@ describe("readNoteSection", () => {
     await expect(
       readNoteSection({ vaultPath: vault, path: "board.md", heading: "" }, logger),
     ).rejects.toThrow(new Error("heading cannot be empty"))
+  })
+
+  it("reads a section of a note whose properties block holds a list", async () => {
+    const content = "---\n- a\n- b\n---\n## Plan\nStep one\n\n## Later\nStep two\n"
+    await writeFile(join(vault, "list-block.md"), content, "utf8")
+    // A rewrite refuses this block, so the read below shows that reads still accept it
+    expect(describeRewriteRefusal(content)).toEqual({
+      kind: "not-key-value",
+      message: LIST_BLOCK_MESSAGE,
+    })
+
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "list-block.md", heading: "Plan" },
+      logger,
+    )
+    expect(section).toBe("## Plan\nStep one\n")
+  })
+
+  it("returns a section of a CRLF note with LF line breaks", async () => {
+    const content = "---\r\ntitle: C\r\n---\r\n## Plan\r\nStep one\r\n\r\n## Later\r\nStep two\r\n"
+    await writeFile(join(vault, "crlf.md"), content, "utf8")
+
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "crlf.md", heading: "Plan" },
+      logger,
+    )
+    expect(section).toBe("## Plan\nStep one\n")
   })
 })
 

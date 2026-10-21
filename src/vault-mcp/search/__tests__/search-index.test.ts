@@ -1052,17 +1052,143 @@ describe("upsertNote", () => {
     expect(results[0]?.title).toBe("random")
   })
 
-  it("stores folder as first path segment", () => {
+  it("indexes a note whose block is not valid YAML from its body, with no properties, and warns", () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    // The block carries a tag and a frontmatter link; neither may reach the
+    // index, since Obsidian reads no properties from such a block. The body
+    // links to a different note, so a body link can never cover the
+    // frontmatter one.
     index.upsertNote(
       {
-        filePath: "About Me/Principles.md",
+        filePath: "Meetings/Q3 plan.md",
+        rawContent:
+          '---\ntitle: Meeting: Q3 plan\ntags: [meeting]\nrelated: ["[[Roadmap]]"]\n---\nAgenda for the quokka launch.\n\n- [ ] Book the room\n\nSee [[Budget]].\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "indexed note without its unreadable properties block",
+      {
+        path: "Meetings/Q3 plan.md",
+        error:
+          "[Error]: properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+      },
+    )
+    const bodyHits = index.fullTextSearch({ query: "quokka" }, logger)
+    expect(bodyHits.map((result) => [result.path, result.title, result.tags])).toEqual([
+      ["Meetings/Q3 plan.md", "Q3 plan", []],
+    ])
+    expect(index.searchByTag({ tag: "meeting" }, logger)).toEqual([])
+    expect(
+      index.listTasks({ status: "all" }, logger).tasks.map((task) => [task.path, task.description]),
+    ).toEqual([["Meetings/Q3 plan.md", "Book the room"]])
+    expect(
+      index.getOutgoingLinks({ path: "Meetings/Q3 plan.md" }, logger).map((link) => link.path),
+    ).toEqual(["Budget"])
+  })
+
+  it("replaces every row of a note whose block became unreadable with the new body", () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    index.upsertNote(
+      {
+        filePath: "plan.md",
+        rawContent: "---\ntitle: Plan\ntags: [plan]\n---\nolder amber text\n\n- [ ] Old task\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    index.upsertNote(
+      {
+        filePath: "plan.md",
+        rawContent: "---\ntitle: Meeting: Q3 plan\n---\nnewer opal text\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    expect(index.fullTextSearch({ query: "amber" }, logger)).toEqual([])
+    // The old block's title gives way to the file name
+    const opalHits = index.fullTextSearch({ query: "opal" }, logger)
+    expect(opalHits.map((result) => [result.path, result.title])).toEqual([["plan.md", "plan"]])
+    expect(index.searchByTag({ tag: "plan" }, logger)).toEqual([])
+    expect(index.listTasks({ status: "all" }, logger)).toEqual({ total: 0, tasks: [] })
+  })
+
+  it("stores folder as first path segment", () => {
+    // Nested two levels deep, so the first segment differs from the parent folder.
+    index.upsertNote(
+      {
+        filePath: "About Me/Archive/Principles.md",
         rawContent: NOTE_WITH_FRONTMATTER,
         fileStat: testStat(1000),
       },
       logger,
     )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
-    expect(results[0]?.folder).toBe("About Me")
+    expect(results.map((result) => result.folder)).toEqual(["About Me"])
+  })
+
+  it("stores created as null when the frontmatter value is not an ISO date", () => {
+    index.upsertNote(
+      {
+        filePath: "dated.md",
+        rawContent: "---\ncreated: 2026-01-15\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "undated.md",
+        rawContent: "---\ncreated: next week\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    // The ISO note keeps its date, so the null comes from the failed parse,
+    // not from created never being stored.
+    const createdByPath = index
+      .recentNotes({}, logger)
+      .map((note) => ({ path: note.path, created: note.created }))
+    expect(createdByPath).toEqual([
+      { path: "dated.md", created: DateTime.fromISO("2026-01-15").toISO() },
+      { path: "undated.md", created: null },
+    ])
+  })
+
+  it("stores the file name as title and null as type when those values are not text", () => {
+    index.upsertNote(
+      {
+        filePath: "text-values.md",
+        rawContent: "---\ntitle: Plan\ntype: meeting\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "non-text-values.md",
+        rawContent: "---\ntitle: 2024\ntype: [meeting]\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    // The text-valued note keeps both values, so the fallbacks come from the
+    // values' types, not from title and type never being stored.
+    const titleAndTypeByPath = index
+      .recentNotes({}, logger)
+      .map((note) => ({ path: note.path, title: note.title, type: note.type }))
+    expect(titleAndTypeByPath).toEqual([
+      { path: "text-values.md", title: "Plan", type: "meeting" },
+      { path: "non-text-values.md", title: "non-text-values", type: null },
+    ])
   })
 
   it("stores empty folder for root-level notes", () => {
@@ -1125,6 +1251,25 @@ describe("upsertNote", () => {
     )
     const tags = index.listAllTags({}, logger)
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
+  })
+
+  it.each([
+    // Labels stay within 40 characters, past which vitest cuts the title
+    { label: 'a quoted "#Alpha" as Alpha', frontmatter: 'tags: ["#Alpha"]', stored: ["Alpha"] },
+    { label: "a comma-joined text value as no tag", frontmatter: "tags: alpha, beta", stored: [] },
+    { label: "a bare number as no tag", frontmatter: "tags: 2024", stored: [] },
+    { label: "the tags under a Tags key", frontmatter: "Tags: [x]", stored: ["x"] },
+  ])("stores $label", ({ frontmatter, stored }) => {
+    index.upsertNote(
+      {
+        filePath: "tagged.md",
+        rawContent: `---\n${frontmatter}\n---\nbody\n`,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    expect(index.recentNotes({}, logger).map((note) => note.tags)).toEqual([stored])
   })
 
   it("exposes the status registry it was built with", () => {
@@ -1529,6 +1674,42 @@ describe("fullTextSearch", () => {
     expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
+  it("matches a tags filter by a parent tag in any letter case, not a longer tag", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/child.md",
+        rawContent: "---\ntags: [Project/child]\n---\n\nMeeting notes about the child\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/decoy.md",
+        rawContent: "---\ntags: [projects]\n---\n\nMeeting notes about the decoy\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { tags: ["#PROJECT"] } },
+      logger,
+    )
+    expect(results.map((result) => result.path).toSorted()).toEqual([
+      "Projects/child.md",
+      "Projects/notes.md",
+    ])
+  })
+
+  it("rejects a tags filter entry that is only a #", () => {
+    const searchWithEmptyTag = () => {
+      return index.fullTextSearch({ query: "notes", filters: { tags: ["#"] } }, logger)
+    }
+
+    expect(searchWithEmptyTag).toThrow(new Error('tag must not be empty after its leading "#"'))
+  })
+
   it("respects type filter", () => {
     const results = index.fullTextSearch({ query: "notes", filters: { type: "project" } }, logger)
     expect(results).toHaveLength(1)
@@ -1820,18 +2001,199 @@ describe("searchByTag", () => {
 
   it("prefix match: parent tag matches children", () => {
     const results = index.searchByTag({ tag: "project" }, logger)
-    expect(results).toHaveLength(2)
+    expect(results.map((result) => result.path)).toEqual(["b.md", "a.md"])
   })
 
-  it("exact match mode", () => {
-    const results = index.searchByTag({ tag: "project", exactMatch: true }, logger)
-    expect(results).toHaveLength(0)
+  it("prefix match needs a / after the tag, so projects and my-project do not match", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [projects]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "e.md",
+        rawContent: "---\ntags: [my-project]\n---\nbody\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+
+    const results = index.searchByTag({ tag: "project" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["b.md", "a.md"])
+  })
+
+  it('matches notes tagged project when the tag has a leading "#", but not a trailing "/"', () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [project]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    // The bare tag finds d.md, so the empty "/" result below comes from the
+    // "/" alone, not from a fixture without a matching note.
+    const bareTagResults = index.searchByTag({ tag: "project" }, logger)
+    expect(bareTagResults.map((result) => result.path)).toEqual(["d.md", "b.md", "a.md"])
+
+    const hashResults = index.searchByTag({ tag: "#project" }, logger)
+    expect(hashResults.map((result) => result.path)).toEqual(["d.md", "b.md", "a.md"])
+    expect(index.searchByTag({ tag: "project/" }, logger)).toEqual([])
+  })
+
+  it("treats a stored tag that ends in a slash as itself and as nested under its parent", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [foo//]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+
+    // `foo//` is stored as `foo/`: the query `foo/` is the tag itself, the
+    // query `foo` is its parent, and exact mode with `foo` is neither
+    expect(index.searchByTag({ tag: "foo/" }, logger).map((result) => result.path)).toEqual([
+      "d.md",
+    ])
+    expect(index.searchByTag({ tag: "foo" }, logger).map((result) => result.path)).toEqual(["d.md"])
+    expect(index.searchByTag({ tag: "foo", exact: true }, logger)).toEqual([])
+  })
+
+  it("ignores letter case in both modes, with Projects and my-project as decoys", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [Project]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "e.md",
+        rawContent: "---\ntags: [project]\n---\nbody\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+    // The decoys sit in a note of their own, so a match on either one would
+    // add f.md to the results
+    index.upsertNote(
+      {
+        filePath: "f.md",
+        rawContent: "---\ntags: [Projects, my-project]\n---\nbody\n",
+        fileStat: testStat(6000),
+      },
+      logger,
+    )
+
+    expect(index.searchByTag({ tag: "PROJECT" }, logger).map((result) => result.path)).toEqual([
+      "e.md",
+      "d.md",
+      "b.md",
+      "a.md",
+    ])
+    expect(
+      index.searchByTag({ tag: "PROJECT", exact: true }, logger).map((result) => result.path),
+    ).toEqual(["e.md", "d.md"])
+  })
+
+  it("folds the query the way it folds stored tags, so a capital sharp s finds a small one", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [ß, Straße]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+
+    expect(index.searchByTag({ tag: "ẞ" }, logger).map((result) => result.path)).toEqual(["d.md"])
+    expect(index.searchByTag({ tag: "STRASSE" }, logger)).toEqual([])
+  })
+
+  it("folds a stored non-ASCII tag in prefix mode, where LIKE alone ignores only ASCII case", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [Ärger/Alt]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+
+    expect(index.searchByTag({ tag: "ärger" }, logger).map((result) => result.path)).toEqual([
+      "d.md",
+    ])
+  })
+
+  it('removes a leading "#" in exact mode too', () => {
+    const results = index.searchByTag({ tag: "#Project/Vault-MCP", exact: true }, logger)
+    expect(results.map((result) => result.path)).toEqual(["a.md"])
+  })
+
+  it("rejects a tag that is only a #", () => {
+    expect(() => index.searchByTag({ tag: "#" }, logger)).toThrow(
+      new Error('tag must not be empty after its leading "#"'),
+    )
+  })
+
+  it("exact match returns the tag itself, not tags nested under it", () => {
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [project]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+
+    const results = index.searchByTag({ tag: "project", exact: true }, logger)
+    expect(results.map((result) => result.path)).toEqual(["d.md"])
   })
 
   it("exact match finds specific tag", () => {
-    const results = index.searchByTag({ tag: "project/vault-mcp", exactMatch: true }, logger)
-    expect(results).toHaveLength(1)
-    expect(results[0]?.path).toBe("a.md")
+    const results = index.searchByTag({ tag: "project/vault-mcp", exact: true }, logger)
+    expect(results.map((result) => result.path)).toEqual(["a.md"])
+  })
+
+  it("returns each match's full metadata, with tags other than the matched one", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/plan.md",
+        rawContent:
+          "---\ntags: [project/alpha, planning]\ntype: plan\ncreated: 2026-01-15\nrelated: [Roadmap]\nstatus: active\n---\n> [!info] Scope\n> Next quarter.\n\nBody.\n",
+        fileStat: testStat(4000, 321),
+      },
+      logger,
+    )
+
+    expect(index.searchByTag({ tag: "project/alpha" }, logger)).toEqual([
+      {
+        path: "Projects/plan.md",
+        title: "plan",
+        tags: ["project/alpha", "planning"],
+        related: ["Roadmap"],
+        folder: "Projects",
+        type: "plan",
+        created: DateTime.fromISO("2026-01-15").toISO(),
+        modified: isoFromMillis(4000),
+        bytes: 321,
+        properties: {
+          tags: ["project/alpha", "planning"],
+          type: "plan",
+          created: "2026-01-15",
+          related: ["Roadmap"],
+          status: "active",
+        },
+        leading_callout: { type: "info", title: "Scope", body: "Next quarter." },
+      },
+    ])
   })
 
   it("returns empty for non-existent tag", () => {
@@ -1974,6 +2336,79 @@ describe("listAllTags", () => {
       tag: "self",
       count: 1,
     })
+  })
+
+  it("merges spellings that differ in letter case under the most-used spelling, counting notes", () => {
+    index.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\ntags: [work]\n---\nbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "c.md",
+        rawContent: "---\ntags: [Work, Work, Work]\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "d.md",
+        rawContent: "---\ntags: [WORK]\n---\nbody\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+
+    // `Work` wins with three occurrences in one note. Ranking by notes would
+    // pick `work` (two notes), and the binary tie-break alone would pick `WORK`
+    expect(index.listAllTags({}, logger)).toEqual([
+      { tag: "Work", count: 4 },
+      { tag: "principles", count: 2 },
+      { tag: "self", count: 1 },
+    ])
+  })
+
+  it("breaks a spelling tie by binary order and counts a note with both spellings once", () => {
+    index.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\ntags: [tie, Tie]\n---\nbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+
+    // One occurrence each: `Tie` sorts before `tie` in binary order, though
+    // `tie` comes first in the note, and the single note carrying both counts once
+    expect(index.listAllTags({}, logger)).toEqual([
+      { tag: "principles", count: 2 },
+      { tag: "Tie", count: 1 },
+      { tag: "self", count: 1 },
+      { tag: "work", count: 1 },
+    ])
+  })
+
+  it("adds no tag for a mapping-valued tags property", () => {
+    const tagsBefore = index.listAllTags({}, logger)
+    index.upsertNote(
+      {
+        filePath: "mapped.md",
+        rawContent: "---\ntags:\n  project: true\n---\nmappedbody\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+
+    expect(
+      index.fullTextSearch({ query: "mappedbody" }, logger).map((result) => result.path),
+    ).toEqual(["mapped.md"])
+    expect(index.listAllTags({}, logger)).toEqual(tagsBefore)
+    expect(index.searchByTag({ tag: "[object Object]" }, logger)).toEqual([])
   })
 
   it("handles notes with no tags", () => {
@@ -3557,9 +3992,12 @@ describe("rebuildFromVault filesystem failures", () => {
   it("contains a rebuild PDF extraction failure and indexes its next valid extraction", async () => {
     const { vaultPath, search } = await createRebuildVault()
     await writeFile(join(vaultPath, "broken.pdf"), "controlled bytes")
+    // A wrapped error, so the log must carry the cause as well as the wrapper
     const extractSpy = vi
       .mocked(extractPdfText)
-      .mockRejectedValueOnce(new Error("controlled PDF failure"))
+      .mockRejectedValueOnce(
+        new Error("PDF reader could not start", { cause: new Error("controlled PDF failure") }),
+      )
       .mockResolvedValueOnce({ text: "recoveredopal", totalPages: 1 })
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => {
@@ -3570,7 +4008,8 @@ describe("rebuildFromVault filesystem failures", () => {
     await rebuilt.embedding
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable PDF during rebuild", {
       path: "broken.pdf",
-      error: "[Error]: controlled PDF failure",
+      error: "[Error]: PDF reader could not start",
+      cause: "[Error]: controlled PDF failure",
     })
     expect(
       (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
@@ -3639,25 +4078,199 @@ describe("rebuildFromVault", () => {
     expect(results[0]?.path).toBe("About Me/Principles.md")
   })
 
-  it("skips a note whose frontmatter fails to parse, warns, and indexes the rest", async () => {
+  it("indexes a note whose block is not valid YAML from its body, counts it, and warns once", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
     await writeFile(
       join(vaultDir, "broken.md"),
-      "---\ntitle: [unclosed\n---\nbroken body text\n",
+      "---\ntitle: [unclosed\n---\nbroken body text, see [[root]]\n",
       "utf8",
     )
+
     const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
-    expect(count).toBe(2)
-    expect(warnSpy).toHaveBeenCalledWith(
-      "skipped malformed note during rebuild",
-      expect.objectContaining({ path: "broken.md" }),
+
+    // Two fixture notes from beforeEach plus this one: a skipped note would leave 2
+    expect(count).toBe(3)
+    // Pass 2 parses the note again for its links and must not warn a second time
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "indexed note without its unreadable properties block",
+      {
+        path: "broken.md",
+        error:
+          "[Error]: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]",
+      },
     )
-    const healthyPaths = index
-      .fullTextSearch({ query: "burnout" }, logger)
-      .map((result) => result.path)
-    expect(healthyPaths).toEqual(["About Me/Principles.md"])
-    expect(index.fullTextSearch({ query: "broken" }, logger)).toHaveLength(0)
+    const brokenHits = index.fullTextSearch({ query: "broken" }, logger)
+    expect(brokenHits.map((result) => [result.path, result.title])).toEqual([
+      ["broken.md", "broken"],
+    ])
+    expect(
+      index.getBacklinks({ path: "root.md" }, logger).map((backlink) => backlink.path),
+    ).toEqual(["broken.md"])
+  })
+
+  it("skips a note whose index write fails, warns, and indexes the rest", async () => {
+    const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
+    const poisonedIndex = createSearchIndex(":memory:")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    // The only fixture note with a task, so the poisoned statement fires for it alone
+    await writeFile(join(vaultDir, "tasked.md"), "tasked body text\n\n- [ ] A task\n", "utf8")
+
+    taskInsertPoison.arm()
+    const { count } = await poisonedIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    taskInsertPoison.disarm()
+
+    expect(count).toBe(2)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "skipped note that failed to index during rebuild",
+      { path: "tasked.md", error: `[Error]: ${taskInsertPoison.message}` },
+    )
+    expect(poisonedIndex.fullTextSearch({ query: "tasked" }, logger)).toEqual([])
+    const healthyHits = poisonedIndex.fullTextSearch({ query: "burnout" }, logger)
+    expect(healthyHits.map((result) => result.path)).toEqual(["About Me/Principles.md"])
+  })
+
+  it("does not report a note with an unreadable block as indexed when its index write fails", async () => {
+    const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
+    const poisonedIndex = createSearchIndex(":memory:")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    // The only fixture note with a task, so the poisoned statement fires for it alone
+    await writeFile(
+      join(vaultDir, "tasked.md"),
+      "---\ntitle: [unclosed\n---\ntasked body text\n\n- [ ] A task\n",
+      "utf8",
+    )
+
+    taskInsertPoison.arm()
+    const { count } = await poisonedIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    taskInsertPoison.disarm()
+
+    expect(count).toBe(2)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "skipped note that failed to index during rebuild",
+      { path: "tasked.md", error: `[Error]: ${taskInsertPoison.message}` },
+    )
+  })
+
+  it("keeps none of the links of a note whose link pass fails partway", async () => {
+    const dbDir = await mkdtemp(join(tmpdir(), "rebuild-partial-links-"))
+    onTestFinished(() => rm(dbDir, { recursive: true, force: true }))
+    const dbPath = join(dbDir, "index.db")
+    const linkFailureIndex = createSearchIndex(dbPath)
+    // The trigger fails the second link only, after the first one is inserted
+    const schemaWriter = new Database(dbPath)
+    schemaWriter.exec(
+      "CREATE TRIGGER fail_beta_link BEFORE INSERT ON links WHEN NEW.target = 'beta' BEGIN SELECT RAISE(ABORT, 'injected link failure'); END",
+    )
+    schemaWriter.close()
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(join(vaultDir, "linker.md"), "See [[alpha]], then [[beta]].\n", "utf8")
+
+    const { count } = await linkFailureIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+
+    // The note's Pass 1 rows are committed, so it counts as indexed and stays searchable
+    expect(count).toBe(3)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "skipped the links of a note whose link pass failed during rebuild",
+      { path: "linker.md", error: "[SqliteError]: injected link failure" },
+    )
+    expect(
+      linkFailureIndex.fullTextSearch({ query: "alpha" }, logger).map((result) => result.path),
+    ).toEqual(["linker.md"])
+    expect(linkFailureIndex.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([])
+  })
+
+  it("keeps the memory entries and vectors of a note that fails to index but is still on disk", async () => {
+    const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
+    const dbDir = await mkdtemp(join(tmpdir(), "rebuild-keep-failed-"))
+    onTestFinished(() => rm(dbDir, { recursive: true, force: true }))
+    const dbPath = join(dbDir, "index.db")
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+      embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+        return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+      }),
+    }
+    const memoryIndex = createSearchIndex(dbPath, embedder, undefined, { memoryDir: "About Me" })
+    const inspect = new Database(dbPath, { readonly: true })
+    sqliteVec.load(inspect)
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const selectStoredRows = () => ({
+      entries: inspect.prepare("SELECT file, entry_date, entry_text FROM memory_entries").all(),
+      noteChunks: inspect
+        .prepare<[], { note_path: string; chunk_index: number; chunk_text: string }>(
+          "SELECT note_path, chunk_index, chunk_text FROM note_chunks ORDER BY note_path",
+        )
+        .all(),
+      noteVectors: countRow(inspect.prepare("SELECT COUNT(*) AS count FROM note_vectors").get())
+        .count,
+      entryVectors: countRow(
+        inspect.prepare("SELECT COUNT(*) AS count FROM memory_entry_vectors").get(),
+      ).count,
+    })
+    // The only fixture note with a task, so the poisoned statement fires for it alone
+    await writeFile(
+      join(vaultDir, "About Me/Opinions.md"),
+      "# Opinions\n\n## Code patterns (newest first)\n\n- **2026-08-01**: Named over positional.\n\n## Follow-ups\n\n- [ ] Revisit naming\n",
+      "utf8",
+    )
+    const firstBuild = await memoryIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await firstBuild.embedding
+    const rowsAfterFirstBuild = selectStoredRows()
+    // The first build stored rows for the note, so keeping them below is not vacuous.
+    // Chunks are checked by path only, because their text is the chunker's concern.
+    expect(rowsAfterFirstBuild).toMatchObject({
+      entries: [
+        {
+          file: "Opinions",
+          entry_date: "2026-08-01",
+          entry_text: "- **2026-08-01**: Named over positional.",
+        },
+      ],
+      noteVectors: 3,
+      entryVectors: 1,
+    })
+    expect(rowsAfterFirstBuild.noteChunks.map((chunk) => chunk.note_path)).toEqual([
+      "About Me/Opinions.md",
+      "About Me/Principles.md",
+      "root.md",
+    ])
+
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    taskInsertPoison.arm()
+    const secondBuild = await memoryIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    taskInsertPoison.disarm()
+    await secondBuild.embedding
+
+    // The warning and the empty search prove the second build skipped the note
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
+      "skipped note that failed to index during rebuild",
+      { path: "About Me/Opinions.md", error: `[Error]: ${taskInsertPoison.message}` },
+    )
+    expect(memoryIndex.fullTextSearch({ query: "positional" }, logger)).toEqual([])
+    // A note still on disk is not treated as deleted; its rows wait for the next good index
+    expect(selectStoredRows()).toEqual(rowsAfterFirstBuild)
+  })
+
+  it.each([
+    { label: "a list", content: "---\n- a\n- b\n---\nquokka body text\n" },
+    { label: "a single value", content: "---\nJust a paragraph.\n---\nquokka body text\n" },
+    { label: "an explicitly tagged value", content: "---\nstatus: !done\n---\nquokka body text\n" },
+  ])("indexes a note whose properties block holds $label", async ({ content }) => {
+    await writeFile(join(vaultDir, "kept.md"), content, "utf8")
+
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+
+    // Two fixture notes from beforeEach plus this one: a skipped note would leave 2
+    expect(count).toBe(3)
+    const bodyHits = index.fullTextSearch({ query: "quokka" }, logger).map((result) => result.path)
+    expect(bodyHits).toEqual(["kept.md"])
   })
 
   it("indexes a note opening with Multi Column plugin syntax as plain content", async () => {
@@ -3681,25 +4294,22 @@ describe("rebuildFromVault", () => {
     expect(propertyHits).toHaveLength(0)
   })
 
-  it("stores a link into a skipped note as its raw target", async () => {
+  it("resolves a link into a note whose block is not valid YAML", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
-    await writeFile(
-      join(vaultDir, "broken.md"),
-      "---\ntitle: [unclosed\n---\nbroken body text\n",
-      "utf8",
-    )
+    const brokenContent = "---\ntitle: [unclosed\n---\nbroken body text\n"
+    await writeFile(join(vaultDir, "broken.md"), brokenContent, "utf8")
     await writeFile(join(vaultDir, "linker.md"), "# Linker\n\nSee [[broken]].\n", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
-    // exists: false proves the skip happened — an indexed broken.md
-    // would have resolved the link to "broken.md"
+    // The note is in the notes table, so the link resolves to it; the title
+    // is the file name because the block's title was not read
     expect(index.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([
       {
-        path: "broken",
-        title: null,
-        exists: false,
+        path: "broken.md",
+        title: "broken",
+        exists: true,
         kind: "note",
-        bytes: null,
+        bytes: Buffer.byteLength(brokenContent),
         daily_note_forward_ref: false,
       },
     ])
@@ -5563,6 +6173,26 @@ It has multiple sentences to verify chunking works correctly.
       )
     })
 
+    it("prefixes the tags the index stores: a Tags key read, # removed, invalid names left out", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const enrichedIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        ranking: { enrichChunkMetadata: true },
+      })
+      const rawContent =
+        '---\ntitle: Tagged Note\nTags: ["#Search", "a b", "1984"]\n---\n\nBody content.\n'
+
+      const sourceVersion = seedEmbeddingSource(enrichedIndex, {
+        notePath: "tagged.md",
+        rawContent,
+      })
+      await enrichedIndex.embedNote({ sourceVersion, notePath: "tagged.md", rawContent }, logger)
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Tagged Note\nTags: Search.\n\n\nBody content.",
+      )
+    })
+
     it("embeds unprefixed chunk text under enrichment when the note has no type or tags", async () => {
       const mockEmbedder = createMockEmbedder()
       const enrichedIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
@@ -6054,7 +6684,7 @@ Shared datefilter content for boundary tests.
     }).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
   })
 
-  it("rejects a calendar-invalid created date", () => {
+  it("rejects a created date the calendar lacks, saying so rather than naming the format", () => {
     const dateIndex = indexWithCreatedDates()
     expect(() => {
       dateIndex.fullTextSearch(
@@ -6065,7 +6695,19 @@ Shared datefilter content for boundary tests.
         logger,
       )
     }).toThrow(
-      /^invalid created\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+      /^created\.before date "2026-02-31" is not a calendar date\. Pass a real date in YYYY-MM-DD format\.$/,
+    )
+  })
+
+  it("rejects a created.after date the calendar lacks, naming that bound", () => {
+    const dateIndex = indexWithCreatedDates()
+    expect(() => {
+      dateIndex.fullTextSearch(
+        { query: "datefilter", filters: { created: { after: "2026-04-31" } } },
+        logger,
+      )
+    }).toThrow(
+      /^created\.after date "2026-04-31" is not a calendar date\. Pass a real date in YYYY-MM-DD format\.$/,
     )
   })
 })
@@ -6161,7 +6803,7 @@ Shared datefilter content for mtime boundary tests.
     )
   })
 
-  it("rejects a calendar-invalid modified date", () => {
+  it("rejects a modified date the calendar lacks, saying so rather than naming the format", () => {
     const dateIndex = indexWithModifiedTimes()
     expect(() => {
       dateIndex.fullTextSearch(
@@ -6172,7 +6814,7 @@ Shared datefilter content for mtime boundary tests.
         logger,
       )
     }).toThrow(
-      /^invalid modified\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+      /^modified\.before date "2026-02-31" is not a calendar date\. Pass a real date in YYYY-MM-DD format\.$/,
     )
   })
 
@@ -7114,20 +7756,24 @@ describe("committed embedding source versions", () => {
     },
   )
 
-  it("preserves the committed note version when replacement frontmatter cannot parse", async () => {
+  it("embeds a replacement whose block cannot be read from its body, under the file name", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
     const fixture = await createEmbeddingRaceIndex("note")
-    const content = "Original retained source."
-    const sourceVersion = fixture.upsert(content)
-    expect(() => fixture.upsert("---\ntitle: [unclosed\n---\nReplacement.")).toThrow(
-      "Flow sequence in block collection must be sufficiently indented and end with a ]",
-    )
+    const originalContent = "---\ntitle: Old\n---\nOriginal replaced source."
+    const originalVersion = fixture.upsert(originalContent)
+    const replacementContent = "---\ntitle: [unclosed\n---\nReplacement."
+    const replacementVersion = fixture.upsert(replacementContent)
 
-    await fixture.embed(content, sourceVersion)
+    // The original's job is obsolete: the replacement committed, block or no block
+    await fixture.embed(originalContent, originalVersion)
+    expect(fixture.chunks()).toEqual([])
+    await fixture.embed(replacementContent, replacementVersion)
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
-    expect(fixture.chunks()).toEqual([
-      { chunk_index: 0, chunk_text: "reuse\n\nOriginal retained source." },
+    expect(fixture.chunks()).toEqual([{ chunk_index: 0, chunk_text: "reuse\n\nReplacement." }])
+    expect(fixture.inspect.prepare("SELECT title, content FROM notes").all()).toEqual([
+      { title: "reuse", content: "Replacement." },
     ])
-    expect(fixture.inspect.prepare("SELECT content FROM notes").all()).toEqual([{ content }])
   })
 
   it("skips deleted and same-mtime superseded rebuild snapshots before later model work", async () => {
@@ -7640,10 +8286,16 @@ describe("file content vector embeddings", () => {
 })
 
 describe("trash entries (retention-sweep bookkeeping)", () => {
+  /** A stand-in identity — the store keeps whatever string it is given. */
+  const SAMPLE_FILE_IDENTITY = "4096:12:1791557833301645709"
+
   it("listAllTrashEntries returns every recorded entry", () => {
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/a.md")
-    trashIndex.recordTrashEntry(".trash/sub/b.md")
+    trashIndex.recordTrashEntry({ trashPath: ".trash/a.md", fileIdentity: SAMPLE_FILE_IDENTITY })
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/sub/b.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
 
     const allEntries = trashIndex.listAllTrashEntries()
 
@@ -7657,20 +8309,73 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     expect(trashIndex.listAllTrashEntries()).toEqual([])
   })
 
-  it("round-trips a recorded entry through get and list", () => {
+  it("round-trips a recorded entry, identity included, through get and both lists", () => {
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const trashTime = DateTime.fromISO("2026-01-01T00:00:00Z")
+    vi.setSystemTime(trashTime.toMillis())
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/Notes/gone.md")
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/Notes/gone.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
+    const expectedEntry = {
+      trashPath: ".trash/Notes/gone.md",
+      trashedAt: trashTime.toUnixInteger(),
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    }
 
-    const entry = trashIndex.getTrashEntry(".trash/Notes/gone.md")
-    expect(entry?.trashPath).toBe(".trash/Notes/gone.md")
+    expect(trashIndex.getTrashEntry(".trash/Notes/gone.md")).toEqual(expectedEntry)
+    expect(trashIndex.listAllTrashEntries()).toEqual([expectedEntry])
     // Every recorded entry is "expired" against a cutoff after its stamp.
-    const listed = trashIndex.listExpiredTrashEntries((entry?.trashedAt ?? 0) + 1)
-    expect(listed.map((listedEntry) => listedEntry.trashPath)).toEqual([".trash/Notes/gone.md"])
+    expect(trashIndex.listExpiredTrashEntries(trashTime.toUnixInteger() + 1)).toEqual([
+      expectedEntry,
+    ])
+  })
+
+  it("adds the file_identity column to a pre-existing trash_entries table, leaving old rows without one", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "warm-db-"))
+    onTestFinished(() => rm(dir, { recursive: true }))
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const trashTime = DateTime.fromISO("2026-01-01T00:00:00Z")
+    vi.setSystemTime(trashTime.toMillis())
+    const dbPath = join(dir, "search.db")
+    // Simulate a database file created before the file_identity column.
+    const legacyDb = new Database(dbPath)
+    legacyDb.exec(`
+      CREATE TABLE trash_entries (
+        trash_key TEXT PRIMARY KEY, trash_path TEXT NOT NULL, trashed_at INTEGER NOT NULL
+      );
+      INSERT INTO trash_entries VALUES ('.trash/old.md', '.trash/Old.md', 1700000000);
+    `)
+    legacyDb.close()
+
+    const warmIndex = createSearchIndex(dbPath)
+    warmIndex.recordTrashEntry({ trashPath: ".trash/new.md", fileIdentity: SAMPLE_FILE_IDENTITY })
+
+    expect(warmIndex.getTrashEntry(".trash/Old.md")).toEqual({
+      trashPath: ".trash/Old.md",
+      trashedAt: 1700000000,
+      fileIdentity: null,
+    })
+    expect(warmIndex.getTrashEntry(".trash/new.md")).toEqual({
+      trashPath: ".trash/new.md",
+      trashedAt: trashTime.toUnixInteger(),
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
   })
 
   it("treats the cutoff as exclusive — a row stamped exactly at the cutoff is not expired", () => {
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/boundary.md")
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/boundary.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
     const entry = trashIndex.getTrashEntry(".trash/boundary.md")
 
     if (!entry) throw new Error("entry missing after record")
@@ -7683,7 +8388,7 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     ).toEqual([".trash/boundary.md"])
   })
 
-  it("re-recording the same path restarts the retention clock", () => {
+  it("re-recording the same path restarts the retention clock and replaces the identity", () => {
     vi.useFakeTimers()
     onTestFinished(() => {
       vi.useRealTimers()
@@ -7693,15 +8398,23 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     const secondTrashTime = DateTime.fromISO("2026-03-01T00:00:00Z")
 
     vi.setSystemTime(firstTrashTime.toMillis())
-    trashIndex.recordTrashEntry(".trash/reused.md")
+    trashIndex.recordTrashEntry({ trashPath: ".trash/reused.md", fileIdentity: "100:5:1" })
     const firstEntry = trashIndex.getTrashEntry(".trash/reused.md")
 
     vi.setSystemTime(secondTrashTime.toMillis())
-    trashIndex.recordTrashEntry(".trash/reused.md")
+    trashIndex.recordTrashEntry({ trashPath: ".trash/reused.md", fileIdentity: "200:7:2" })
     const refreshedEntry = trashIndex.getTrashEntry(".trash/reused.md")
 
-    expect(firstEntry?.trashedAt).toBe(firstTrashTime.toUnixInteger())
-    expect(refreshedEntry?.trashedAt).toBe(secondTrashTime.toUnixInteger())
+    expect(firstEntry).toEqual({
+      trashPath: ".trash/reused.md",
+      trashedAt: firstTrashTime.toUnixInteger(),
+      fileIdentity: "100:5:1",
+    })
+    expect(refreshedEntry).toEqual({
+      trashPath: ".trash/reused.md",
+      trashedAt: secondTrashTime.toUnixInteger(),
+      fileIdentity: "200:7:2",
+    })
   })
 
   it("a case-alias record replaces the stale row instead of adding a second one", () => {
@@ -7709,8 +8422,8 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     // are one file — two live rows for it would let a stale expired alias
     // purge the fresh copy. The folded primary key collapses them to one.
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/Note.md")
-    trashIndex.recordTrashEntry(".trash/note.md")
+    trashIndex.recordTrashEntry({ trashPath: ".trash/Note.md", fileIdentity: SAMPLE_FILE_IDENTITY })
+    trashIndex.recordTrashEntry({ trashPath: ".trash/note.md", fileIdentity: SAMPLE_FILE_IDENTITY })
 
     const farFutureCutoff = DateTime.now().plus({ days: 1 }).toUnixInteger()
     const listed = trashIndex.listExpiredTrashEntries(farFutureCutoff)
@@ -7721,7 +8434,10 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
 
   it("deleteTrashEntry removes the row under any case alias", () => {
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/ToDelete.md")
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/ToDelete.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
 
     trashIndex.deleteTrashEntry(".trash/todelete.md")
 
@@ -7730,15 +8446,32 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     expect(trashIndex.listExpiredTrashEntries(farFutureCutoff)).toEqual([])
   })
 
-  it("trash entries survive a vault rebuild", async () => {
+  it("trash entries survive a vault rebuild with their timestamp and identity", async () => {
+    // Only Date is faked, so the rebuild's own timers and file reads run as usual.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const trashTime = DateTime.fromISO("2026-01-01T00:00:00Z")
+    vi.setSystemTime(trashTime.toMillis())
     const trashIndex = createSearchIndex(":memory:")
-    trashIndex.recordTrashEntry(".trash/survivor.md")
+    trashIndex.recordTrashEntry({
+      trashPath: ".trash/survivor.md",
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
     const emptyVault = await mkdtemp(join(tmpdir(), "trash-rebuild-"))
     onTestFinished(() => rm(emptyVault, { recursive: true, force: true }))
+    // A day later, so a rebuild that re-stamped the row from the clock would
+    // change trashedAt.
+    vi.setSystemTime(trashTime.plus({ days: 1 }).toMillis())
 
     await trashIndex.rebuildFromVault({ vaultPath: emptyVault }, logger)
 
-    expect(trashIndex.getTrashEntry(".trash/survivor.md")?.trashPath).toBe(".trash/survivor.md")
+    expect(trashIndex.getTrashEntry(".trash/survivor.md")).toEqual({
+      trashPath: ".trash/survivor.md",
+      trashedAt: trashTime.toUnixInteger(),
+      fileIdentity: SAMPLE_FILE_IDENTITY,
+    })
   })
 })
 

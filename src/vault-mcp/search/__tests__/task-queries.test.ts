@@ -445,14 +445,16 @@ describe("listTasks date filters", () => {
   it("rejects a malformed date with remediation text", () => {
     const index = createTestIndex()
     expect(() => index.listTasks({ due: { before: "July 3rd" } }, logger)).toThrow(
-      'invalid due.before date: "July 3rd". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      new Error('invalid due.before date: "July 3rd". Use YYYY-MM-DD (e.g. 2026-07-03).'),
     )
   })
 
-  it("rejects a calendar-invalid date", () => {
+  it("rejects a date the calendar lacks, saying so rather than naming the format", () => {
     const index = createTestIndex()
     expect(() => index.listTasks({ due: { on: "2026-02-31" } }, logger)).toThrow(
-      'invalid due.on date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      new Error(
+        'due.on date "2026-02-31" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+      ),
     )
   })
 })
@@ -595,6 +597,35 @@ describe("listTasks scope filters", () => {
     ])
   })
 
+  it("matches the tag filter ignoring letter case and a leading #, not a longer tag", () => {
+    const index = indexWithBoardAndPlain()
+    index.upsertNote(
+      {
+        filePath: "decoys.md",
+        rawContent: ["- [ ] Longer tag task #errands", "- [ ] Suffix tag task #my-errand"].join(
+          "\n",
+        ),
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+
+    expect(
+      index.listTasks({ tag: "ERRAND" }, logger).tasks.map((entry) => entry.description),
+    ).toEqual(["Standalone task #errand"])
+    expect(
+      index.listTasks({ tag: "#errand" }, logger).tasks.map((entry) => entry.description),
+    ).toEqual(["Standalone task #errand"])
+  })
+
+  it("rejects a tag filter that is only a #", () => {
+    const index = indexWithBoardAndPlain()
+
+    expect(() => index.listTasks({ tag: "#" }, logger)).toThrow(
+      new Error('tag must not be empty after its leading "#"'),
+    )
+  })
+
   it("treats LIKE wildcards in the tag as literal characters when matching children", () => {
     const index = createTestIndex()
     index.upsertNote(
@@ -631,7 +662,7 @@ describe("listTasks scope filters", () => {
   it("rejects a path without the .md extension", () => {
     const index = createTestIndex()
     expect(() => index.listTasks({ path: "Inbox/notes" }, logger)).toThrow(
-      'path must end in ".md" (received "Inbox/notes")',
+      new Error('path must end in ".md" (received "Inbox/notes")'),
     )
   })
 

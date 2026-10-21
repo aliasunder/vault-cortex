@@ -89,14 +89,19 @@ let pdfEnginePromise: Promise<PdfEngine> | undefined
 
 const getPdfEngine = (): Promise<PdfEngine> => {
   if (!pdfEnginePromise) {
-    // Memoize only a fulfilled init: a transient failure (e.g. the native
-    // canvas binding hitting a resource limit) must not poison every later
-    // PDF read for the process lifetime. The catch drops the memo so the
-    // next call retries, then re-throws so every caller sharing this
-    // promise still observes the rejection.
+    // Memoize only a fulfilled init, so one failed start does not poison
+    // every later PDF read:
+    // - The catch drops the memo, so the next call retries. That recovers a
+    //   failure after the modules load (pdf.js setup, the canvas factory). A
+    //   module whose first load failed stays failed until the process
+    //   restarts, because Node caches a failed module evaluation.
+    // - Every caller sharing this promise sees one rejection: the server's
+    //   own sentence, with the original error as its cause, because a
+    //   module-load error quotes the server's install paths, which must not
+    //   reach a client.
     pdfEnginePromise = initializePdfEngine().catch((error: unknown) => {
       pdfEnginePromise = undefined
-      throw error
+      throw new Error("PDF reader could not start", { cause: error })
     })
   }
   return pdfEnginePromise

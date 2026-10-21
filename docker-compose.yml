@@ -32,9 +32,10 @@ services:
       SYNC_EXCLUDED_FOLDERS: ${SYNC_EXCLUDED_FOLDERS:-}
       SYNC_FILE_TYPES: ${SYNC_FILE_TYPES:-}
       # Obsidian config-category sync (default: core and community plugin data,
-      # including daily-note settings and the Tasks plugin format). "none" disables;
-      # the category values are listed in .env.example.
-      SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data}
+      # including daily-note settings and the Tasks plugin format, plus app for
+      # the new-note location). "none" disables; the category values are listed
+      # in .env.example.
+      SYNC_CONFIGS: ${SYNC_CONFIGS:-core-plugin-data,community-plugin-data,app}
       # --- MCP server (svc-vault-mcp) ---
       NODE_ENV: production
       PORT: "8000"
@@ -101,11 +102,14 @@ services:
       # <DAILY_NOTES_FOLDER> stand for the resolved values (defaults "About Me" and "Daily Notes").
       # A set folder list replaces its whole default.
       # The daily notes folder is resolved from DAILY_NOTES_FOLDER or
-      # .obsidian/daily-notes.json, falling back to "Daily Notes".
+      # .obsidian/daily-notes.json (an empty folder there follows Obsidian's
+      # new-note location), falling back to "Daily Notes" when that file is missing or unreadable.
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, <DAILY_NOTES_FOLDER>"
       #   ORPHAN_EXCLUDE_FOLDERS    default: "<DAILY_NOTES_FOLDER>, Templates, <MEMORY_DIR>"
+      #   (neither default adds a daily folder when the daily notes folder setting is the vault root or empty)
       #   SERVICE_DOCUMENTATION_URL default: https://github.com/aliasunder/vault-cortex
-      #   DAILY_NOTES_FOLDER        default: read from the vault's .obsidian/daily-notes.json, else "Daily Notes"
+      #   DAILY_NOTES_FOLDER        default: read from the vault's .obsidian/daily-notes.json (an empty folder
+      #                             there follows Obsidian's new-note location), else "Daily Notes"; set / for the vault root
       #   DAILY_NOTES_FORMAT        default: read from the vault's .obsidian/daily-notes.json, else "YYYY-MM-DD"
       PROTECTED_PATHS: ${PROTECTED_PATHS:-}
       ORPHAN_EXCLUDE_FOLDERS: ${ORPHAN_EXCLUDE_FOLDERS:-}

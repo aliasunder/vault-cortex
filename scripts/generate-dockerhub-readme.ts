@@ -108,6 +108,10 @@ const compressTableRow = (line: string): string => {
 const isContentsLine = (line: string): boolean =>
   line.startsWith("**Contents**") || line.startsWith("**Contents** —")
 
+/** DeepWiki documents the source repo, not the image, and the badge's raw
+ *  GitHub URL would push DOCKERHUB.md past Docker Hub's 25000-byte cap. */
+const isDeepWikiBadge = (line: string): boolean => line.startsWith("[![Ask DeepWiki]")
+
 const parseHeading = (line: string): { level: number; text: string } | undefined => {
   const match = line.match(/^(#{2,3})\s+(.+)$/)
 
@@ -150,6 +154,8 @@ const generate = (): void => {
     if (insideDetails) continue
 
     if (isContentsLine(line)) continue
+
+    if (isDeepWikiBadge(line)) continue
 
     const heading = parseHeading(line)
 

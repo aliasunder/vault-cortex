@@ -10,7 +10,7 @@ import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { readTaskFormatConfig } from "./vault-operations/task-format-config.js"
 import { trashSweeper } from "./vault-operations/trash-sweeper.js"
-import { startFileWatcher } from "./search/file-watcher.js"
+import { watchVaultAndBuildIndex } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./oauth/oauth-provider.js"
 import { createOAuthRoutes } from "./oauth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-core/mcp-router.js"
@@ -117,6 +117,7 @@ const startServer = async (): Promise<void> => {
   // /data is the Docker volume where the container persists indexes and logs
   const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
+  // oauth.db sits beside the search index, so INDEX_DB_PATH moves both.
   const oauthDbPath = `${dataDir}/oauth.db`
   const port = env.get("PORT").default("8000").asPortNumber()
   const host = env.get("HOST").default("0.0.0.0").asString()
@@ -146,13 +147,18 @@ const startServer = async (): Promise<void> => {
     fileToolsEnabled: config.fileToolsEnabled,
     statusRegistry,
   })
-  await bootstrapMemoryIfEnabled(config, vaultPath)
-  const { count } = await search.rebuildFromVault({ vaultPath }, logger)
-  logger.info("initial index built", { count })
 
-  await startFileWatcher(vaultPath, search, {
-    usePolling: config.windowsBindMount,
-  })
+  // Before the watcher starts, so its template writes are not held and re-read.
+  await bootstrapMemoryIfEnabled(config, vaultPath)
+
+  // watchVaultAndBuildIndex also returns the rebuild's embedding promise. Startup
+  // does not wait for it, so the server takes requests while the embedding pass
+  // is still running, and rebuildFromVault logs an embedding failure itself.
+  const { count } = await watchVaultAndBuildIndex(
+    { vaultPath, search, watcherOptions: { usePolling: config.windowsBindMount } },
+    logger,
+  )
+  logger.info("initial index built", { notesIndexedByRebuild: count })
 
   const oauthProvider = createOAuthProvider({
     authToken,

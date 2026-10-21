@@ -1,5 +1,6 @@
 import { describe, it, expect, onTestFinished } from "vitest"
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
 import {
@@ -11,7 +12,7 @@ import {
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe("withFileLock", () => {
-  const testDir = join(import.meta.dirname, "__fixtures__", `file-write-lock-${randomUUID()}`)
+  const testDir = join(tmpdir(), `file-write-lock-${randomUUID()}`)
 
   const counterPath = join(testDir, "counter.txt")
 
@@ -152,7 +153,7 @@ describe("withFileLock", () => {
 })
 
 describe("withExclusiveFileLock", () => {
-  const testDir = join(import.meta.dirname, "__fixtures__", `exclusive-lock-${randomUUID()}`)
+  const testDir = join(tmpdir(), `exclusive-lock-${randomUUID()}`)
 
   it("rejects immediately when a write is already in progress on the same file", async () => {
     const filePath = join(testDir, "busy.txt")
@@ -241,7 +242,7 @@ describe("withExclusiveFileLock", () => {
 })
 
 describe("withExclusiveMultiFileLock", () => {
-  const testDir = join(import.meta.dirname, "__fixtures__", `multi-lock-${randomUUID()}`)
+  const testDir = join(tmpdir(), `multi-lock-${randomUUID()}`)
 
   it("locks every path for the duration of the operation", async () => {
     const pathA = join(testDir, "a.txt")
@@ -357,7 +358,7 @@ describe("withExclusiveMultiFileLock", () => {
   })
 
   it("queues a serializing lock behind the multi-file lock on a member path", async () => {
-    const fixtureDir = join(import.meta.dirname, "__fixtures__", `multi-queue-${randomUUID()}`)
+    const fixtureDir = join(tmpdir(), `multi-queue-${randomUUID()}`)
     await mkdir(fixtureDir, { recursive: true })
     onTestFinished(async () => {
       await rm(fixtureDir, { recursive: true, force: true })
@@ -438,7 +439,7 @@ describe("withExclusiveMultiFileLock", () => {
 })
 
 describe("case- and normalization-folded lock keys", () => {
-  const testDir = join(import.meta.dirname, "__fixtures__", `folded-keys-${randomUUID()}`)
+  const testDir = join(tmpdir(), `folded-keys-${randomUUID()}`)
 
   it("serializes two casings of the same path in queue order", async () => {
     const executionOrder: number[] = []
@@ -547,7 +548,7 @@ describe("case- and normalization-folded lock keys", () => {
 })
 
 describe("cross-mode interaction", () => {
-  const testDir = join(import.meta.dirname, "__fixtures__", `cross-mode-${randomUUID()}`)
+  const testDir = join(tmpdir(), `cross-mode-${randomUUID()}`)
 
   it("exclusive lock rejects when a serializing lock is held on the same file", async () => {
     const filePath = join(testDir, "cross.txt")
@@ -566,7 +567,7 @@ describe("cross-mode interaction", () => {
   })
 
   it("serializing lock queues behind an exclusive lock on the same file", async () => {
-    const fixtureDir = join(import.meta.dirname, "__fixtures__", `cross-queue-${randomUUID()}`)
+    const fixtureDir = join(tmpdir(), `cross-queue-${randomUUID()}`)
     await mkdir(fixtureDir, { recursive: true })
     onTestFinished(async () => {
       await rm(fixtureDir, { recursive: true, force: true })

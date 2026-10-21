@@ -8,7 +8,13 @@ import type { Logger } from "../../logger.js"
 import { TOOL_REGISTRY, TOOL_REGISTRY_BY_NAME } from "./tool-registry.js"
 import type { RegistryEntry, ToolGroup, ToolName } from "./tool-registry.js"
 import { createToolAvailability } from "./tool-availability.js"
-import type { RegisterGatedTool, ToolRegistrationContext } from "./tools/tool-helpers.js"
+import { createSafeHandlers, createStrictInputObject } from "./tools/tool-helpers.js"
+import type {
+  RegisterGatedTool,
+  ToolInputObject,
+  ToolRegistrationContext,
+} from "./tools/tool-helpers.js"
+import type { ZodRawShapeCompat } from "@modelcontextprotocol/sdk/server/zod-compat.js"
 import { registerVaultCrudTools } from "./tools/vault-crud-tools.js"
 import { registerSearchTools } from "./tools/search-tools.js"
 import { registerMemoryTools } from "./tools/memory-tools.js"
@@ -50,7 +56,16 @@ const createGatedRegisterTool = (
       throw new Error(`tool is not in the registry: ${name}`)
     }
     if (!enabledToolNames.has(name)) return
-    server.registerTool(name, { ...config, annotations: entry.annotations }, handler)
+    // Inference picks the raw shape for InputArgs; no tool has an output schema
+    server.registerTool<ZodRawShapeCompat, ToolInputObject<typeof config.inputSchema>>(
+      name,
+      {
+        ...config,
+        inputSchema: createStrictInputObject(config.inputSchema),
+        annotations: entry.annotations,
+      },
+      handler,
+    )
   }
 }
 
@@ -77,8 +92,13 @@ export const registerTools = (params: {
   config: VaultConfig
 }): void => {
   const enabledToolNames = computeEnabledToolNames(params.config)
+  const availability = createToolAvailability(enabledToolNames)
   const context: ToolRegistrationContext = {
-    ...createToolAvailability(enabledToolNames),
+    ...availability,
+    ...createSafeHandlers({
+      isToolEnabled: availability.isToolEnabled,
+      vaultPath: params.vaultPath,
+    }),
     registerTool: createGatedRegisterTool(params.server, enabledToolNames),
     vaultPath: params.vaultPath,
     search: params.search,
@@ -86,8 +106,9 @@ export const registerTools = (params: {
     config: params.config,
   }
 
-  const groupHasEnabledTools = (group: ToolGroup): boolean =>
-    TOOL_REGISTRY.some((entry) => entry.group === group && enabledToolNames.has(entry.name))
+  const groupHasEnabledTools = (group: ToolGroup): boolean => {
+    return TOOL_REGISTRY.some((entry) => entry.group === group && enabledToolNames.has(entry.name))
+  }
 
   for (const [group, registerGroup] of GROUP_REGISTRARS) {
     if (groupHasEnabledTools(group)) {

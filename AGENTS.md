@@ -61,7 +61,8 @@ on a folder for the full list.
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed Claude Code hooks only: settings.json registers hooks/install-deps.sh (nvm, npm ci, sst install) for session start and worktree entry; the rest is gitignored
+.claude/ # Committed Claude Code hook setup only (the rest is gitignored): settings.json registers the hook below
+  hooks/install-deps.sh # Runs at session start and worktree entry: loads nvm, installs dependencies when needed (npm ci, sst install), and at session start puts the checkout's Node (the .nvmrc version when nvm has it, else nvm's default alias) first on PATH for the session's later Bash commands
 obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
 rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian that prints the Sync token for .env
 templates/memory/ # About Me/ memory file templates for new vaults
@@ -83,7 +84,7 @@ src/
   __tests__/docker/ # :remote image boot tests (npm run test:remote-boot): docker-harness, and fixtures/ob, a stub of the obsidian-headless CLI
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
-    obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
+    obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
     vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions
       tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
@@ -164,8 +165,10 @@ A module's folder is decided by **what it depends on**, not just its topic:
   `tools/` and `prompts/` both need it and cannot import each other. Each group
   module is self-contained: one register function and its data-layer imports,
   with tool names imported from the registry. Shared helpers
-  (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in
-  `tool-helpers.ts`.
+  (`createSafeHandlers`, `formatNoteMetadata`, `ToolRegistrationContext`
+  type) live in `tool-helpers.ts`. Group modules take `safeHandler` and
+  `safeHandlerContent` from the registration context; `createSafeHandlers`
+  builds them per server from the enabled tools and the vault path.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
   one data-layer call, and content-block/JSON formatting. Multi-step
   composition — filtering, counting, pagination, dispatching across parsers
@@ -340,8 +343,9 @@ root logger (src/logger.ts)
 - Data-layer functions (`vault-filesystem`, `vault-patcher`,
   `note-mover`, `memory-store`, `search-index`) take the logger as a
   **required** second argument (two-arg pattern: `(params, logger)`)
-- Background callers (file-watcher, startup) use the root logger
-  directly — no request context available
+- Background modules (`file-watcher`) take the logger the same way,
+  through their entry point. Startup wiring in `server.ts` has no
+  request context, so it passes the root logger
 
 **Two-arg `(params, logger)` pattern:**
 
@@ -386,8 +390,13 @@ log would produce N lines during a vault rebuild (one per note), it's
   what went wrong in their own domain and never name API surfaces
   (tool names, routes) or prescribe caller-level remediation.
 - Log full detail internally, return generic messages externally —
-  error responses to clients never include paths, stack traces, or
-  implementation state.
+  error responses to clients never include the server's own paths,
+  stack traces, or implementation state. A Node error's paths reach the
+  client vault-relative, because the tool and prompt boundaries rewrite
+  them (`describeErrorRelativeTo`), so a wrapper passes the Node error as
+  `cause` and never copies its message into its own. Errors the server
+  throws itself keep their text, since they can quote the caller's input
+  (a refused absolute path comes back as sent).
 - `/healthz` needs no sign-in, so never add deployment settings or host
   details to its response. The full server returns `{ ok: true }`, and
   setup mode adds `mode: "setup"` so the setup page can tell when the full
@@ -671,6 +680,11 @@ covers both kinds, with reasons:
   `--fix` + CI) enforces markdown structure: blank lines around fences,
   a language on every fenced block, no bare URLs. Ignores are documented
   in the config.
+- **ShellCheck** (`npm run lint:shell`, lint-staged + CI) checks only the
+  scripts `SHELL_SCRIPT_GLOBS` in `scripts/lint-shell.ts` lists, so add a
+  new shell script's path there. ShellCheck cannot read
+  `#!/command/with-contenv sh`, so s6 scripts that start with it carry
+  `# shellcheck shell=sh`. A disable directive gets a comment saying why.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
@@ -693,9 +707,10 @@ which are the description and the input schema with each parameter's Zod
   empty-result contract worth clarifying (e.g. "returns an empty
   array, not an error"); omit it only for tools that cannot
   meaningfully fail. Include `Obsidian syntax:` on write tools.
-- **`Errors:` gets one bullet per distinct remedy, and every bullet
-  keeps its remedy.** Messages that share a remedy share one bullet,
-  which lists only the messages that tool can raise: for example
+- **`Errors:` gets one bullet per distinct remedy (errors of one kind
+  with short remedies may share one bullet that names each remedy), and
+  every bullet keeps its remedy.** Messages that share a remedy share one
+  bullet, which lists only the messages that tool can raise: for example
   `"absolute path blocked"`, `"path traversal blocked"`, and
   `"hidden path blocked"`.
 - **Split parameter facts between `.describe()` and the tool description.**
@@ -844,6 +859,12 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 ### Test conventions
 
+- A test that denies file access with `chmod` and expects the access to
+  fail can't pass as root, because root ignores file permissions. Mark it
+  `it.skipIf(runsAsRoot)`, importing `runsAsRoot` from
+  `src/__tests__/runs-as-root.ts`. CI runs it as a normal user. To run
+  these tests from a root shell, such as a cloud session, use
+  `npm run test:as-nobody`; it takes the same arguments as `vitest run`.
 - Tests read as a behavioral spec. One focused `it()` per
   behavior — a failing test name should identify which behavior
   regressed without reading the body.
@@ -922,19 +943,23 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   centralized test directory higher up the tree. Don't spawn a
   standalone test file just to mock differently; use
   `vi.mock(path, { spy: true })` to keep the real implementation.
-  **Exception — the remote image's s6 init scripts.** The shell scripts
-  under `rootfs/etc/s6-overlay/scripts/` are the `vault-mcp` server's
-  boot chain for the `:remote` target, not TypeScript modules, and
-  vitest's include paths (`src/`, `cli/src/`, `scripts/`) don't reach
-  `rootfs/`. Their tests live in
+  **Exception — shell scripts outside vitest's include paths.** The
+  remote image's s6 init scripts under `rootfs/etc/s6-overlay/scripts/`
+  are the `vault-mcp` server's boot chain for the `:remote` target, and
+  the Claude Code hook sits in `.claude/hooks/`. Neither is a TypeScript
+  module, and vitest's include paths (`src/`, `cli/src/`, `scripts/`)
+  reach neither folder. The init-script tests live in
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes). These script tests run the real
-  script under `sh` with stub binaries on `PATH`, and name the script
-  they cover — don't move them under `rootfs/` or widen vitest's
-  include for them. Whole-image behaviour (the init chain's ordering,
+  `init-derive-env` publishes), and the hook's test in `src/__tests__/`
+  (`install-deps.test.ts`). These script
+  tests run the real script under its own shell (`sh` for the init
+  scripts, `bash` for the hook) with stub binaries on `PATH`, and name
+  the script they cover —
+  don't move them next to the scripts or widen vitest's include for
+  them. Whole-image behaviour (the init chain's ordering,
   the `container_environment` files the chain publishes, the volume
   layout, and the checks that stop the container) belongs in the
   remote-boot test suite (`src/__tests__/docker/`, see "Remote image
@@ -1302,6 +1327,13 @@ Contributor and release conventions live in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). Flag a **breaking change** with a
 `BREAKING CHANGE:` footer in the PR description, so the generated release
 notes list it (other accepted flags are in `CONTRIBUTING.md`).
+
+Pick a commit's conventional-commit type by what it changes in what this
+repo ships: the server's Docker images and the `vault-cortex` npm CLI.
+Claude Code hooks, dev scripts and other local tooling
+are never `feat` or `fix`: use `chore`, or `ci` or `build` where they fit,
+so they stay out of the changelog's Features and Bug Fixes. A squash merge
+lands the PR title, so the title takes the type of the PR's main purpose.
 
 ### Files that track feature surface
 

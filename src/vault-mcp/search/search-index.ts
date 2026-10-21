@@ -6,7 +6,6 @@ import type { Dirent } from "node:fs"
 import { join, basename, posix, relative, resolve } from "node:path"
 import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import type { Logger } from "../../logger.js"
-import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/canvas.js"
@@ -14,6 +13,7 @@ import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
 import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
+import { parseFrontmatterTags } from "../obsidian-markdown/tags.js"
 import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
@@ -21,7 +21,7 @@ import type { Reranker } from "./reranker.js"
 import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
-import { describeError } from "../../utils/describe-error.js"
+import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
@@ -31,11 +31,22 @@ import {
   coerceToArray,
   buildFtsMetadataText,
   escapeLikeWildcards,
+  foldTag,
+  parseNoteForIndex,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
 import { hybridSearch } from "./hybrid-search.js"
 
 // ── File content indexing constants ─────────────────────────────
+
+/** Files read at once while indexing from disk, by the startup rebuild and by
+ *  the file watcher's startup batch, so a large vault cannot open every file
+ *  at once. */
+export const INDEXING_FILE_READ_CONCURRENCY = 16
+
+/** PDFs whose text is extracted at once while indexing. Extraction is
+ *  CPU-heavy, so fewer run together than other file reads. */
+export const PDF_EXTRACTION_CONCURRENCY = 4
 
 /** Extensions whose content is indexed into file_content_fts for vault_search.
  *  Excludes .canvas (own path with link extraction) and .md (notes_fts). */
@@ -365,6 +376,12 @@ export const createSearchIndex = (
     return String(value)
   })
 
+  // Tag predicates compare folded values; the same fold runs in the
+  // JavaScript mirror of the search filters (foldTag)
+  db.function("fold_tag", { deterministic: true }, (value: unknown): string => {
+    return foldTag(String(value))
+  })
+
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
   // better-sqlite3 already defaults sqlite3_busy_timeout to 5000 ms at open;
@@ -450,16 +467,23 @@ export const createSearchIndex = (
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due);
 
-    -- Files this server moved to .trash/, for the retention sweep. trash_key
-    -- is the case-folded path (one row per physical file on case-insensitive
-    -- mounts, so a fresh delete's upsert replaces a stale case-alias row
-    -- instead of leaving it to purge the wrong sibling); trash_path keeps the
-    -- exact spelling for filesystem operations. No index: the table stays
-    -- small and the sweep is a daily full scan.
+    -- Files this server moved to .trash/, for the retention sweep:
+    -- - trash_key is the case-folded path, one row per physical file on
+    --   case-insensitive mounts. On those, .trash/a.md and .trash/A.md are one
+    --   file, so a delete landing at .trash/A.md replaces a stale .trash/a.md
+    --   row instead of keeping a second row that could expire the file on
+    --   the old row's date. On a case-sensitive mount the two names are two
+    --   files sharing one key, so the file recorded first loses its row and
+    --   is never swept.
+    -- - trash_path keeps the exact spelling for filesystem operations.
+    -- - file_identity is the landed file's identity, which the sweep matches
+    --   before deleting; NULL on a row recorded before the column existed.
+    -- No index: the table stays small and the sweep is a daily full scan.
     CREATE TABLE IF NOT EXISTS trash_entries (
-      trash_key   TEXT PRIMARY KEY,
-      trash_path  TEXT NOT NULL,
-      trashed_at  INTEGER NOT NULL
+      trash_key      TEXT PRIMARY KEY,
+      trash_path     TEXT NOT NULL,
+      trashed_at     INTEGER NOT NULL,
+      file_identity  TEXT
     );
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
@@ -613,6 +637,17 @@ export const createSearchIndex = (
 
   if (!nonMdColumns.some((column) => column.name === "bytes")) {
     db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`)
+  }
+
+  // Same idempotent migration for trash_entries.file_identity. Nullable, and
+  // never backfilled: a row recorded without it may already point at a file
+  // that is not the one the server trashed, so the sweep keeps such files.
+  const trashEntryColumns = db
+    .prepare<unknown[], { name: string }>(`PRAGMA table_info(trash_entries)`)
+    .all()
+
+  if (!trashEntryColumns.some((column) => column.name === "file_identity")) {
+    db.exec(`ALTER TABLE trash_entries ADD COLUMN file_identity TEXT`)
   }
 
   // Prepared statements are compiled once here and reused across all calls.
@@ -1436,7 +1471,8 @@ export const createSearchIndex = (
   // FTS rows are managed manually (delete-then-insert) because SQLite triggers
   // combined with INSERT OR REPLACE cause FTS5 corruption.
 
-  /** Indexes a note and returns the source version to pass with the same content to embedNote. */
+  /** Indexes a note and returns its source version, a token embedNote checks so that an embed
+   *  of this content is dropped once a later write replaces it. Pass it with the same content. */
   const upsertNote = (
     params: {
       filePath: string
@@ -1448,12 +1484,18 @@ export const createSearchIndex = (
   ): symbol => {
     const { filePath, rawContent, fileStat } = params
     const skipLinks = params.skipLinks ?? false
-    const parsed = parseNote(rawContent)
-    const { data: frontmatter } = parsed
+    const {
+      data: frontmatter,
+      content: noteBody,
+      unreadableBlockError,
+    } = parseNoteForIndex(rawContent)
 
-    const tags = coerceToArray(frontmatter.tags)
+    // Only tags follow Obsidian's Tags view rules (any letter case for the
+    // key, the tag-name test); related keeps every scalar value
+    const tags = parseFrontmatterTags(frontmatter)
     const related = coerceToArray(frontmatter.related)
-    const bodyLines = splitIntoLines(parsed.content)
+
+    const bodyLines = splitIntoLines(noteBody)
 
     // Store the leading callout (a top-of-file `> [!type]` block — info,
     // warning, etc.) as JSON so discovery tools can return it structured;
@@ -1474,7 +1516,7 @@ export const createSearchIndex = (
     const note = {
       path: filePath,
       title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
-      content: parsed.content,
+      content: noteBody,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
       // First path segment only — search filters drill into subfolders
@@ -1495,6 +1537,8 @@ export const createSearchIndex = (
     // needs project-level attribution ("Code Projects/vault-cortex", not
     // "Code Projects").
     const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
+    // Tasks read the whole file, not noteBody, so their line numbers match the
+    // file's lines; extractTasks skips the properties block itself
     const extractedTasks = tasks.extractTasks(rawContent, statusRegistry)
     const memoryFile = memoryFileNameFromPath(filePath)
 
@@ -1561,7 +1605,7 @@ export const createSearchIndex = (
       // Memory files additionally maintain their entry-granular index. Placed
       // before the skipLinks return so rebuild Pass 1 covers it.
       if (memoryFile) {
-        upsertMemoryEntries({ memoryFile, noteBody: parsed.content }, logger)
+        upsertMemoryEntries({ memoryFile, noteBody }, logger)
       }
 
       if (skipLinks) return
@@ -1570,7 +1614,7 @@ export const createSearchIndex = (
       const pathList = allPaths.map((row) => row.path)
 
       deleteLinksStmt.run(note.path)
-      for (const rawTarget of links.extractAll(parsed.content, frontmatter)) {
+      for (const rawTarget of links.extractAll(noteBody, frontmatter)) {
         const resolved = links.resolve({
           target: rawTarget,
           allPaths: pathList,
@@ -1619,6 +1663,14 @@ export const createSearchIndex = (
     const sourceVersion = Symbol()
     sourceVersions.set(filePath, sourceVersion)
 
+    // Logged after the index write, so a write that rolls back does not warn
+    if (unreadableBlockError) {
+      logger.warn("indexed note without its unreadable properties block", {
+        path: filePath,
+        error: describeError(unreadableBlockError),
+      })
+    }
+
     logger.debug("indexed note", {
       path: note.path,
       bytes: note.bytes,
@@ -1629,8 +1681,11 @@ export const createSearchIndex = (
 
   // ── Embedding pipeline ─────────────────────────────────────────
 
-  /** The return counts changed chunks committed before completion or obsolescence.
-   *  Zero covers disabled, cached and obsolete calls. */
+  /** Embeds a note's chunks.
+   *  - `rawContent` is the content upsertNote indexed under `sourceVersion`, so upsertNote
+   *    has already warned about an unreadable properties block in it.
+   *  - The return counts changed chunks committed before completion or obsolescence.
+   *    Zero covers disabled, cached and obsolete calls. */
   const embedAndStoreChunks = async (
     params: { notePath: string; rawContent: string; sourceVersion: symbol },
     logger: Logger,
@@ -1654,21 +1709,22 @@ export const createSearchIndex = (
     )
       return 0
 
-    const parsed = parseNote(rawContent)
-    const noteTitle =
-      (isString(parsed.data.title) ? parsed.data.title : null) ?? basename(notePath, ".md")
+    // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
+    // error is ignored because upsertNote already logged it
+    const { data: frontmatter, content: noteBody } = parseNoteForIndex(rawContent)
+    const noteTitle = isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.
     const metadataPrefix = options?.ranking?.enrichChunkMetadata
       ? buildChunkMetadataPrefix({
-          type: isString(parsed.data.type) ? parsed.data.type : null,
-          tags: coerceToArray(parsed.data.tags),
+          type: isString(frontmatter.type) ? frontmatter.type : null,
+          tags: parseFrontmatterTags(frontmatter),
         })
       : null
     const chunks = chunkContent({
       noteTitle,
-      bodyContent: parsed.content,
+      bodyContent: noteBody,
       metadataPrefix,
       sourcePath: notePath,
     })
@@ -1743,8 +1799,8 @@ export const createSearchIndex = (
     )
       return embeddedCount
 
-    /** chunkContent assigns indices 0 through length - 1, so a shortened note's
-     *  old tail starts at chunks.length; remove its vectors before their parent rows. */
+    // chunkContent assigns indices 0 through length - 1, so a shortened note's
+    // old tail starts at chunks.length; remove its vectors before their parent rows.
     if (deleteStaleVectorsStmt) {
       deleteStaleVectorsStmt.run(notePath, chunks.length)
     }
@@ -1957,8 +2013,8 @@ export const createSearchIndex = (
     )
       return embeddedCount
 
-    /** chunkContent assigns indices 0 through length - 1, so a shortened file's
-     *  old tail starts at chunks.length; remove its vectors before their parent rows. */
+    // chunkContent assigns indices 0 through length - 1, so a shortened file's
+    // old tail starts at chunks.length; remove its vectors before their parent rows.
     if (deleteStaleFileVectorsStmt) {
       deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
     }
@@ -2030,12 +2086,23 @@ export const createSearchIndex = (
   }
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
-   * Returns the note count and a background embedding promise. */
+   * Returns the note count and a background embedding promise.
+   * - No source write may run while it does. A source write is an upsert or remove call
+   *   that changes the tables this clears; one that lands during its reads is replaced by
+   *   the older content it read.
+   * - The file watcher is the only caller that makes source writes at runtime, and
+   *   watchVaultAndBuildIndex holds it until this returns; a new runtime caller must go
+   *   through that hold.
+   * - The returned embedding promise rejects if the background pass fails. This function
+   *   already logs that failure, so a caller may leave the promise unawaited. */
   const rebuildFromVault = async (
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<{ count: number; embedding: Promise<void> }> => {
     const { vaultPath } = params
+    // Embedding work that outlived its source can leave vectors whose chunk or
+    // memory entry is gone. They would take nearest-neighbour slots from live
+    // vectors, so they are dropped before anything else.
     const orphanNoteVectorsRemoved = deleteOrphanNoteVectorsStmt?.run().changes ?? 0
     const orphanFileVectorsRemoved = deleteOrphanFileVectorsStmt?.run().changes ?? 0
     const orphanMemoryVectorsRemoved = deleteOrphanMemoryVectorsStmt?.run().changes ?? 0
@@ -2052,7 +2119,8 @@ export const createSearchIndex = (
     }
     // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
     // gating to skip unchanged chunks, so only new/modified notes re-embed.
-    // Deleted notes are cleaned up in Pass 3 before embedding starts.
+    // Vectors of deleted notes are removed by the background embedding pass
+    // (Pass 3, after the two indexing passes below) before embedding starts.
 
     type RebuildFilePaths = { relativePath: string; absolutePath: string }
     type RebuildFileContent = {
@@ -2129,11 +2197,9 @@ export const createSearchIndex = (
         return null
       }
     }
-    /** Bound filesystem work so a large vault cannot open every file at once. */
-    const REBUILD_IO_CONCURRENCY = 16
     const nonMarkdownFileSizeResults = await mapWithConcurrency({
       items: allNonMdFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: readFileSize,
     })
     const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
@@ -2150,7 +2216,6 @@ export const createSearchIndex = (
         })
       : []
 
-    // Read canvas files for content indexing + link extraction.
     const readRebuildFileContent = async (params: {
       file: RebuildFilePaths
       sourceKind: "canvas file" | "text file" | "note"
@@ -2176,23 +2241,18 @@ export const createSearchIndex = (
         return null
       }
     }
+    // Read canvas files for content indexing + link extraction.
     const canvasContentResults = await mapWithConcurrency({
       items: canvasFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "canvas file" }),
     })
     const canvasContents = canvasContentResults.filter((entry) => entry !== null)
 
     // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
-    const extractPdfContent = async (file: {
-      absolutePath: string
-      relativePath: string
-    }): Promise<{
-      relativePath: string
-      content: string
-      modifiedAtMs: number
-      sizeBytes: number
-    } | null> => {
+    const extractPdfContent = async (
+      file: RebuildFilePaths,
+    ): Promise<RebuildFileContent | null> => {
       try {
         const [buffer, fileStat] = await Promise.all([
           readFile(file.absolutePath),
@@ -2207,16 +2267,17 @@ export const createSearchIndex = (
           sizeBytes: fileStat.size,
         }
       } catch (error) {
+        // A PDF reader that failed to start arrives wrapped; the cause holds why
         logger.warn("skipped unreadable PDF during rebuild", {
           path: file.relativePath,
-          error: describeError(error),
+          ...describeErrorForLog(error),
         })
         return null
       }
     }
     const pdfResults = await mapWithConcurrency({
       items: pdfFiles,
-      concurrency: 4,
+      concurrency: PDF_EXTRACTION_CONCURRENCY,
       mapper: extractPdfContent,
     })
     const pdfContents = pdfResults.filter((entry) => entry !== null)
@@ -2224,21 +2285,22 @@ export const createSearchIndex = (
     // Read text files for content indexing (raw UTF-8).
     const textFileContentResults = await mapWithConcurrency({
       items: textFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "text file" }),
     })
     const textFileContents = textFileContentResults.filter((entry) => entry !== null)
 
     const noteContentResults = await mapWithConcurrency({
       items: markdownFiles,
-      concurrency: REBUILD_IO_CONCURRENCY,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "note" }),
     })
     const noteContents = noteContentResults.filter((entry) => entry !== null)
 
-    // Notes whose parse or index write throws are skipped with a warning
-    // instead of aborting the rebuild — one malformed note must never
-    // prevent the server from starting.
+    // Notes whose Pass 1 index write throws are skipped with a warning instead
+    // of aborting the rebuild — one note must never prevent the server from
+    // starting. An unreadable properties block is not such a failure,
+    // because parseNoteForIndex reads the body without it.
     const skippedNotePaths = new Set<string>()
 
     const notesForEmbedding: Array<{
@@ -2248,8 +2310,8 @@ export const createSearchIndex = (
     }> = []
     const fileVersionsForEmbedding = new Map<string, symbol>()
 
-    /** Nested upserts publish versions when their savepoints finish. If the outer
-     *  transaction rolls back, clear those versions so no embed can use reverted source rows. */
+    // If this transaction rolls back, the catch clears the source versions its upserts
+    // recorded, so no embed runs against rows the rollback removed.
     try {
       db.transaction(() => {
         // Index non-markdown files so extensionless wikilinks to .canvas, .base,
@@ -2257,8 +2319,8 @@ export const createSearchIndex = (
         const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
         logger.debug("indexed non-md files", { count: nonMdCount })
 
-        /** Pass 1 indexes note content before links can resolve against the complete path list.
-         *  Queue every successful upsert for embedding, even if its later link pass fails. */
+        // Pass 1 indexes note content before links can resolve against the complete path list.
+        // Queue every successful upsert for embedding, even if its later link pass fails.
         for (const note of noteContents) {
           try {
             const sourceVersion = upsertNote(
@@ -2278,7 +2340,7 @@ export const createSearchIndex = (
             })
           } catch (error) {
             skippedNotePaths.add(note.relativePath)
-            logger.warn("skipped malformed note during rebuild", {
+            logger.warn("skipped note that failed to index during rebuild", {
               path: note.relativePath,
               error: describeError(error),
             })
@@ -2291,7 +2353,7 @@ export const createSearchIndex = (
         // from disk leave orphaned entries the per-file upsert never touches.
         if (selectDistinctMemoryFilesStmt) {
           // Built from the disk listing (markdownFiles) on purpose: a note
-          // that failed to read or parse still exists on disk, and treating
+          // that failed to read or index still exists on disk, and treating
           // it as deleted here would permanently remove its memory_entries
           // rows (the table survives rebuilds on content-hash identity).
           const memoryFilesOnDisk = new Set(
@@ -2316,36 +2378,46 @@ export const createSearchIndex = (
         // Pass 2: re-extract links now that all paths are in the notes table,
         // resolving targets that the per-note upsertNote pass may have missed
         // (e.g. Note A links to Note B, but Note B was indexed after Note A).
+        // Each link resolves as in upsertNote's link step.
         const allPaths = selectAllNotePathsStmt.all()
         const pathList = allPaths.map((row) => row.path)
         cachedCanvasNotePaths = pathList
 
+        // No source write may run during a rebuild, so this second clear
+        // normally finds nothing. It stays so that a link written during the
+        // file reads above, against that rule, cannot outlive the rebuild.
         db.exec("DELETE FROM links")
         for (const note of noteContents) {
           if (skippedNotePaths.has(note.relativePath)) continue
           try {
-            const parsed = parseNote(note.content)
-            for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
-              const resolved = links.resolve({
-                target: rawTarget,
-                allPaths: pathList,
-                sourcePath: note.relativePath,
-              })
+            // Each note gets its own savepoint, so a note whose links fail
+            // partway keeps none of the links it inserted. Its Pass 1 rows
+            // stay committed, so it is still counted as indexed.
+            db.transaction(() => {
+              // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
+              // warned about an unreadable block for this note
+              const parsed = parseNoteForIndex(note.content)
+              for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
+                const resolved = links.resolve({
+                  target: rawTarget,
+                  allPaths: pathList,
+                  sourcePath: note.relativePath,
+                })
 
-              if (resolved !== null) {
-                insertLinkStmt.run(note.relativePath, resolved)
-                continue
+                if (resolved !== null) {
+                  insertLinkStmt.run(note.relativePath, resolved)
+                  continue
+                }
+
+                const resolvedNonMdPath = resolveNonMarkdownFile({
+                  target: rawTarget,
+                  sourcePath: note.relativePath,
+                })
+                insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget)
               }
-
-              const resolvedNonMdPath = resolveNonMarkdownFile({
-                target: rawTarget,
-                sourcePath: note.relativePath,
-              })
-              insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget)
-            }
+            })()
           } catch (error) {
-            skippedNotePaths.add(note.relativePath)
-            logger.warn("skipped malformed note during rebuild", {
+            logger.warn("skipped the links of a note whose link pass failed during rebuild", {
               path: note.relativePath,
               error: describeError(error),
             })
@@ -2384,7 +2456,7 @@ export const createSearchIndex = (
       throw error
     }
 
-    /** The rebuild count excludes failures in either indexing pass; embedding uses Pass 1 successes. */
+    /** The rebuild count excludes notes whose Pass 1 index write failed; embedding uses the same set. */
     const indexedNotes = noteContents.filter((note) => !skippedNotePaths.has(note.relativePath))
     const totalBytes = indexedNotes.reduce((sum, note) => sum + note.sizeBytes, 0)
     logger.info("rebuilt index", {
@@ -2405,16 +2477,17 @@ export const createSearchIndex = (
     }
     const filesForEmbedding =
       selectAllFileContentForEmbeddingStmt?.all().flatMap(withFileSourceVersion) ?? []
+    // Every note read from disk, including notes that failed to index, unlike indexedNotes
     const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
 
-    // Pass 3 runs in the background — the server can start accepting requests
-    // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
-    // progressive enhancement: search works with FTS-only until vectors are ready.
+    // Pass 3 runs in the background, so startup does not wait for it. Until a
+    // note's vectors exist, search finds that note by keyword only.
     const embeddingPromise =
       embedder && selectAllNoteChunkPathsStmt
         ? (async () => {
             /** Keep chunks only for notes read into this rebuild's snapshot.
-             *  Missing and unreadable notes lose their vectors; parse failures retain them. */
+             *  Notes missing from disk or that failed to read lose their vectors;
+             *  notes that failed to index keep them. */
             const indexedChunkPaths = selectAllNoteChunkPathsStmt
               .all()
               .map((chunkPath) => chunkPath.note_path)
@@ -2438,13 +2511,12 @@ export const createSearchIndex = (
             let entriesEmbedded = 0
             let embedErrors = 0
             for (const note of notesForEmbedding) {
-              if (
-                !isCurrentSourceVersion(
-                  { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
-                  logger,
-                )
+              const noteVersionIsCurrent = isCurrentSourceVersion(
+                { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
+                logger,
               )
-                continue
+
+              if (!noteVersionIsCurrent) continue
 
               try {
                 chunksEmbedded += await embedAndStoreChunks(
@@ -2457,6 +2529,8 @@ export const createSearchIndex = (
                 )
                 const memoryFile = memoryFileNameFromPath(note.relativePath)
 
+                // Checked again after the await above: a newer write to the
+                // note during the chunk embedding makes this entry pass obsolete.
                 if (
                   memoryFile &&
                   isCurrentSourceVersion(
@@ -2521,13 +2595,12 @@ export const createSearchIndex = (
               let fileChunksEmbedded = 0
               let fileEmbedErrors = 0
               for (const file of filesForEmbedding) {
-                if (
-                  !isCurrentSourceVersion(
-                    { sourcePath: file.path, sourceVersion: file.sourceVersion },
-                    logger,
-                  )
+                const fileVersionIsCurrent = isCurrentSourceVersion(
+                  { sourcePath: file.path, sourceVersion: file.sourceVersion },
+                  logger,
                 )
-                  continue
+
+                if (!fileVersionIsCurrent) continue
 
                 try {
                   fileChunksEmbedded += await embedAndStoreFileChunks(
@@ -2575,51 +2648,58 @@ export const createSearchIndex = (
 
   // ── Trash entries (retention-sweep bookkeeping) ──────────────
 
+  type TrashEntryRow = { trash_path: string; trashed_at: number; file_identity: string | null }
+
   const upsertTrashEntryStmt = db.prepare(`
-    INSERT OR REPLACE INTO trash_entries (trash_key, trash_path, trashed_at)
-    VALUES (?, ?, ?)
+    INSERT OR REPLACE INTO trash_entries (trash_key, trash_path, trashed_at, file_identity)
+    VALUES (?, ?, ?, ?)
   `)
-  const selectTrashEntryStmt = db.prepare<[string], { trash_path: string; trashed_at: number }>(
-    `SELECT trash_path, trashed_at FROM trash_entries WHERE trash_key = ?`,
+  const selectTrashEntryStmt = db.prepare<[string], TrashEntryRow>(
+    `SELECT trash_path, trashed_at, file_identity FROM trash_entries WHERE trash_key = ?`,
   )
-  const selectAllTrashEntriesStmt = db.prepare<[], { trash_path: string; trashed_at: number }>(
-    `SELECT trash_path, trashed_at FROM trash_entries`,
+  const selectAllTrashEntriesStmt = db.prepare<[], TrashEntryRow>(
+    `SELECT trash_path, trashed_at, file_identity FROM trash_entries`,
   )
-  const selectExpiredTrashEntriesStmt = db.prepare<
-    [number],
-    { trash_path: string; trashed_at: number }
-  >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trashed_at < ?`)
+  const selectExpiredTrashEntriesStmt = db.prepare<[number], TrashEntryRow>(
+    `SELECT trash_path, trashed_at, file_identity FROM trash_entries WHERE trashed_at < ?`,
+  )
   const deleteTrashEntryStmt = db.prepare(`DELETE FROM trash_entries WHERE trash_key = ?`)
 
-  /** Records a file this server moved to .trash/ — the retention sweep only
-   *  ever deletes recorded entries. Reusing a path (or a case alias of one,
-   *  via the folded key) replaces the old row, restarting the retention clock
-   *  for the file now at that path. */
-  const recordTrashEntry = (trashPath: string): void => {
-    upsertTrashEntryStmt.run(caseFoldPath(trashPath), trashPath, DateTime.now().toUnixInteger())
+  const toTrashEntry = (row: TrashEntryRow): TrashEntry => {
+    return { trashPath: row.trash_path, trashedAt: row.trashed_at, fileIdentity: row.file_identity }
   }
 
+  /** Records a file this server moved to .trash/ — the retention sweep only
+   *  ever deletes recorded entries, and only while the file at the path still
+   *  has the recorded identity. Reusing a path (or a case alias of one, via
+   *  the folded key) replaces the old row, restarting the retention clock for
+   *  the file now at that path. */
+  const recordTrashEntry = (entry: { trashPath: string; fileIdentity: string }): void => {
+    upsertTrashEntryStmt.run(
+      caseFoldPath(entry.trashPath),
+      entry.trashPath,
+      DateTime.now().toUnixInteger(),
+      entry.fileIdentity,
+    )
+  }
+
+  /** Looks the row up by the case-folded key, so the returned trashPath is
+   *  the spelling recorded last, which can be a case alias of the argument. */
   const getTrashEntry = (trashPath: string): TrashEntry | null => {
     const row = selectTrashEntryStmt.get(caseFoldPath(trashPath))
 
     if (!row) return null
-    return { trashPath: row.trash_path, trashedAt: row.trashed_at }
+    return toTrashEntry(row)
   }
 
   /** Every recorded trash entry — the orphan purge's candidate list. */
   const listAllTrashEntries = (): TrashEntry[] => {
-    return selectAllTrashEntriesStmt.all().map((row) => ({
-      trashPath: row.trash_path,
-      trashedAt: row.trashed_at,
-    }))
+    return selectAllTrashEntriesStmt.all().map(toTrashEntry)
   }
 
   /** Rows recorded strictly before the cutoff — the sweep's candidate list. */
   const listExpiredTrashEntries = (cutoffEpochSeconds: number): TrashEntry[] => {
-    return selectExpiredTrashEntriesStmt.all(cutoffEpochSeconds).map((row) => ({
-      trashPath: row.trash_path,
-      trashedAt: row.trashed_at,
-    }))
+    return selectExpiredTrashEntriesStmt.all(cutoffEpochSeconds).map(toTrashEntry)
   }
 
   const deleteTrashEntry = (trashPath: string): void => {
@@ -2711,7 +2791,11 @@ export type SearchIndex = ReturnType<typeof createSearchIndex>
 /** A file this server moved to .trash/, as recorded for the retention sweep. */
 export type TrashEntry = {
   trashPath: string
+  /** Unix time when the row was recorded, rounded down to a whole second. */
   trashedAt: number
+  /** The recorded file's `TrashFileState.identity`; null on a row recorded
+   *  before identities were kept, which the sweep cannot match to any file. */
+  fileIdentity: string | null
 }
 
 /** The slice of the index the trash sweeper needs — injected so

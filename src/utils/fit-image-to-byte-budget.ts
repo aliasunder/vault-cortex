@@ -1,5 +1,5 @@
 import sharp from "sharp"
-import type { OutputInfo } from "sharp"
+import type { Metadata, OutputInfo } from "sharp"
 
 /**
  * Fits an image into a byte budget by downscaling and recompressing —
@@ -87,20 +87,35 @@ const encodeAttempt = async (params: {
   return encoded.toBuffer({ resolveWithObject: true })
 }
 
+/** One message for every image sharp cannot read the size and format of. */
+const UNDECODABLE_IMAGE_MESSAGE =
+  "could not decode image (the file is empty, damaged, not an image, or over about 268 million pixels)"
+
+/** The decoder's own message names its internals and can repeat over several
+ *  lines, so a failure is rethrown as one sentence, with the decoder's error
+ *  as the cause. */
+const readImageMetadata = async (buffer: Buffer): Promise<Metadata> => {
+  try {
+    return await sharp(buffer, { failOn: "none" }).metadata()
+  } catch (error) {
+    throw new Error(UNDECODABLE_IMAGE_MESSAGE, { cause: error })
+  }
+}
+
 /**
  * Downscales/recompresses `buffer` until its encoded size is ≤ `budgetBytes`.
  * Returns the fitted image with its final and original dimensions, or throws
- * when the image cannot be fitted within the attempt cap.
+ * when the image cannot be decoded or cannot be fitted within the attempt cap.
  */
 export const fitImageToByteBudget = async (params: {
   buffer: Buffer
   budgetBytes: number
 }): Promise<FittedImage> => {
-  const metadata = await sharp(params.buffer, { failOn: "none" }).metadata()
+  const metadata = await readImageMetadata(params.buffer)
   const { width, height, format } = metadata
 
   if (!width || !height || !format) {
-    throw new Error("could not decode image (no dimensions or format)")
+    throw new Error(UNDECODABLE_IMAGE_MESSAGE)
   }
 
   const longEdge = Math.max(width, height)
@@ -130,12 +145,7 @@ export const fitImageToByteBudget = async (params: {
   while (attemptCount < MAX_ENCODE_ATTEMPTS) {
     // The quality this attempt encodes at: the next ladder rung while the
     // ladder descends, mid-ladder once dimension-shrinking takes over.
-    const attemptQuality =
-      qualityLadderIndex < QUALITY_LADDER.length
-        ? QUALITY_LADDER[qualityLadderIndex]
-        : MID_LADDER_QUALITY
-
-    if (!attemptQuality) break
+    const attemptQuality = QUALITY_LADDER[qualityLadderIndex] ?? MID_LADDER_QUALITY
     const { data, info } = await encodeAttempt({
       buffer: params.buffer,
       longEdgePx,
@@ -164,6 +174,7 @@ export const fitImageToByteBudget = async (params: {
     // is a real reduction even when the overshoot is marginal. Descent clamps
     // to the 64px floor and encodes there before giving up — breaking only
     // when no further reduction is possible.
+    // Past the last rung, so later attempts fall back to mid-ladder quality.
     qualityLadderIndex = QUALITY_LADDER.length
     const areaScale = Math.sqrt(params.budgetBytes / lastEncodedBytes)
     const nextLongEdgePx = Math.max(
@@ -177,6 +188,6 @@ export const fitImageToByteBudget = async (params: {
 
   throw new Error(
     `image cannot be fitted into ${params.budgetBytes} bytes ` +
-      `(smallest attempt was ${lastEncodedBytes} bytes after ${attemptCount} attempts)`,
+      `(last attempt was ${lastEncodedBytes} bytes after ${attemptCount} attempts)`,
   )
 }

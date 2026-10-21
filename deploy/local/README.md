@@ -27,7 +27,8 @@ What happens on first start:
 - The image is pulled (~150MB)
 - The keyword index builds in seconds — search works right away
 - The semantic (embedding) index builds in the background — expect a few
-  minutes on a large vault, with search served keyword-only until it finishes
+  minutes on a large vault; keyword search works meanwhile, and semantic
+  matches appear as each note is embedded
 
 > **On Windows?** Set `WINDOWS_MODE=true` in your `.env` — then `VAULT_PATH` can point
 > at a normal Windows path like `C:\Users\you\MyVault`. With the CLI, edit the
@@ -192,8 +193,10 @@ The server runs these startup tasks on every boot:
 
 1. Create memory template files if the memory folder doesn't exist (skipped
    when `MEMORY_ENABLED=false` or `READONLY_MODE=true`).
-2. Rebuild the search index, including any new memory template files.
-3. Start the file watcher.
+2. Start the file watcher, which holds the changes it sees until step 4.
+3. Rebuild the search index, including any new memory template files.
+4. Apply the changes the watcher held, so search reflects notes added, edited
+   or deleted while the server started.
 
 Restarting the container re-runs this flow (useful when testing bootstrap
 behavior). The command is the same for both setup methods,
@@ -307,9 +310,11 @@ links):
   set `TRASH_RETENTION_DAYS` in `.env` to change the window, or
   `TRASH_RETENTION_DAYS=none` to keep them forever. Only notes the server
   moved there are cleaned up; anything you or Obsidian put in `.trash` is
-  never touched. To reclaim space sooner, empty the `.trash` folder
-  yourself (it's hidden — press Cmd+Shift+. in Finder, or Ctrl+H in most
-  Linux file managers, to show it).
+  never touched. Notes the server moved there with version 0.54.11 or
+  earlier also stay. To reclaim space sooner, or to clear those older
+  notes, empty the `.trash` folder yourself (it's hidden — press
+  Cmd+Shift+. in Finder, or Ctrl+H in most Linux file managers, to show
+  it).
 - **"Move to Obsidian trash (.trash folder)"** — a deleted note moves to
   the same `.trash` folder and stays there until you empty it, exactly as
   in Obsidian.

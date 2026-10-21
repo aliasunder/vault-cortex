@@ -2,7 +2,7 @@
  *  verified over real HTTP transport against a real server. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
@@ -14,6 +14,11 @@ import {
   textContent,
 } from "./test-harness.js"
 import type { ToolResult } from "./test-harness.js"
+import {
+  buildPasswordProtectedPdf,
+  buildZeroPagePdf,
+} from "../../vault-mcp/obsidian-markdown/__tests__/pdf-fixture.js"
+import { runsAsRoot } from "../runs-as-root.js"
 
 vi.setConfig({ testTimeout: 15_000 })
 
@@ -254,6 +259,30 @@ describe("absolute path blocked", () => {
       `absolute path blocked: "${serverVaultPath}/moved.md" must be vault-relative`,
     )
   })
+
+  it("vault_list_notes rejects an absolute container path as folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: `${serverVaultPath}/Projects` },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects" must be vault-relative`,
+    )
+  })
+
+  it("vault_list_files rejects an absolute container path as folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_files",
+      args: { folder: `${serverVaultPath}/Projects` },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects" must be vault-relative`,
+    )
+  })
 })
 
 // ── Path traversal ───────────────────────────────────────────
@@ -370,6 +399,42 @@ describe("path traversal blocked", () => {
     })
     expectToolError(result, "path traversal blocked")
   })
+
+  it("vault_list_notes rejects a folder escaping the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: "../outside" },
+    })
+    expectToolError(result, 'path traversal blocked: "../outside" escapes vault root')
+  })
+
+  it("vault_list_notes rejects a folder naming the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: "." },
+    })
+    expectToolError(result, 'path traversal blocked: "." resolves to the vault root')
+  })
+
+  it("vault_list_files rejects a folder escaping the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_files",
+      args: { folder: "../outside" },
+    })
+    expectToolError(result, 'path traversal blocked: "../outside" escapes vault root')
+  })
+
+  it("vault_list_files rejects a folder naming the vault root", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_files",
+      args: { folder: "." },
+    })
+    expectToolError(result, 'path traversal blocked: "." resolves to the vault root')
+  })
 })
 
 // ── Hidden paths ─────────────────────────────────────────────
@@ -485,6 +550,24 @@ describe("hidden path blocked", () => {
       args: { old_path: "Projects/alpha.md", new_path: ".hidden/moved.md" },
     })
     expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_list_notes rejects a hidden folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: ".obsidian" },
+    })
+    expectToolError(result, 'hidden path blocked: ".obsidian" targets a hidden file or folder')
+  })
+
+  it("vault_list_files rejects a hidden folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_files",
+      args: { folder: ".obsidian" },
+    })
+    expectToolError(result, 'hidden path blocked: ".obsidian" targets a hidden file or folder')
   })
 })
 
@@ -609,6 +692,707 @@ describe("path is not a file", () => {
       args: { path: folderPath, body: "refused" },
     })
     expectToolError(result, `cannot write note "${folderPath}": that path is not a file`)
+  })
+})
+
+// ── Filesystem errors ────────────────────────────────────────
+
+describe("filesystem errors name the path vault-relative", () => {
+  const plantFileWithMode = async (params: { filePath: string; mode: number }): Promise<void> => {
+    const fullPath = join(serverVaultPath, params.filePath)
+    await writeFile(fullPath, "line one\n- [ ] a task\n")
+    await chmod(fullPath, params.mode)
+    onTestFinished(async () => {
+      // Read-write again first, or the removal fails on the locked mode
+      await chmod(fullPath, 0o644)
+      await rm(fullPath)
+    })
+  }
+
+  const plantFolderWithMode = async (params: {
+    folderPath: string
+    mode: number
+  }): Promise<void> => {
+    const fullPath = join(serverVaultPath, params.folderPath)
+    await mkdir(fullPath)
+    await chmod(fullPath, params.mode)
+    onTestFinished(async () => {
+      // Read-write again first, or the removal fails on the locked mode
+      await chmod(fullPath, 0o755)
+      await rm(fullPath, { recursive: true })
+    })
+  }
+
+  it.skipIf(runsAsRoot).each([
+    { name: "vault_read_note", args: {} },
+    { name: "vault_update_properties", args: { properties: { status: "draft" } } },
+    { name: "vault_patch_note", args: { operation: "append", content: "added" } },
+    { name: "vault_update_task", args: { line: 2, status: "done" } },
+    { name: "vault_replace_in_note", args: { old_text: "line one", new_text: "line 1" } },
+    { name: "vault_delete_span", args: { start_anchor: "line one" } },
+    { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
+  ])("$name on a note it cannot open names the note vault-relative", async ({ name, args }) => {
+    await plantFileWithMode({ filePath: "Locked.md", mode: 0o000 })
+
+    const result = await callTool({ client, name, args: { path: "Locked.md", ...args } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.md'" }],
+      isError: true,
+    })
+  })
+
+  it.skipIf(runsAsRoot)(
+    "vault_read_file on a file it cannot open names the file vault-relative",
+    async () => {
+      await plantFileWithMode({ filePath: "Locked.png", mode: 0o000 })
+
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "Locked.png" },
+      })
+      expect(result).toEqual({
+        content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.png'" }],
+        isError: true,
+      })
+    },
+  )
+
+  it.skipIf(runsAsRoot)(
+    "vault_get_daily_note on a daily note it cannot open names the note vault-relative",
+    async () => {
+      await plantFileWithMode({ filePath: "Daily Notes/2026-03-01.md", mode: 0o000 })
+
+      const result = await callTool({
+        client,
+        name: "vault_get_daily_note",
+        args: { date: "2026-03-01" },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: "[Error]: EACCES: permission denied, open 'Daily Notes/2026-03-01.md'",
+          },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  // A name of 233 bytes reads, but the temp file a save writes beside it
+  // adds 41 bytes and goes over the filesystem's 255-byte limit
+  it.each([
+    { name: "vault_replace_in_note", args: { old_text: "line one", new_text: "line 1" } },
+    { name: "vault_delete_span", args: { start_anchor: "line one" } },
+    { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
+  ])("$name on a note whose name is too long for the save's temp file", async ({ name, args }) => {
+    const nameTooLongForTempFile = `${"b".repeat(230)}.md`
+    await plantFileWithMode({ filePath: nameTooLongForTempFile, mode: 0o644 })
+
+    const result = await callTool({ client, name, args: { path: nameTooLongForTempFile, ...args } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          // The temp file's name ends in a random UUID
+          text: expect.stringMatching(
+            new RegExp(
+              `^\\[Error\\]: ENAMETOOLONG: name too long, open '${RegExp.escape(nameTooLongForTempFile)}\\.[0-9a-f-]{36}\\.tmp'$`,
+            ),
+          ),
+        },
+      ],
+      isError: true,
+    })
+    // The note opens under its own name and is unchanged, so only the save's
+    // temp file name was too long
+    await expect(readFile(join(serverVaultPath, nameTooLongForTempFile), "utf8")).resolves.toBe(
+      "line one\n- [ ] a task\n",
+    )
+  })
+
+  it.skipIf(runsAsRoot)(
+    "vault_write_note into a read-only folder names the temp file vault-relative",
+    async () => {
+      await plantFolderWithMode({ folderPath: "Sealed", mode: 0o555 })
+
+      const result = await callTool({
+        client,
+        name: "vault_write_note",
+        args: { path: "Sealed/new.md", body: "refused" },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            // The temp file's name ends in a random UUID
+            text: expect.stringMatching(
+              /^\[Error\]: EACCES: permission denied, open 'Sealed\/new\.md\.[0-9a-f-]{36}\.tmp'$/,
+            ),
+          },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  it("vault_write_note through a note names the note vault-relative", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Projects/alpha.md/child.md", body: "refused" },
+    })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'" },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_move_note to a path through a note names the note vault-relative", async () => {
+    const sourcePath = join(serverVaultPath, "Orphan Note.md")
+    const sourceContentBefore = await readFile(sourcePath, "utf8")
+
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Orphan Note.md", new_path: "Projects/alpha.md/Orphan Note.md" },
+    })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'" },
+      ],
+      isError: true,
+    })
+    // The move stopped before writing anything, so the note is unchanged
+    await expect(readFile(sourcePath, "utf8")).resolves.toBe(sourceContentBefore)
+  })
+
+  it("vault_update_memory when a file sits where the memory folder belongs", async () => {
+    const memoryFolder = join(serverVaultPath, "About Me")
+    const movedAside = join(serverVaultPath, "About Me (moved aside)")
+    await rename(memoryFolder, movedAside)
+    await writeFile(memoryFolder, "not a folder")
+    onTestFinished(async () => {
+      await rm(memoryFolder)
+      await rename(movedAside, memoryFolder)
+    })
+
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Preferences", section: "Notes (newest first)", entry: "refused" },
+    })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'About Me'" }],
+      isError: true,
+    })
+  })
+
+  const longNoteName = `${"a".repeat(300)}.md`
+
+  it.each([
+    { name: "vault_read_note", args: {} },
+    { name: "vault_patch_note", args: { operation: "append", content: "added" } },
+    { name: "vault_update_task", args: { line: 1, status: "done" } },
+    { name: "vault_replace_in_note", args: { old_text: "old", new_text: "new" } },
+    { name: "vault_delete_span", args: { start_anchor: "old" } },
+    { name: "vault_replace_span", args: { start_anchor: "old", content: "new" } },
+  ])("$name on a note name too long for the filesystem", async ({ name, args }) => {
+    const result = await callTool({ client, name, args: { path: longNoteName, ...args } })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: `[Error]: ENAMETOOLONG: name too long, open '${longNoteName}'` },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_read_file on a file name too long for the filesystem", async () => {
+    const longFileName = `${"a".repeat(300)}.png`
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: longFileName } })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: `[Error]: ENAMETOOLONG: name too long, stat '${longFileName}'` },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_patch_note on a path holding a NUL character", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: { path: "Bad\u0000Name.md", operation: "append", content: "added" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[TypeError]: The argument 'path' must be a string, Uint8Array, or URL without null bytes. Received 'Bad\\x00Name.md'",
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_read_note on a symbolic link that points to itself", async () => {
+    const loopPath = join(serverVaultPath, "Loop.md")
+    await symlink("Loop.md", loopPath)
+    onTestFinished(() => rm(loopPath))
+
+    const result = await callTool({ client, name: "vault_read_note", args: { path: "Loop.md" } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: ELOOP: too many symbolic links encountered, open 'Loop.md'",
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it.skipIf(runsAsRoot)("vault_list_notes on a vault holding a folder it cannot open", async () => {
+    await plantFolderWithMode({ folderPath: "Sealed Folder", mode: 0o000 })
+
+    const result = await callTool({ client, name: "vault_list_notes", args: {} })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "[Error]: EACCES: permission denied, scandir 'Sealed Folder'" },
+      ],
+      isError: true,
+    })
+  })
+})
+
+// ── Unreadable properties blocks ─────────────────────────────
+
+const UNCLOSED_BLOCK_NOTE = "---\ntitle: [unclosed\n---\nBody line\n"
+
+const UNCLOSED_BLOCK_MESSAGE =
+  "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
+
+const CARRY_TEXT_REPAIR_STEPS =
+  "To repair it: 1. read the note in full with vault_read_note; 2. copy any text between the --- lines that is not a property; 3. call vault_update_properties with replace: true and the complete corrected properties (leave out a key to remove it; null keeps it with an empty value); 4. add the copied text back to the body with vault_patch_note, without the --- lines."
+
+const OVERWRITE_REPAIR_STEPS =
+  "To overwrite it, read the note in full with vault_read_note, call vault_update_properties with replace: true and the properties to keep ({} for none), then run this write again."
+
+const OPENING_BLOCK_STEP =
+  "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
+
+describe("unreadable properties blocks", () => {
+  /** Plants a note straight on disk, as a hand edit or a sync would, and
+   *  removes it when the test ends. */
+  const plantNote = async (notePath: string, content: string): Promise<string> => {
+    const fullPath = join(serverVaultPath, notePath)
+    await writeFile(fullPath, content)
+    onTestFinished(() => rm(fullPath, { force: true }))
+    return fullPath
+  }
+
+  it("returns the planted text from a full read, so an agent can see the broken block", async () => {
+    await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Broken Properties.md" },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(textContent(result)).toBe(UNCLOSED_BLOCK_NOTE)
+  })
+
+  it("refuses a merge with the server's message and the repair steps", async () => {
+    const fullPath = await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Broken Properties.md", properties: { status: "done" } },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
+  })
+
+  it("repairs the block with replace: true, after which a merge keeps, overwrites and deletes keys", async () => {
+    const fullPath = await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const replaced = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: {
+        path: "Broken Properties.md",
+        properties: { title: "Fixed", draft: true, keep: 1 },
+        replace: true,
+      },
+    })
+
+    expect(replaced.isError).not.toBe(true)
+    expect(textContent(replaced)).toBe("Replaced properties on Broken Properties.md")
+    expect(await readFile(fullPath, "utf8")).toBe(
+      "---\ntitle: Fixed\ndraft: true\nkeep: 1\n---\nBody line\n",
+    )
+
+    const merged = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Broken Properties.md", properties: { title: "Final", draft: null } },
+    })
+
+    expect(merged.isError).not.toBe(true)
+    expect(await readFile(fullPath, "utf8")).toBe("---\ntitle: Final\nkeep: 1\n---\nBody line\n")
+  })
+
+  it.each([
+    {
+      label: "a prose block that fails as invalid YAML",
+      content: "---\n[[Some Link]] is related\n---\nBody line\n",
+      prose: "[[Some Link]] is related\n",
+    },
+    {
+      label: "a single-value prose block",
+      content: "---\nJust a paragraph.\n---\nBody line\n",
+      prose: "Just a paragraph.\n",
+    },
+  ])("repairs $label by replacing it and putting the prose back", async ({ content, prose }) => {
+    const fullPath = await plantNote("Prose Block.md", content)
+
+    const replaced = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Prose Block.md", properties: {}, replace: true },
+    })
+    const prepended = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: { path: "Prose Block.md", operation: "prepend", content: prose },
+    })
+
+    expect(replaced.isError).not.toBe(true)
+    expect(prepended.isError).not.toBe(true)
+    // A no-heading prepend leaves one blank line before the old body
+    expect(await readFile(fullPath, "utf8")).toBe(`${prose}\nBody line\n`)
+  })
+
+  it("tells an agent editing a single-value prose block to carry its text over", async () => {
+    await plantNote("Prose Block.md", "---\nJust a paragraph.\n---\nBody line\n")
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: { path: "Prose Block.md", old_text: "Body line", new_text: "Edited line" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it. ${CARRY_TEXT_REPAIR_STEPS}`,
+    )
+  })
+
+  it("repairs a list block by replacing it with properties that keep the items", async () => {
+    const fullPath = await plantNote("List Block.md", "---\n- alpha\n- beta\n---\nBody line\n")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "List Block.md", properties: { items: ["alpha", "beta"] }, replace: true },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(await readFile(fullPath, "utf8")).toBe(
+      "---\nitems:\n  - alpha\n  - beta\n---\nBody line\n",
+    )
+  })
+
+  it("refuses a vault_write_note body that would open the note with a broken block", async () => {
+    const fullPath = join(serverVaultPath, "New Broken.md")
+    onTestFinished(() => rm(fullPath, { force: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "New Broken.md", body: "---\ntitle: [unclosed\n---\nBody\n" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    await expect(readFile(fullPath, "utf8")).rejects.toThrow("ENOENT")
+  })
+
+  it("refuses a body edit that would leave a note without properties opening with a broken block", async () => {
+    const original = "Intro paragraph\n---\ntitle: [unclosed\n---\nrest\n"
+    const fullPath = await plantNote("Rule Then Block.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: { path: "Rule Then Block.md", start_anchor: "Intro paragraph" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  it("refuses a vault_replace_in_note deletion that would leave a note opening with a broken block", async () => {
+    const original = "Intro paragraph\n---\ntitle: [unclosed\n---\nrest\n"
+    const fullPath = await plantNote("Replace Then Block.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: { path: "Replace Then Block.md", old_text: "Intro paragraph\n", new_text: "" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  it("refuses a vault_replace_span that would open a note with a broken block", async () => {
+    const original = "Intro paragraph\nrest\n"
+    const fullPath = await plantNote("Span To Block.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: "Span To Block.md",
+        start_anchor: "Intro paragraph",
+        content: "---\ntitle: [unclosed\n---",
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  it("refuses a vault_insert_at_anchor that would open a note with a broken block", async () => {
+    const original = "Intro paragraph\nrest\n"
+    const fullPath = await plantNote("Insert Block.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_insert_at_anchor",
+      args: {
+        path: "Insert Block.md",
+        anchor: "Intro paragraph",
+        position: "before",
+        content: "---\ntitle: [unclosed\n---",
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  it.each([
+    { label: "with properties", properties: { title: "Fixed" } },
+    { label: "without properties", properties: undefined },
+  ])("refuses a vault_write_note overwrite $label on a broken note", async ({ properties }) => {
+    const fullPath = await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Broken Properties.md", body: "New body\n", overwrite: true, properties },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${OVERWRITE_REPAIR_STEPS}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
+  })
+
+  it("names a broken memory file when listing memory files", async () => {
+    await plantNote("About Me/Broken Memory.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({ client, name: "vault_list_memory_files", args: {} })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: memory file "About Me/Broken Memory.md": ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+    )
+  })
+
+  /** The refusal of a write that would leave a single-value block at the top of a note. */
+  const SINGLE_VALUE_OPENING_BLOCK_MESSAGE =
+    "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it"
+  const SINGLE_VALUE_OPENING_BLOCK_ERROR = `[Error]: ${SINGLE_VALUE_OPENING_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`
+
+  it("refuses removing every property with replace: true when the body opens with --- lines", async () => {
+    const original = "---\nold: 1\n---\n---\nJust a paragraph.\n---\nBody line\n"
+    const fullPath = await plantNote("Stacked Blocks.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Stacked Blocks.md", properties: {}, replace: true },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  // An empty first block reads as no properties, so these writes would leave
+  // the body's own --- lines at the top of the note
+
+  it("refuses a vault_update_memory write that would open the file with --- lines", async () => {
+    const original =
+      "---\n---\n---\nJust a paragraph.\n---\n# Stacked\n\n## Notes (newest first)\n- **2026-05-05**: kept entry\n"
+    const fullPath = await plantNote("About Me/Stacked Memory.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: {
+        file: "Stacked Memory",
+        section: "Notes (newest first)",
+        entry: "new entry",
+        options: { date: "2026-05-06" },
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: memory file "About Me/Stacked Memory.md": ${SINGLE_VALUE_OPENING_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  it("refuses a vault_create_task write that would open the note with --- lines", async () => {
+    const original = "---\n---\n---\nJust a paragraph.\n---\n- [ ] Kept task\n"
+    const fullPath = await plantNote("Stacked Tasks.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: { path: "Stacked Tasks.md", description: "New task", block_id: "new-task" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  // A list block reads fine, but a rewrite would lose it
+  const LIST_BLOCK_NOTE = "---\n- alpha\n- beta\n---\n## Section\nBody line\n- [ ] Task ^task-one\n"
+  const LIST_BLOCK_ERROR = `[Error]: properties block holds a list, not key-value pairs, so rewriting the note would delete it. ${CARRY_TEXT_REPAIR_STEPS}`
+
+  it.each([
+    {
+      name: "vault_patch_note",
+      args: { operation: "append", heading: "Section", content: "More text\n" },
+    },
+    { name: "vault_replace_span", args: { start_anchor: "Body line", content: "Edited line" } },
+    { name: "vault_delete_span", args: { start_anchor: "Body line" } },
+    {
+      name: "vault_insert_at_anchor",
+      args: { anchor: "Body line", position: "after", content: "Inserted line" },
+    },
+    { name: "vault_update_task", args: { block_id: "task-one", status: "done" } },
+    { name: "vault_create_task", args: { description: "New task", block_id: "task-two" } },
+  ])("$name refuses a note whose list block a rewrite would lose", async ({ name, args }) => {
+    const fullPath = await plantNote("List Block Edit.md", LIST_BLOCK_NOTE)
+
+    const result = await callTool({ client, name, args: { path: "List Block Edit.md", ...args } })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(LIST_BLOCK_ERROR)
+    expect(await readFile(fullPath, "utf8")).toBe(LIST_BLOCK_NOTE)
+  })
+
+  // The note has a "Plan" heading, so only the broken block can fail the heading read
+  it.each([
+    { mode: "properties_only", modeArgs: { properties_only: true } },
+    { mode: "outline", modeArgs: { outline: true } },
+    { mode: "heading", modeArgs: { heading: "Plan" } },
+  ])(
+    "refuses a vault_read_note $mode read of invalid YAML with the repair steps",
+    async ({ modeArgs }) => {
+      await plantNote("Broken Properties.md", "---\ntitle: [unclosed\n---\n## Plan\nStep one\n")
+
+      const result = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Broken Properties.md", ...modeArgs },
+      })
+
+      expect(result.isError).toBe(true)
+      expect(textContent(result)).toBe(
+        `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+      )
+    },
+  )
+
+  it("aborts a vault_move_note of a note whose block is not valid YAML, writing nothing", async () => {
+    const fullPath = await plantNote("Broken Move.md", UNCLOSED_BLOCK_NOTE)
+    const destinationPath = join(serverVaultPath, "Moved Broken.md")
+    onTestFinished(() => rm(destinationPath, { force: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Broken Move.md", new_path: "Moved Broken.md" },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: move aborted: could not read "Broken Move.md": ${UNCLOSED_BLOCK_MESSAGE}. Nothing was written. ${CARRY_TEXT_REPAIR_STEPS}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
+    await expect(readFile(destinationPath, "utf8")).rejects.toThrow("ENOENT")
+  })
+
+  it.each([
+    { name: "vault_get_memory", args: { file: "Broken Memory" } },
+    {
+      name: "vault_update_memory",
+      args: { file: "Broken Memory", section: "Notes (newest first)", entry: "new entry" },
+    },
+    {
+      name: "vault_delete_memory",
+      args: {
+        file: "Broken Memory",
+        section: "Notes (newest first)",
+        date: "2026-05-05",
+        entry: "kept entry",
+      },
+    },
+  ])("$name names a broken memory file and gives the repair steps", async ({ name, args }) => {
+    const fullPath = await plantNote("About Me/Broken Memory.md", UNCLOSED_BLOCK_NOTE)
+
+    const result = await callTool({ client, name, args })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: memory file "About Me/Broken Memory.md": ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
   })
 })
 
@@ -930,6 +1714,23 @@ describe("parameter combinations", () => {
     expectToolError(result, "heading cannot be empty")
   })
 
+  it("vault_get_daily_note with a date the calendar lacks", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "2026-02-30" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it("vault_move_note onto its own path", async () => {
     const result = await callTool({
       client,
@@ -937,6 +1738,83 @@ describe("parameter combinations", () => {
       args: { old_path: "Projects/alpha.md", new_path: "Projects/alpha.md" },
     })
     expectToolError(result, "source and destination are the same path")
+  })
+})
+
+// ── Unknown parameters ───────────────────────────────────────
+
+describe("unknown parameters", () => {
+  it("rejects a misspelled top-level parameter instead of ignoring it", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { folder: "Projects", globb: "nomatch-*.md" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'MCP error -32602: Input validation error: Invalid arguments for tool vault_list_notes: unrecognized key "globb" (accepted: folder, glob)',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("rejects a misspelled key inside a nested filter", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_tasks",
+      args: { created: { befor: "2000-01-01" } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'MCP error -32602: Input validation error: Invalid arguments for tool vault_list_tasks: unrecognized key "befor" (accepted: before, on, after) at created',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("serves a tool with no parameters when the call carries a placeholder argument", async () => {
+    const resultWithoutArgs = await callTool({ client, name: "vault_list_tags", args: {} })
+    const result = await callTool({
+      client,
+      name: "vault_list_tags",
+      args: { random_string: "placeholder" },
+    })
+    expect(resultWithoutArgs.isError).toBeUndefined()
+    expect(result).toEqual(resultWithoutArgs)
+  })
+
+  it("leaves the note unchanged when a write carries a misspelled option", async () => {
+    const notePath = join(serverVaultPath, "unknown-param-write.md")
+    const noteContent = "first second first\n"
+    await writeFile(notePath, noteContent)
+    onTestFinished(() => rm(notePath, { force: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: {
+        path: "unknown-param-write.md",
+        old_text: "first",
+        new_text: "third",
+        replace_all: true,
+      },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'MCP error -32602: Input validation error: Invalid arguments for tool vault_replace_in_note: unrecognized key "replace_all" (accepted: path, old_text, new_text, replace_all_occurrences)',
+        },
+      ],
+      isError: true,
+    })
+    expect(await readFile(notePath, "utf8")).toBe(noteContent)
   })
 })
 
@@ -1037,7 +1915,91 @@ describe("undecodable image", () => {
     onTestFinished(() => rm(imageFullPath))
 
     const result = await callTool({ client, name: "vault_read_file", args: { path: imagePath } })
-    expectToolError(result, "Input buffer contains unsupported image format")
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: could not decode image (the file is empty, damaged, not an image, or over about 268 million pixels)",
+        },
+      ],
+      isError: true,
+    })
+  })
+})
+
+// ── Unreadable PDF ───────────────────────────────────────────
+
+describe("unreadable PDF", () => {
+  const plantPdf = async (params: { pdfPath: string; content: Buffer }): Promise<void> => {
+    const fullPath = join(serverVaultPath, params.pdfPath)
+    await writeFile(fullPath, params.content)
+    onTestFinished(() => rm(fullPath))
+  }
+
+  it.each([{ raw: false }, { raw: true }])(
+    "vault_read_file on a password-protected PDF with raw: $raw",
+    async ({ raw }) => {
+      const pdfContent = buildPasswordProtectedPdf()
+      await plantPdf({ pdfPath: "Locked.pdf", content: pdfContent })
+
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "Locked.pdf", raw },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: `[Error]: PDF is password-protected: "Locked.pdf" exists (${pdfContent.length} bytes) but cannot be opened without its password`,
+          },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  it.each([{ raw: false }, { raw: true }])(
+    "vault_read_file on a .pdf that holds no PDF with raw: $raw",
+    async ({ raw }) => {
+      const pdfContent = Buffer.from("plain text, not a PDF")
+      await plantPdf({ pdfPath: "Not Really A PDF.pdf", content: pdfContent })
+
+      const result = await callTool({
+        client,
+        name: "vault_read_file",
+        args: { path: "Not Really A PDF.pdf", raw },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            text: `[Error]: PDF is damaged or not a PDF: "Not Really A PDF.pdf" exists (${pdfContent.length} bytes) but cannot be parsed`,
+          },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  it("vault_read_file with raw: true on a PDF that has no pages", async () => {
+    const pdfContent = buildZeroPagePdf()
+    await plantPdf({ pdfPath: "No Pages.pdf", content: pdfContent })
+
+    const result = await callTool({
+      client,
+      name: "vault_read_file",
+      args: { path: "No Pages.pdf", raw: true },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: PDF page rendering failed: "No Pages.pdf" exists (${pdfContent.length} bytes) but has 0 pages`,
+        },
+      ],
+      isError: true,
+    })
   })
 })
 
@@ -1187,7 +2149,7 @@ describe("task errors", () => {
     )
   })
 
-  it("vault_create_task with invalid date", async () => {
+  it("vault_create_task with a date the calendar lacks", async () => {
     const result = await callTool({
       client,
       name: "vault_create_task",
@@ -1198,10 +2160,18 @@ describe("task errors", () => {
         due: "2026-02-30",
       },
     })
-    expectToolError(result, "invalid date")
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: invalid date: due "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
+      isError: true,
+    })
   })
 
-  it("vault_update_task with invalid date", async () => {
+  it("vault_update_task with a malformed date", async () => {
     const result = await callTool({
       client,
       name: "vault_update_task",
@@ -1211,27 +2181,30 @@ describe("task errors", () => {
         due: "not-a-date",
       },
     })
-    expectToolError(result, "invalid date")
+    expect(result).toEqual({
+      content: [{ type: "text", text: '[Error]: invalid date: due "not-a-date" (use YYYY-MM-DD)' }],
+      isError: true,
+    })
   })
 
   it("vault_update_task — cannot move a sub-task to a heading", async () => {
-    // First create a sub-task on the board
-    await callTool({
+    // A sub-task on a board carries no block_id, so it is targeted by line
+    const createResult = await callTool({
       client,
       name: "vault_create_task",
       args: {
         path: "Projects/board.md",
         description: "Sub for error test",
-        block_id: "sub-error-test",
         parent_block_id: "board-active-1",
       },
     })
+    expect(createResult.isError).not.toBe(true)
     const result = await callTool({
       client,
       name: "vault_update_task",
       args: {
         path: "Projects/board.md",
-        block_id: "sub-error-test",
+        line: JSON.parse(textContent(createResult)).line,
         heading: "Done",
       },
     })
@@ -1245,7 +2218,6 @@ describe("task errors", () => {
       args: {
         path: "Projects/board.md",
         description: "Sub for position test",
-        block_id: "sub-pos-test",
         parent_block_id: "board-active-1",
       },
     })
@@ -1255,7 +2227,7 @@ describe("task errors", () => {
       name: "vault_update_task",
       args: {
         path: "Projects/board.md",
-        block_id: "sub-pos-test",
+        line: JSON.parse(textContent(createResult)).line,
         position: 1,
       },
     })
@@ -1456,6 +2428,157 @@ describe("task errors", () => {
       },
     })
     expectToolError(result, "is inside a fenced code block or comment")
+  })
+})
+
+describe("block ids on Kanban sub-tasks", () => {
+  const KANBAN_REASON =
+    "the Kanban plugin copies an indented line's block ID onto its card when it saves the board"
+
+  // Lines 6-9 of the written note: a card with a checklist item, then a card
+  // whose own block id was copied onto its sub-task.
+  const writeBoard = async (path: string): Promise<void> => {
+    const setupResult = await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path,
+        properties: { "kanban-plugin": "board" },
+        body: "## Active\n\n- [ ] Card ^kb-card\n\t- [ ] Checklist item\n- [ ] Copied card ^kb-copied\n\t- [ ] Copied sub-task ^kb-copied\n",
+      },
+    })
+    onTestFinished(async () => {
+      await callTool({ client, name: "vault_delete_note", args: { path } })
+    })
+    expect(setupResult.isError).not.toBe(true)
+  }
+
+  it("vault_create_task without block_id on a top-level card", async () => {
+    await writeBoard("Projects/kb-required.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: { path: "Projects/kb-required.md", description: "No id", heading: "Active" },
+    })
+    expectToolError(result, "blockId is required")
+  })
+
+  it("vault_create_task with block_id on a Kanban sub-task", async () => {
+    await writeBoard("Projects/kb-create-sub.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/kb-create-sub.md",
+        description: "Sub",
+        block_id: "kb-sub",
+        parent_block_id: "kb-card",
+      },
+    })
+    expectToolError(
+      result,
+      `blockId is not allowed on a sub-task on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_create_task with a checklist item ending in a block id on a Kanban board", async () => {
+    await writeBoard("Projects/kb-create-checklist.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/kb-create-checklist.md",
+        description: "New card",
+        block_id: "kb-new",
+        heading: "Active",
+        subtasks: ["Design ^kb-design"],
+      },
+    })
+    expectToolError(
+      result,
+      `subtask "Design ^kb-design" ends in a block ID (^kb-design), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_create_task under a parent block id that ends two task lines", async () => {
+    await writeBoard("Projects/kb-parent-ambiguous.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/kb-parent-ambiguous.md",
+        description: "Sub",
+        parent_block_id: "kb-copied",
+      },
+    })
+    expectToolError(
+      result,
+      'parent task ambiguous: blockId "kb-copied" matches 2 task lines (8, 9)',
+    )
+  })
+
+  it("vault_update_task with a block id that ends two task lines", async () => {
+    await writeBoard("Projects/kb-update-ambiguous.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/kb-update-ambiguous.md", block_id: "kb-copied", status: "done" },
+    })
+    expectToolError(
+      result,
+      'blockId "kb-copied" matches 2 task lines (8, 9) in "Projects/kb-update-ambiguous.md"',
+    )
+  })
+
+  it("vault_update_task assigning a block id to a Kanban sub-task", async () => {
+    await writeBoard("Projects/kb-assign.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/kb-assign.md", line: 7, assign_block_id: "kb-item" },
+    })
+    expectToolError(
+      result,
+      `assignBlockId is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_update_task with a Kanban sub-task description ending in a block id", async () => {
+    await writeBoard("Projects/kb-description.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/kb-description.md", line: 7, description: "Renamed ^kb-renamed" },
+    })
+    expectToolError(
+      result,
+      `description ends in a block ID (^kb-renamed), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
+  })
+
+  it("vault_update_task adding a checklist item ending in a block id on a Kanban board", async () => {
+    await writeBoard("Projects/kb-add-checklist.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/kb-add-checklist.md",
+        block_id: "kb-card",
+        add_subtasks: ["Test ^kb-test"],
+      },
+    })
+    expectToolError(
+      result,
+      `subtask "Test ^kb-test" ends in a block ID (^kb-test), which is not allowed on an indented line on a Kanban board — ${KANBAN_REASON}`,
+    )
   })
 })
 
@@ -1845,4 +2968,110 @@ describe("cannot read daily notes config", () => {
       requestId: deleteCallLog?.requestId,
     })
   }, 30_000)
+})
+
+// ── Empty tag inputs ─────────────────────────────────────────
+
+describe("tag must not be empty", () => {
+  const EMPTY_TAG_MESSAGE = '[Error]: tag must not be empty after its leading "#"'
+
+  it("vault_search_by_tag rejects a tag that is only a #", async () => {
+    const result = await callTool({ client, name: "vault_search_by_tag", args: { tag: "#" } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: EMPTY_TAG_MESSAGE }],
+      isError: true,
+    })
+  })
+
+  it("vault_search rejects a tags filter entry that is only a #", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "note", filters: { tags: ["#"] } },
+    })
+    expect(result).toEqual({
+      content: [{ type: "text", text: EMPTY_TAG_MESSAGE }],
+      isError: true,
+    })
+  })
+
+  it("vault_list_tasks rejects a tag that is only a #", async () => {
+    const result = await callTool({ client, name: "vault_list_tasks", args: { tag: "#" } })
+    expect(result).toEqual({
+      content: [{ type: "text", text: EMPTY_TAG_MESSAGE }],
+      isError: true,
+    })
+  })
+})
+
+// ── Date filter values ───────────────────────────────────────
+
+describe("date filter values", () => {
+  it("vault_search rejects a date filter not in YYYY-MM-DD form", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "note", filters: { modified: { after: "yesterday" } } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: invalid modified.after date: "yesterday". Use YYYY-MM-DD (e.g. 2026-07-03).',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_search rejects a date filter naming a day the calendar lacks", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_search",
+      args: { query: "note", filters: { created: { on: "2026-02-30" } } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: created.on date "2026-02-30" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_list_tasks rejects a date filter not in YYYY-MM-DD form", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_tasks",
+      args: { due: { before: "July 3rd" } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: invalid due.before date: "July 3rd". Use YYYY-MM-DD (e.g. 2026-07-03).',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_list_tasks rejects a date filter naming a day the calendar lacks", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_tasks",
+      args: { done: { after: "2026-04-31" } },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: done.after date "2026-04-31" is not a calendar date. Pass a real date in YYYY-MM-DD format.',
+        },
+      ],
+      isError: true,
+    })
+  })
 })

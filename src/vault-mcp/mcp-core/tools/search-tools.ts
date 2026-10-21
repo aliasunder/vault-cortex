@@ -5,94 +5,125 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { safeHandler, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
+import { createStrictInputObject, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
 
 export const registerSearchTools = ({
   registerTool,
+  safeHandler,
+  formatEnabledToolList,
   whenToolEnabledText,
   search,
   vaultPath,
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
+  // These parts read the same with or without embeddings, so both
+  // vault_search description variants share them
+  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.`
+
+  // File-content search applies only the folder filter, so hybrid search
+  // drops file results whenever any other filter is set
+  const searchFiltersNoteOnlyClause = config.fileToolsEnabled
+    ? "; any filter but folder limits results to notes"
+    : ""
+  const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${searchFiltersNoteOnlyClause}:
+- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
+- tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
+- properties: values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
+- created / modified: bounds compare whole calendar days in the server's time zone (the UTC offset on returned created and modified values), so "on" matches anywhere within the day. Notes without a parseable created property never match a created filter`
+
+  const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
+Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
+Example: vault_search({ query: "decision", filters: { modified: { after: "2026-06-30" } } }) — matching notes touched in July or later`
+
+  const searchAlternativesLine =
+    "Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing."
+
+  // File content is searched only while FILE_TOOLS_ENABLED is on, so the text
+  // that mentions file results follows that setting, not any one tool
+  const searchedContentText = config.fileToolsEnabled
+    ? "vault notes and file content (canvas, PDF, and text files)"
+    : "vault notes"
+  const searchResultFieldsText = config.fileToolsEnabled
+    ? "path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes"
+    : "path, title, snippet, score, tags, folder, type, kind, created, modified, bytes"
+  const searchResultKindText = config.fileToolsEnabled
+    ? `kind is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").`
+    : `kind is always "note".`
+  const searchResultDetailsText = `${searchResultKindText} created is omitted, not null, when a result has none. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
+
+  const searchErrorsSection = `Errors:
+- No matches returns { results: [], total: 0 }, not an error
+- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
+- "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
+- "… is not a calendar date" — a created/modified bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
+- "tag must not be empty …" — a tags entry is only "#"; pass the tag name`
+
   registerTool(
     TOOL_NAMES.VAULT_SEARCH,
     {
       title: "Search Notes",
       description: config.embeddingEnabled
-        ? `Hybrid search across all vault notes, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. Results are refined by a cross-encoder reranker using position-aware score blending when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only (FTS5 BM25) transparently while embeddings are being built. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
+        ? `Hybrid search across ${searchedContentText}, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion. Results are refined by a cross-encoder reranker when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only ranking before any embeddings exist. ${searchSyntaxText}
 
-Filters — all conditions AND-combine with each other and the text query:
-- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
-- created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter
+${searchFiltersSection}
 
-Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
-Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
-Example: vault_search({ query: "decision", filters: { modified: { after: "2026-06-30" } } }) — matching notes touched in July or later
+${searchSharedExamples}
 Example: vault_search({ query: "how the server watches for file changes" }) — semantic: finds notes about chokidar and file watchers even without those exact terms
 
-When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Semantic matching bridges vocabulary gaps — try natural-language queries, not just keywords.
-Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
+When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Try natural-language queries, not just keywords.
+${searchAlternativesLine}
 
-Errors:
-- No matches returns { results: [], total: 0 }, not an error
-- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
-- A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
+${searchErrorsSection}
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
-        : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("hybrid" when vector embeddings contributed, "fts" when only keyword matching ran), and reranked (boolean — true when cross-encoder reranking refined the ordering). score reflects combined relevance (higher = more relevant). ${searchResultDetailsText}`
+        : `Full-text search across ${searchedContentText}, ranked by relevance. ${searchSyntaxText}
 
-Filters — all conditions AND-combine with each other and the text query:
-- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
-- created / modified: bounds compare whole calendar days, server-local, so on matches anywhere within the day. Notes without a parseable created property never match a created filter
+${searchFiltersSection}
 
-Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
-Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
-Example: vault_search({ query: "decision", filters: { modified: { after: "2026-06-30" } } }) — matching notes touched in July or later
+${searchSharedExamples}
 Example: vault_search({ query: "deployment", filters: { properties: { status: "active" } } })
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.
-Prefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.
+${searchAlternativesLine}
 
-Errors:
-- No matches returns { results: [], total: 0 }, not an error
-- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
-- A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
+${searchErrorsSection}
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). A higher score is more relevant. ${searchResultDetailsText}`,
       inputSchema: {
         query: z.string().min(1).describe("Search query text"),
-        filters: z
-          .object({
-            folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
-            tags: z
-              .array(z.string().min(1))
-              .optional()
-              .describe("Require all listed tags (AND — every tag must be present)"),
-            related: z
-              .array(z.string().min(1))
-              .optional()
-              .describe("Require all listed related links"),
-            type: z
-              .string()
-              .min(1)
-              .optional()
-              .describe('Match the frontmatter type field (exact match, e.g. "person", "meeting")'),
-            properties: z
-              .record(z.string().min(1), z.union([z.string().min(1), z.number(), z.boolean()]))
-              .optional()
-              .describe(
-                'Match arbitrary frontmatter properties by key-value (e.g. { status: "active", priority: 1 })',
-              ),
-            created: dateFilterSchema.describe(
-              'Created date bounds (YYYY-MM-DD) on the frontmatter "created" property',
+        filters: createStrictInputObject({
+          folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
+          tags: z
+            .array(z.string().min(1))
+            .optional()
+            .describe('Tags, "#" optional (e.g. ["reference"])'),
+          related: z
+            .array(z.string().min(1))
+            .optional()
+            .describe(
+              'Require all listed related links, each written exactly as in the note\'s related property, brackets and alias included (e.g. "[[Projects/alpha|Alpha]]")',
             ),
-            modified: dateFilterSchema.describe(
-              "Modified date bounds (YYYY-MM-DD) on filesystem modified time, server-local day boundaries",
+          type: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              'Match the frontmatter type field (exact, case-sensitive match, e.g. "person", "meeting")',
             ),
-          })
+          properties: z
+            .record(z.string().min(1), z.union([z.string().min(1), z.number(), z.boolean()]))
+            .optional()
+            .describe(
+              'Match arbitrary frontmatter properties by key-value (e.g. { status: "active", priority: 1 })',
+            ),
+          created: dateFilterSchema.describe(
+            'Created date bounds (YYYY-MM-DD) on the frontmatter "created" property',
+          ),
+          modified: dateFilterSchema.describe(
+            "Modified date bounds (YYYY-MM-DD) on filesystem modified time",
+          ),
+        })
           .optional()
           .describe("Optional structured filters"),
         limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
@@ -102,7 +133,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           .min(1)
           .optional()
           .default(30)
-          .describe("Snippet length in words (default 30)"),
+          .describe("Snippet length in words, not model tokens (default 30)"),
         include_leading_callout: z
           .boolean()
           .optional()
@@ -151,43 +182,54 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
+      description: `Find notes by frontmatter tag, ignoring letter case; inline #tags in note bodies are not searched. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project/vault-cortex" and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
 
 Example: vault_search_by_tag({ tag: "project" })
+Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — notes tagged "project" itself, up to 50
 
-When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.
-Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
+When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.${whenToolEnabledText("vault_list_tags", " Use vault_list_tags first to discover available tags.")}${whenToolEnabledText("vault_search", "\nPrefer vault_search when you need text-based relevance ranking.")}
 
 Parameters:
-- tag + exact interact: the prefix match follows the "/" separator, so "project" matches itself and its children but does NOT match "my-project" or "projects". exact=true matches only the literal tag, excluding children.
+- limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: a result count equal to limit may mean more exist, so raise limit to check.
+
+Behavior: Reads the search index, which picks up a file change within a few seconds, so a note written moments ago may not appear yet.
 
 Errors:
-- An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
+- An unknown tag or no matches returns an empty array, not an error.
+- "project/" matches neither "project" nor "project/a"; drop the "/".
+- tag must not be empty after its leading "#" — tag is "#" alone; pass the tag name.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag Obsidian accepts, in the note's letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
           .min(1)
           .describe(
-            'Tag name without "#" prefix (e.g. "project", "session-log"). Hierarchical tags use "/" separators (e.g. "project/vault-cortex").',
+            'Tag, "#" optional (e.g. "project", "session-log"). Nested tags use "/" (e.g. "project/vault-cortex").',
           ),
         exact: z
           .boolean()
           .optional()
           .default(false)
-          .describe("Exact match only (default: false, prefix match)"),
+          .describe("Match only the tag itself (default: false)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(20)
+          .describe("Max results (default 20, no upper cap)"),
       },
     },
-    async ({ tag, exact }, extra) => {
+    async ({ tag, exact, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
       })
-      reqLogger.info("tool_call", { tag, exact })
+      reqLogger.info("tool_call", { tag, exact, limit })
       return safeHandler(
         reqLogger,
-        async () => search.searchByTag({ tag, exactMatch: exact }, reqLogger),
+        async () => search.searchByTag({ tag, exact, limit }, reqLogger),
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
           return JSON.stringify(results.map(formatNoteMetadata))
@@ -200,7 +242,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted (inline #tags in note bodies are not indexed). Each hierarchical tag (e.g. "project/vault-cortex") appears as one full entry, not split into segments. Count is unique notes, not occurrences.
+      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Only frontmatter tags Obsidian accepts are counted, not inline #tags. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
@@ -243,19 +285,19 @@ When to use: Catching up on vault changes, finding recent work, or orienting aft
 Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
 
 Parameters:
-- sort_by + limit interact: "modified" (default) uses filesystem mtime, so every note has a value and limit works predictably. "created" uses the frontmatter created property — notes without it sort last (not excluded), so a small limit may return only notes that have the property; increase limit or use "modified" for broader coverage.
+- sort_by + limit interact: "modified" (default) uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
 - "modified" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
 
 Errors:
 - An empty vault returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted descending by chosen timestamp. created is null when the property is missing; bytes is on-disk file size.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted descending by chosen timestamp. created is null when the property is missing or not an ISO date; bytes is on-disk file size.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
           .optional()
           .default("modified")
-          .describe('Sort order (default "modified")'),
+          .describe('Timestamp to sort by, newest first (default "modified")'),
         limit: z
           .number()
           .int()
@@ -443,7 +485,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     {
       title: "Search by Property",
-      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match).
+      description: `Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: "active") and array properties (tags, related).
 
 Example: vault_search_by_property({ key: "status", value: "in-progress" })
 Example: vault_search_by_property({ key: "type", value: "session-log", folder: "Code Projects" })
@@ -452,35 +494,30 @@ When to use: Finding notes by metadata when you don't have a text query.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
 
 Parameters:
-- key is exact and case-sensitive. Text values match exactly and case-sensitively, with no partial matching or globbing. Stored numbers also match numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4".
-- Numeric matching accepts complete finite YAML core numeric forms: signed decimals, leading-zero decimals, .5, 4., exponents, 0x hexadecimal and 0o octal. Whitespace, final line breaks, prefixes like "4abc", comments, expressions, 0b binary, separators, non-finite values and overflow match only literal text.
-- Numeric equality uses stored number precision: large integers can round to the same value, and underflow such as "1e-999" matches stored zero.
-- Pass a checkbox as "1" or "0" (true is stored as 1, false as 0); "1.0" does not match a checked checkbox.
+- key matches exactly and case-sensitively; value matches stored text the same way, with no partial matching or globbing.
+- A value written as a complete, finite YAML number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary, "1e999") matches only as text. Numbers compare as 64-bit floats, so integers past 2^53 can compare equal and "1e-999" matches 0.
+- Pass a checkbox as "1" (checked) or "0" (unchecked); a checkbox matches only as text, so "1.0" and "true" do not match.
 - An array element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
-- limit applies after sorting. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+- limit keeps the most recently modified matches. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
 - An unknown key or unmatched value returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
 - leading_callout appears only when the note has a leading callout.
-- additional_properties appears only when frontmatter has keys outside title, tags, type, created, and related.`,
+- additional_properties appears only when frontmatter has keys outside title, type, created, related, and the first key spelled tags in any letter case.`,
       inputSchema: {
-        key: z
-          .string()
-          .min(1)
-          .describe(
-            'Property key name (e.g. "status", "type", "tags"). Use vault_list_property_keys to discover valid keys.',
-          ),
-        value: z
-          .string()
-          .min(1)
-          .describe(
-            'Value to match (e.g. "active", "4", "1e-7"). Use vault_list_property_values to discover valid values for a key.',
-          ),
+        key: z.string().min(1).describe('Property key name (e.g. "status", "type", "tags").'),
+        value: z.string().min(1).describe('Value to match (e.g. "active", "4", "1e-7").'),
         folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
-        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(20)
+          .describe("Max results (default 20, no upper cap)"),
       },
     },
     async ({ key, value, folder, limit }, extra) => {
@@ -500,24 +537,37 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     },
   )
 
+  // Every path-finding tool can be dropped via DISABLED_TOOLS, so the remedy
+  // falls back to checking the path itself when none is served.
+  const backlinksPathFinders = formatEnabledToolList([
+    TOOL_NAMES.VAULT_SEARCH,
+    TOOL_NAMES.VAULT_LIST_NOTES,
+    TOOL_NAMES.VAULT_LIST_FILES,
+  ])
+  const backlinksEmptyResultRemedy = backlinksPathFinders
+    ? `find valid paths with ${backlinksPathFinders}`
+    : "check the path's spelling and letter case"
+
   registerTool(
     TOOL_NAMES.VAULT_GET_BACKLINKS,
     {
       title: "Get Backlinks",
-      description: `Find all notes and files that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside frontmatter properties (e.g. related:), and canvas file-node references. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
+      description: `Find all notes and canvases that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside frontmatter properties (e.g. related:), and canvas cards that embed the file. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.
 
 Example: vault_get_backlinks({ path: "Projects/vault-cortex.md" })
 Example: vault_get_backlinks({ path: "Diagrams/architecture.canvas" })
 
 When to use: Understanding what references a note or canvas, assessing its connectivity before editing or deleting, or finding related notes via the graph.
-For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.
+For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes nothing else links to, use vault_find_orphans.
 
 Parameters:
 - path: exact vault-relative path including .md or .canvas extension, case-sensitive.
 
 Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title), and count. Backlink sources may be notes (.md) or canvas files (.canvas).
 
-Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.`,
+Errors:
+- "path must end in …" — add the .md or .canvas extension
+- A path nothing links to returns an empty result (count 0), not an error — if you expected links, ${backlinksEmptyResultRemedy}.`,
       inputSchema: {
         path: z
           .string()
@@ -553,7 +603,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note or canvas links to. For notes: outgoing [[wikilinks]] and [markdown](links). For canvas files: file-node references (vault-relative paths embedded in the canvas). Links inside code blocks are ignored; self-links are included.
+      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes (vault-relative paths embedded in the canvas), not links inside text cards. Links inside code blocks are ignored; self-links are included. Each existing target is listed once, however often the note links to it; a broken one, once per target text, used as its path: the text before any #heading or |alias, letter case kept, a markdown link's %-escapes decoded.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
@@ -562,9 +612,9 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 For incoming links (what links TO a note), use vault_get_backlinks.
 
 Parameters:
-- path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
+- path: matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"). When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken (kind is always "note"). daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on broken links into the vault's daily notes folder, false otherwise and whenever that folder setting is the vault root or blank — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
@@ -595,7 +645,7 @@ Errors:
             reqLogger,
           )
           return search.getOutgoingLinks(
-            { path, dailyNotesFolder: dailyNotesConfig.folder },
+            { path, dailyNotesFolder: dailyNotesConfig.dedicatedFolder },
             reqLogger,
           )
         },
@@ -613,10 +663,18 @@ Errors:
 
   const orphanDefaultFolders = config.orphanExcludeFoldersOverride
     ? JSON.stringify(config.orphanExcludeFoldersOverride)
-    : `daily notes folder, Templates, ${JSON.stringify(config.memoryDir)}`
+    : `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`
   const orphanDefaultDescription = config.orphanExcludeFoldersOverride
-    ? "With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override is used."
-    : 'The daily notes folder is resolved on each call (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"). ORPHAN_EXCLUDE_FOLDERS replaces the defaults. For unreadable daily settings, the server logs a warning and uses "Daily Notes".'
+    ? "With exclude_folders omitted, the server's configured list (the schema default) is used."
+    : 'With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). When that folder is the vault root or blank, no daily folder is excluded.'
+  // An override list may not include the daily notes folder, so the hint only
+  // accompanies the built-in defaults.
+  const dailyNotesFolderHint = config.orphanExcludeFoldersOverride
+    ? ""
+    : whenToolEnabledText(
+        "vault_get_daily_note",
+        " (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)",
+      )
 
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
@@ -625,14 +683,13 @@ Errors:
       description: `Find notes with no incoming links from other notes or canvases — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan (self-links are ignored).
 
 Example: vault_find_orphans({})
-Example: vault_find_orphans({ exclude_folders: ["Archive"], limit: 10 })
 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
 - ${orphanDefaultDescription}
-- exclude_folders replaces the defaults (including an environment override), it does not add to them — include the defaults yourself to keep them. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
+- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it${dailyNotesFolderHint}. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
 - limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
@@ -660,13 +717,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           const excludeFolders =
             exclude_folders ??
             (await readEffectiveOrphanExcludeFolders({ config, vaultPath }, reqLogger))
-          return search.findOrphans(
-            {
-              excludeFolders: [...excludeFolders],
-              limit,
-            },
-            reqLogger,
-          )
+          return search.findOrphans({ excludeFolders, limit }, reqLogger)
         },
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
