@@ -245,8 +245,9 @@ What each release's notes list:
     change only the root `package.json` and `package-lock.json` and update only
     packages the lockfile marks `"dev": true`
   - Claude Code hook changes (commit scope `hooks`)
-  - commits that change only `AGENTS.md`, `CHANGELOG.md`, or files under
-    `.claude/` or `.husky/`
+  - commits that change only `AGENTS.md`, `CHANGELOG.md`, dotfiles at the
+    repository root (`.gitignore`, `.trivyignore`), or files under `.claude/`,
+    `.devin/` or `.husky/`
 - **CLI releases:** every commit that touches `cli/`, dependency bumps
   included.
 

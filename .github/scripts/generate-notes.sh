@@ -6,8 +6,8 @@
 # Left out of the notes:
 # - release bump commits
 # - dev-dependency bumps and Claude Code hook changes (scopes `deps-dev`, `hooks`)
-# - commits that change only AGENTS.md, CHANGELOG.md, or files under .claude/
-#   or .husky/
+# - commits that change only AGENTS.md, CHANGELOG.md, dotfiles at the repository
+#   root (.gitignore, .trivyignore), or files under .claude/, .devin/ or .husky/
 # - commits that change only the root package.json and package-lock.json and
 #   move only dev dependencies
 #
@@ -116,12 +116,19 @@ def pr_info(pr_number):
     _pr_cache[pr_number] = info
     return info
 
-# Commits with these scopes, or that change only these files, change nothing a
-# user installs. Hook commits also touch their tests, so the scope catches them.
+# Commits with these scopes change nothing a user installs. Hook commits also
+# change their tests, so a path rule alone would miss them.
 CONTRIBUTOR_ONLY_SCOPES = {"deps-dev", "hooks"}
 
+# A commit that changes only these paths changes nothing a user installs.
+# .github/ is not listed: CI changes stay in the notes.
 def is_contributor_only_path(path):
-    return path in ("AGENTS.md", "CHANGELOG.md") or path.startswith((".claude/", ".husky/"))
+    is_root_dotfile = path.startswith(".") and "/" not in path
+    return (
+        is_root_dotfile
+        or path in ("AGENTS.md", "CHANGELOG.md")
+        or path.startswith((".claude/", ".devin/", ".husky/"))
+    )
 
 def changed_paths(commit_hash):
     result = subprocess.run(
