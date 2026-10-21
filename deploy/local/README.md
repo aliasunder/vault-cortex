@@ -3,7 +3,7 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [More than one vault](#run-more-than-one-vault) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -199,8 +199,8 @@ The server runs these startup tasks on every boot:
    or deleted while the server started.
 
 Restarting the container re-runs this flow (useful when testing bootstrap
-behavior). The command is the same for both setup methods,
-since both name the container `vault-cortex`:
+behavior). The command is the same for both setup methods, since both name
+the container after `INSTANCE_NAME` (`vault-cortex` unless you set it):
 
 ```bash
 docker restart vault-cortex
@@ -236,6 +236,56 @@ docker stop vault-cortex
 ([`down`](../../cli/#down) · [`start`](../../cli/#start) in the CLI
 reference). Otherwise resume with `docker compose up -d` or
 `docker start vault-cortex`.
+
+## Run more than one vault
+
+Each vault gets its own install, with its own folder, `.env`, container,
+search index, port and connector. Give every install after the first its own
+`INSTANCE_NAME` before its first start. Docker uses that name for the
+install's container and for the volume that holds its search index
+(`<name>_mcp_data`); the first install keeps the default, `vault-cortex`.
+
+**Set up with the CLI?** Start Docker, so `init` can check which names and
+ports are in use. Then, from the folder you ran `init` in the first time, run it again
+with a new `--dir`:
+
+```bash
+npx vault-cortex@latest init --dir ./vault-cortex-work
+```
+
+When this machine already has a `vault-cortex` container or search index
+volume, `init` asks for the new install's name and port, for example `work`
+and `8001`. It suggests the first port no other container uses, and points
+the install's `PUBLIC_URL` at the port you pick. For a scripted setup,
+add `--yes --vault-path <path> --instance-name work --port 8001`. Then pass
+the same `--dir` to every command for that install:
+
+```bash
+npx vault-cortex@latest upgrade --dir ./vault-cortex-work
+npx vault-cortex@latest logs --dir ./vault-cortex-work
+```
+
+**Set up with Docker Compose?** Set up a new folder as in **Manual setup**
+under [Setup](#setup), with its own `MCP_AUTH_TOKEN` and `VAULT_PATH`. In its
+`.env`, also set a new `INSTANCE_NAME` and a free `PORT`, and point
+`PUBLIC_URL` at that port, or MCP clients can't sign in.
+[`.env.example`](./.env.example) describes each setting. Run each install's
+`docker compose` commands from its own folder.
+
+For each install:
+
+- **Connect it as its own server** in your MCP client, under its own name and
+  port. For Claude Code:
+  `claude mcp add --scope user --transport http work http://localhost:8001/mcp`.
+- **Update and restart it on its own:**
+  - With the CLI: `npx vault-cortex@latest upgrade --dir ./vault-cortex-work`
+    to update, or `npx vault-cortex@latest restart --dir ./vault-cortex-work`
+    to restart.
+  - With Compose: `docker compose pull && docker compose up -d` in its folder.
+- **Use its name in `docker` commands.** The commands in this guide that name
+  the container (`docker logs vault-cortex`, `docker restart vault-cortex`,
+  `docker stop vault-cortex`) take the install's `INSTANCE_NAME` instead, for
+  example `docker logs work`.
 
 ## Windows (Docker Desktop)
 
@@ -338,7 +388,7 @@ longer exists and `/authorize` rejects it. Clear the client's stored
 authorization for this server and reconnect so it registers fresh:
 
 - **Claude Code:** `claude mcp remove <name>`, then
-  `claude mcp add --scope user --transport http <name> http://localhost:8000/mcp`.
+  `claude mcp add --scope user --transport http <name> http://localhost:<port>/mcp`.
 - **Claude Desktop / mcp-remote:** delete `~/.mcp-auth` and restart the client.
 - **Other clients:** remove and re-add the server.
 
@@ -353,7 +403,9 @@ usual cause.
 container from a different management method is still running. The CLI
 (`npx vault-cortex@latest upgrade`) and Docker Compose (`docker compose up -d`)
 manage the container independently — stop the existing one first with
-`docker rm -f vault-cortex`, then retry with your preferred method.
+`docker rm -f vault-cortex`, then retry with your preferred method. Setting
+up a second vault? Give it its own name instead — see
+[Run more than one vault](#run-more-than-one-vault).
 
 ## Building from source
 

@@ -4,10 +4,13 @@ import {
   buildDockerLogsArgs,
   buildDockerRunArgs,
   classifyDaemonStatus,
-  CONTAINER_NAME,
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  isContainerNamed,
+  isVaultCortexImage,
   LOCAL_IMAGE,
+  parseContainerImage,
+  parsePublishedHostPorts,
   pollHealth,
   probeHealth,
   REMOTE_IMAGE,
@@ -16,10 +19,15 @@ import {
 const okResponse = new Response(null, { status: 200 })
 const failResponse = new Response(null, { status: 500 })
 
+/** The container health check: an in-container fetch of /healthz on the container's own port. */
+const HEALTH_CMD =
+  "node -e \"fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+
 describe("buildDockerRunArgs", () => {
   it("produces the correct args for local mode", () => {
     const args = buildDockerRunArgs({
       mode: "local",
+      instanceName: "vault-cortex",
       envFilePath: "/home/user/vault-cortex/.env",
       port: 8000,
       vaultPath: "/home/user/MyVault",
@@ -29,7 +37,7 @@ describe("buildDockerRunArgs", () => {
       "run",
       "-d",
       "--name",
-      CONTAINER_NAME,
+      "vault-cortex",
       "--restart",
       "unless-stopped",
       "--env-file",
@@ -49,7 +57,7 @@ describe("buildDockerRunArgs", () => {
       "-v",
       "vault-cortex_mcp_data:/data",
       "--health-cmd",
-      expect.stringContaining("healthz"),
+      HEALTH_CMD,
       "--health-interval",
       "15s",
       "--health-timeout",
@@ -65,6 +73,7 @@ describe("buildDockerRunArgs", () => {
   it("produces the correct args for remote mode", () => {
     const args = buildDockerRunArgs({
       mode: "remote",
+      instanceName: "vault-cortex",
       envFilePath: "/opt/vault-cortex/.env",
       port: 8000,
     })
@@ -73,7 +82,7 @@ describe("buildDockerRunArgs", () => {
       "run",
       "-d",
       "--name",
-      CONTAINER_NAME,
+      "vault-cortex",
       "--restart",
       "unless-stopped",
       "--env-file",
@@ -89,7 +98,7 @@ describe("buildDockerRunArgs", () => {
       "-p",
       "8000:8000",
       "--hostname",
-      CONTAINER_NAME,
+      "vault-cortex",
       "-v",
       "vault-cortex_vault_data:/vault",
       "-v",
@@ -97,7 +106,7 @@ describe("buildDockerRunArgs", () => {
       "-v",
       "vault-cortex_obsidian_config:/home/obsidian/.config",
       "--health-cmd",
-      expect.stringContaining("healthz"),
+      HEALTH_CMD,
       "--health-interval",
       "15s",
       "--health-timeout",
@@ -119,6 +128,7 @@ describe("buildDockerRunArgs", () => {
   it("uses a custom port for the host-side mapping", () => {
     const args = buildDockerRunArgs({
       mode: "local",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 9000,
       vaultPath: "/vault",
@@ -132,6 +142,7 @@ describe("buildDockerRunArgs", () => {
   it("overrides VAULT_PATH so the host path does not leak into the container", () => {
     const args = buildDockerRunArgs({
       mode: "local",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
       vaultPath: "/Users/me/My Vault",
@@ -146,6 +157,7 @@ describe("buildDockerRunArgs", () => {
     expect(() =>
       buildDockerRunArgs({
         mode: "local",
+        instanceName: "vault-cortex",
         envFilePath: "/tmp/.env",
         port: 8000,
       }),
@@ -155,6 +167,7 @@ describe("buildDockerRunArgs", () => {
   it("uses compose-prefixed volume names for backward compatibility", () => {
     const localArgs = buildDockerRunArgs({
       mode: "local",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
       vaultPath: "/vault",
@@ -163,6 +176,7 @@ describe("buildDockerRunArgs", () => {
 
     const remoteArgs = buildDockerRunArgs({
       mode: "remote",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
     })
@@ -171,9 +185,111 @@ describe("buildDockerRunArgs", () => {
     expect(remoteArgs).toContain("vault-cortex_obsidian_config:/home/obsidian/.config")
   })
 
+  it("names the container and every volume after a custom instance in local mode", () => {
+    const args = buildDockerRunArgs({
+      mode: "local",
+      instanceName: "work",
+      envFilePath: "/home/user/work/.env",
+      port: 8001,
+      vaultPath: "/home/user/WorkVault",
+    })
+
+    expect(args).toEqual([
+      "run",
+      "-d",
+      "--name",
+      "work",
+      "--restart",
+      "unless-stopped",
+      "--env-file",
+      "/home/user/work/.env",
+      "-e",
+      "VAULT_PATH=/vault",
+      "-e",
+      "PORT=8000",
+      "-e",
+      "HOST=0.0.0.0",
+      "-e",
+      "INDEX_DB_PATH=/data/index.db",
+      "-p",
+      "8001:8000",
+      "-v",
+      "/home/user/WorkVault:/vault:rw",
+      "-v",
+      "work_mcp_data:/data",
+      "--health-cmd",
+      HEALTH_CMD,
+      "--health-interval",
+      "15s",
+      "--health-timeout",
+      "5s",
+      "--health-retries",
+      "3",
+      "--health-start-period",
+      "20s",
+      LOCAL_IMAGE,
+    ])
+  })
+
+  it("names the container, hostname and every volume after a custom instance in remote mode", () => {
+    const args = buildDockerRunArgs({
+      mode: "remote",
+      instanceName: "work",
+      envFilePath: "/opt/work/.env",
+      port: 8001,
+    })
+
+    expect(args).toEqual([
+      "run",
+      "-d",
+      "--name",
+      "work",
+      "--restart",
+      "unless-stopped",
+      "--env-file",
+      "/opt/work/.env",
+      "-e",
+      "VAULT_PATH=/vault",
+      "-e",
+      "PORT=8000",
+      "-e",
+      "HOST=0.0.0.0",
+      "-e",
+      "INDEX_DB_PATH=/data/index.db",
+      "-p",
+      "8001:8000",
+      "--hostname",
+      "work",
+      "-v",
+      "work_vault_data:/vault",
+      "-v",
+      "work_mcp_data:/data",
+      "-v",
+      "work_obsidian_config:/home/obsidian/.config",
+      "--health-cmd",
+      HEALTH_CMD,
+      "--health-interval",
+      "15s",
+      "--health-timeout",
+      "5s",
+      "--health-retries",
+      "5",
+      "--health-start-period",
+      "180s",
+      "--log-driver",
+      "json-file",
+      "--log-opt",
+      "max-size=10m",
+      "--log-opt",
+      "max-file=3",
+      REMOTE_IMAGE,
+    ])
+  })
+
   it("includes remote-specific log rotation and longer healthcheck timings", () => {
     const args = buildDockerRunArgs({
       mode: "remote",
+      instanceName: "vault-cortex",
       envFilePath: "/tmp/.env",
       port: 8000,
     })
@@ -202,14 +318,24 @@ describe("healthPollTimeoutMs", () => {
 
 describe("healthTimeoutMessage", () => {
   it("renders the local budget as 2 minutes", () => {
-    expect(healthTimeoutMessage("local", 120_000)).toBe(
-      "Server did not respond within 2 minutes — check: docker logs vault-cortex",
-    )
+    expect(
+      healthTimeoutMessage({ mode: "local", timeoutMs: 120_000, instanceName: "vault-cortex" }),
+    ).toBe("Server did not respond within 2 minutes — check: docker logs vault-cortex")
   })
 
   it("adds the first-sync hint to the remote 4-minute message", () => {
-    expect(healthTimeoutMessage("remote", 240_000)).toBe(
+    expect(
+      healthTimeoutMessage({ mode: "remote", timeoutMs: 240_000, instanceName: "vault-cortex" }),
+    ).toBe(
       "Server did not respond within 4 minutes — check: docker logs vault-cortex (a long first sync may still be running — the container keeps starting in the background)",
+    )
+  })
+})
+
+describe("healthTimeoutMessage with a custom instance", () => {
+  it("points the logs command at the instance's container", () => {
+    expect(healthTimeoutMessage({ mode: "local", timeoutMs: 120_000, instanceName: "work" })).toBe(
+      "Server did not respond within 2 minutes — check: docker logs work",
     )
   })
 })
@@ -268,29 +394,39 @@ describe("pollHealth", () => {
 
 describe("buildDockerLogsArgs", () => {
   it("targets the container with no flags by default", () => {
-    expect(buildDockerLogsArgs({ follow: false })).toEqual(["logs", CONTAINER_NAME])
-  })
-
-  it("adds --follow when requested", () => {
-    expect(buildDockerLogsArgs({ follow: true })).toEqual(["logs", "--follow", CONTAINER_NAME])
-  })
-
-  it("adds --since with its value when provided", () => {
-    expect(buildDockerLogsArgs({ follow: false, since: "10m" })).toEqual([
+    expect(buildDockerLogsArgs({ instanceName: "vault-cortex", follow: false })).toEqual([
       "logs",
-      "--since",
-      "10m",
-      CONTAINER_NAME,
+      "vault-cortex",
     ])
   })
 
-  it("combines --follow and --since in flag order", () => {
-    expect(buildDockerLogsArgs({ follow: true, since: "2h" })).toEqual([
+  it("adds --follow when requested", () => {
+    expect(buildDockerLogsArgs({ instanceName: "vault-cortex", follow: true })).toEqual([
       "logs",
       "--follow",
-      "--since",
-      "2h",
-      CONTAINER_NAME,
+      "vault-cortex",
+    ])
+  })
+
+  it("adds --since with its value when provided", () => {
+    expect(
+      buildDockerLogsArgs({ instanceName: "vault-cortex", follow: false, since: "10m" }),
+    ).toEqual(["logs", "--since", "10m", "vault-cortex"])
+  })
+
+  it("combines --follow and --since in flag order", () => {
+    expect(
+      buildDockerLogsArgs({ instanceName: "vault-cortex", follow: true, since: "2h" }),
+    ).toEqual(["logs", "--follow", "--since", "2h", "vault-cortex"])
+  })
+})
+
+describe("buildDockerLogsArgs with a custom instance", () => {
+  it("targets the instance's container", () => {
+    expect(buildDockerLogsArgs({ instanceName: "work", follow: true })).toEqual([
+      "logs",
+      "--follow",
+      "work",
     ])
   })
 })
@@ -320,6 +456,102 @@ describe("classifyDaemonStatus", () => {
     })
 
     expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe("not-running")
+  })
+})
+
+describe("parsePublishedHostPorts", () => {
+  it("lists each published host port with its container, with or without a leading slash", () => {
+    const inspectOutput = [
+      "/vault-cortex 8000",
+      "/work 8001 9443",
+      "podman-app 7000",
+      "/no-ports",
+      "/runtime-picked ",
+      "",
+    ].join("\n")
+
+    expect(parsePublishedHostPorts(inspectOutput)).toEqual([
+      { hostPort: 8000, containerName: "vault-cortex" },
+      { hostPort: 8001, containerName: "work" },
+      { hostPort: 9443, containerName: "work" },
+      { hostPort: 7000, containerName: "podman-app" },
+    ])
+  })
+
+  it("counts every port of a published host-port range", () => {
+    expect(parsePublishedHostPorts("/ranged 18690-18692\n")).toEqual([
+      { hostPort: 18690, containerName: "ranged" },
+      { hostPort: 18691, containerName: "ranged" },
+      { hostPort: 18692, containerName: "ranged" },
+    ])
+  })
+
+  it("keeps every container that publishes the same host port", () => {
+    const inspectOutput = ["/vault-cortex 8000", "/stopped-test 8000"].join("\n")
+
+    expect(parsePublishedHostPorts(inspectOutput)).toEqual([
+      { hostPort: 8000, containerName: "vault-cortex" },
+      { hostPort: 8000, containerName: "stopped-test" },
+    ])
+  })
+})
+
+describe("isContainerNamed", () => {
+  it.each([
+    { label: "Docker's slash-prefixed name", inspectedName: "/2025\n" },
+    { label: "Podman's bare name", inspectedName: "2025\n" },
+  ])("matches $label", ({ inspectedName }) => {
+    expect(isContainerNamed({ inspectedName, instanceName: "2025" })).toBe(true)
+  })
+
+  it("rejects a container that inspect found by an ID prefix", () => {
+    expect(
+      isContainerNamed({ inspectedName: "/remote-boot-relative-index-db\n", instanceName: "2025" }),
+    ).toBe(false)
+  })
+})
+
+describe("parseContainerImage", () => {
+  it("reads the image of the container with the exact name", () => {
+    expect(
+      parseContainerImage({
+        inspectOutput: "/work ghcr.io/aliasunder/vault-cortex:remote\n",
+        instanceName: "work",
+      }),
+    ).toBe("ghcr.io/aliasunder/vault-cortex:remote")
+  })
+
+  it("returns undefined for a container that inspect found by an ID prefix", () => {
+    expect(
+      parseContainerImage({
+        inspectOutput: "/remote-boot-relative-index-db postgres:16\n",
+        instanceName: "2025",
+      }),
+    ).toBeUndefined()
+  })
+})
+
+describe("isVaultCortexImage", () => {
+  it.each([
+    { label: "the local tag on GHCR", image: "ghcr.io/aliasunder/vault-cortex:latest" },
+    { label: "the remote tag on GHCR", image: "ghcr.io/aliasunder/vault-cortex:remote" },
+    { label: "an untagged GHCR name", image: "ghcr.io/aliasunder/vault-cortex" },
+    { label: "a Docker Hub tag", image: "aliasunder/vault-cortex:remote" },
+    { label: "a fully named Docker Hub tag", image: "docker.io/aliasunder/vault-cortex:0.54.16" },
+    { label: "a digest", image: "ghcr.io/aliasunder/vault-cortex@sha256:0123abcd" },
+  ])("accepts $label", ({ image }) => {
+    expect(isVaultCortexImage(image)).toBe(true)
+  })
+
+  it.each([
+    { label: "another image", image: "postgres:16" },
+    {
+      label: "a repository that only starts with the name",
+      image: "aliasunder/vault-cortex-fork:1",
+    },
+    { label: "another owner's image", image: "ghcr.io/someone/vault-cortex:latest" },
+  ])("rejects $label", ({ image }) => {
+    expect(isVaultCortexImage(image)).toBe(false)
   })
 })
 

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
 import { loadConfig } from "../../../src/vault-mcp/config.js"
-import { REMOTE_IMAGE } from "../docker.js"
+import { instanceVolumeNames, REMOTE_IMAGE } from "../docker.js"
 import { buildLocalEnv, buildRemoteEnv } from "../env.js"
 
 const readRepoFile = (repoRelativePath: string): string =>
@@ -45,10 +45,24 @@ const optionalSection = (content: string): string => {
   return parts.length > 1 ? parts[1] : ""
 }
 
-/** Extracts commented var names from the optional section only. */
+/** Matches env var assignments in the optional section, commented or active. */
+const OPTIONAL_VAR_LINE = /^(?:# )?([A-Z_]+)=/gm
+
+/**
+ * Extracts var names from the optional section only. Active lines count too:
+ * a setting written as `INSTANCE_NAME=vault-cortex` must reach the CLI's
+ * generated .env just like a commented one.
+ */
 const optionalVarNames = (content: string): string[] => [
-  ...new Set([...optionalSection(content).matchAll(COMMENTED_VAR_LINE)].map((match) => match[1])),
+  ...new Set([...optionalSection(content).matchAll(OPTIONAL_VAR_LINE)].map((match) => match[1])),
 ]
+
+/**
+ * Variables Compose sets itself, so a compose file can read them without the
+ * user documenting them: the container name follows the project name through
+ * COMPOSE_PROJECT_NAME.
+ */
+const COMPOSE_PROVIDED_VARS = new Set(["COMPOSE_PROJECT_NAME"])
 
 /** Extracts all var names from a .env.example file (required + optional). */
 const allEnvExampleVarNames = (envExampleContent: string): string[] => {
@@ -137,6 +151,38 @@ describe("image constants", () => {
   it("REMOTE_IMAGE matches the image the Render blueprint pulls", () => {
     expect(readRenderBlueprint().services[0].image.url).toBe(REMOTE_IMAGE)
   })
+})
+
+/** The parts of a compose file that name an install's project, container and volumes. */
+type ComposeNaming = {
+  name: string
+  services: { "vault-cortex": { container_name: string } }
+  volumes: Record<string, unknown>
+}
+
+describe("instance naming in the compose templates", () => {
+  it.each([{ mode: "local" as const }, { mode: "remote" as const }])(
+    "$mode names the project and container after INSTANCE_NAME and declares the volumes the CLI mounts",
+    ({ mode }) => {
+      const composeFile: ComposeNaming = parseYaml(
+        readRepoFile(`deploy/${mode}/docker-compose.yml`),
+      )
+      // Compose prefixes each volume with the project name, so one INSTANCE_NAME
+      // gives a CLI install and a Compose install the same data.
+      const composeVolumeNames = Object.keys(composeFile.volumes).map((volume) => `work_${volume}`)
+      const cliVolumeNames = instanceVolumeNames({ mode, instanceName: "work" })
+
+      expect({
+        name: composeFile.name,
+        containerName: composeFile.services["vault-cortex"].container_name,
+        volumeNames: composeVolumeNames.sort(),
+      }).toEqual({
+        name: "${INSTANCE_NAME:-vault-cortex}",
+        containerName: "${COMPOSE_PROJECT_NAME:-${INSTANCE_NAME:-vault-cortex}}",
+        volumeNames: cliVolumeNames.sort(),
+      })
+    },
+  )
 })
 
 describe("hosted platform templates", () => {
@@ -285,7 +331,9 @@ describe("env var consistency across deploy surfaces", () => {
     const composeVars = new Set(interpolatedVars(readRepoFile(`deploy/${mode}/docker-compose.yml`)))
     const exampleVars = new Set(allEnvExampleVarNames(readRepoFile(`deploy/${mode}/.env.example`)))
 
-    const undocumented = [...composeVars].filter((varName) => !exampleVars.has(varName)).sort()
+    const undocumented = [...composeVars]
+      .filter((varName) => !exampleVars.has(varName) && !COMPOSE_PROVIDED_VARS.has(varName))
+      .sort()
     expect(undocumented).toEqual([])
   })
 

@@ -1,9 +1,9 @@
 import { join, resolve } from "node:path"
 
 import {
-  CONTAINER_NAME,
   healthPollTimeoutMs,
   healthTimeoutMessage,
+  isVaultCortexImage,
   pollHealth,
   probeHealth,
   type DockerRunner,
@@ -11,7 +11,7 @@ import {
 import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
 import {
   detectMode,
-  hasEnvPublicUrl,
+  readEnvInstanceName,
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
@@ -56,26 +56,28 @@ export type RestartDeps = {
 /** An init'd deployment on disk, reconstructed from its .env file. */
 export type Deployment = {
   mode: Mode
+  /** The .env's INSTANCE_NAME: the container this deployment owns and its volume prefix. */
+  instanceName: string
   targetDir: string
   envFilePath: string
   port: number
   /** Present only in local mode. */
   vaultPath?: string
-  /** The .env's PUBLIC_URL, when set. */
-  publicUrl?: string
+  publicUrl: string
 }
 
 const DEFAULT_TARGET_DIR = "./vault-cortex"
 
 /**
- * Light gate for commands that operate on an existing deployment without
- * starting a container: resolves --dir and confirms an init'd .env exists.
+ * Light gate for commands that use an existing deployment without starting a container:
+ * - resolves --dir and confirms an init'd .env exists;
+ * - reads INSTANCE_NAME, so an invalid name stops every command before it touches Docker.
  * Full start-readiness validation lives in resolveDeployment.
  */
 export const requireInitializedDir = (
   dirFlag: string | undefined,
   prompts: Prompts,
-): { targetDir: string; envFilePath: string; mode: Mode } | undefined => {
+): { targetDir: string; envFilePath: string; mode: Mode; instanceName: string } | undefined => {
   const targetDir = resolve(expandTilde(dirFlag ?? DEFAULT_TARGET_DIR))
   const envFilePath = join(targetDir, ".env")
 
@@ -85,14 +87,26 @@ export const requireInitializedDir = (
     prompts.error(`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`)
     return undefined
   }
-  return { targetDir, envFilePath, mode }
+  const instanceNameRead = readEnvInstanceName(envFilePath)
+
+  if (instanceNameRead.kind === "invalid") {
+    prompts.error(`${instanceNameRead.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  return { targetDir, envFilePath, mode, instanceName: instanceNameRead.instanceName }
+}
+
+/** A local PUBLIC_URL is this machine's own address; a remote one is the user's domain. */
+const missingPublicUrlFix = (mode: Mode, port: number): string => {
+  if (mode === "local") return `Set this line in your .env:\n  PUBLIC_URL=http://localhost:${port}`
+  return "Set it to the address your MCP clients reach this server at, for example:\n  PUBLIC_URL=https://vault.example.com"
 }
 
 /**
  * Resolves --dir to the on-disk deployment and validates its .env for a
- * container start: mode detection, VAULT_PATH (local), and PUBLIC_URL
- * (local). Reports each failure via prompts.error and returns undefined.
- * Shared by upgrade and restart so their precondition checks can't drift.
+ * container start: mode detection, PORT, VAULT_PATH (local), and PUBLIC_URL.
+ * Reports each failure via prompts.error and returns undefined.
+ * Shared by init, start, restart, upgrade and configure so their precondition checks can't drift.
  */
 export const resolveDeployment = (
   dirFlag: string | undefined,
@@ -101,9 +115,15 @@ export const resolveDeployment = (
   const initialized = requireInitializedDir(dirFlag, prompts)
 
   if (!initialized) return undefined
-  const { targetDir, envFilePath, mode } = initialized
+  const { targetDir, envFilePath, mode, instanceName } = initialized
 
-  const port = readEnvPort(envFilePath)
+  const portRead = readEnvPort(envFilePath)
+
+  if (portRead.kind === "invalid") {
+    prompts.error(`${portRead.message} Fix it in ${targetDir}/.env.`)
+    return undefined
+  }
+  const { port } = portRead
   const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
 
   if (mode === "local" && !vaultPath) {
@@ -112,16 +132,16 @@ export const resolveDeployment = (
     )
     return undefined
   }
-  if (mode === "local" && !hasEnvPublicUrl(envFilePath)) {
+  const publicUrl = readEnvPublicUrl(envFilePath)
+
+  if (!publicUrl) {
     prompts.error(
-      `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
-        `Add this line to your .env:\n  PUBLIC_URL=http://localhost:${port}`,
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        missingPublicUrlFix(mode, port),
     )
     return undefined
   }
-
-  const publicUrl = readEnvPublicUrl(envFilePath)
-  return { mode, targetDir, envFilePath, port, vaultPath, publicUrl }
+  return { mode, instanceName, targetDir, envFilePath, port, vaultPath, publicUrl }
 }
 
 /**
@@ -138,18 +158,6 @@ export const ensureDaemonRunning = (docker: DockerRunner, prompts: Prompts): boo
       : buildDaemonNotRunningMessage("."),
   )
   return false
-}
-
-/**
- * Whether the post-start public-URL probe should run — and, when it should,
- * proof that publicUrl is set. Local's PUBLIC_URL is the derived localhost
- * URL, so probing it would only duplicate the health check the start cycle
- * just ran.
- */
-const shouldRunPostStartProbe = (
-  deployment: Deployment,
-): deployment is Deployment & { publicUrl: string } => {
-  return deployment.mode === "remote" && deployment.publicUrl !== undefined
 }
 
 /**
@@ -187,6 +195,28 @@ export const reportPublicUrlProbe = async (
 }
 
 /**
+ * Looks up the container that holds the install's name. One running another
+ * image is someone else's, so no command may stop, remove or stream it: this
+ * reports the refusal, and callers stop on "foreign".
+ */
+export const checkInstanceContainer = (
+  params: { instanceName: string; envFilePath: string },
+  deps: { prompts: Prompts; docker: DockerRunner },
+): "none" | "own" | "foreign" => {
+  const { instanceName, envFilePath } = params
+  const image = deps.docker.containerImage(instanceName)
+
+  if (!image) return "none"
+  if (isVaultCortexImage(image)) return "own"
+  deps.prompts.error(
+    `A container named "${instanceName}" runs ${image}, not Vault Cortex, so this command leaves it alone.\n` +
+      `To keep this install's data, rename that container: docker rename ${instanceName} <new-name>\n` +
+      `Or change INSTANCE_NAME in ${envFilePath}: the install then starts on new, empty volumes.`,
+  )
+  return "foreign"
+}
+
+/**
  * Stop-and-remove → docker run → health poll, with the shared messaging.
  * Returns a process exit code. Callers own the daemon check and any
  * image-pull step.
@@ -197,14 +227,20 @@ export const recreateContainer = async (
 ): Promise<number> => {
   const { deployment, healthTimeoutMs } = params
   const { prompts, docker, fetchFn } = deps
+  const { instanceName } = deployment
+  const instanceContainer = checkInstanceContainer(
+    { instanceName, envFilePath: deployment.envFilePath },
+    { prompts, docker },
+  )
 
+  if (instanceContainer === "foreign") return 1
   // `docker rm -f` on a missing container exits non-zero on engines < 23,
   // so the bare return value can't distinguish "nothing to remove" from a
   // real failure — only treat removal as failed when a container exists.
   // Proceeding after a genuine failure would surface as a confusing
   // "container name already in use" from docker run.
-  if (docker.containerExists() && !docker.stopAndRemoveContainer()) {
-    prompts.error(`Could not remove the existing container — check: docker rm -f ${CONTAINER_NAME}`)
+  if (instanceContainer === "own" && !docker.stopAndRemoveContainer(instanceName)) {
+    prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
     return 1
   }
 
@@ -212,6 +248,7 @@ export const recreateContainer = async (
   prompts.log("Starting container...")
   const containerStarted = docker.dockerRun({
     mode: deployment.mode,
+    instanceName,
     envFilePath: deployment.envFilePath,
     port: deployment.port,
     vaultPath: deployment.vaultPath,
@@ -234,14 +271,15 @@ export const recreateContainer = async (
   )
 
   if (!healthy) {
-    spinner.stop(healthTimeoutMessage(deployment.mode, timeoutMs))
+    spinner.stop(healthTimeoutMessage({ mode: deployment.mode, timeoutMs, instanceName }))
     return 1
   }
   spinner.stop("Server is up — health check passed.")
 
   // Informational only — the container is confirmed healthy above, so the
-  // public-URL result never changes the exit code.
-  if (shouldRunPostStartProbe(deployment)) {
+  // public-URL result never changes the exit code. A local PUBLIC_URL is the
+  // localhost address the health check just reached, so only remote probes it.
+  if (deployment.mode === "remote") {
     await reportPublicUrlProbe(deployment.publicUrl, { prompts, fetchFn })
   }
   return 0
@@ -258,32 +296,38 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
   prompts.intro("vault-cortex down")
 
   // Teardown only needs to confirm this is an init'd directory — the full
-  // .env validation (VAULT_PATH, PUBLIC_URL) guards container starts.
+  // .env validation (PORT, VAULT_PATH, PUBLIC_URL) guards container starts.
   const initialized = requireInitializedDir(flags.dir, prompts)
 
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
+  const { instanceName, envFilePath, targetDir } = initialized
+  const instanceContainer = checkInstanceContainer(
+    { instanceName, envFilePath },
+    { prompts, docker },
+  )
 
-  if (!docker.containerExists()) {
-    prompts.log("No vault-cortex container found — nothing to stop.")
+  if (instanceContainer === "foreign") return 1
+  if (instanceContainer === "none") {
+    prompts.log(`No ${instanceName} container found — nothing to stop.`)
     prompts.outro("Done.")
     return 0
   }
 
-  if (!docker.stopAndRemoveContainer()) {
-    prompts.error(`Could not remove the container — check: docker rm -f ${CONTAINER_NAME}`)
+  if (!docker.stopAndRemoveContainer(instanceName)) {
+    prompts.error(`Could not remove the container — check: docker rm -f ${instanceName}`)
     return 1
   }
 
   prompts.log(
     "Container stopped and removed. Your vault data, search index, and settings are untouched.",
   )
-  prompts.outro(`Start again with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`)
+  prompts.outro(`Start again with: npx vault-cortex@latest start --dir "${targetDir}"`)
   return 0
 }
 
 /**
- * Streams `docker logs` for the vault-cortex container. The stream's exit
+ * Streams `docker logs` for the deployment's container. The stream's exit
  * code passes through as the command's exit code; no outro follows the raw
  * docker output.
  */
@@ -296,15 +340,22 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
 
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
+  const { instanceName, envFilePath, targetDir } = initialized
+  const instanceContainer = checkInstanceContainer(
+    { instanceName, envFilePath },
+    { prompts, docker },
+  )
 
-  if (!docker.containerExists()) {
+  if (instanceContainer === "foreign") return 1
+  if (instanceContainer === "none") {
     prompts.error(
-      `No vault-cortex container — start it with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
+      `No ${instanceName} container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
     )
     return 1
   }
 
   return await docker.streamLogs({
+    instanceName,
     follow: Boolean(flags.follow),
     since: flags.since,
   })

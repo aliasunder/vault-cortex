@@ -1,11 +1,12 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runConfigure } from "../configure.js"
-import type { DockerRunParams, DockerRunner } from "../docker.js"
+import type { DockerRunner } from "../docker.js"
 import {
+  createRecordingDocker,
   createScriptedPrompts,
   dockerDown,
   dockerNotInstalled,
@@ -13,20 +14,6 @@ import {
   fetchNever,
   fetchOk,
 } from "./command-stubs.js"
-
-/** A ready daemon that records dockerRun calls for start-parameter asserts. */
-const createRecordingDocker = () => {
-  const dockerRunCalls: DockerRunParams[] = []
-  const docker: DockerRunner = {
-    ...dockerReady,
-    containerExists: () => false,
-    dockerRun: (params) => {
-      dockerRunCalls.push(params)
-      return true
-    },
-  }
-  return { docker, dockerRunCalls }
-}
 
 // Creates a temp target dir and registers its removal at creation time, so
 // the suite self-cleans even when an assertion throws mid-test.
@@ -110,6 +97,35 @@ describe("runConfigure with picked settings", () => {
     ])
   })
 
+  it("asks Docker again before offering the restart, in case it stopped during the prompts", async () => {
+    const targetDir = makeTempTargetDir()
+    writeLocalEnv(targetDir)
+    const daemonStatus = vi
+      .fn<DockerRunner["daemonStatus"]>()
+      .mockReturnValueOnce("running")
+      .mockReturnValue("not-running")
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: { ...dockerReady, daemonStatus }, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(daemonStatus).toHaveBeenCalledTimes(2)
+    expect(scripted.warnings).toEqual([
+      `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
+    ])
+    // The restart question is never asked.
+    expect(scripted.asked).toEqual([
+      "Any optional settings to change? (press enter to skip)",
+      "Enable the memory layer (About Me/ folder + memory tools)?",
+    ])
+  })
+
   it("saves the changes and names the missing runtime when Docker is not installed", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = writeLocalEnv(targetDir)
@@ -139,7 +155,7 @@ describe("runConfigure with picked settings", () => {
   it("saves the changes and prints the restart hint when the restart is declined", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = writeLocalEnv(targetDir)
-    const { docker, dockerRunCalls } = createRecordingDocker()
+    const { docker, runParams } = createRecordingDocker()
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
       false, // disable the memory layer
@@ -155,7 +171,7 @@ describe("runConfigure with picked settings", () => {
     expect(readFileSync(envFilePath, "utf8")).toBe(
       LOCAL_ENV_CONTENT.replace("MEMORY_ENABLED=true", "MEMORY_ENABLED=false"),
     )
-    expect(dockerRunCalls).toEqual([])
+    expect(runParams).toEqual([])
     expect(scripted.logs).toEqual([
       `Updated MEMORY_ENABLED in ${targetDir}/.env.`,
       `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
@@ -163,10 +179,38 @@ describe("runConfigure with picked settings", () => {
     expect(scripted.outros).toEqual(["Done."])
   })
 
+  it("re-creates the container a custom INSTANCE_NAME names when the restart is accepted", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = join(targetDir, ".env")
+    writeFileSync(envFilePath, `${LOCAL_ENV_CONTENT}INSTANCE_NAME=work\n`)
+    const { docker, runParams } = createRecordingDocker()
+    const scripted = createScriptedPrompts([
+      ["MEMORY_ENABLED"],
+      false, // disable the memory layer
+      true, // restart now
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(runParams).toEqual([
+      {
+        mode: "local",
+        instanceName: "work",
+        envFilePath,
+        port: 8000,
+        vaultPath: "/home/user/MyVault",
+      },
+    ])
+  })
+
   it("re-creates the container on the new PORT when the restart is accepted", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = writeLocalEnv(targetDir)
-    const { docker, dockerRunCalls } = createRecordingDocker()
+    const { docker, runParams } = createRecordingDocker()
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
       fetchedUrls.push(String(url))
@@ -186,9 +230,10 @@ describe("runConfigure with picked settings", () => {
     expect(exitCode).toBe(0)
     // The restart resolves the deployment from the .env written moments
     // before, so the new port drives both the port mapping and health URL.
-    expect(dockerRunCalls).toEqual([
+    expect(runParams).toEqual([
       {
         mode: "local",
+        instanceName: "vault-cortex",
         envFilePath,
         port: 9100,
         vaultPath: "/home/user/MyVault",
@@ -205,6 +250,41 @@ describe("runConfigure with picked settings", () => {
       "Applied the current .env settings.",
     ])
     expect(scripted.outros).toEqual(["Configure complete."])
+  })
+
+  it("asks again for a PORT another container publishes, and accepts this install's own", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = writeLocalEnv(targetDir)
+    const docker: DockerRunner = {
+      ...createRecordingDocker().docker,
+      publishedHostPorts: () => {
+        return [
+          { hostPort: 8000, containerName: "vault-cortex" },
+          { hostPort: 9100, containerName: "other-app" },
+        ]
+      },
+    }
+    const scripted = createScriptedPrompts([
+      ["PORT"],
+      "9100", // taken by "other-app"
+      "8000", // this install's own port
+      false, // decline the restart
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([
+      'Port 9100 is already used by the "other-app" container on this machine. Pick another port.',
+    ])
+    expect(scripted.textCalls).toEqual([
+      { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
+      { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
+    ])
+    expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
   })
 
   it("appends SYNC_MODE on a remote .env that predates the setting", async () => {
@@ -316,7 +396,7 @@ describe("runConfigure with picked settings", () => {
       envFilePath,
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=true\n",
     )
-    const { docker, dockerRunCalls } = createRecordingDocker()
+    const { docker, runParams } = createRecordingDocker()
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
       false, // disable the memory layer
@@ -330,10 +410,10 @@ describe("runConfigure with picked settings", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
-        `Add this line to your .env:\n  PUBLIC_URL=http://localhost:8000`,
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        `Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000`,
     ])
-    expect(dockerRunCalls).toEqual([])
+    expect(runParams).toEqual([])
     // The settings edit itself succeeded before the restart failed — and the
     // user is told so, with the way to apply once the .env issue is fixed.
     expect(readFileSync(envFilePath, "utf8")).toBe(
@@ -407,7 +487,7 @@ describe("runConfigure with picked settings", () => {
     writeLocalEnv(targetDir)
     const dockerRunFails: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
+      containerImage: () => undefined,
       dockerRun: () => false,
     }
     const scripted = createScriptedPrompts([

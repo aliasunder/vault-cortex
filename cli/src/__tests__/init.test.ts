@@ -4,17 +4,20 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runInit, validatePublicUrl } from "../init.js"
-import { pollHealth } from "../docker.js"
-import { buildDockerNotInstalledMessage } from "../messages.js"
+import { LOCAL_IMAGE, pollHealth, type DockerRunner } from "../docker.js"
+import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "../messages.js"
+import { readEnvInstanceName } from "../scaffold.js"
 
 vi.mock("../docker.js", { spy: true })
 import {
+  createRecordingDocker,
   createScriptedPrompts,
   dockerDaemonOnly,
   dockerDown,
   dockerNotInstalled,
-  dockerReady,
+  dockerReadyEmptyHost,
   fetchNever,
+  fetchOk,
 } from "./command-stubs.js"
 
 const makeVault = (): string => {
@@ -444,8 +447,12 @@ describe("runInit interactive local flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain("Start the server now?")
-    expect(scripted.warnings).toHaveLength(1)
-    expect(scripted.warnings[0]).toContain("Container runtime not running")
+    expect(scripted.warnings).toEqual([
+      nameCheckSkippedWarning("vault-cortex"),
+      buildDaemonNotRunningMessage(
+        `, then run:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
+      ),
+    ])
   })
 
   // Message content per platform is pinned test-owned in messages.test.ts —
@@ -471,6 +478,7 @@ describe("runInit interactive local flow", () => {
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain("Start the server now?")
     expect(scripted.warnings).toEqual([
+      nameCheckSkippedWarning("vault-cortex"),
       buildDockerNotInstalledMessage({
         nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
       }),
@@ -512,6 +520,7 @@ describe("runInit remote flow", () => {
       false, // don't generate the token now (declined auto-capture)
       false, // no end-to-end encryption
       [], // no optional settings
+      false, // don't start the server
     ])
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -529,6 +538,7 @@ describe("runInit remote flow", () => {
       "Generate the token now?",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
     ])
     expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false)
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
@@ -536,7 +546,7 @@ describe("runInit remote flow", () => {
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
     expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(scripted.logs).toContain(
-      "No token yet — run this later to add it to your .env:\n" +
+      "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   })
@@ -559,8 +569,8 @@ describe("runInit remote flow", () => {
       },
     )
 
-    // Token generation is always offered (uses the API, not Docker). With a
-    // blank token (capture declined), no start offer is shown.
+    // Token generation is always offered (uses the API, not Docker). Without
+    // Docker installed, no start offer is shown.
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
@@ -605,7 +615,7 @@ describe("runInit remote flow", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerReady,
+        docker: dockerReadyEmptyHost,
         fetchFn: fetchRecorder,
       },
     )
@@ -617,6 +627,49 @@ describe("runInit remote flow", () => {
       "http://127.0.0.1:8000/healthz",
       "https://vault.example.com/healthz",
     ])
+  })
+
+  it("starts the server without a Sync token and points at its sign-in page", async () => {
+    const targetDir = makeTargetDir()
+    const fetchedUrls: string[] = []
+    const fetchRecorder: typeof fetch = async (input) => {
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts([
+      "https://vault.example.com", // public URL
+      "MyVault", // vault name
+      false, // don't generate the token now
+      false, // no end-to-end encryption
+      [], // no optional settings
+      true, // start the server now
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReadyEmptyHost,
+        fetchFn: fetchRecorder,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    // The health poll and the public URL probe only run after docker run.
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
+    const connectMessage = scripted.prints.find((message) => {
+      return message.includes("Connect your MCP client")
+    })
+
+    expect(connectMessage).toContain(
+      "The server is running.\n" +
+        "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
+        "syncing. Open the page:\n" +
+        "  https://vault.example.com\n" +
+        "It asks for the auth token below and your Obsidian password.\n\n",
+    )
   })
 
   it("keeps a successful start at exit 0 when the public URL does not answer", async () => {
@@ -654,7 +707,7 @@ describe("runInit remote flow", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerReady,
+        docker: dockerReadyEmptyHost,
         fetchFn: fetchPublicUrlDownWithSignin,
       },
     )
@@ -720,10 +773,10 @@ describe("runInit remote flow", () => {
     expect(envContent.split("\n")).toContain("OBSIDIAN_AUTH_TOKEN=captured-token")
   })
 
-  it("skips the start offer when the sync token was left blank", async () => {
+  it("warns and skips the start offer when the Docker daemon is down", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
-      "http://203.0.113.10:8000",
+      "https://vault.example.com",
       "MyVault",
       false, // don't generate the token now (declined auto-capture)
       false, // no encryption
@@ -741,7 +794,12 @@ describe("runInit remote flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain("Start the server now?")
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
+    expect(scripted.warnings).toEqual([
+      nameCheckSkippedWarning("vault-cortex"),
+      buildDaemonNotRunningMessage(
+        `, then run:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
+      ),
+    ])
   })
 
   it("preserves existing token and offers start when capture is declined on re-init", async () => {
@@ -815,7 +873,8 @@ describe("runInit re-init guard", () => {
   it("backs out of remote init before any mode-specific question when the dir already holds a deployment", async () => {
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const existingEnv = "MCP_AUTH_TOKEN=existing\nOBSIDIAN_AUTH_TOKEN=\n"
+    writeFileSync(join(targetDir, ".env"), existingEnv)
     const scripted = createScriptedPrompts([
       false, // existing deployment found — do not re-run setup (default)
     ])
@@ -844,7 +903,7 @@ describe("runInit re-init guard", () => {
       `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
     ])
     expect(scripted.outros).toEqual(["Done."])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
   })
 
   it("backs out of local init after the dir prompt when it already holds a deployment", async () => {
@@ -883,6 +942,83 @@ describe("runInit re-init guard", () => {
     expect(scripted.outros).toEqual(["Done."])
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
   })
+
+  it("stops local init on a folder that holds a remote install, before asking about the existing install", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = "MCP_AUTH_TOKEN=existing\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Personal\n"
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReadyEmptyHost, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `${targetDir} holds a remote install, and this run sets up a local one.\n` +
+        `To start the existing install: npx vault-cortex@latest start --dir "${targetDir}"\n` +
+        "To set up a local install, run init again with another --dir.",
+    ])
+    expect(scripted.asked).toEqual([])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+    expect(dockerRun).not.toHaveBeenCalled()
+  })
+
+  it("asks the usual re-run question for a .env that init did not write", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const otherAppEnv = "DATABASE_URL=postgres://localhost/app\n"
+    writeFileSync(join(targetDir, ".env"), otherAppEnv)
+    const scripted = createScriptedPrompts([
+      false, // do not re-run setup
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReadyEmptyHost, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(otherAppEnv)
+  })
+
+  it("stops remote init on a folder that holds a local install, before asking about the existing install", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${makeVault()}\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReadyEmptyHost, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `${targetDir} holds a local install, and this run sets up a remote one.\n` +
+        `To start the existing install: npx vault-cortex@latest start --dir "${targetDir}"\n` +
+        "To set up a remote install, run init again with another --dir.",
+    ])
+    expect(scripted.asked).toEqual([])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+    expect(dockerRun).not.toHaveBeenCalled()
+  })
 })
 
 describe("runInit with a kept existing .env", () => {
@@ -899,7 +1035,10 @@ describe("runInit with a kept existing .env", () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=http://localhost:8000\n`,
+    )
     const scripted = createScriptedPrompts(keepEnvAnswers(vaultDir, targetDir))
 
     const exitCode = await runInit(
@@ -923,7 +1062,10 @@ describe("runInit with a kept existing .env", () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\nPORT=9000\n")
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n`,
+    )
     const scripted = createScriptedPrompts([
       ...keepEnvAnswers(vaultDir, targetDir),
       true, // start the server now
@@ -938,7 +1080,7 @@ describe("runInit with a kept existing .env", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerReady,
+        docker: dockerReadyEmptyHost,
         fetchFn: fetchRecorder,
       },
     )
@@ -946,6 +1088,55 @@ describe("runInit with a kept existing .env", () => {
     expect(exitCode).toBe(0)
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
     expect(scripted.prints[0]).toContain("http://localhost:9000/mcp")
+  })
+
+  it("stops instead of starting a kept .env with no PUBLIC_URL, as start does", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, ".env"), `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\n`)
+    const scripted = createScriptedPrompts(keepEnvAnswers(vaultDir, targetDir))
+    const recording = createRecordingDocker()
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
+    ])
+    expect(recording.runParams).toEqual([])
+    expect(scripted.prints).toEqual([])
+  })
+
+  it("mounts the kept file's vault folder, not this run's, as start does", async () => {
+    const promptedVaultDir = makeVault()
+    const keptVaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${keptVaultDir}\nPUBLIC_URL=http://localhost:8000\n`,
+    )
+    const scripted = createScriptedPrompts([
+      ...keepEnvAnswers(promptedVaultDir, targetDir),
+      true, // start the server now
+    ])
+    const recording = createRecordingDocker()
+    const fetchHealthy: typeof fetch = async () => {
+      return new Response(null, { status: 200 })
+    }
+
+    const exitCode = await runInit(
+      {},
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchHealthy },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.runParams.map((params) => params.vaultPath)).toEqual([keptVaultDir])
   })
 })
 
@@ -986,6 +1177,7 @@ describe("runInit remote encryption password", () => {
       true, // vault uses end-to-end encryption
       "hunter2", // password (masked prompt)
       [], // no optional settings
+      false, // don't start the server
     ])
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -1048,7 +1240,7 @@ describe("runInit remote with a kept existing .env", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerReady,
+        docker: dockerReadyEmptyHost,
         fetchFn: fetchRecorder,
       },
     )
@@ -1062,6 +1254,78 @@ describe("runInit remote with a kept existing .env", () => {
     ])
     expect(scripted.prints[0]).toContain("https://persisted.example.com/mcp")
     expect(scripted.prints[0]).not.toContain("prompted.example.com")
+  })
+
+  /** Captures a Sync token this run, then keeps an existing .env that has none, and starts. */
+  const runInitCapturingTokenThenKeepingEnv = async (
+    targetDir: string,
+  ): Promise<{ exitCode: number; scripted: ReturnType<typeof createScriptedPrompts> }> => {
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=existing\n" +
+        "OBSIDIAN_AUTH_TOKEN=\n" +
+        "VAULT_NAME=MyVault\n" +
+        "PUBLIC_URL=https://persisted.example.com\n",
+    )
+    const fetchSigninSuccess: typeof fetch = async (input) => {
+      if (!String(input).includes("api.obsidian.md")) return new Response(null, { status: 200 })
+      return new Response(
+        JSON.stringify({ token: "sync-token-xyz", name: "User", email: "user@example.com" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
+    }
+    const scripted = createScriptedPrompts([
+      true, // existing deployment found — re-run setup anyway
+      "https://prompted.example.com", // public URL
+      "MyVault", // vault name
+      true, // generate the token now
+      "user@example.com", // email
+      "password", // password
+      false, // no end-to-end encryption
+      [], // no optional settings
+      false, // .env differs — keep the existing file
+      true, // start the server now
+    ])
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerReadyEmptyHost,
+        fetchFn: fetchSigninSuccess,
+      },
+    )
+    return { exitCode, scripted }
+  }
+
+  it("warns that this run's Sync token wasn't saved when the existing .env is kept", async () => {
+    const targetDir = makeTargetDir()
+
+    const { exitCode, scripted } = await runInitCapturingTokenThenKeepingEnv(targetDir)
+
+    expect(exitCode).toBe(0)
+    expect(scripted.warnings).toEqual([
+      `The Sync token from this sign-in wasn't saved, because ${targetDir}/.env was kept. To add it, run:\n` +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+    ])
+  })
+
+  it("points at the sign-in page when the kept file has no Sync token, despite this run's capture", async () => {
+    const targetDir = makeTargetDir()
+
+    const { exitCode, scripted } = await runInitCapturingTokenThenKeepingEnv(targetDir)
+
+    expect(exitCode).toBe(0)
+    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
+      "OBSIDIAN_AUTH_TOKEN=",
+    )
+    expect(scripted.prints[0]).toContain(
+      "The server is running.\n" +
+        "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
+        "syncing. Open the page:\n" +
+        "  https://persisted.example.com\n" +
+        "It asks for the auth token below and your Obsidian password.\n\n",
+    )
   })
 })
 
@@ -1081,6 +1345,7 @@ describe("runInit sync-token auto-capture fallback", () => {
       "bad-password", // password
       false, // no encryption
       [], // no optional settings
+      false, // don't start the server
     ])
     await runInit(
       { mode: "remote", dir: targetDir },
@@ -1094,7 +1359,7 @@ describe("runInit sync-token auto-capture fallback", () => {
     expect(scripted.warnings[0]).toBe("Could not sign in: Invalid email or password")
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(scripted.logs).toContain(
-      "No token yet — run this later to add it to your .env:\n" +
+      "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   })
@@ -1197,7 +1462,8 @@ describe("runInit guided optional settings", () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const existingEnv = `MCP_AUTH_TOKEN=existing\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=http://localhost:8000\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
@@ -1229,7 +1495,7 @@ describe("runInit guided optional settings", () => {
     ])
     // Keeping at the conflict prompt still protects the file (the write
     // report states the discard); no configure-pointer log remains.
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
   })
 
   it("applies chooser answers when a consented re-init overwrites the existing .env", async () => {
@@ -1321,7 +1587,7 @@ describe("runInit health-timeout returns starting status", () => {
       {},
       {
         prompts: scripted.prompts,
-        docker: dockerReady,
+        docker: dockerReadyEmptyHost,
         fetchFn: fetchNever,
       },
     )
@@ -1367,7 +1633,7 @@ describe("runInit health-timeout returns starting status", () => {
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerReady,
+        docker: dockerReadyEmptyHost,
         fetchFn: fetchWithSignin,
       },
     )
@@ -1491,5 +1757,1340 @@ describe("validatePublicUrl", () => {
       kind: "ok",
       url: "https://vault.example.com",
     })
+  })
+})
+
+// ── Instance names ────────────────────────────────────────────────────────────
+
+/** A running daemon on a host where these container and volume names already exist. */
+const dockerWithExisting = (existingNames: ReadonlyArray<string>): DockerRunner => {
+  return {
+    ...dockerDaemonOnly,
+    containerImage: (instanceName) => {
+      return existingNames.includes(instanceName) ? LOCAL_IMAGE : undefined
+    },
+    volumeExists: (volumeName) => existingNames.includes(volumeName),
+  }
+}
+
+/** dockerWithExisting, plus host ports other containers publish. */
+const dockerWithPorts = (params: {
+  existingNames: ReadonlyArray<string>
+  publishedPorts: ReadonlyArray<readonly [number, string]>
+}): DockerRunner => {
+  return {
+    ...dockerWithExisting(params.existingNames),
+    publishedHostPorts: () => {
+      return params.publishedPorts.map(([hostPort, containerName]) => ({ hostPort, containerName }))
+    },
+  }
+}
+
+const readEnvLines = (targetDir: string): string[] => {
+  return readFileSync(join(targetDir, ".env"), "utf8").split("\n")
+}
+
+const IDENTITY_KEYS = ["PUBLIC_URL", "INSTANCE_NAME", "PORT", "DEVICE_NAME"]
+
+/**
+ * Every active identity line in the written .env, in file order. The file also
+ * holds a random token, so these lines stand in for the whole file; listing
+ * them all catches a duplicate or leftover default line.
+ */
+const readIdentityLines = (targetDir: string): string[] => {
+  return readEnvLines(targetDir).filter((line) => {
+    return IDENTITY_KEYS.some((key) => line.startsWith(`${key}=`))
+  })
+}
+
+const IN_USE_QUESTION =
+  'An install named "vault-cortex" already exists on this machine (its container or data volumes are here). What should this install do?'
+const NAME_QUESTION = "Name for this install (lowercase letters, digits, - and _):"
+const PORT_QUESTION = "Host port for the server:"
+const nameCheckSkippedWarning = (instanceName: string): string => {
+  return (
+    `Docker isn't running, so init can't check whether another install on this machine already uses the name "${instanceName}".\n` +
+    "If one does, give this install its own INSTANCE_NAME and PORT in its .env before you start it."
+  )
+}
+const REPLACE_START_QUESTION =
+  'Start the server now? This stops and replaces the existing "vault-cortex" container. Its data volumes are kept.'
+
+describe("runInit when the instance name is already in use", () => {
+  it("gives a local install its own name and port, with PUBLIC_URL on that port", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "own-name",
+      "work",
+      "8001",
+      [], // no optional settings
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["vault-cortex"],
+          publishedPorts: [[8000, "vault-cortex"]],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      IN_USE_QUESTION,
+      NAME_QUESTION,
+      PORT_QUESTION,
+      "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
+    ])
+    // The install using the default name publishes port 8000.
+    expect(scripted.textCalls[1]).toEqual({
+      message: PORT_QUESTION,
+      defaultValue: "8001",
+      placeholder: "8001",
+    })
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+    // The chooser reads the identity, so a picked Host port starts from 8001.
+    const portOption = scripted.multiselectCalls[0].options.find(
+      (option) => option.value === "PORT",
+    )
+    expect(portOption?.hint).toBe("PORT · currently 8001")
+    expect(scripted.prints[0]).toContain(
+      "claude mcp add --scope user --transport http work http://localhost:8001/mcp\n",
+    )
+  })
+
+  it("gives a remote install its own name, port and device name before asking the URL", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "own-name",
+      "work",
+      "8001",
+      "https://work.example.com", // public URL
+      "Work", // vault name
+      false, // don't generate the token now
+      false, // no encryption
+      [], // no optional settings
+      false, // don't start the server
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked.slice(0, 4)).toEqual([
+      IN_USE_QUESTION,
+      NAME_QUESTION,
+      PORT_QUESTION,
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://work.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+      "DEVICE_NAME=work",
+    ])
+  })
+
+  it("gives a remote install the device name of a free --instance-name", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://work.example.com", // public URL
+      "Work", // vault name
+      false, // don't generate the token now
+      false, // no encryption
+      [], // no optional settings
+      false, // don't start the server
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir, instanceName: "work", port: "8001" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked[0]).toBe(
+      "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
+    )
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://work.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+      "DEVICE_NAME=work",
+    ])
+  })
+
+  it("offers the first free port and asks again for one another container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "own-name",
+      "second",
+      "8001", // taken by the "work" container
+      "8003",
+      [], // no optional settings
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["vault-cortex"],
+          publishedPorts: [
+            [8000, "vault-cortex"],
+            [8001, "work"],
+          ],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls[1]).toEqual({
+      message: PORT_QUESTION,
+      defaultValue: "8002",
+      placeholder: "8002",
+    })
+    expect(scripted.errors).toEqual([
+      'Port 8001 is already used by the "work" container on this machine. Pick another port.',
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8003",
+      "INSTANCE_NAME=second",
+      "PORT=8003",
+    ])
+  })
+
+  it("suggests a free port after the answer is one another container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "own-name",
+      "second",
+      "9000", // the --port suggestion, taken by "other-app"
+      "8001",
+      [], // no optional settings
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["vault-cortex"],
+          publishedPorts: [
+            [8000, "vault-cortex"],
+            [9000, "other-app"],
+          ],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls.slice(1)).toEqual([
+      { message: PORT_QUESTION, defaultValue: "9000", placeholder: "9000" },
+      { message: PORT_QUESTION, defaultValue: "8001", placeholder: "8001" },
+    ])
+    expect(scripted.errors).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine. Pick another port.',
+    ])
+  })
+
+  it("suggests the first free port for a reuse when another container publishes the default port", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", "8001", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["vault-cortex"],
+          publishedPorts: [[8000, "other-app"]],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls).toEqual([
+      { message: PORT_QUESTION, defaultValue: "8001", placeholder: "8001" },
+    ])
+    expect(scripted.errors).toEqual([])
+  })
+
+  it("asks again when a re-run's --port is one another container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\n`,
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup
+      "8001", // the install's own port
+      [], // no optional settings
+      true, // overwrite .env
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["work"],
+          publishedPorts: [
+            [8001, "work"],
+            [9000, "other-app"],
+          ],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.warnings).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine.',
+    ])
+    expect(scripted.textCalls).toEqual([
+      { message: PORT_QUESTION, defaultValue: "8000", placeholder: "8000" },
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("stops --yes on a re-run whose --port another container publishes, before writing", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { vaultPath: vaultDir, dir: targetDir, port: "9000", yes: true },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["work"],
+          publishedPorts: [[9000, "other-app"]],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine. Re-run with a free port, such as --port 8000.',
+    ])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+  })
+
+  it("asks again when the port picked in the optional settings is one another container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      ["PORT"],
+      "9000", // taken by "other-app"
+      "8001",
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: [[9000, "other-app"]] }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls).toEqual([
+      { message: PORT_QUESTION, defaultValue: "8000", placeholder: "8000" },
+      { message: PORT_QUESTION, defaultValue: "8000", placeholder: "8000" },
+    ])
+    expect(scripted.errors).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine. Pick another port.',
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=8001",
+    ])
+  })
+
+  it("lets a reuse keep the port the reused install's own container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", "8001", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["vault-cortex"],
+          publishedPorts: [[8001, "vault-cortex"]],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=8001",
+    ])
+  })
+
+  it.each([
+    { label: "the default port", port: "8000" },
+    { label: "another port", port: "8001" },
+  ])("asks the port of the install whose data is reused, and writes $label", async ({ port }) => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", port, [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      IN_USE_QUESTION,
+      PORT_QUESTION,
+      "Any optional settings to change? (press enter to skip)",
+      REPLACE_START_QUESTION,
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      `PUBLIC_URL=http://localhost:${port}`,
+      "INSTANCE_NAME=vault-cortex",
+      `PORT=${port}`,
+    ])
+  })
+
+  it("asks the port when --instance-name reuses an install without --yes or --port", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["8002", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "work" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked[0]).toBe(PORT_QUESTION)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8002",
+      "INSTANCE_NAME=work",
+      "PORT=8002",
+    ])
+  })
+
+  it("replaces the existing container when the user reuses its data and starts now", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", "8000", [], true])
+    const recording = createRecordingDocker()
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked.at(-1)).toBe(REPLACE_START_QUESTION)
+    expect(recording.calls).toEqual([
+      "inspect:vault-cortex",
+      "inspect:vault-cortex",
+      "rm:vault-cortex",
+      "run:vault-cortex",
+    ])
+  })
+
+  it("starts nothing when the existing container can't be removed", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", "8000", [], true])
+    const recording = createRecordingDocker()
+    const docker: DockerRunner = { ...recording.docker, stopAndRemoveContainer: () => false }
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([
+      "Could not remove the existing container — check: docker rm -f vault-cortex",
+    ])
+    expect(recording.calls).toEqual(["inspect:vault-cortex", "inspect:vault-cortex"])
+  })
+
+  it("asks for a new name, without offering reuse, when another app's container holds the default name", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "work",
+      "8001",
+      [], // no optional settings
+      false, // don't start now
+    ])
+    const docker: DockerRunner = {
+      ...dockerWithExisting([]),
+      containerImage: (instanceName) => {
+        return instanceName === "vault-cortex" ? "postgres:16" : undefined
+      },
+    }
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual([
+      NAME_QUESTION,
+      PORT_QUESTION,
+      "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
+    ])
+    expect(scripted.warnings).toEqual([
+      'A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this install needs another name.',
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("stops --instance-name when another app's container holds that name", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts()
+    const docker: DockerRunner = {
+      ...dockerWithExisting([]),
+      containerImage: (instanceName) => {
+        return instanceName === "work" ? "postgres:16" : undefined
+      },
+    }
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, yes: true, instanceName: "work" },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'A container named "work" runs postgres:16, not Vault Cortex, so this install needs another name. Re-run with --instance-name and a name no other container uses.',
+    ])
+    expect(existsSync(join(targetDir, ".env"))).toBe(false)
+  })
+
+  it("leaves a re-run's container that runs another image in place and does not offer to start", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=http://localhost:8001\nINSTANCE_NAME=work\nPORT=8001\n`,
+    )
+    // No answer for a start question: asking one fails the test.
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      [], // no optional settings
+      true, // overwrite the existing file
+    ])
+    const recording = createRecordingDocker()
+    const docker: DockerRunner = {
+      ...recording.docker,
+      containerImage: (instanceName) => {
+        recording.calls.push(`inspect:${instanceName}`)
+        return "postgres:16"
+      },
+    }
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([
+      `A container named "work" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        "To keep this install's data, rename that container: docker rename work <new-name>\n" +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
+    ])
+    expect(recording.calls).toEqual(["inspect:work"])
+  })
+
+  it("counts a remote install as in use when only its vault volume is left", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "reuse",
+      "8000",
+      "https://vault.example.com",
+      "MyVault",
+      false,
+      false,
+      [],
+      false,
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex_vault_data"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked[0]).toBe(IN_USE_QUESTION)
+  })
+
+  it("suggests the folder name and re-asks for an invalid or in-use name", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "own-name",
+      "Work Vault", // invalid
+      "out-taken", // in use
+      "work",
+      "8001",
+      [],
+      false,
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "out-taken"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls[0]).toEqual({
+      message: NAME_QUESTION,
+      defaultValue: "out",
+      placeholder: "out",
+    })
+    expect(scripted.errors).toEqual([
+      '"Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.',
+      '"out-taken" is already in use on this machine — pick another name.',
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("suggests no name when the folder's name is the one in use", async () => {
+    const vaultDir = makeVault()
+    const targetDir = join(makeTargetDir(), "vault-cortex")
+    const scripted = createScriptedPrompts(["own-name", "work", "8001", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls[0]).toEqual({
+      message: NAME_QUESTION,
+      defaultValue: undefined,
+      placeholder: "work",
+    })
+  })
+
+  it("skips the check when the Docker daemon is not running", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([[]])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerWithExisting(["vault-cortex"]), daemonStatus: () => "not-running" },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toEqual(["Any optional settings to change? (press enter to skip)"])
+  })
+})
+
+describe("runInit when another container publishes the new install's port", () => {
+  it("stops --yes on a --port another container publishes, before writing anything", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, yes: true, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: [[9000, "other-app"]] }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine. Re-run with a free port, such as --port 8000.',
+    ])
+    expect(existsSync(join(targetDir, ".env"))).toBe(false)
+  })
+
+  it("stops --yes when the default port is taken, naming the first free one", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, yes: true },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: [[8000, "other-app"]] }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'Port 8000 is already used by the "other-app" container on this machine. Re-run with a free port, such as --port 8001.',
+    ])
+    expect(existsSync(join(targetDir, ".env"))).toBe(false)
+  })
+
+  it("warns and asks for another port when the default one is taken", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["", [], false]) // accept the suggested port
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: [[8000, "other-app"]] }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.warnings).toEqual([
+      'Port 8000 is already used by the "other-app" container on this machine.',
+    ])
+    expect(scripted.textCalls).toEqual([
+      { message: PORT_QUESTION, defaultValue: "8001", placeholder: "8001" },
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=8001",
+    ])
+  })
+})
+
+describe("runInit --yes when the instance name is already in use", () => {
+  it("exits 1 without --instance-name and writes nothing", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(existsSync(targetDir)).toBe(false)
+    expect(scripted.errors).toEqual([
+      'An install named "vault-cortex" already exists on this machine (its container or data volumes are here).\n' +
+        "Re-run with --instance-name <name> (and --port <port> if vault-cortex's port is taken) to give this install its own name,\n" +
+        "or with --instance-name vault-cortex (and --port <port> unless that install uses 8000) to reuse its data for the same vault.",
+    ])
+  })
+
+  it("gives the install the free name from --instance-name, with --port and PUBLIC_URL on it", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir, instanceName: "work", port: "8001" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.logs).not.toContain('Reusing the data of the existing "work" install.')
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it.each([
+    { label: "the default name", instanceName: "vault-cortex" },
+    { label: "a custom name", instanceName: "work" },
+  ])("reuses an occupied $label named by --instance-name", async ({ instanceName }) => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: vaultDir, dir: targetDir, instanceName },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([instanceName]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.logs).toContain(`Reusing the data of the existing "${instanceName}" install.`)
+    expect(readEnvInstanceName(join(targetDir, ".env"))).toEqual({ kind: "ok", instanceName })
+  })
+
+  it("gives a remote install reusing a name from --instance-name that name as its device name", async () => {
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      "https://work.example.com", // public URL
+      "Work", // vault name
+      false, // don't generate the token now
+      false, // no encryption
+      [], // no optional settings
+      false, // don't start the server
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir, instanceName: "work", port: "8001" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.logs).toContain('Reusing the data of the existing "work" install.')
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://work.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+      "DEVICE_NAME=work",
+    ])
+  })
+
+  it.each([
+    {
+      label: "an invalid --instance-name",
+      flags: { instanceName: "Work" },
+      expectedError:
+        '--instance-name: "Work" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.',
+    },
+    {
+      label: "an empty --instance-name",
+      flags: { instanceName: "" },
+      expectedError:
+        '--instance-name: "" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.',
+    },
+    {
+      label: "an invalid --port",
+      flags: { port: "80a" },
+      expectedError: "--port must be a whole number between 1 and 65535.",
+    },
+    {
+      label: "an empty --port",
+      flags: { port: "" },
+      expectedError: "--port must be a whole number between 1 and 65535.",
+    },
+  ])("exits 1 on $label", async ({ flags, expectedError }) => {
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { yes: true, vaultPath: makeVault(), dir: makeTargetDir(), ...flags },
+      { prompts: scripted.prompts, docker: dockerReadyEmptyHost, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([expectedError])
+  })
+})
+
+describe("runInit re-run keeps the instance identity", () => {
+  const writeExistingLocalEnv = (targetDir: string, vaultDir: string): void => {
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\nPUBLIC_URL=http://localhost:8001\n`,
+    )
+  }
+
+  it("keeps the name, port and URL of a local install when the new file overwrites it", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    writeExistingLocalEnv(targetDir, vaultDir)
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      [], // no optional settings
+      true, // overwrite the existing file
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).not.toContain(IN_USE_QUESTION)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+    expect(readEnvLines(targetDir)).not.toContain("MCP_AUTH_TOKEN=old")
+  })
+
+  it("points a generated PUBLIC_URL at the carried port when the old file has none", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\n`,
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      [], // no optional settings
+      true, // overwrite the existing file
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("points a generated PUBLIC_URL at a quoted carried port without its quotes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT="8001"\n`,
+    )
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("warns when a re-run's chosen port leaves a custom PUBLIC_URL as it was", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\nPUBLIC_URL=https://vault.example.com\n`,
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      ["PORT"], // change the host port
+      "9001",
+      true, // overwrite the existing file
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://vault.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=9001",
+    ])
+    expect(scripted.warnings).toEqual([
+      "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
+    ])
+  })
+
+  it("keeps a custom PUBLIC_URL carried beside a changed port", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\nPUBLIC_URL=https://vault.example.com\n`,
+    )
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://vault.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("refuses a re-run whose --instance-name renames the install, and keeps its file", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    writeExistingLocalEnv(targetDir, vaultDir)
+    const existingEnv = readFileSync(join(targetDir, ".env"), "utf8")
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "other" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `--instance-name: the install in ${targetDir} is named "work", and init keeps that name.\n` +
+        `To rename it, stop it first (npx vault-cortex@latest down --dir "${targetDir}"), then change INSTANCE_NAME in its .env\n` +
+        "to a name no other install uses: it starts on new, empty volumes under the new name.",
+    ])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+  })
+
+  it("reports an invalid kept name instead of the rename steps when --instance-name differs", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=Work Vault\n`,
+    )
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "work" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `INSTANCE_NAME "Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
+    ])
+  })
+
+  it("stops a re-run whose kept PORT is not a port, before asking anything more", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPORT=80a\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PORT "80a" is not a valid port — use a whole number between 1 and 65535. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(scripted.asked).toHaveLength(1)
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+  })
+
+  it("warns when --port moves a re-run off the port its custom PUBLIC_URL serves", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPUBLIC_URL=https://vault.example.com\n`,
+    )
+    // re-run anyway, no optional settings, overwrite .env, don't start
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.warnings).toEqual([
+      "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://vault.example.com",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=9000",
+    ])
+  })
+
+  it("lets --port replace a kept PORT that is not a port, moving the localhost PUBLIC_URL with it", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nPORT=80a\nPUBLIC_URL=http://localhost:80a\n`,
+    )
+    // re-run anyway, no optional settings, overwrite .env, don't start
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting([]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:9000",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=9000",
+    ])
+  })
+
+  it("accepts a re-run whose --instance-name repeats the install's name", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    writeExistingLocalEnv(targetDir, vaultDir)
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "work" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("prints commands for the kept file's port, not this run's --port", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    writeExistingLocalEnv(targetDir, vaultDir)
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      [], // no optional settings
+      false, // keep the existing file
+      false, // don't start now
+    ])
+
+    // --port makes this run's generated .env differ from the kept one, so the
+    // printed commands show which file they were read from.
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "8002" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(readEnvLines(targetDir)).toContain("MCP_AUTH_TOKEN=old")
+    expect(scripted.prints[0]).toContain(
+      "claude mcp add --scope user --transport http work http://localhost:8001/mcp\n",
+    )
+  })
+
+  it("keeps the name, port and device name of a remote install", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=old\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=Work\nPUBLIC_URL=https://work.example.com\nINSTANCE_NAME=work\nPORT=8001\nDEVICE_NAME=work-sync\n",
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      "https://new.example.com", // a remote PUBLIC_URL is asked again, not carried
+      "Work",
+      false, // don't generate a new token
+      false, // no encryption
+      [], // no optional settings
+      true, // overwrite the existing file
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).not.toContain(IN_USE_QUESTION)
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://new.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+      "DEVICE_NAME=work-sync",
+    ])
+  })
+
+  it("stops before asking anything more when the kept file's INSTANCE_NAME is invalid", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=Work Vault\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReadyEmptyHost, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `INSTANCE_NAME "Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+    expect(scripted.prints).toEqual([])
+    expect(dockerRun).not.toHaveBeenCalled()
   })
 })

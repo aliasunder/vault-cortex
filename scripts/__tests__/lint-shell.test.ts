@@ -24,6 +24,7 @@ const ALL_SHELL_SCRIPTS = [
   "rootfs/etc/s6-overlay/s6-rc.d/svc-obsidian-sync/run",
   "rootfs/etc/s6-overlay/s6-rc.d/svc-vault-mcp/finish",
   "rootfs/etc/s6-overlay/s6-rc.d/svc-vault-mcp/run",
+  "rootfs/etc/s6-overlay/scripts/check-sync-vault",
   "rootfs/etc/s6-overlay/scripts/init-check-auth",
   "rootfs/etc/s6-overlay/scripts/init-derive-env",
   "rootfs/etc/s6-overlay/scripts/init-first-sync",

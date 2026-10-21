@@ -160,6 +160,14 @@ mechanism-level detail.
   synced `.obsidian/` settings), the container refuses to start,
   preventing the sync engine from interpreting the empty vault as mass
   local deletions
+- Sync vault check (remote image): before `ob sync-setup` writes anything,
+  the init chain asks the Sync client which vault it would sync into the
+  vault folder. When that is a vault other than `VAULT_NAME`, or a Sync
+  setup file there is not a valid setup, the container refuses to start
+  rather than merge two vaults through Obsidian Sync. It checks the Sync
+  setup, not which vault the files in the folder came from, so notes left in
+  the folder after their vault's setup was removed still sync into
+  `VAULT_NAME`'s vault
 - Trash sweep identity gate: the retention sweep deletes a recorded
   `.trash/` file only while it still has the identity recorded when the
   server trashed it and has not changed since, so a different note that

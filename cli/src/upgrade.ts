@@ -1,5 +1,10 @@
 import { LOCAL_IMAGE, REMOTE_IMAGE, type DockerRunner } from "./docker.js"
-import { ensureDaemonRunning, recreateContainer, resolveDeployment } from "./lifecycle.js"
+import {
+  checkInstanceContainer,
+  ensureDaemonRunning,
+  recreateContainer,
+  resolveDeployment,
+} from "./lifecycle.js"
 import type { Prompts } from "./prompts.js"
 
 export type UpgradeFlags = {
@@ -31,6 +36,13 @@ export const runUpgrade = async (flags: UpgradeFlags, deps: UpgradeDeps): Promis
   const image = deployment.mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
 
   if (!ensureDaemonRunning(docker, prompts)) return 1
+  // Checked before the download, which recreateContainer's own check follows.
+  const instanceContainer = checkInstanceContainer(
+    { instanceName: deployment.instanceName, envFilePath: deployment.envFilePath },
+    { prompts, docker },
+  )
+
+  if (instanceContainer === "foreign") return 1
 
   const spinner = prompts.spinner()
   spinner.start(`Pulling ${image}`)

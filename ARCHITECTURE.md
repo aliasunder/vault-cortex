@@ -927,13 +927,22 @@ graph LR
    `init-check-auth` (looks for the Sync token in the env var, then in the
    Sync client's own credential file on the config volume; with neither,
    the boot switches to [setup mode](#setup-mode) instead of stopping) →
-   `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
-   with `--device-name`, plus optional sync-config; fails fast when
-   `VAULT_NAME` is missing or `SYNC_MODE` fails to apply) → `init-first-sync`
+   `init-obsidian-login` (`ob login`) → `init-setup-vault` (sets up the
+   vault's Sync in the steps listed after this chain) → `init-first-sync`
    (one-shot `ob sync` run to _completion_, with retries; its four steps,
    failure branches included, are listed below). Any
    fatal init failure stops the container
    (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns retry.
+
+   `init-setup-vault` fails fast when `VAULT_NAME` is missing or `SYNC_MODE`
+   fails to apply. Its steps, in order:
+
+   1. `check-sync-vault` stops the boot, before anything is written, when the
+      volume's Sync setup is for a different vault than `VAULT_NAME`.
+   2. `ob sync-setup` with `--device-name`, then a check that the Sync client
+      now uses `VAULT_NAME`'s vault.
+   3. Optional sync-config settings.
+
 2. **`svc-obsidian-sync`** — bidirectional Obsidian Sync
    (`ob sync --continuous`). Stores sync state in the config volume at
    `/home/obsidian/.config` (persists across restarts for incremental sync —

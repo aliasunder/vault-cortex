@@ -2,12 +2,25 @@
 # Fake docker binary for CLI PTY integration tests.
 # Shadows the real docker when its directory is prepended to PATH.
 # Behavior is controllable via environment variables:
-#   DOCKER_SHIM_NO_CONTAINER=1  — `container inspect` exits 1 (no container)
+#   DOCKER_SHIM_PRESENT         — space-separated container and volume names that
+#                                 exist; `container ls` lists them, and
+#                                 `container inspect` and `volume inspect`
+#                                 exit 1 for any other name (default: none exist)
+#   DOCKER_SHIM_IMAGE           — the image `container inspect` reports for a
+#                                 present container (default: the local image)
 #   DOCKER_SHIM_RUN_FAIL=1      — `run` exits 1
 #   DOCKER_SHIM_HEALTH_PORT     — port for the background health server (default 8000)
 #   DOCKER_SHIM_PID_FILE        — where to write the health server PID
 
 set -euo pipefail
+
+# Exits 0 when the name is in DOCKER_SHIM_PRESENT.
+is_present() {
+  case " ${DOCKER_SHIM_PRESENT:-} " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 case "${1:-}" in
   info)
@@ -35,11 +48,42 @@ case "${1:-}" in
     ;;
 
   container)
-    # docker container inspect <name> — check if container exists
-    if [ "${DOCKER_SHIM_NO_CONTAINER:-}" = "1" ]; then
+    # docker container ls -aq — one line per present name, standing in for the
+    # container IDs; the inspect below prints no ports for them
+    if [ "${2:-}" = "ls" ]; then
+      for present_name in ${DOCKER_SHIM_PRESENT:-}; do
+        echo "$present_name"
+      done
+      exit 0
+    fi
+    # docker container inspect --format <format> <name>... — one line per present
+    # container: its name with Docker's leading slash, then its image when the
+    # format asks for it. Like docker, exits 1 when any name is missing, after
+    # printing the others.
+    inspect_status=0
+    for container_name in "${@:5}"; do
+      if ! is_present "$container_name"; then
+        inspect_status=1
+        continue
+      fi
+      case "${4:-}" in
+        *.Config.Image*)
+          echo "/$container_name ${DOCKER_SHIM_IMAGE:-ghcr.io/aliasunder/vault-cortex:latest}"
+          ;;
+        *)
+          echo "/$container_name"
+          ;;
+      esac
+    done
+    exit "$inspect_status"
+    ;;
+
+  volume)
+    # docker volume inspect <name> — check if volume exists
+    if ! is_present "${3:-}"; then
       exit 1
     fi
-    echo '[{"Id":"abc123","State":{"Status":"running"}}]'
+    echo '[{"Name":"'"${3:-}"'"}]'
     ;;
 
   stop)

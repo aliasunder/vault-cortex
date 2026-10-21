@@ -320,7 +320,26 @@ for the first deploy and remove it once the vault has synced.
 **A redeploy took as long as the first deploy and downloaded the whole vault
 again.** The disk was replaced, or `/persist/config` was removed, so the
 container started over with a fresh Obsidian Sync connection. Nothing needs
-cleaning up.
+cleaning up. To switch to another vault, don't remove `/persist/config` on
+its own: follow the last step of the next entry.
+
+**`This install is set up to sync a different vault than VAULT_NAME.`** The
+container refused to start because the disk holds the Obsidian Sync setup
+for another vault, usually after `VAULT_NAME` was changed. Starting would
+merge the two vaults' notes. Nothing was changed, and the log line after it
+names both vaults. Then do one of these:
+
+- If `VAULT_NAME` is a mistake, set it back under **Environment** and save.
+- To serve the other vault as well, deploy the Blueprint again for it, as a
+  separate service with its own disk, and leave this one on its original
+  vault. The new service has its own URL and `MCP_AUTH_TOKEN`, so connect it
+  as its own server in your MCP client.
+- To switch to the new vault, deploy the Blueprint again for it, then delete
+  this service (see [Restart, stop, delete](#restart-stop-delete)). The new
+  service downloads the new vault like a first deploy, and the old vault
+  stays in Obsidian Sync. Connect your MCP client to the new service's URL
+  with its `MCP_AUTH_TOKEN`. Removing only `/persist/config` would upload the
+  old vault's notes into the new one.
 
 **`The vault is empty but this device has previously synced.`** The
 container refused to start because the vault directory on the disk is empty

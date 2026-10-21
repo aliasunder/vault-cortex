@@ -1,4 +1,9 @@
-import type { DockerRunner } from "../docker.js"
+import {
+  LOCAL_IMAGE,
+  type DockerLogsParams,
+  type DockerRunner,
+  type DockerRunParams,
+} from "../docker.js"
 import type { Prompts, SelectOption } from "../prompts.js"
 
 /**
@@ -167,8 +172,57 @@ export const dockerReady: DockerRunner = {
   dockerRun: () => true,
   pullImage: () => true,
   stopAndRemoveContainer: () => true,
-  containerExists: () => true,
+  containerImage: () => LOCAL_IMAGE,
+  volumeExists: () => true,
+  publishedHostPorts: () => [],
   streamLogs: async () => 0,
+}
+
+/**
+ * Daemon up on a host with no vault-cortex install yet: no container and no
+ * volume under any name, so init never finds a name in use.
+ */
+export const dockerReadyEmptyHost: DockerRunner = {
+  ...dockerReady,
+  containerImage: () => undefined,
+  volumeExists: () => false,
+}
+
+/**
+ * A ready daemon whose container exists, recording the name every inspect,
+ * remove, run and logs call targets, in call order, as `<operation>:<name>`.
+ */
+export const createRecordingDocker = (): {
+  docker: DockerRunner
+  calls: string[]
+  runParams: DockerRunParams[]
+  logsParams: DockerLogsParams[]
+} => {
+  const calls: string[] = []
+  const runParams: DockerRunParams[] = []
+  const logsParams: DockerLogsParams[] = []
+  const docker: DockerRunner = {
+    ...dockerReady,
+    containerImage: (instanceName) => {
+      calls.push(`inspect:${instanceName}`)
+      return LOCAL_IMAGE
+    },
+    stopAndRemoveContainer: (instanceName) => {
+      calls.push(`rm:${instanceName}`)
+      return true
+    },
+    dockerRun: (params) => {
+      calls.push(`run:${params.instanceName}`)
+      runParams.push(params)
+      return true
+    },
+    streamLogs: async (params) => {
+      calls.push(`logs:${params.instanceName}`)
+      logsParams.push(params)
+      return 0
+    },
+  }
+  return { docker, calls, runParams, logsParams }
 }
 
 /** Daemon installed but not running — every operation fails. */
@@ -177,7 +231,9 @@ export const dockerDown: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
-  containerExists: () => false,
+  containerImage: () => undefined,
+  volumeExists: () => false,
+  publishedHostPorts: () => [],
   streamLogs: async () => 1,
 }
 

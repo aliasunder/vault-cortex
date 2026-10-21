@@ -57,11 +57,41 @@ What it does:
 5. Prints your connection details — the MCP URL, your auth token, and how to
    connect your client
 
-Re-running init where a setup already exists asks first — declining leaves
-everything unchanged and points you at [`configure`](#configure), the right
-tool for changing settings in place. Existing files are never overwritten
-without asking. During a remote setup, init offers to generate your
-[Obsidian Sync token](#get-sync-token) as part of the flow.
+**Remote setups:** init offers to generate your
+[Obsidian Sync token](#get-sync-token) during the flow. If you skip it, init
+still offers to start the server, which then shows a sign-in page at your
+`PUBLIC_URL`. Set up HTTPS first: the page sends your Obsidian password to the
+server.
+
+**Re-running init** where a setup already exists:
+
+- Stops when the folder holds an install of the other mode (a remote install
+  for a local setup, or the reverse), and points you to [`start`](#start).
+- Asks before changing anything. Declining leaves everything unchanged and
+  points you to [`configure`](#configure), the command for changing settings
+  in place.
+- Never overwrites existing files without asking.
+- Keeps the install's name, and stops if `--instance-name` gives a different
+  one.
+- Keeps the install's port, unless you change it with `--port` or in the
+  optional settings.
+
+**Running a second vault** on the same machine:
+
+1. Start Docker, so init can check which names and ports are in use.
+2. Run init again with a new `--dir`:
+
+   ```bash
+   npx vault-cortex@latest init --dir ./vault-cortex-work
+   ```
+
+3. Give the new install its own name and port when init asks. It asks when
+   the machine already has a `vault-cortex` container or data volume, and
+   suggests the first port no other container uses. The name is saved as
+   `INSTANCE_NAME` in the install's `.env` and names its container and data.
+4. Pass that `--dir` to every command for the install, such as `upgrade` or
+   `logs`. Each command acts only on that install.
+5. Add the install to your MCP client as its own connector.
 
 Flags:
 
@@ -69,7 +99,14 @@ Flags:
 - `--vault-path <path>` — absolute path to your vault (local mode)
 - `--dir <path>` — directory to write config files into (default
   `./vault-cortex`)
-- `--yes` — non-interactive local setup with defaults; requires `--vault-path`
+- `--instance-name <name>` — name for this install's container and data
+  (default `vault-cortex`); lowercase letters, digits, `-` and `_`. Naming an
+  install that already exists reuses its data, so use it only for the same
+  vault set up again
+- `--port <port>` — host port for this install (default `8000`); a port
+  another container already publishes is refused
+- `--yes` — non-interactive local setup with defaults; requires `--vault-path`,
+  and `--instance-name` when the name is already in use
 
 Non-interactive example:
 
@@ -131,8 +168,10 @@ npx vault-cortex@latest start
 This is the command the CLI's own guidance points to whenever the server
 isn't running — after [`down`](#down), or an `init` where the server wasn't
 started. It's the same cycle as [`restart`](#restart) under the name you'd
-look for: any existing container is replaced, and Docker pulls the server
-image automatically on a first start.
+look for: the install's existing container is replaced, and Docker pulls the
+server image automatically on a first start. A container of another app that
+holds the install's name is left alone, and `start` stops with an error that
+names it.
 
 Use `--dir <path>` if your config isn't in `./vault-cortex`.
 
