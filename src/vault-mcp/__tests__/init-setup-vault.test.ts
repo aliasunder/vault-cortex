@@ -23,15 +23,15 @@ const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/i
 
 /** Stub `ob`: logs each invocation; `sync-setup` exits with the code the
  *  test configures, `sync-config` fails when its flag matches
- *  `OB_SYNC_CONFIG_FAIL_FLAG`, `sync-config --json` prints a setup for
- *  `OB_PICKED_VAULT_ID`, and every other invocation succeeds. */
+ *  `OB_SYNC_CONFIG_FAIL_FLAG`, `sync-config --json` prints
+ *  `OB_PICKED_CONFIG`, and every other invocation succeeds. */
 const OB_STUB = `#!/bin/sh
 echo "$*" >> "$OB_CALL_LOG"
 case "$1" in
   sync-setup) exit "$OB_SYNC_SETUP_EXIT" ;;
   sync-config)
     [ "$2" = "$OB_SYNC_CONFIG_FAIL_FLAG" ] && exit 1
-    [ "$2" = --json ] && printf '{"vaultId":"%s","syncMode":"bidirectional"}' "$OB_PICKED_VAULT_ID"
+    [ "$2" = --json ] && printf '%s' "$OB_PICKED_CONFIG"
     exit 0 ;;
   *) exit 0 ;;
 esac
@@ -105,6 +105,10 @@ type SetupRunOptions = {
   /** The vault ID `ob sync-config --json` reports after `ob sync-setup`
    *  (default: the requested vault's). */
   pickedVaultId?: string
+  /** Raw `ob sync-config --json` output, replacing the setup for pickedVaultId. */
+  pickedConfigOutput?: string
+  /** When true, the script runs by a path relative to its own folder. */
+  relativeScriptPath?: boolean
 }
 
 const runSetupScript = (options: SetupRunOptions): SetupRun => {
@@ -127,8 +131,17 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
   const callLogPath = join(tempDir, "calls.log")
   writeFileSync(callLogPath, "")
 
-  const result = spawnSync("sh", [join(scriptsDir, "init-setup-vault")], {
+  const pickedConfig = JSON.stringify({
+    vaultId: options.pickedVaultId ?? REQUESTED_VAULT_ID,
+    syncMode: "bidirectional",
+  })
+  const scriptArgument = options.relativeScriptPath
+    ? "./init-setup-vault"
+    : join(scriptsDir, "init-setup-vault")
+
+  const result = spawnSync("sh", [scriptArgument], {
     encoding: "utf8",
+    cwd: scriptsDir,
     env: {
       PATH: `${stubBinDir}:${process.env.PATH ?? ""}`,
       HOME: join(tempDir, "home"),
@@ -136,7 +149,7 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       OB_CALL_LOG: callLogPath,
       OB_SYNC_SETUP_EXIT: String(options.syncSetupFails ? 1 : 0),
       OB_SYNC_CONFIG_FAIL_FLAG: options.syncConfigFailsFor ?? "",
-      OB_PICKED_VAULT_ID: options.pickedVaultId ?? REQUESTED_VAULT_ID,
+      OB_PICKED_CONFIG: options.pickedConfigOutput ?? pickedConfig,
       VAULT_CHECK_REFUSES: options.vaultCheckRefuses ? "1" : "0",
       VAULT_CHECK_VAULT_ID: options.vaultCheckVaultId ?? REQUESTED_VAULT_ID,
       ...(options.setupMode ? { SETUP_MODE: "1" } : {}),
@@ -237,6 +250,22 @@ describe("init-setup-vault script", () => {
     expect(run.status).toBe(1)
     expect(run.stderr).toBe(PICKED_VAULT_ERROR)
     expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault", PICKED_VAULT_CALL])
+  })
+
+  it("stops before any sync-config write when ob sync-config --json prints no JSON after ob sync-setup", () => {
+    const run = runSetupScript({ vaultName: "MyVault", pickedConfigOutput: "Fetching vaults..." })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(PICKED_VAULT_ERROR)
+    expect(run.calls).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault", PICKED_VAULT_CALL])
+  })
+
+  it("finds the vault check beside itself when started by a relative path", () => {
+    const run = runSetupScript({ vaultName: "MyVault", relativeScriptPath: true })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe("")
+    expect(run.calls.slice(0, 2)).toEqual([VAULT_CHECK_CALL, "sync-setup --vault MyVault"])
   })
 
   it("stops after ob sync-setup when the vault check named no vault", () => {

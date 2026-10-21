@@ -1,9 +1,19 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { describe, expect, it, onTestFinished } from "vitest"
+
+import { runsAsRoot } from "../../__tests__/runs-as-root.js"
 
 /**
  * Behavioral spec for the remote image's vault check
@@ -53,21 +63,28 @@ const localSetups = (vaultIds: ReadonlyArray<string>): string => {
   })
 }
 
-/** `ob sync-list-remote --json` output for the account's owned vaults. */
-const remoteVaults = (vaults: ReadonlyArray<{ id: string; name: string }>): string => {
+type RemoteVault = { id: string; name: string }
+
+/** `ob sync-list-remote --json` output for the account's owned and shared vaults. */
+const remoteVaults = (
+  vaults: ReadonlyArray<RemoteVault>,
+  sharedVaults: ReadonlyArray<RemoteVault> = [],
+): string => {
   return JSON.stringify({
     vaults: vaults.map((vault) => ({ ...vault, region: "us" })),
-    shared: [],
+    shared: sharedVaults.map((vault) => ({ ...vault, region: "us" })),
   })
 }
 
-/** Stub `ob`: logs each call and replays the output and exit code the test sets per verb. */
+/** Stub `ob`: logs each call and the folder it ran in, and replays the output
+ *  and exit code the test sets per verb. */
 const OB_STUB = `#!/bin/sh
 echo "$*" >> "$OB_CALL_LOG"
+pwd >> "$OB_CWD_LOG"
 case "$1" in
   sync-list-remote) printf '%s' "$OB_REMOTE_JSON"; exit "$OB_REMOTE_EXIT" ;;
   sync-config) printf '%s' "$OB_CONFIG_JSON"; exit "$OB_CONFIG_EXIT" ;;
-  sync-list-local) printf '%s' "$OB_LOCAL_JSON"; exit 0 ;;
+  sync-list-local) printf '%s' "$OB_LOCAL_JSON"; exit "$OB_LOCAL_EXIT" ;;
   *) exit 0 ;;
 esac
 `
@@ -85,6 +102,13 @@ type CheckOptions = {
   configJson?: string
   configExit: number
   localJson?: string
+  localExit?: number
+  /** When true, VAULT_PATH names a folder that does not exist. */
+  vaultPathMissing?: boolean
+  /** When true, the sync folder exists but can't be listed (mode 000). */
+  syncRootUnreadable?: boolean
+  /** When true, the Sync client has not created its sync folder yet. */
+  syncRootMissing?: boolean
   /** config.json files to create under the sync folder, keyed by folder name. */
   setupFiles?: Readonly<Record<string, string>>
   /** Folders to create under the sync folder with no config.json in them. */
@@ -97,6 +121,9 @@ type CheckRun = {
   stdout: string
   stderr: string
   obCalls: string[]
+  /** The working folder of each `ob` call, in call order. */
+  obCwds: string[]
+  vaultPath: string
   syncRoot: string
   /** Every file under the sync folder with its content, read after the run. */
   setupTreeAfter: Record<string, string>
@@ -114,14 +141,18 @@ const readSetupTree = (syncRoot: string): Record<string, string> => {
 
 const runCheck = (options: CheckOptions): CheckRun => {
   const tempDir = mkdtempSync(join(tmpdir(), "check-sync-vault-"))
-  onTestFinished(() => rmSync(tempDir, { recursive: true, force: true }))
   const stubBinDir = join(tempDir, "bin")
   const vaultPath = join(tempDir, "vault")
   const homeDir = join(tempDir, "home")
   const syncRoot = join(homeDir, ".config", "obsidian-headless", "sync")
+  onTestFinished(() => {
+    // A mode-000 sync folder blocks the removal, so its mode comes back first.
+    if (options.syncRootUnreadable) chmodSync(syncRoot, 0o755)
+    rmSync(tempDir, { recursive: true, force: true })
+  })
   mkdirSync(stubBinDir)
-  mkdirSync(vaultPath)
-  mkdirSync(syncRoot, { recursive: true })
+  if (!options.vaultPathMissing) mkdirSync(vaultPath)
+  if (!options.syncRootMissing) mkdirSync(syncRoot, { recursive: true })
   writeFileSync(join(stubBinDir, "ob"), OB_STUB, { mode: 0o755 })
   writeFileSync(join(stubBinDir, "s6-setuidgid"), SETUIDGID_STUB, { mode: 0o755 })
 
@@ -134,7 +165,11 @@ const runCheck = (options: CheckOptions): CheckRun => {
   }
 
   const callLogPath = join(tempDir, "ob-calls.log")
+  const cwdLogPath = join(tempDir, "ob-cwds.log")
   writeFileSync(callLogPath, "")
+  writeFileSync(cwdLogPath, "")
+
+  if (options.syncRootUnreadable) chmodSync(syncRoot, 0o000)
 
   const result = spawnSync("sh", [SCRIPT_PATH], {
     encoding: "utf8",
@@ -149,20 +184,30 @@ const runCheck = (options: CheckOptions): CheckRun => {
       OB_CONFIG_JSON: options.configJson ?? "",
       OB_CONFIG_EXIT: String(options.configExit),
       OB_LOCAL_JSON: options.localJson ?? localSetups([]),
+      OB_LOCAL_EXIT: String(options.localExit ?? 0),
+      OB_CWD_LOG: cwdLogPath,
       ...(options.storageRoot ? { STORAGE_ROOT: options.storageRoot } : {}),
     },
   })
 
-  const obCalls = readFileSync(callLogPath, "utf8")
-    .split("\n")
-    .filter((loggedCall) => loggedCall !== "")
+  // Readable again, so setupTreeAfter can show the run wrote nothing.
+  if (options.syncRootUnreadable) chmodSync(syncRoot, 0o755)
+
+  const readLogLines = (logPath: string): string[] => {
+    return readFileSync(logPath, "utf8")
+      .split("\n")
+      .filter((loggedLine) => loggedLine !== "")
+  }
+
   return {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
-    obCalls,
+    obCalls: readLogLines(callLogPath),
+    obCwds: readLogLines(cwdLogPath),
+    vaultPath,
     syncRoot,
-    setupTreeAfter: readSetupTree(syncRoot),
+    setupTreeAfter: options.syncRootMissing ? {} : readSetupTree(syncRoot),
   }
 }
 
@@ -187,6 +232,21 @@ describe("check-sync-vault", () => {
       "[obsidian-sync] Vault check: continue — no Sync setup for this folder yet.\n",
     )
     expect(run.obCalls).toEqual(["sync-list-remote --json", "sync-config --json"])
+  })
+
+  it("continues on a first boot, before the Sync client has created its sync folder", () => {
+    const run = runCheck({
+      vaultName: "Work",
+      remoteJson: remoteVaults([VAULT_A, VAULT_B]),
+      configExit: NO_SETUP_EXIT,
+      syncRootMissing: true,
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe("bbb222\n")
+    expect(run.stderr).toBe(
+      "[obsidian-sync] Vault check: continue — no Sync setup for this folder yet.\n",
+    )
   })
 
   it("continues on a reboot, when the engine already syncs the requested vault", () => {
@@ -289,13 +349,78 @@ describe("check-sync-vault", () => {
     })
 
     expect(run.status).toBe(1)
-    const stderrLines = run.stderr.split("\n")
-    expect(stderrLines).toContain(
-      "[obsidian-sync]   - To sync 'Work' as well, run it as a separate service.",
+    expect(run.stderr).toBe(
+      [
+        "[obsidian-sync] ERROR: This install is set up to sync a different vault than VAULT_NAME.",
+        "[obsidian-sync] VAULT_NAME is 'Work' (bbb222), but its Sync setup is for 'Personal' (aaa111).",
+        "[obsidian-sync] Syncing now would merge the two vaults' notes. Nothing was changed. To fix it:",
+        "[obsidian-sync]   - If VAULT_NAME is a mistake, set it back and restart.",
+        "[obsidian-sync]   - To sync 'Work' as well, run it as a separate service.",
+        "[obsidian-sync]   - To switch this install to 'Work' on purpose, remove /persist/vault and /persist/config together.",
+        "[obsidian-sync]     Removing only the Sync config would upload the old vault's notes into the new one.",
+        `[obsidian-sync] See: ${GUIDE_URL}`,
+        "",
+      ].join("\n"),
     )
-    expect(stderrLines).toContain(
-      "[obsidian-sync]   - To switch this install to 'Work' on purpose, remove /persist/vault and /persist/config together.",
+  })
+
+  it("names a picked vault that is shared with the account by its current name", () => {
+    const run = runCheck({
+      vaultName: "Work",
+      remoteJson: remoteVaults([VAULT_B], [VAULT_A]),
+      configJson: pickedConfig(VAULT_A.id, "Old name"),
+      configExit: 0,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr.split("\n")[1]).toBe(
+      "[obsidian-sync] VAULT_NAME is 'Work' (bbb222), but its Sync setup is for 'Personal' (aaa111).",
     )
+  })
+
+  it("matches VAULT_NAME against vaults shared with the account", () => {
+    const run = runCheck({
+      vaultName: "Work",
+      remoteJson: remoteVaults([VAULT_A], [VAULT_B]),
+      configExit: NO_SETUP_EXIT,
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe("bbb222\n")
+  })
+
+  it("runs every ob call inside the vault folder", () => {
+    const run = runCheck({
+      vaultName: "Personal",
+      remoteJson: remoteVaults([VAULT_A, VAULT_B]),
+      configJson: pickedConfig(VAULT_A.id, VAULT_A.name),
+      configExit: 0,
+      localJson: localSetups([VAULT_A.id]),
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.obCalls).toEqual([
+      "sync-list-remote --json",
+      "sync-config --json",
+      "sync-list-local --json",
+    ])
+    expect(run.obCwds).toEqual([run.vaultPath, run.vaultPath, run.vaultPath])
+  })
+
+  it("stops before any ob call when VAULT_PATH can't be entered", () => {
+    const run = runCheck({
+      vaultName: "Work",
+      remoteJson: remoteVaults([VAULT_B]),
+      configExit: NO_SETUP_EXIT,
+      vaultPathMissing: true,
+    })
+
+    expect(run.status).toBe(1)
+    // The shell prints its own cd error first, worded differently per shell.
+    expect(run.stderr.trimEnd().split("\n").at(-1)).toBe(
+      `[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='${run.vaultPath}'.`,
+    )
+    expect(run.obCalls).toEqual([])
   })
 
   it("continues with a warning when a dormant setup for another vault sits beside the picked one", () => {
@@ -314,6 +439,26 @@ describe("check-sync-vault", () => {
         "[obsidian-sync] Vault check: continue — set up for 'Personal' (aaa111).\n",
     )
     expect(run.stdout).toBe("aaa111\n")
+  })
+
+  it("continues without the warning when the local setups can't be listed", () => {
+    const run = runCheck({
+      vaultName: "Personal",
+      remoteJson: remoteVaults([VAULT_A, VAULT_B]),
+      configJson: pickedConfig(VAULT_A.id, VAULT_A.name),
+      configExit: 0,
+      localJson: "",
+      localExit: 1,
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe("aaa111\n")
+    // Only the outcome is pinned: node's parse error for the empty listing
+    // reaches stderr before this line.
+    expect(run.stderr.trimEnd().split("\n").at(-1)).toBe(
+      "[obsidian-sync] Vault check: continue — set up for 'Personal' (aaa111).",
+    )
+    expect(run.stderr).not.toContain("WARNING")
   })
 
   it("stops when the account's vault list can't be read", () => {
@@ -356,6 +501,7 @@ describe("check-sync-vault", () => {
     { label: "false", content: "false" },
     { label: "an empty string", content: '""' },
     { label: "an object without vaultId", content: '{"vaultPath":"/vault"}' },
+    { label: "an empty vaultId", content: '{"vaultId":"","vaultPath":"/vault"}' },
     { label: "an object without vaultPath", content: '{"vaultId":"eee555"}' },
   ])("stops on a setup file holding $label, before asking the engine", ({ content }) => {
     const setupFiles = { [VAULT_B.id]: setupFile(VAULT_B), eee555: content }
@@ -396,6 +542,26 @@ describe("check-sync-vault", () => {
     expect(run.stdout).toBe("bbb222\n")
     expect(run.obCalls).toEqual(["sync-list-remote --json", "sync-config --json"])
   })
+
+  it.skipIf(runsAsRoot)(
+    "stops when the sync folder can't be listed, before asking the engine",
+    () => {
+      const run = runCheck({
+        vaultName: "Work",
+        remoteJson: remoteVaults([VAULT_B]),
+        configExit: NO_SETUP_EXIT,
+        syncRootUnreadable: true,
+      })
+
+      expect(run.status).toBe(1)
+      // node's own error for the failed listing comes first.
+      expect(run.stderr.trimEnd().split("\n").slice(-2)).toEqual([
+        `[obsidian-sync] ERROR: Could not read the Sync setups under ${run.syncRoot}.`,
+        "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for.",
+      ])
+      expect(run.obCalls).toEqual(["sync-list-remote --json"])
+    },
+  )
 
   it("stops when the engine can't read its own setup", () => {
     const run = runCheck({
