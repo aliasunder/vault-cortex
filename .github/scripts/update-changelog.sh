@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Update CHANGELOG.md with release notes for a given version.
 # Usage: update-changelog.sh <version> <notes-file>
-# Replaces [Unreleased] section if present, otherwise inserts after header.
+# The entry goes above the newest version entry, replacing an [Unreleased]
+# section if there is one.
 
 set -euo pipefail
 
@@ -21,28 +22,27 @@ changelog_path = "CHANGELOG.md"
 if os.path.exists(changelog_path):
     with open(changelog_path) as f:
         text = f.read()
-    # Replace [Unreleased] section if present
-    if re.search(r'^## \[Unreleased\]', text, re.MULTILINE):
-        text = re.sub(
-            r'## \[Unreleased\].*?(?=\n## \[|$)',
-            entry,
-            text, count=1, flags=re.DOTALL
-        )
+    # Drop an [Unreleased] section; the new entry takes its place below. Never
+    # pass the notes to re.sub as the replacement: it reads backslashes as escapes.
+    text = re.sub(
+        r'^## \[Unreleased\].*?(?=^## \[|\Z)',
+        '',
+        text, count=1, flags=re.DOTALL | re.MULTILINE
+    )
+    # Insert before the first version entry (## [x.y.z])
+    lines = text.split('\n')
+    insert_at = next(
+        (i for i in range(len(lines)) if lines[i].startswith('## [')),
+        len(lines)
+    )
+    # Exactly one blank line on each side of the new entry, so blank lines
+    # under the header can't pile up across releases.
+    header = '\n'.join(lines[:insert_at]).rstrip()
+    earlier_entries = '\n'.join(lines[insert_at:])
+    if earlier_entries:
+        text = f"{header}\n\n{entry}\n\n{earlier_entries}"
     else:
-        # Insert before the first version entry (## [x.y.z])
-        lines = text.split('\n')
-        insert_at = next(
-            (i for i in range(len(lines)) if lines[i].startswith('## [')),
-            len(lines)
-        )
-        # Exactly one blank line on each side of the new entry, so blank lines
-        # under the header can't pile up across releases.
-        header = '\n'.join(lines[:insert_at]).rstrip()
-        earlier_entries = '\n'.join(lines[insert_at:])
-        if earlier_entries:
-            text = f"{header}\n\n{entry}\n\n{earlier_entries}"
-        else:
-            text = f"{header}\n\n{entry}\n"
+        text = f"{header}\n\n{entry}\n"
 else:
     text = f"# Changelog\n\n{entry}\n"
 
