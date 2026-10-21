@@ -157,6 +157,9 @@ if [ "$PICK_EXIT" -eq 3 ]; then
   exit 0
 fi
 if [ "$PICK_EXIT" -ne 0 ]; then
+  # The call above drops ob's message so a first boot's exit 3 stays quiet.
+  # Running this read-only call again puts the failure's reason in the log.
+  run_ob sync-config --json >/dev/null
   refuse_unreadable_setup "ob sync-config exited $PICK_EXIT"
 fi
 

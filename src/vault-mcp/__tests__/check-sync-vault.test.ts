@@ -32,7 +32,7 @@ const GUIDE_URL =
 // Engine vectors: captured from obsidian-headless 0.0.14 inside the :remote
 // image with hand-written config trees and no token.
 // `ob sync-config --json` with no setup for the working folder (none at all,
-// or only for another path) prints nothing and exits 3.
+// or only for another path) prints nothing on stdout and exits 3.
 const NO_SETUP_EXIT = 3
 // A setup without vaultPath that sorts first makes `ob sync-config` throw.
 const UNREADABLE_SETUP_EXIT = 1
@@ -83,7 +83,7 @@ echo "$*" >> "$OB_CALL_LOG"
 pwd >> "$OB_CWD_LOG"
 case "$1" in
   sync-list-remote) printf '%s' "$OB_REMOTE_JSON"; exit "$OB_REMOTE_EXIT" ;;
-  sync-config) printf '%s' "$OB_CONFIG_JSON"; exit "$OB_CONFIG_EXIT" ;;
+  sync-config) printf '%s' "$OB_CONFIG_JSON"; printf '%s' "$OB_CONFIG_STDERR" >&2; exit "$OB_CONFIG_EXIT" ;;
   sync-list-local) printf '%s' "$OB_LOCAL_JSON"; exit "$OB_LOCAL_EXIT" ;;
   *) exit 0 ;;
 esac
@@ -101,6 +101,8 @@ type CheckOptions = {
   remoteExit?: number
   configJson?: string
   configExit: number
+  /** What `ob sync-config` prints on stderr, as the engine prints its reason there. */
+  configStderr?: string
   localJson?: string
   localExit?: number
   /** When true, VAULT_PATH names a folder that does not exist. */
@@ -183,6 +185,7 @@ const runCheck = (options: CheckOptions): CheckRun => {
       OB_REMOTE_EXIT: String(options.remoteExit ?? 0),
       OB_CONFIG_JSON: options.configJson ?? "",
       OB_CONFIG_EXIT: String(options.configExit),
+      OB_CONFIG_STDERR: options.configStderr ?? "",
       OB_LOCAL_JSON: options.localJson ?? localSetups([]),
       OB_LOCAL_EXIT: String(options.localExit ?? 0),
       OB_CWD_LOG: cwdLogPath,
@@ -223,11 +226,13 @@ describe("check-sync-vault", () => {
       vaultName: "Work",
       remoteJson: remoteVaults([VAULT_A, VAULT_B]),
       configExit: NO_SETUP_EXIT,
+      configStderr: "No sync configuration found for /vault\nRun 'ob sync-setup' first.\n",
     })
 
     expect(run.status).toBe(0)
     // stdout carries only the requested vault's ID, for init-setup-vault.
     expect(run.stdout).toBe("bbb222\n")
+    // The engine's own first-boot message stays out of the log.
     expect(run.stderr).toBe(
       "[obsidian-sync] Vault check: continue — no Sync setup for this folder yet.\n",
     )
@@ -583,19 +588,28 @@ describe("check-sync-vault", () => {
     },
   )
 
-  it("stops when the engine can't read its own setup", () => {
+  it("stops with the engine's own reason when it can't read its own setup", () => {
     const run = runCheck({
       vaultName: "Work",
       remoteJson: remoteVaults([VAULT_B]),
       configExit: UNREADABLE_SETUP_EXIT,
+      configStderr:
+        'Config update failed: TypeError: The "path" argument must be of type string.\n',
     })
 
     expect(run.status).toBe(1)
     expect(run.stderr).toBe(
-      "[obsidian-sync] ERROR: The Sync client could not read its own setup (ob sync-config exited 1).\n" +
+      'Config update failed: TypeError: The "path" argument must be of type string.\n' +
+        "[obsidian-sync] ERROR: The Sync client could not read its own setup (ob sync-config exited 1).\n" +
         "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for.\n" +
         `[obsidian-sync] See: ${GUIDE_URL}\n`,
     )
+    // The second, read-only call is the one whose message reaches the log.
+    expect(run.obCalls).toEqual([
+      "sync-list-remote --json",
+      "sync-config --json",
+      "sync-config --json",
+    ])
   })
 
   it.each([
