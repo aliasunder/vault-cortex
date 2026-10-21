@@ -224,18 +224,13 @@ the allowance states why.
 
 ## Release Process
 
-Releases are cut by the maintainer, in one of two ways:
+Releases are cut by the maintainer: Actions tab → "Manual Release" → choose
+`patch`/`minor`/`major`. The workflow bumps the version, deploys, and creates
+the GitHub Release.
 
-- **Manual Release:** Actions tab → "Manual Release" → choose
-  `patch`/`minor`/`major`. The workflow bumps the version, deploys, and
-  creates the GitHub Release.
-- **Tag push:** merge a version-bump PR into `main`, then run
-  `git tag v<version> && git push --tags`. The tag push deploys and creates
-  the GitHub Release.
-
-Direct commits to `main` are blocked by a branch ruleset — all changes, a tag
-push's version bump included, land via PR. Only the release workflows push to
-`main` directly, for their version-bump and CHANGELOG commits.
+Direct commits to `main` are blocked by a branch ruleset — all changes land
+via PR. Only the release workflows push to `main` directly, for their
+version-bump and CHANGELOG commits.
 
 The CLI releases separately: Actions tab → "Release CLI" (see
 [The `cli/` Package](#the-cli-package)).
