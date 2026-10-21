@@ -551,10 +551,12 @@ For each install:
 - **Connect it as its own server** in your MCP client, under its own name.
   For Claude Code:
   `claude mcp add --scope user --transport http work <PUBLIC_URL>/mcp`.
-- **Update and restart it on its own:** `upgrade --dir` or `restart --dir`
-  with the CLI, `docker compose pull && docker compose up -d` in its folder
-  with Compose, or the `docker run` steps under [Updating](#updating) with its
-  name.
+- **Update and restart it on its own:**
+  - With the CLI: `npx vault-cortex@latest upgrade --dir ./vault-cortex-work`
+    to update, or `npx vault-cortex@latest restart --dir ./vault-cortex-work`
+    to restart.
+  - With Compose: `docker compose pull && docker compose up -d` in its folder.
+  - With `docker run`: the steps under [Updating](#updating), using its name.
 - **Use its name in `docker` commands.** The commands in this guide that name
   the container or its volumes (`docker logs vault-cortex`,
   `docker restart vault-cortex`, `docker rm -f vault-cortex`,
