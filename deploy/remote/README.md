@@ -525,18 +525,10 @@ npx vault-cortex@latest logs --dir ./vault-cortex-work
 ```
 
 **Set up with Docker Compose?** Set up a new folder as in **Manual setup**
-under [Setup](#setup), with its own `MCP_AUTH_TOKEN`, and also set these in
-its `.env`:
-
-```dotenv
-INSTANCE_NAME=work
-PORT=8001
-DEVICE_NAME=work
-VAULT_NAME=Work
-PUBLIC_URL=https://work.example.com
-```
-
-Run each install's `docker compose` commands from its own folder.
+under [Setup](#setup), with its own `MCP_AUTH_TOKEN`, `VAULT_NAME` and
+`PUBLIC_URL`. In its `.env`, also set a new `INSTANCE_NAME` and
+`DEVICE_NAME` (see [Configuration](#configuration)) and a free `PORT`. Run
+each install's `docker compose` commands from its own folder.
 
 **Set up with `docker run`?** Set up a new folder with its own `.env` as
 above, but leave `PORT` at `8000`, because the `docker run` command does not

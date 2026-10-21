@@ -57,25 +57,38 @@ What it does:
 5. Prints your connection details — the MCP URL, your auth token, and how to
    connect your client
 
-Re-running init where a setup already exists asks first — declining leaves
-everything unchanged and points you at [`configure`](#configure), the right
-tool for changing settings in place. A re-run keeps the setup's instance
-name, and stops if `--instance-name` gives a different one. It keeps the
-port too, unless you change it with `--port` or in the optional settings.
-Existing files are never overwritten without asking. During a remote setup,
-init offers to generate your [Obsidian Sync token](#get-sync-token) as part
-of the flow. If you skip it, init still offers to start the server, which
-then shows a sign-in page at your `PUBLIC_URL`; set up HTTPS first, since the
-page sends your Obsidian password to the server.
+**Remote setups:** init offers to generate your
+[Obsidian Sync token](#get-sync-token) during the flow. If you skip it, init
+still offers to start the server, which then shows a sign-in page at your
+`PUBLIC_URL`. Set up HTTPS first: the page sends your Obsidian password to the
+server.
 
-To run a second vault on the same machine, start Docker, so init can check
-which names and ports are in use, then run init again with its own `--dir`.
-When the machine already has a `vault-cortex` container or data volume, init
-asks you to give the new install its own name and port, and offers the first
-port no other container uses. That name
-(`INSTANCE_NAME` in its `.env`) names the install's container and data, and
-every command run with that `--dir` acts only on it. Each install gets its
-own connector in your MCP client.
+**Re-running init** where a setup already exists:
+
+- Asks first. Declining leaves everything unchanged and points you to
+  [`configure`](#configure), the command for changing settings in place.
+- Never overwrites existing files without asking.
+- Keeps the install's name, and stops if `--instance-name` gives a different
+  one.
+- Keeps the install's port, unless you change it with `--port` or in the
+  optional settings.
+
+**Running a second vault** on the same machine:
+
+1. Start Docker, so init can check which names and ports are in use.
+2. Run init again with a new `--dir`:
+
+   ```bash
+   npx vault-cortex@latest init --dir ./vault-cortex-work
+   ```
+
+3. When the machine already has a `vault-cortex` container or data volume,
+   init asks for the new install's name and port, and offers the first port
+   no other container uses. The name is saved as `INSTANCE_NAME` in the
+   install's `.env` and names its container and data.
+4. Pass that `--dir` to every command for the install, such as `upgrade` or
+   `logs`. Each command acts only on that install.
+5. Add the install to your MCP client as its own connector.
 
 Flags:
 
