@@ -50,6 +50,11 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+          # First attempt: the branch's latest commit, so a run queued behind
+          # a CLI release builds on the commit that release pushed. A re-run
+          # keeps the dispatch-time commit, so re-running a finished release
+          # fails instead of cutting the next version.
+          ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

@@ -7,7 +7,7 @@ name: Release CLI
 # a prerelease under the `beta` dist-tag for testing from any branch —
 # no commit, no tag, no GitHub release. Test with: npx vault-cortex@beta
 #
-# Safe to re-run after a failed publish: a version that is tagged but
+# Safe to dispatch again after a failed publish: a version that is tagged but
 # absent from npm is detected as a failed earlier release. Bump "none"
 # publishes it as-is; any other bump fails with instructions instead of
 # silently skipping the stranded version or overriding the request.
@@ -60,6 +60,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          # First attempt: the branch's latest commit, so a run queued behind
+          # a server release builds on the commits that release pushed. A
+          # re-run keeps the dispatch-time commit, so re-running a finished
+          # release fails instead of publishing the next version.
+          ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
       # No registry-url / auth token: publishing uses npm Trusted Publishing
       # (OIDC) — the trusted publisher is configured on npmjs.com for this
@@ -90,7 +95,7 @@ jobs:
           # operator choose.
           elif git rev-parse -q --verify "refs/tags/cli-v$CURRENT" > /dev/null \
             && ! npm view "vault-cortex@$CURRENT" version > /dev/null 2>&1; then
-            echo "::error::cli-v$CURRENT is tagged but not on npm — a previous release failed at publish. Re-run with bump \"none\" to publish $CURRENT as-is, or abandon it (delete the cli-v$CURRENT tag and revert the bump commit) and re-run with your intended bump."
+            echo "::error::cli-v$CURRENT is tagged but not on npm — a previous release failed at publish. Dispatch again with bump \"none\" to publish $CURRENT as-is, or abandon it (delete the cli-v$CURRENT tag and revert the bump commit) and dispatch again with your intended bump."
             exit 1
           else
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
@@ -146,7 +151,7 @@ jobs:
             git add cli/package.json
             git commit -m "release(cli): v$NEXT"
           fi
-          # Tag may already exist when re-running after a failed publish.
+          # Tag may already exist when dispatching again after a failed publish.
           if ! git rev-parse -q --verify "refs/tags/cli-v$NEXT" > /dev/null; then
             git tag "cli-v$NEXT"
           fi
