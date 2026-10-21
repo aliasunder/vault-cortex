@@ -105,7 +105,7 @@ const missingPublicUrlFix = (mode: Mode, port: number): string => {
  * Resolves --dir to the on-disk deployment and validates its .env for a
  * container start: mode detection, PORT, VAULT_PATH (local), and PUBLIC_URL.
  * Reports each failure via prompts.error and returns undefined.
- * Shared by start, restart, upgrade and configure so their precondition checks can't drift.
+ * Shared by init, start, restart, upgrade and configure so their precondition checks can't drift.
  */
 export const resolveDeployment = (
   dirFlag: string | undefined,

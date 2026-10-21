@@ -312,9 +312,9 @@ export const applyInstanceIdentity = (envContent: string, identity: InstanceIden
 }
 
 /**
- * Warns when --port moves a re-run off the port its carried PUBLIC_URL names:
- * applyInstanceIdentity never rewrites a custom URL. Returns undefined
- * when there is nothing to warn about.
+ * Warns when --port changes a re-run's port but its carried PUBLIC_URL stays:
+ * applyInstanceIdentity moves only a `http://localhost:<port>` URL, never a
+ * custom one. Returns undefined when there is nothing to warn about.
  */
 export const describeStrandedCarriedPublicUrl = (
   envContent: string,
