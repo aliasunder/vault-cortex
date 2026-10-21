@@ -529,10 +529,11 @@ under [Setup](#setup), with its own `MCP_AUTH_TOKEN`, `VAULT_NAME` and
 `docker compose` commands from its own folder.
 
 **Set up with `docker run`?** Set up a new folder with its own `.env` as
-above, but leave `PORT` at `8000`, because the `docker run` command does not
-override it. Then run the command from [Setup](#setup) with `vault-cortex`
-replaced by the new name in `--name`, `--hostname` and the volume names, and
-with the new host port in `-p` (`-p 8001:8000`).
+above, but keep `PORT` at `8000`. With `docker run`, `PORT` is the port the
+server listens on inside the container, and the command's `-p` mapping and
+health check both expect `8000`. Then run the command from [Setup](#setup)
+with `vault-cortex` replaced by the new name in `--name`, `--hostname` and the
+volume names, and with the new host port on the left of `-p` (`-p 8001:8000`).
 
 For each install:
 
