@@ -66,15 +66,16 @@ jobs:
           # release fails instead of publishing the next version.
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
-      # A CLI release tagged after this run's dispatch means this run is a
-      # second dispatch queued behind the first: building on the latest
-      # commit would publish another version with nothing new in it.
-      - name: Refuse a duplicate dispatch
-        if: inputs.bump != 'beta'
+      # Since dispatch, only a server release may have landed, and it changes
+      # only the files below. Anything else (a second CLI release, a merged
+      # PR) would ship under npm provenance that names the dispatch commit,
+      # so the run stops.
+      - name: Refuse changes since dispatch other than a server release
         run: |
-          LATEST_TAG=$(git describe --tags --match 'cli-v*' --abbrev=0 HEAD 2> /dev/null || true)
-          if [ -n "$LATEST_TAG" ] && ! git merge-base --is-ancestor "$LATEST_TAG" "$GITHUB_SHA"; then
-            echo "::error::$LATEST_TAG was released after this run was dispatched. Nothing was pushed; dispatch again if another release is intended."
+          CHANGED=$(git diff --name-only "$GITHUB_SHA" HEAD)
+          UNEXPECTED=$(printf '%s\n' "$CHANGED" | grep -vxE 'package\.json|package-lock\.json|server\.json|CHANGELOG\.md' | paste -sd, - || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::$GITHUB_REF changed after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again."
             exit 1
           fi
 

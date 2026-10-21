@@ -56,14 +56,16 @@ jobs:
           # fails instead of cutting the next version.
           ref: ${{ github.run_attempt == '1' && github.ref || '' }}
 
-      # A server release tagged after this run's dispatch means this run is
-      # a second dispatch queued behind the first: building on the latest
-      # commit would cut another version with nothing new in it.
-      - name: Refuse a duplicate dispatch
+      # Since dispatch, only a CLI release may have landed, and it changes
+      # only cli/package.json. Anything else (a second server release, a
+      # merged PR) would ship under an image label and signature that name
+      # the dispatch commit, so the run stops.
+      - name: Refuse changes since dispatch other than a CLI release
         run: |
-          LATEST_TAG=$(git describe --tags --match 'v[0-9]*' --abbrev=0 HEAD 2> /dev/null || true)
-          if [ -n "$LATEST_TAG" ] && ! git merge-base --is-ancestor "$LATEST_TAG" "$GITHUB_SHA"; then
-            echo "::error::$LATEST_TAG was released after this run was dispatched. Nothing was pushed; dispatch again if another release is intended."
+          CHANGED=$(git diff --name-only "$GITHUB_SHA" HEAD)
+          UNEXPECTED=$(printf '%s\n' "$CHANGED" | grep -vx 'cli/package.json' | paste -sd, - || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::$GITHUB_REF changed after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again."
             exit 1
           fi
 
