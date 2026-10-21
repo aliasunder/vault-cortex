@@ -35,8 +35,14 @@ if os.path.exists(changelog_path):
             (i for i in range(len(lines)) if lines[i].startswith('## [')),
             len(lines)
         )
-        lines.insert(insert_at, f"\n{entry}\n")
-        text = '\n'.join(lines)
+        # Exactly one blank line on each side of the new entry, so blank lines
+        # under the header can't pile up across releases.
+        header = '\n'.join(lines[:insert_at]).rstrip()
+        earlier_entries = '\n'.join(lines[insert_at:])
+        if earlier_entries:
+            text = f"{header}\n\n{entry}\n\n{earlier_entries}"
+        else:
+            text = f"{header}\n\n{entry}\n"
 else:
     text = f"# Changelog\n\n{entry}\n"
 
