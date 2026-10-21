@@ -3,6 +3,12 @@
 # Usage: generate-notes.sh <new-tag> [previous-tag]
 # If previous-tag is omitted, uses the tag before new-tag.
 #
+# Left out of the notes:
+# - release bump commits
+# - dev-dependency bumps and Claude Code hook changes (scopes `deps-dev`, `hooks`)
+# - commits that change only AGENTS.md, CHANGELOG.md, or files under .claude/
+#   or .husky/
+#
 # Breaking changes are detected from the *merged PR* — a `breaking-change` label
 # or a `BREAKING CHANGE:` footer in the PR body — as well as from the commit
 # itself (a `!` type marker or a `BREAKING CHANGE:` footer). The PR is the
@@ -25,13 +31,13 @@ else
   RANGE="$NEW_TAG"
 fi
 
-# Write one record per non-merge commit as `<subject>\x1f<body>`, records
-# NUL-separated, to a temp file. A file (not a pipe) is used because the Python
-# program is fed to `python3 -` on stdin via the heredoc. Release commits are
-# filtered out in Python.
+# Write one record per non-merge commit as `<hash>\x1f<subject>\x1f<body>`,
+# records NUL-separated, to a temp file. A file (not a pipe) is used because the
+# Python program is fed to `python3 -` on stdin via the heredoc. Commits left
+# out of the notes are filtered in Python.
 NOTES_INPUT="$(mktemp)"
 trap 'rm -f "$NOTES_INPUT"' EXIT
-git log --no-merges --format='%s%x1f%b%x00' "$RANGE" > "$NOTES_INPUT"
+git log --no-merges --format='%H%x1f%s%x1f%b%x00' "$RANGE" > "$NOTES_INPUT"
 
 python3 - "$NOTES_INPUT" << 'PYTHON'
 import sys, re, os, json, shutil, subprocess
@@ -108,13 +114,36 @@ def pr_info(pr_number):
     _pr_cache[pr_number] = info
     return info
 
+# Commits with these scopes, or that change only these files, change nothing a
+# user installs. Hook commits also touch their tests, so the scope catches them.
+CONTRIBUTOR_ONLY_SCOPES = {"deps-dev", "hooks"}
+
+def is_contributor_only_path(path):
+    return path in ("AGENTS.md", "CHANGELOG.md") or path.startswith((".claude/", ".husky/"))
+
+def changed_paths(commit_hash):
+    result = subprocess.run(
+        ["git", "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z", commit_hash],
+        capture_output=True, text=True, check=True,
+    )
+    return [path for path in result.stdout.split("\x00") if path]
+
 for rec in records:
-    subject, _, body = rec.partition("\x1f")
+    commit_hash, _, rest = rec.partition("\x1f")
+    subject, _, body = rest.partition("\x1f")
     subject = subject.strip()
     if not subject or release_pat.match(subject):
         continue
 
     match = pat.match(subject)
+    has_contributor_only_scope = bool(match) and match.group(2) in CONTRIBUTOR_ONLY_SCOPES
+    paths = changed_paths(commit_hash.strip())
+    changes_only_contributor_files = bool(paths) and all(
+        is_contributor_only_path(path) for path in paths
+    )
+    if has_contributor_only_scope or changes_only_contributor_files:
+        continue
+
     pr_num = pr_pat.search(subject)
     pr = pr_info(pr_num.group(1)) if pr_num else None
 

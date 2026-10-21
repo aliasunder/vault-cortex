@@ -237,6 +237,15 @@ version bumps included, land via PR.
 The CLI releases separately: Actions tab → "Release CLI" (see
 [The `cli/` Package](#the-cli-package)).
 
+What each release's notes list:
+
+- **Server releases:** every commit since the last release, except release
+  bumps, dev-dependency bumps and Claude Code hook changes (commit scopes
+  `deps-dev` and `hooks`), and commits that change only `AGENTS.md`,
+  `CHANGELOG.md`, or files under `.claude/` or `.husky/`.
+- **CLI releases:** every commit that touches `cli/`, dependency bumps
+  included.
+
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
 ## Railway template
