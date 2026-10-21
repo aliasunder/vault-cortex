@@ -945,8 +945,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `vi.mock(path, { spy: true })` to keep the real implementation.
   **Exception — shell scripts outside vitest's include paths.** The
   remote image's s6 init scripts under `rootfs/etc/s6-overlay/scripts/`
-  are the `vault-mcp` server's boot chain for the `:remote` target, and
-  the Claude Code hook sits in `.claude/hooks/`, and the release scripts
+  are the `vault-mcp` server's boot chain for the `:remote` target, the
+  Claude Code hook sits in `.claude/hooks/`, and the release scripts sit
   in `.github/scripts/`. None is a TypeScript module, and vitest's
   include paths (`src/`, `cli/src/`, `scripts/`) reach none of those
   folders. The init-script tests live in
