@@ -103,6 +103,16 @@ describe("derivePublicUrlOverride", () => {
     })
   })
 
+  it("reads an empty PORT line as the default port", () => {
+    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=\n", {
+      PORT: "9000",
+    })
+    expect(derived).toEqual({
+      PORT: "9000",
+      PUBLIC_URL: "http://localhost:9000",
+    })
+  })
+
   it("never touches a custom PUBLIC_URL", () => {
     const derived = derivePublicUrlOverride("PUBLIC_URL=https://vault.example.com\nPORT=8000\n", {
       PORT: "9000",
@@ -395,6 +405,20 @@ describe("askOptionalSettings per-setting prompts", () => {
 
     const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
+    expect(overrides).toEqual({ PORT: "8000" })
+  })
+
+  it("offers the default port when the PORT line is empty", async () => {
+    const scripted = createScriptedPrompts([["PORT"], ""])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "PORT=\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
+    ])
     expect(overrides).toEqual({ PORT: "8000" })
   })
 

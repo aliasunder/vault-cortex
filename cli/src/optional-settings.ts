@@ -223,7 +223,8 @@ export const derivePublicUrlOverride = (
   const newPort = overrides.PORT
 
   if (!newPort) return overrides
-  const currentPort = readOptionalValue(envContent, "PORT") ?? String(DEFAULT_PORT)
+  // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
+  const currentPort = readOptionalValue(envContent, "PORT") || String(DEFAULT_PORT)
   const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
 
   if (currentPublicUrl !== `http://localhost:${currentPort}`) return overrides
@@ -268,10 +269,12 @@ export const askPort = async (
   currentValue: string | undefined,
   prompts: Prompts,
 ): Promise<string> => {
+  // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
+  const suggestedPort = currentValue || String(DEFAULT_PORT)
   const answer = (
     await prompts.text("Host port for the server:", {
-      defaultValue: currentValue ?? String(DEFAULT_PORT),
-      placeholder: currentValue ?? String(DEFAULT_PORT),
+      defaultValue: suggestedPort,
+      placeholder: suggestedPort,
     })
   ).trim()
 
