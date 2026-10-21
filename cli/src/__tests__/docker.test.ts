@@ -15,6 +15,10 @@ import {
 const okResponse = new Response(null, { status: 200 })
 const failResponse = new Response(null, { status: 500 })
 
+/** The container health check: an in-container fetch of /healthz on the container's own port. */
+const HEALTH_CMD =
+  "node -e \"fetch('http://127.0.0.1:8000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""
+
 describe("buildDockerRunArgs", () => {
   it("produces the correct args for local mode", () => {
     const args = buildDockerRunArgs({
@@ -49,7 +53,7 @@ describe("buildDockerRunArgs", () => {
       "-v",
       "vault-cortex_mcp_data:/data",
       "--health-cmd",
-      expect.stringContaining("healthz"),
+      HEALTH_CMD,
       "--health-interval",
       "15s",
       "--health-timeout",
@@ -98,7 +102,7 @@ describe("buildDockerRunArgs", () => {
       "-v",
       "vault-cortex_obsidian_config:/home/obsidian/.config",
       "--health-cmd",
-      expect.stringContaining("healthz"),
+      HEALTH_CMD,
       "--health-interval",
       "15s",
       "--health-timeout",
@@ -210,7 +214,7 @@ describe("buildDockerRunArgs", () => {
       "-v",
       "work_mcp_data:/data",
       "--health-cmd",
-      expect.stringContaining("healthz"),
+      HEALTH_CMD,
       "--health-interval",
       "15s",
       "--health-timeout",
@@ -231,13 +235,50 @@ describe("buildDockerRunArgs", () => {
       port: 8001,
     })
 
-    const volumeArgs = args.filter((_arg, index) => args[index - 1] === "-v")
-    expect(args.slice(0, 4)).toEqual(["run", "-d", "--name", "work"])
-    expect(args[args.indexOf("--hostname") + 1]).toBe("work")
-    expect(volumeArgs).toEqual([
+    expect(args).toEqual([
+      "run",
+      "-d",
+      "--name",
+      "work",
+      "--restart",
+      "unless-stopped",
+      "--env-file",
+      "/opt/work/.env",
+      "-e",
+      "VAULT_PATH=/vault",
+      "-e",
+      "PORT=8000",
+      "-e",
+      "HOST=0.0.0.0",
+      "-e",
+      "INDEX_DB_PATH=/data/index.db",
+      "-p",
+      "8001:8000",
+      "--hostname",
+      "work",
+      "-v",
       "work_vault_data:/vault",
+      "-v",
       "work_mcp_data:/data",
+      "-v",
       "work_obsidian_config:/home/obsidian/.config",
+      "--health-cmd",
+      HEALTH_CMD,
+      "--health-interval",
+      "15s",
+      "--health-timeout",
+      "5s",
+      "--health-retries",
+      "5",
+      "--health-start-period",
+      "180s",
+      "--log-driver",
+      "json-file",
+      "--log-opt",
+      "max-size=10m",
+      "--log-opt",
+      "max-file=3",
+      REMOTE_IMAGE,
     ])
   })
 

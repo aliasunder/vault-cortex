@@ -180,7 +180,15 @@ describe("runConfigure with picked settings", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(dockerRunCalls.map((params) => params.instanceName)).toEqual(["work"])
+    expect(dockerRunCalls).toEqual([
+      {
+        mode: "local",
+        instanceName: "work",
+        envFilePath,
+        port: 8000,
+        vaultPath: "/home/user/MyVault",
+      },
+    ])
   })
 
   it("re-creates the container on the new PORT when the restart is accepted", async () => {

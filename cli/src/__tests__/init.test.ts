@@ -1510,6 +1510,19 @@ const readEnvLines = (targetDir: string): string[] => {
   return readFileSync(join(targetDir, ".env"), "utf8").split("\n")
 }
 
+const IDENTITY_KEYS = ["PUBLIC_URL", "INSTANCE_NAME", "PORT", "DEVICE_NAME"]
+
+/**
+ * Every active identity line in the written .env, in file order. The file also
+ * holds a random token, so these lines stand in for the whole file; listing
+ * them all catches a duplicate or leftover default line.
+ */
+const readIdentityLines = (targetDir: string): string[] => {
+  return readEnvLines(targetDir).filter((line) => {
+    return IDENTITY_KEYS.some((key) => line.startsWith(`${key}=`))
+  })
+}
+
 const IN_USE_QUESTION =
   'An install named "vault-cortex" already exists on this machine (its container or data volumes are here). What should this install do?'
 const NAME_QUESTION = "Name for this install (lowercase letters, digits, - and _):"
@@ -1544,10 +1557,11 @@ describe("runInit when the instance name is already in use", () => {
       "Any optional settings to change? (press enter to skip)",
       "Start the server now?",
     ])
-    const envLines = readEnvLines(targetDir)
-    expect(envLines).toContain("INSTANCE_NAME=work")
-    expect(envLines).toContain("PORT=8001")
-    expect(envLines).toContain("PUBLIC_URL=http://localhost:8001")
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
     // The chooser reads the identity, so a picked Host port starts from 8001.
     const portOption = scripted.multiselectCalls[0].options.find(
       (option) => option.value === "PORT",
@@ -1587,10 +1601,12 @@ describe("runInit when the instance name is already in use", () => {
       PORT_QUESTION,
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
     ])
-    const envLines = readEnvLines(targetDir)
-    expect(envLines).toContain("INSTANCE_NAME=work")
-    expect(envLines).toContain("PORT=8001")
-    expect(envLines).toContain("DEVICE_NAME=work")
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://work.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+      "DEVICE_NAME=work",
+    ])
   })
 
   it("gives a remote install the device name of a free --instance-name", async () => {
@@ -1616,11 +1632,12 @@ describe("runInit when the instance name is already in use", () => {
     expect(scripted.asked[0]).toBe(
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
     )
-    const envLines = readEnvLines(targetDir)
-    expect(envLines).toContain("INSTANCE_NAME=work")
-    expect(envLines).toContain("PORT=8001")
-    expect(envLines).toContain("DEVICE_NAME=work")
-    expect(envLines).not.toContain("DEVICE_NAME=vault-cortex")
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://work.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+      "DEVICE_NAME=work",
+    ])
   })
 
   it("writes nothing extra when the user reuses the existing data", async () => {
@@ -1638,11 +1655,16 @@ describe("runInit when the instance name is already in use", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(readEnvInstanceName(join(targetDir, ".env"))).toEqual({
-      kind: "ok",
-      instanceName: "vault-cortex",
-    })
-    expect(readEnvLines(targetDir)).toContain("PORT=8000")
+    expect(scripted.asked).toEqual([
+      IN_USE_QUESTION,
+      "Any optional settings to change? (press enter to skip)",
+      "Start the server now?",
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8000",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=8000",
+    ])
   })
 
   it("counts a remote install as in use when only its vault volume is left", async () => {
@@ -1701,7 +1723,33 @@ describe("runInit when the instance name is already in use", () => {
       '"Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.',
       '"out-taken" is already in use on this machine — pick another name.',
     ])
-    expect(readEnvLines(targetDir)).toContain("INSTANCE_NAME=work")
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("suggests no name when the folder's name is the one in use", async () => {
+    const vaultDir = makeVault()
+    const targetDir = join(makeTargetDir(), "vault-cortex")
+    const scripted = createScriptedPrompts(["own-name", "work", "8001", [], false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls[0]).toEqual({
+      message: NAME_QUESTION,
+      defaultValue: undefined,
+      placeholder: "work",
+    })
   })
 
   it("skips the check when the Docker daemon is not running", async () => {
@@ -1763,10 +1811,11 @@ describe("runInit --yes when the instance name is already in use", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.logs).not.toContain('Reusing the data of the existing "work" install.')
-    const envLines = readEnvLines(targetDir)
-    expect(envLines).toContain("INSTANCE_NAME=work")
-    expect(envLines).toContain("PORT=8001")
-    expect(envLines).toContain("PUBLIC_URL=http://localhost:8001")
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
   })
 
   it.each([
@@ -1853,21 +1902,29 @@ describe("runInit re-run keeps the instance identity", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain(IN_USE_QUESTION)
-    const envLines = readEnvLines(targetDir)
-    expect(envLines).toContain("INSTANCE_NAME=work")
-    expect(envLines).toContain("PORT=8001")
-    expect(envLines).toContain("PUBLIC_URL=http://localhost:8001")
-    expect(envLines).not.toContain("MCP_AUTH_TOKEN=old")
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+    expect(readEnvLines(targetDir)).not.toContain("MCP_AUTH_TOKEN=old")
   })
 
-  it("prints commands for the kept install's name when the existing file is kept", async () => {
+  it("prints commands for the kept file's name and port, not this run's flags", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     writeExistingLocalEnv(targetDir, vaultDir)
-    const scripted = createScriptedPrompts([true, [], false, false])
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      [], // no optional settings
+      false, // keep the existing file
+      false, // don't start now
+    ])
 
+    // The flags make this run's generated .env differ from the kept one, so
+    // the printed commands show which file they were read from.
     const exitCode = await runInit(
-      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "other", port: "8002" },
       {
         prompts: scripted.prompts,
         docker: dockerWithExisting(["vault-cortex", "work"]),
@@ -1891,7 +1948,7 @@ describe("runInit re-run keeps the instance identity", () => {
     )
     const scripted = createScriptedPrompts([
       true, // re-run setup anyway
-      "https://work.example.com",
+      "https://new.example.com", // a remote PUBLIC_URL is asked again, not carried
       "Work",
       false, // don't generate a new token
       false, // no encryption
@@ -1911,9 +1968,43 @@ describe("runInit re-run keeps the instance identity", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain(IN_USE_QUESTION)
-    const envLines = readEnvLines(targetDir)
-    expect(envLines).toContain("INSTANCE_NAME=work")
-    expect(envLines).toContain("PORT=8001")
-    expect(envLines).toContain("DEVICE_NAME=work-sync")
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=https://new.example.com",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+      "DEVICE_NAME=work-sync",
+    ])
+  })
+
+  it("stops before starting anything when the kept file's INSTANCE_NAME is invalid", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=Work Vault\n`,
+    )
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts([
+      true, // re-run setup anyway
+      [], // no optional settings
+      false, // keep the existing file
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReadyEmptyHost, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `INSTANCE_NAME "Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(scripted.prints).toEqual([])
+    expect(dockerRun).not.toHaveBeenCalled()
   })
 })

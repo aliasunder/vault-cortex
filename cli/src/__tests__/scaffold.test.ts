@@ -169,25 +169,33 @@ describe("readEnvInstanceName", () => {
     expect(readEnvInstanceName(missingPath)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
   })
 
-  it("returns the default name when the line is missing, commented or empty", () => {
-    const withoutLine = writeEnv("MCP_AUTH_TOKEN=abc\n")
-    const commentedLine = writeEnv("# INSTANCE_NAME=work\n")
-    const emptyLine = writeEnv("INSTANCE_NAME=\n")
-
-    expect(readEnvInstanceName(withoutLine)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
-    expect(readEnvInstanceName(commentedLine)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
-    expect(readEnvInstanceName(emptyLine)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
+  it.each([
+    { label: "no INSTANCE_NAME line", content: "MCP_AUTH_TOKEN=abc\n" },
+    { label: "a commented-out line", content: "# INSTANCE_NAME=work\n" },
+    { label: "an empty value", content: "INSTANCE_NAME=\n" },
+    { label: "an empty quoted value", content: 'INSTANCE_NAME=""\n' },
+  ])("returns the default name for $label", ({ content }) => {
+    expect(readEnvInstanceName(writeEnv(content))).toEqual({
+      kind: "ok",
+      instanceName: "vault-cortex",
+    })
   })
 
-  it("returns a valid name, with surrounding quotes dropped", () => {
-    expect(readEnvInstanceName(writeEnv("INSTANCE_NAME=work_2\n"))).toEqual({
-      kind: "ok",
-      instanceName: "work_2",
-    })
-    expect(readEnvInstanceName(writeEnv('INSTANCE_NAME="work-vault"\n'))).toEqual({
-      kind: "ok",
-      instanceName: "work-vault",
-    })
+  it.each([
+    { label: "a plain name", content: "INSTANCE_NAME=work_2\n", expected: "work_2" },
+    {
+      label: "a double-quoted name",
+      content: 'INSTANCE_NAME="work-vault"\n',
+      expected: "work-vault",
+    },
+    {
+      label: "a single-quoted name",
+      content: "INSTANCE_NAME='work-vault'\n",
+      expected: "work-vault",
+    },
+    { label: "a name with trailing spaces", content: "INSTANCE_NAME=work  \n", expected: "work" },
+  ])("returns $label as written, without quotes or spaces", ({ content, expected }) => {
+    expect(readEnvInstanceName(writeEnv(content))).toEqual({ kind: "ok", instanceName: expected })
   })
 
   it("takes the last active line, as docker --env-file does", () => {

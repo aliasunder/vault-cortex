@@ -19,6 +19,9 @@ import {
 // Down arrow in terminal escape sequences
 const DOWN = "\x1b[B"
 
+/** Matches an active .env line that sets a local install's name, port or URL. */
+const LOCAL_IDENTITY_LINE = /^(PUBLIC_URL|INSTANCE_NAME|PORT)=/
+
 describe("init local", () => {
   it("completes the happy path (decline start)", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
@@ -103,10 +106,16 @@ describe("init local", () => {
     expect(result.promptsAnswered).toBe(result.totalPrompts)
     expect(result.transcript).toContain("--transport http work http://localhost:8001/mcp")
 
-    const envLines = readFileSync(join(configDir, ".env"), "utf8").split("\n")
-    expect(envLines).toContain("INSTANCE_NAME=work")
-    expect(envLines).toContain("PORT=8001")
-    expect(envLines).toContain("PUBLIC_URL=http://localhost:8001")
+    // The .env also holds a random token, so every active identity line
+    // stands in for the whole file.
+    const identityLines = readFileSync(join(configDir, ".env"), "utf8")
+      .split("\n")
+      .filter((line) => LOCAL_IDENTITY_LINE.test(line))
+    expect(identityLines).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
   })
 
   it("accepts start and passes health check", async () => {

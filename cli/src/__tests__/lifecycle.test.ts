@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import type { DockerLogsParams, DockerRunner } from "../docker.js"
 import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
@@ -802,6 +802,44 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
     expect(recording.logsParams).toEqual([
       { instanceName: "work", follow: false, since: undefined },
     ])
+  })
+
+  it("logs names the instance and its start command when its container is absent", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: { ...dockerReady, containerExists: () => false } },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `No work container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
+    ])
+  })
+
+  it("restart names the instance in the remove hint when removal fails", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReady, stopAndRemoveContainer: () => false, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      "Could not remove the existing container — check: docker rm -f work",
+    ])
+    expect(dockerRun).not.toHaveBeenCalled()
   })
 
   it.each([
