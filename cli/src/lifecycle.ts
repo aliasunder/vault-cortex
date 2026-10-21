@@ -341,12 +341,17 @@ export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number>
 
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
-  const { instanceName } = initialized
+  const { instanceName, envFilePath } = initialized
+  const existingImage = docker.containerImage(instanceName)
 
-  if (!docker.containerExists(instanceName)) {
+  if (!existingImage) {
     prompts.error(
       `No ${instanceName} container — start it with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
     )
+    return 1
+  }
+  if (!isVaultCortexImage(existingImage)) {
+    prompts.error(foreignContainerMessage({ instanceName, image: existingImage, envFilePath }))
     return 1
   }
 

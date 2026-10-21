@@ -1746,7 +1746,6 @@ describe("validatePublicUrl", () => {
 const dockerWithExisting = (existingNames: ReadonlyArray<string>): DockerRunner => {
   return {
     ...dockerDaemonOnly,
-    containerExists: (instanceName) => existingNames.includes(instanceName),
     containerImage: (instanceName) => {
       return existingNames.includes(instanceName) ? LOCAL_IMAGE : undefined
     },

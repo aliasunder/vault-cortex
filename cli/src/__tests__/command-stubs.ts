@@ -172,7 +172,6 @@ export const dockerReady: DockerRunner = {
   dockerRun: () => true,
   pullImage: () => true,
   stopAndRemoveContainer: () => true,
-  containerExists: () => true,
   containerImage: () => LOCAL_IMAGE,
   volumeExists: () => true,
   publishedHostPorts: () => [],
@@ -185,7 +184,6 @@ export const dockerReady: DockerRunner = {
  */
 export const dockerReadyEmptyHost: DockerRunner = {
   ...dockerReady,
-  containerExists: () => false,
   containerImage: () => undefined,
   volumeExists: () => false,
 }
@@ -205,10 +203,6 @@ export const createRecordingDocker = (): {
   const logsParams: DockerLogsParams[] = []
   const docker: DockerRunner = {
     ...dockerReady,
-    containerExists: (instanceName) => {
-      calls.push(`inspect:${instanceName}`)
-      return true
-    },
     containerImage: (instanceName) => {
       calls.push(`inspect:${instanceName}`)
       return LOCAL_IMAGE
@@ -237,7 +231,6 @@ export const dockerDown: DockerRunner = {
   dockerRun: () => false,
   pullImage: () => false,
   stopAndRemoveContainer: () => false,
-  containerExists: () => false,
   containerImage: () => undefined,
   volumeExists: () => false,
   publishedHostPorts: () => [],

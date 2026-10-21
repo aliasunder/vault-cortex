@@ -81,7 +81,7 @@ const isInstanceNameInUse = (
   params: { mode: Mode; instanceName: string },
   docker: DockerRunner,
 ): boolean => {
-  if (docker.containerExists(params.instanceName)) return true
+  if (docker.containerImage(params.instanceName)) return true
   return instanceVolumeNames(params).some((volumeName) => docker.volumeExists(volumeName))
 }
 

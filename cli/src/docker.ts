@@ -95,11 +95,9 @@ export type DockerRunner = {
   pullImage: (image: string) => boolean
   /** Stops and removes the named container (idempotent). */
   stopAndRemoveContainer: (instanceName: string) => boolean
-  /** True when a container with this name exists, running or stopped. */
-  containerExists: (instanceName: string) => boolean
   /**
-   * The image the container with this exact name was created from, or
-   * undefined when no container has the name.
+   * The image the container with this exact name was created from, running
+   * or stopped, or undefined when no container has the name.
    */
   containerImage: (instanceName: string) => string | undefined
   /** True when a named volume exists. */
@@ -291,20 +289,8 @@ export const createDockerRunner = (): DockerRunner => ({
   stopAndRemoveContainer: (instanceName) => {
     return spawnSync("docker", ["rm", "-f", instanceName]).status === 0
   },
-  // - Callers probe with this before stopAndRemoveContainer: `docker rm -f` on
-  //   a missing container exits 1 on engines < 23 and 0 on >= 23.
-  // - The printed name is compared because Docker falls back to container-ID
-  //   prefixes, so an all-hex name ("2025") could match another container.
-  containerExists: (instanceName) => {
-    const inspectResult = spawnSync(
-      "docker",
-      ["container", "inspect", "--format", "{{.Name}}", instanceName],
-      { encoding: "utf8" },
-    )
-
-    if (inspectResult.status !== 0) return false
-    return isContainerNamed({ inspectedName: inspectResult.stdout, instanceName })
-  },
+  // The printed name is compared because Docker falls back to container-ID
+  // prefixes, so an all-hex name ("2025") could match another container.
   containerImage: (instanceName) => {
     const inspectResult = spawnSync(
       "docker",

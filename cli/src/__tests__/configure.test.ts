@@ -458,7 +458,6 @@ describe("runConfigure with picked settings", () => {
     writeLocalEnv(targetDir)
     const dockerRunFails: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
       containerImage: () => undefined,
       dockerRun: () => false,
     }

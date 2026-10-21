@@ -95,7 +95,6 @@ describe("runDown", () => {
     const removeCalls: string[] = []
     const dockerNoContainer: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
       containerImage: () => undefined,
       stopAndRemoveContainer: () => {
         removeCalls.push("called")
@@ -228,7 +227,7 @@ describe("runLogs", () => {
     const streamCalls: DockerLogsParams[] = []
     const dockerNoContainer: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
+      containerImage: () => undefined,
       streamLogs: async (params) => {
         streamCalls.push(params)
         return 0
@@ -727,7 +726,6 @@ describe("runRestart", () => {
     const removeCalls: string[] = []
     const dockerFirstStart: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
       containerImage: () => undefined,
       stopAndRemoveContainer: () => {
         removeCalls.push("called")
@@ -828,7 +826,6 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
 
     const dockerNoContainer: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
       containerImage: () => undefined,
     }
 
@@ -883,7 +880,7 @@ describe("commands on an install with a custom INSTANCE_NAME", () => {
 
     const exitCode = await runLogs(
       { dir: targetDir },
-      { prompts: scripted.prompts, docker: { ...dockerReady, containerExists: () => false } },
+      { prompts: scripted.prompts, docker: { ...dockerReady, containerImage: () => undefined } },
     )
 
     expect(exitCode).toBe(1)
@@ -1004,6 +1001,25 @@ describe("a container under the install's name that runs another image", () => {
     const scripted = createScriptedPrompts()
 
     const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: foreign.docker },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(foreign.calls).toEqual(["inspect:vault-cortex"])
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so it was left in place.\n` +
+        `Give this install a name no other container uses: change INSTANCE_NAME in ${targetDir}/.env.`,
+    ])
+  })
+
+  it("logs refuses to stream it", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-foreign-")
+    writeLocalEnv(targetDir)
+    const foreign = createForeignContainerDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runLogs(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: foreign.docker },
     )
