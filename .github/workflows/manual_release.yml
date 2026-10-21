@@ -124,12 +124,13 @@ jobs:
           # The commit above is new, so an existing v$NEXT tag points at
           # another commit: on a re-run, the first attempt's tag, which
           # "Re-run failed jobs" can still finish (deleting it would skip
-          # v$NEXT); on a first attempt, a stale tag from a failed run.
+          # v$NEXT); on a first attempt, a stale tag from a failed run, or
+          # a published release the dispatched branch's package.json predates.
           if git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
             if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]; then
               echo "::error::Tag v$NEXT exists from this run's first attempt. If v$NEXT is published, stop here; otherwise finish it with \"Re-run failed jobs\" (\"Re-run all jobs\" repeats this job and stops here again)."
             else
-              echo "::error::Tag v$NEXT exists but $GITHUB_REF's package.json is still at the previous version, so the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and dispatch again."
+              echo "::error::Tag v$NEXT exists but $GITHUB_REF's package.json is still at the previous version. If v$NEXT is published, stop here; otherwise the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and dispatch again."
             fi
             exit 1
           fi
