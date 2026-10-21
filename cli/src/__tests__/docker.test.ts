@@ -460,7 +460,7 @@ describe("classifyDaemonStatus", () => {
 })
 
 describe("parsePublishedHostPorts", () => {
-  it("maps each published host port to its container, with or without a leading slash", () => {
+  it("lists each published host port with its container, with or without a leading slash", () => {
     const inspectOutput = [
       "/vault-cortex 8000",
       "/work 8001 9443",
@@ -470,14 +470,21 @@ describe("parsePublishedHostPorts", () => {
       "",
     ].join("\n")
 
-    expect(parsePublishedHostPorts(inspectOutput)).toEqual(
-      new Map([
-        [8000, "vault-cortex"],
-        [8001, "work"],
-        [9443, "work"],
-        [7000, "podman-app"],
-      ]),
-    )
+    expect(parsePublishedHostPorts(inspectOutput)).toEqual([
+      { hostPort: 8000, containerName: "vault-cortex" },
+      { hostPort: 8001, containerName: "work" },
+      { hostPort: 9443, containerName: "work" },
+      { hostPort: 7000, containerName: "podman-app" },
+    ])
+  })
+
+  it("keeps every container that publishes the same host port", () => {
+    const inspectOutput = ["/vault-cortex 8000", "/stopped-test 8000"].join("\n")
+
+    expect(parsePublishedHostPorts(inspectOutput)).toEqual([
+      { hostPort: 8000, containerName: "vault-cortex" },
+      { hostPort: 8000, containerName: "stopped-test" },
+    ])
   })
 })
 

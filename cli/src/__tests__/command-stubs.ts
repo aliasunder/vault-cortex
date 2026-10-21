@@ -175,7 +175,7 @@ export const dockerReady: DockerRunner = {
   containerExists: () => true,
   containerImage: () => LOCAL_IMAGE,
   volumeExists: () => true,
-  publishedHostPorts: () => new Map(),
+  publishedHostPorts: () => [],
   streamLogs: async () => 0,
 }
 
@@ -240,7 +240,7 @@ export const dockerDown: DockerRunner = {
   containerExists: () => false,
   containerImage: () => undefined,
   volumeExists: () => false,
-  publishedHostPorts: () => new Map(),
+  publishedHostPorts: () => [],
   streamLogs: async () => 1,
 }
 

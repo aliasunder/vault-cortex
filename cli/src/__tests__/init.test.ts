@@ -1761,7 +1761,9 @@ const dockerWithPorts = (params: {
 }): DockerRunner => {
   return {
     ...dockerWithExisting(params.existingNames),
-    publishedHostPorts: () => new Map(params.publishedPorts),
+    publishedHostPorts: () => {
+      return params.publishedPorts.map(([hostPort, containerName]) => ({ hostPort, containerName }))
+    },
   }
 }
 

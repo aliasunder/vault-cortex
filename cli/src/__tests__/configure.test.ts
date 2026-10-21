@@ -229,10 +229,10 @@ describe("runConfigure with picked settings", () => {
     const docker: DockerRunner = {
       ...createRecordingDocker().docker,
       publishedHostPorts: () => {
-        return new Map([
-          [8000, "vault-cortex"],
-          [9100, "other-app"],
-        ])
+        return [
+          { hostPort: 8000, containerName: "vault-cortex" },
+          { hostPort: 9100, containerName: "other-app" },
+        ]
       },
     }
     const scripted = createScriptedPrompts([

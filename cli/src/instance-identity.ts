@@ -5,6 +5,7 @@ import { instanceVolumeNames, type DockerRunner } from "./docker.js"
 import {
   applyOptionalSettings,
   askFreePort,
+  buildPortsInUse,
   describeStrandedPublicUrl,
   portInUseMessage,
   portsOfOtherContainers,
@@ -279,7 +280,7 @@ export const resolveInstanceIdentity = async (
     }
     const daemonRunning = docker.daemonStatus() === "running"
     const portsInUse = portsOfOtherContainers(
-      daemonRunning ? docker.publishedHostPorts() : new Map<number, string>(),
+      daemonRunning ? docker.publishedHostPorts() : [],
       carriedName,
     )
     // A kept port is the install's own; only a new --port can collide.
@@ -300,7 +301,8 @@ export const resolveInstanceIdentity = async (
   if (!daemonRunning) prompts.warn(nameCheckSkippedMessage(requestedName))
   const requestedNameInUse =
     daemonRunning && isInstanceNameInUse({ mode, instanceName: requestedName }, docker)
-  const portsInUse: PortsInUse = daemonRunning ? docker.publishedHostPorts() : new Map()
+  const publishedPorts = daemonRunning ? docker.publishedHostPorts() : []
+  const portsInUse = buildPortsInUse(publishedPorts)
   // A new folder's .env starts from the template's device name, so a name
   // given by --instance-name sets it too, whether the name is new or reused.
   const flagSettings = {
@@ -316,7 +318,7 @@ export const resolveInstanceIdentity = async (
     const chosen = { ...flagSettings, ...portSetting.settings }
     return { kind: "ok", identity: { carried: {}, chosen }, portsInUse }
   }
-  const portsOutsideReusedInstall = portsOfOtherContainers(portsInUse, requestedName)
+  const portsOutsideReusedInstall = portsOfOtherContainers(publishedPorts, requestedName)
 
   if (flags.instanceName) {
     prompts.log(`Reusing the data of the existing "${requestedName}" install.`)

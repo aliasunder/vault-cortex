@@ -84,6 +84,8 @@ const volumeMountArgs = (mode: Mode, instanceName: string): string[] => {
  */
 export type DaemonStatus = "running" | "not-running" | "not-installed"
 
+export type PublishedPort = { hostPort: number; containerName: string }
+
 export type DockerRunner = {
   /** Whether the container runtime is reachable, stopped, or absent. */
   daemonStatus: () => DaemonStatus
@@ -103,10 +105,10 @@ export type DockerRunner = {
   /** True when a named volume exists. */
   volumeExists: (volumeName: string) => boolean
   /**
-   * Host ports that existing containers publish, stopped ones included, each
-   * mapped to its container's name. Empty when the runtime can't list them.
+   * Host ports that existing containers publish, stopped ones included: one
+   * entry per container and port. Empty when the runtime can't list them.
    */
-  publishedHostPorts: () => ReadonlyMap<number, string>
+  publishedHostPorts: () => ReadonlyArray<PublishedPort>
   /**
    * Streams `docker logs` to the terminal; resolves with the docker
    * process's exit code once the stream ends.
@@ -255,9 +257,12 @@ const PUBLISHED_PORTS_FORMAT =
 /** A published host port; an empty HostPort means the runtime picks one at start. */
 const HOST_PORT_PATTERN = /^\d+$/
 
-/** Reads PUBLISHED_PORTS_FORMAT output into host port → container name. */
-export const parsePublishedHostPorts = (inspectOutput: string): ReadonlyMap<number, string> => {
-  const portEntries = inspectOutput.split("\n").flatMap((line) => {
+/**
+ * Reads PUBLISHED_PORTS_FORMAT output into one entry per container and port,
+ * so a port two containers publish keeps both.
+ */
+export const parsePublishedHostPorts = (inspectOutput: string): ReadonlyArray<PublishedPort> => {
+  return inspectOutput.split("\n").flatMap((line) => {
     const [inspectedName, ...hostPorts] = line.trim().split(/\s+/)
 
     if (!inspectedName) return []
@@ -265,9 +270,8 @@ export const parsePublishedHostPorts = (inspectOutput: string): ReadonlyMap<numb
     const containerName = inspectedName.replace(/^\//, "")
     return hostPorts
       .filter((hostPort) => HOST_PORT_PATTERN.test(hostPort))
-      .map((hostPort) => [Number(hostPort), containerName] as const)
+      .map((hostPort) => ({ hostPort: Number(hostPort), containerName }))
   })
-  return new Map(portEntries)
 }
 
 export const createDockerRunner = (): DockerRunner => ({
@@ -317,17 +321,17 @@ export const createDockerRunner = (): DockerRunner => ({
   publishedHostPorts: () => {
     const listResult = spawnSync("docker", ["container", "ls", "-aq"], { encoding: "utf8" })
 
-    if (listResult.status !== 0) return new Map()
+    if (listResult.status !== 0) return []
     const containerIds = listResult.stdout.split("\n").filter(Boolean)
 
-    if (containerIds.length === 0) return new Map()
+    if (containerIds.length === 0) return []
     const inspectResult = spawnSync(
       "docker",
       ["container", "inspect", "--format", PUBLISHED_PORTS_FORMAT, ...containerIds],
       { encoding: "utf8" },
     )
 
-    if (inspectResult.error) return new Map()
+    if (inspectResult.error) return []
     // Read whatever the exit status: a container removed after the listing
     // makes inspect exit 1, but it still prints the others.
     return parsePublishedHostPorts(inspectResult.stdout)

@@ -1,4 +1,5 @@
 import { DEFAULT_PORT, isValidPort, stripSurroundingQuotes, type Mode } from "./scaffold.js"
+import type { PublishedPort } from "./docker.js"
 import type { Prompts, SelectOption } from "./prompts.js"
 
 type OptionalSettingBase = {
@@ -336,12 +337,22 @@ export const askFreePort = async (
   return askFreePort({ ...params, suggestedPort: suggestFreePort(params.portsInUse) }, prompts)
 }
 
-/** Start and restart replace the install's own container, so only other containers' ports are taken. */
+export const buildPortsInUse = (publishedPorts: ReadonlyArray<PublishedPort>): PortsInUse => {
+  return new Map(publishedPorts.map(({ hostPort, containerName }) => [hostPort, containerName]))
+}
+
+/**
+ * Start and restart replace the install's own container, so only other
+ * containers' ports are taken. A port another container also publishes stays taken.
+ */
 export const portsOfOtherContainers = (
-  portsInUse: PortsInUse,
+  publishedPorts: ReadonlyArray<PublishedPort>,
   containerName: string,
 ): PortsInUse => {
-  return new Map([...portsInUse].filter(([, portUser]) => portUser !== containerName))
+  const otherContainersPorts = publishedPorts.filter((publishedPort) => {
+    return publishedPort.containerName !== containerName
+  })
+  return buildPortsInUse(otherContainersPorts)
 }
 
 /** Re-prompts until the answer is a zone the runtime recognizes. */
