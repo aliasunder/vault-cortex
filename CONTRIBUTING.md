@@ -229,7 +229,7 @@ Releases are cut by the maintainer. Two paths:
 - **Manual Release:** Actions tab → "Manual Release" → choose
   `patch`/`minor`/`major`. Bumps version, deploys, creates GitHub Release.
 - **Tag push:** merge a version-bump PR into `main`, then
-  `git tag v<version> && git push --tags`
+  `git tag v<version> && git push --tags`. Deploys, creates GitHub Release.
 
 Direct commits to `main` are blocked by a branch ruleset — all changes,
 version bumps included, land via PR.
@@ -239,17 +239,18 @@ The CLI releases separately: Actions tab → "Release CLI" (see
 
 What each release's notes list:
 
-- **Server releases:** every commit since the last release, except:
+- **Server releases** (`.github/scripts/generate-notes.sh`): every commit
+  since the last release, except:
   - release bumps
   - dev-dependency bumps: commits with the `deps-dev` scope, and commits that
-    change only the root `package.json` and `package-lock.json` and update only
-    packages the lockfile marks `"dev": true`
+    change only `devDependencies` or `overrides` in the root `package.json`,
+    and in `package-lock.json` only packages marked `"dev": true`
   - Claude Code hook changes (commit scope `hooks`)
   - commits that change only `AGENTS.md`, `CHANGELOG.md`, dotfiles at the
     repository root (`.gitignore`, `.trivyignore`), or files under `.claude/`,
     `.devin/` or `.husky/`
-- **CLI releases:** every commit that touches `cli/`, dependency bumps
-  included.
+- **CLI releases** (`.github/workflows/cli_release.yml`): every commit that
+  touches `cli/`, dependency bumps included (`deps-dev` too).
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 

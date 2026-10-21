@@ -8,8 +8,8 @@
 # - dev-dependency bumps and Claude Code hook changes (scopes `deps-dev`, `hooks`)
 # - commits that change only AGENTS.md, CHANGELOG.md, dotfiles at the repository
 #   root (.gitignore, .trivyignore), or files under .claude/, .devin/ or .husky/
-# - commits that change only the root package.json and package-lock.json and
-#   move only dev dependencies
+# - commits that change only `devDependencies` or `overrides` in the root
+#   package.json, and in package-lock.json only packages marked `"dev": true`
 #
 # Breaking changes are detected from the *merged PR* — a `breaking-change` label
 # or a `BREAKING CHANGE:` footer in the PR body — as well as from the commit
@@ -30,6 +30,7 @@ PREV_TAG="${2:-$(git describe --tags --abbrev=0 --match "v[0-9]*" "$NEW_TAG"^ 2>
 if [ -n "$PREV_TAG" ]; then
   RANGE="${PREV_TAG}..${NEW_TAG}"
 else
+  # First server release: list every commit reachable from NEW_TAG.
   RANGE="$NEW_TAG"
 fi
 
@@ -44,11 +45,11 @@ git log --no-merges --format='%H%x1f%s%x1f%b%x00' "$RANGE" > "$NOTES_INPUT"
 python3 - "$NOTES_INPUT" << 'PYTHON'
 import sys, re, os, json, shutil, subprocess
 
-with open(sys.argv[1], "rb") as fh:
-    raw = fh.read().decode("utf-8", "replace")
-records = [r for r in raw.split("\x00") if r.strip()]
+with open(sys.argv[1], "rb") as log_file:
+    log_text = log_file.read().decode("utf-8", "replace")
+records = [record for record in log_text.split("\x00") if record.strip()]
 
-# Category config: (prefix, heading)
+# Category config: (commit type, heading)
 categories = [
     ("feat", "Features"),
     ("fix", "Bug Fixes"),
@@ -58,15 +59,17 @@ categories = [
     ("eval", "Evals"),
     ("chore", "Maintenance"),
 ]
-cat_map = {c[0]: c[1] for c in categories}
-cat_order = [c[0] for c in categories]
+heading_by_type = dict(categories)
+type_order = [commit_type for commit_type, _ in categories]
 
-buckets = {c[0]: [] for c in categories}
+buckets = {commit_type: [] for commit_type in type_order}
 other = []
 breaking = []
 
 # Pattern: type(scope)!: description — scope and the breaking `!` are optional.
-pat = re.compile(r'^([a-z]+)(?:\(([^)]+)\))?(!)?:\s+(.+)$')
+subject_pat = re.compile(
+    r'^(?P<type>[a-z]+)(?:\((?P<scope>[^)]+)\))?(?P<breaking>!)?:\s+(?P<description>.+)$'
+)
 # Release bump commits (server "release:" and CLI "release(cli):") are noise.
 release_pat = re.compile(r'^release(\(cli\))?:')
 # A BREAKING CHANGE footer — conventional commits allows a space or hyphen.
@@ -78,6 +81,8 @@ pr_pat = re.compile(r'\(#(\d+)\)\s*$')
 # run without it skips lookups and falls back to commit-only signals (the
 # documented offline behavior) instead of firing unauthenticated calls.
 GH = shutil.which("gh") if os.environ.get("GH_TOKEN") else None
+# Set by GitHub Actions. A local run leaves it empty, and `gh` then uses the
+# checkout's own remote.
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
 BREAKING_LABEL = "breaking-change"
 _pr_cache = {}
@@ -117,12 +122,13 @@ def pr_info(pr_number):
     return info
 
 # Commits with these scopes change nothing a user installs. Hook commits also
-# change their tests, so a path rule alone would miss them.
+# change their tests in src/__tests__/, so a path rule alone would miss them.
 CONTRIBUTOR_ONLY_SCOPES = {"deps-dev", "hooks"}
 
 # A commit that changes only these paths changes nothing a user installs.
-# .github/ is not listed: CI changes stay in the notes.
 def is_contributor_only_path(path):
+    # The "/" check leaves out dot-folders such as .github/, so CI changes stay
+    # in the notes.
     is_root_dotfile = path.startswith(".") and "/" not in path
     return (
         is_root_dotfile
@@ -143,17 +149,19 @@ def read_json_at(revision, path):
     result = subprocess.run(["git", "show", f"{revision}:{path}"], capture_output=True, text=True)
     return json.loads(result.stdout) if result.returncode == 0 else None
 
-def changed_entries(old_mapping, new_mapping):
+def changed_keys(old_mapping, new_mapping):
     keys = old_mapping.keys() | new_mapping.keys()
     return [key for key in keys if old_mapping.get(key) != new_mapping.get(key)]
 
 # Security updates and overrides can use the `deps` scope even when every package
 # they move is a dev dependency. The lockfile marks a package that only
-# devDependencies reach with `"dev": true`. Anything unreadable counts as a user
-# change.
+# devDependencies reach with `"dev": true`. A manifest missing at either revision
+# counts as a user change.
 def changes_only_dev_dependencies(commit_hash, paths):
-    if not paths or not set(paths) <= ROOT_MANIFESTS:
+    changes_only_manifests = bool(paths) and set(paths) <= ROOT_MANIFESTS
+    if not changes_only_manifests:
         return False
+
     parent = f"{commit_hash}^"
     old_manifest = read_json_at(parent, "package.json")
     new_manifest = read_json_at(commit_hash, "package.json")
@@ -161,64 +169,77 @@ def changes_only_dev_dependencies(commit_hash, paths):
     new_lock = read_json_at(commit_hash, "package-lock.json")
     if None in (old_manifest, new_manifest, old_lock, new_lock):
         return False
-    if not set(changed_entries(old_manifest, new_manifest)) <= {"devDependencies", "overrides"}:
+    if not set(changed_keys(old_manifest, new_manifest)) <= {"devDependencies", "overrides"}:
         return False
-    old_packages, new_packages = old_lock.get("packages", {}), new_lock.get("packages", {})
-    for package_path in changed_entries(old_packages, new_packages):
-        # "" is the project itself; its entry mirrors package.json's dependency lists.
-        if package_path == "":
-            root_fields = changed_entries(old_packages.get("", {}), new_packages.get("", {}))
+
+    # The lockfile's `packages` map keys each installed package by its install
+    # path (`node_modules/foo`). Its "" entry is the project itself, which copies
+    # package.json's dependency lists but not `overrides`.
+    old_packages = old_lock.get("packages", {})
+    new_packages = new_lock.get("packages", {})
+    for install_path in changed_keys(old_packages, new_packages):
+        if install_path == "":
+            root_fields = changed_keys(old_packages.get("", {}), new_packages.get("", {}))
             if not set(root_fields) <= {"devDependencies"}:
                 return False
             continue
-        versions = [packages[package_path] for packages in (old_packages, new_packages) if package_path in packages]
-        if not all(version.get("dev") is True for version in versions):
+        lock_entries = [
+            packages[install_path]
+            for packages in (old_packages, new_packages)
+            if install_path in packages
+        ]
+        if not all(lock_entry.get("dev") is True for lock_entry in lock_entries):
             return False
     return True
 
-for rec in records:
-    commit_hash, _, rest = rec.partition("\x1f")
+for record in records:
+    commit_hash, _, rest = record.partition("\x1f")
+    # Every record after the first starts with the newline git log writes after
+    # each NUL terminator.
+    commit_hash = commit_hash.strip()
     subject, _, body = rest.partition("\x1f")
     subject = subject.strip()
     if not subject or release_pat.match(subject):
         continue
 
-    match = pat.match(subject)
-    has_contributor_only_scope = bool(match) and match.group(2) in CONTRIBUTOR_ONLY_SCOPES
-    paths = changed_paths(commit_hash.strip())
+    match = subject_pat.match(subject)
+    has_contributor_only_scope = bool(match) and match["scope"] in CONTRIBUTOR_ONLY_SCOPES
+    paths = changed_paths(commit_hash)
+    # An empty commit has no paths, and all() of nothing is True; keep it listed.
     changes_only_contributor_files = bool(paths) and all(
         is_contributor_only_path(path) for path in paths
     )
     if has_contributor_only_scope or changes_only_contributor_files:
         continue
-    if changes_only_dev_dependencies(commit_hash.strip(), paths):
+    if changes_only_dev_dependencies(commit_hash, paths):
         continue
 
-    pr_num = pr_pat.search(subject)
-    pr = pr_info(pr_num.group(1)) if pr_num else None
+    pr_match = pr_pat.search(subject)
+    pr = pr_info(pr_match.group(1)) if pr_match else None
 
     # Categorize from the commit subject.
     if match:
-        typ, scope, _bang, desc = match.group(1, 2, 3, 4)
-        desc = desc[0].upper() + desc[1:]  # capitalize
-        entry = f"- **{scope}:** {desc}" if scope else f"- {desc}"
-        (buckets[typ] if typ in buckets else other).append(entry)
+        commit_type, scope, description = match.group("type", "scope", "description")
+        description = description[0].upper() + description[1:]
+        entry = f"- **{scope}:** {description}" if scope else f"- {description}"
+        buckets.get(commit_type, other).append(entry)
     else:
-        desc = subject[0].upper() + subject[1:] if subject else subject
-        other.append(f"- {desc}")
+        description = subject[0].upper() + subject[1:]
+        other.append(f"- {description}")
 
     # Breaking signals, in preference order for the descriptive line:
-    #   PR body footer > commit body footer > subject (when only `!`/label flags).
-    commit_footer = breaking_pat.search(body or "")
+    #   PR body footer > commit body footer > description (when only `!`/label flags).
+    commit_footer = breaking_pat.search(body)
     pr_footer = breaking_pat.search(pr["body"]) if pr else None
     has_label = bool(pr and BREAKING_LABEL in pr["labels"])
-    if (match and match.group(3)) or commit_footer or pr_footer or has_label:
+    has_breaking_marker = bool(match and match["breaking"])
+    if has_breaking_marker or commit_footer or pr_footer or has_label:
         if pr_footer:
             note = pr_footer.group(1).strip()
         elif commit_footer:
             note = commit_footer.group(1).strip()
         else:
-            note = desc
+            note = description
         breaking.append(f"- {note}")
 
 # Collapse identical breaking lines. A follow-up PR (a docs PR documenting the
@@ -228,20 +249,20 @@ for rec in records:
 breaking = list(dict.fromkeys(breaking))
 
 # Output — BREAKING CHANGES lead so they're impossible to miss.
-out = []
+output_lines = []
 if breaking:
-    out += ["### ⚠ BREAKING CHANGES", ""] + breaking
+    output_lines += ["### ⚠ BREAKING CHANGES", ""] + breaking
 
-for typ in cat_order:
-    if buckets[typ]:
-        if out:
-            out.append("")
-        out += [f"### {cat_map[typ]}", ""] + buckets[typ]
+for commit_type in type_order:
+    if buckets[commit_type]:
+        if output_lines:
+            output_lines.append("")
+        output_lines += [f"### {heading_by_type[commit_type]}", ""] + buckets[commit_type]
 
 if other:
-    if out:
-        out.append("")
-    out += ["### Other Changes", ""] + other
+    if output_lines:
+        output_lines.append("")
+    output_lines += ["### Other Changes", ""] + other
 
-print("\n".join(out) if out else "No notable changes.")
+print("\n".join(output_lines) if output_lines else "No notable changes.")
 PYTHON
