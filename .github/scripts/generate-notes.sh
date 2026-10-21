@@ -8,6 +8,8 @@
 # - dev-dependency bumps and Claude Code hook changes (scopes `deps-dev`, `hooks`)
 # - commits that change only AGENTS.md, CHANGELOG.md, or files under .claude/
 #   or .husky/
+# - commits that change only the root package.json and package-lock.json and
+#   move only dev dependencies
 #
 # Breaking changes are detected from the *merged PR* — a `breaking-change` label
 # or a `BREAKING CHANGE:` footer in the PR body — as well as from the commit
@@ -128,6 +130,45 @@ def changed_paths(commit_hash):
     )
     return [path for path in result.stdout.split("\x00") if path]
 
+ROOT_MANIFESTS = {"package.json", "package-lock.json"}
+
+def read_json_at(revision, path):
+    result = subprocess.run(["git", "show", f"{revision}:{path}"], capture_output=True, text=True)
+    return json.loads(result.stdout) if result.returncode == 0 else None
+
+def changed_entries(old_mapping, new_mapping):
+    keys = old_mapping.keys() | new_mapping.keys()
+    return [key for key in keys if old_mapping.get(key) != new_mapping.get(key)]
+
+# Security updates and overrides can use the `deps` scope even when every package
+# they move is a dev dependency. The lockfile marks a package that only
+# devDependencies reach with `"dev": true`. Anything unreadable counts as a user
+# change.
+def changes_only_dev_dependencies(commit_hash, paths):
+    if not paths or not set(paths) <= ROOT_MANIFESTS:
+        return False
+    parent = f"{commit_hash}^"
+    old_manifest = read_json_at(parent, "package.json")
+    new_manifest = read_json_at(commit_hash, "package.json")
+    old_lock = read_json_at(parent, "package-lock.json")
+    new_lock = read_json_at(commit_hash, "package-lock.json")
+    if None in (old_manifest, new_manifest, old_lock, new_lock):
+        return False
+    if not set(changed_entries(old_manifest, new_manifest)) <= {"devDependencies", "overrides"}:
+        return False
+    old_packages, new_packages = old_lock.get("packages", {}), new_lock.get("packages", {})
+    for package_path in changed_entries(old_packages, new_packages):
+        # "" is the project itself; its entry mirrors package.json's dependency lists.
+        if package_path == "":
+            root_fields = changed_entries(old_packages.get("", {}), new_packages.get("", {}))
+            if not set(root_fields) <= {"devDependencies"}:
+                return False
+            continue
+        versions = [packages[package_path] for packages in (old_packages, new_packages) if package_path in packages]
+        if not all(version.get("dev") is True for version in versions):
+            return False
+    return True
+
 for rec in records:
     commit_hash, _, rest = rec.partition("\x1f")
     subject, _, body = rest.partition("\x1f")
@@ -142,6 +183,8 @@ for rec in records:
         is_contributor_only_path(path) for path in paths
     )
     if has_contributor_only_scope or changes_only_contributor_files:
+        continue
+    if changes_only_dev_dependencies(commit_hash.strip(), paths):
         continue
 
     pr_num = pr_pat.search(subject)

@@ -239,10 +239,14 @@ The CLI releases separately: Actions tab → "Release CLI" (see
 
 What each release's notes list:
 
-- **Server releases:** every commit since the last release, except release
-  bumps, dev-dependency bumps and Claude Code hook changes (commit scopes
-  `deps-dev` and `hooks`), and commits that change only `AGENTS.md`,
-  `CHANGELOG.md`, or files under `.claude/` or `.husky/`.
+- **Server releases:** every commit since the last release, except:
+  - release bumps
+  - dev-dependency bumps: commits with the `deps-dev` scope, and commits that
+    change only the root `package.json` and `package-lock.json` and update only
+    packages the lockfile marks `"dev": true`
+  - Claude Code hook changes (commit scope `hooks`)
+  - commits that change only `AGENTS.md`, `CHANGELOG.md`, or files under
+    `.claude/` or `.husky/`
 - **CLI releases:** every commit that touches `cli/`, dependency bumps
   included.
 
