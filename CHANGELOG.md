@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.55.0] — 2026-10-21
+
+### Features
+
+- Run more than one vault-cortex install on a machine with INSTANCE_NAME (#686)
+
+### CI / Infrastructure
+
+- **release:** Leave contributor-only commits out of server release notes (#691)
+- **release:** Stop CHANGELOG.md gaining a blank line at every release (#690)
+
+### Maintenance
+
+- **deps:** Bump hono from 4.13.7 to 4.13.13 (#692)
+
 ## [0.54.16] — 2026-10-20
 
 ### Features
