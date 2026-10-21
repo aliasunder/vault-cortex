@@ -31,8 +31,7 @@ on:
 # main, and a CLI release racing a server release loses its push. A run
 # dispatched while a server release is in flight queues until it's done.
 # GitHub keeps one queued run per group, so any later run in the group (a
-# release or deploy dispatch, or a hand-pushed v* tag) cancels the queued
-# one.
+# release or deploy dispatch, or a v* tag push) cancels the queued one.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false

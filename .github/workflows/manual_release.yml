@@ -23,8 +23,8 @@ on:
 
 # Shared with the other release workflows, which also push to main, and
 # the deploy workflows. GitHub keeps one queued run per group, so any
-# later run in the group (a release or deploy dispatch, or a hand-pushed
-# v* tag) cancels the queued one.
+# later run in the group (a release or deploy dispatch, or a v* tag push)
+# cancels the queued one.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false
@@ -119,9 +119,15 @@ jobs:
           git add package.json package-lock.json server.json
           git commit -m "release: v$NEXT"
           # The commit above is new, so an existing v$NEXT tag points at
-          # another commit, such as the one a re-run's first attempt tagged.
+          # another commit: on a re-run, the first attempt's tag, which
+          # "Re-run failed jobs" can still finish (deleting it would skip
+          # v$NEXT); on a first attempt, a stale tag from a failed run.
           if git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
-            echo "::error::Tag v$NEXT exists but does not point at this bump commit. If v$NEXT is a published release, this run is a re-run of it: stop here. Otherwise the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and re-dispatch."
+            if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]; then
+              echo "::error::Tag v$NEXT exists from this run's first attempt. If v$NEXT is published, stop here; otherwise finish it with \"Re-run failed jobs\" (\"Re-run all jobs\" repeats this job and stops here again)."
+            else
+              echo "::error::Tag v$NEXT exists but $GITHUB_REF's package.json is still at the previous version, so the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and dispatch again."
+            fi
             exit 1
           fi
           git tag "v$NEXT"
