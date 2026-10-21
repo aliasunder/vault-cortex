@@ -7,8 +7,8 @@
 # - release bump commits
 # - dev-dependency bumps and Claude Code hook changes (scopes `deps-dev`, `hooks`)
 # - commits that change only AGENTS.md, CHANGELOG.md, dotfiles at the repository
-#   root (.gitignore, .trivyignore; not .dockerignore), or files under .claude/,
-#   .devin/ or .husky/
+#   root (.gitignore, .trivyignore; not .dockerignore or .env.example), or files
+#   under .claude/, .devin/ or .husky/
 # - commits that change only `devDependencies` or `overrides` in the root
 #   package.json, and in package-lock.json only packages marked `"dev": true`
 #
@@ -126,11 +126,15 @@ def pr_info(pr_number):
 # change their tests in src/__tests__/, so a path rule alone would miss them.
 CONTRIBUTOR_ONLY_SCOPES = {"deps-dev", "hooks"}
 
+# Root dotfiles users depend on: .dockerignore decides what the image build
+# copies, and DEPLOY.md has deployers copy .env.example.
+USER_FACING_DOTFILES = {".dockerignore", ".env.example"}
+
 # A commit that changes only these paths changes nothing a user installs.
 def is_contributor_only_path(path):
     # The "/" check leaves out dot-folders such as .github/, so CI changes stay
-    # in the notes. .dockerignore decides what the image build copies.
-    is_root_dotfile = path.startswith(".") and "/" not in path and path != ".dockerignore"
+    # in the notes.
+    is_root_dotfile = path.startswith(".") and "/" not in path and path not in USER_FACING_DOTFILES
     return (
         is_root_dotfile
         or path in ("AGENTS.md", "CHANGELOG.md")
@@ -202,16 +206,19 @@ def changes_only_dev_dependencies(commit_hash, paths):
     if not has_package_maps:
         return False
     for install_path in changed_keys(old_packages, new_packages):
-        if install_path == "":
-            root_fields = changed_keys(old_packages.get("", {}), new_packages.get("", {}))
-            if not set(root_fields) <= DEV_ONLY_MANIFEST_FIELDS:
-                return False
-            continue
         lock_entries = [
             packages[install_path]
             for packages in (old_packages, new_packages)
             if install_path in packages
         ]
+        # An entry that isn't an object counts as a user change.
+        if not all(isinstance(lock_entry, dict) for lock_entry in lock_entries):
+            return False
+        if install_path == "":
+            root_fields = changed_keys(old_packages.get("", {}), new_packages.get("", {}))
+            if not set(root_fields) <= DEV_ONLY_MANIFEST_FIELDS:
+                return False
+            continue
         if not all(lock_entry.get("dev") is True for lock_entry in lock_entries):
             return False
     return True

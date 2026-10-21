@@ -250,7 +250,8 @@ What each release's notes list:
   - Claude Code hook changes (commit scope `hooks`)
   - commits that change only `AGENTS.md`, `CHANGELOG.md`, dotfiles at the
     repository root (`.gitignore`, `.trivyignore`; not `.dockerignore`, which
-    decides what the image build copies), or files under `.claude/`,
+    decides what the image build copies, or `.env.example`, which DEPLOY.md
+    has deployers copy), or files under `.claude/`,
     `.devin/` or `.husky/`
 - **CLI releases** (`.github/workflows/cli_release.yml`): every commit that
   touches `cli/`, dependency bumps included (`deps-dev` too).

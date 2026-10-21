@@ -254,14 +254,15 @@ describe("generate-notes.sh", () => {
       expect(repo.generateNotes().stdout).toBe("### CI / Infrastructure\n\n- Run tests on push\n")
     })
 
-    it("keeps a commit that changes only .dockerignore, which decides what the image build copies", () => {
+    it.each([
+      { label: ".dockerignore, which decides what the image build copies", path: ".dockerignore" },
+      { label: ".env.example, which DEPLOY.md has deployers copy", path: ".env.example" },
+    ])("keeps a commit that changes only $label", ({ path }) => {
       const repo = createReleaseRepo()
-      repo.commit("build: copy the rootfs scripts into the image", {
-        ".dockerignore": "node_modules\n",
-      })
+      repo.commit("docs: update the deploy settings", { [path]: "setting\n" })
 
       expect(repo.generateNotes().stdout).toBe(
-        "### Other Changes\n\n- Copy the rootfs scripts into the image\n",
+        "### Documentation\n\n- Update the deploy settings\n",
       )
     })
 
@@ -494,6 +495,23 @@ describe("generate-notes.sh", () => {
         "### Bug Fixes\n\n- **deps:** Bump zod\n\n" +
           "### Maintenance\n\n- Switch to the npm 6 lockfile\n",
       )
+    })
+
+    it("keeps a lockfile change whose package entry is not an object", () => {
+      const repo = createReleaseRepo()
+      repo.commit("chore(deps): bump vitest", {
+        "package-lock.json": toJsonFile({
+          ...BASE_LOCKFILE,
+          packages: { ...BASE_LOCKFILE.packages, "node_modules/vitest": "1.0.1" },
+        }),
+      })
+
+      const notesRun = repo.generateNotes()
+
+      expect({ status: notesRun.status, stdout: notesRun.stdout }).toEqual({
+        status: 0,
+        stdout: "### Maintenance\n\n- **deps:** Bump vitest\n",
+      })
     })
   })
 })
