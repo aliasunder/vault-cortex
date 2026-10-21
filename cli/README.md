@@ -60,9 +60,10 @@ What it does:
 Re-running init where a setup already exists asks first — declining leaves
 everything unchanged and points you at [`configure`](#configure), the right
 tool for changing settings in place. A re-run keeps the setup's instance
-name and port. Existing files are never overwritten without asking. During a
-remote setup, init offers to generate your
-[Obsidian Sync token](#get-sync-token) as part of the flow.
+name and port, and stops if `--instance-name` names a different install.
+Existing files are never overwritten without asking. During a remote setup,
+init offers to generate your [Obsidian Sync token](#get-sync-token) as part
+of the flow.
 
 To run a second vault on the same machine, start Docker, so init can check
 which names are in use, then run init again with its own `--dir`. When the

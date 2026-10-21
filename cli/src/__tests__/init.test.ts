@@ -2080,7 +2080,56 @@ describe("runInit re-run keeps the instance identity", () => {
     ])
   })
 
-  it("prints commands for the kept file's name and port, not this run's flags", async () => {
+  it("refuses a re-run whose --instance-name renames the install, and keeps its file", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    writeExistingLocalEnv(targetDir, vaultDir)
+    const existingEnv = readFileSync(join(targetDir, ".env"), "utf8")
+    const scripted = createScriptedPrompts([true]) // re-run setup anyway
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "other" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `--instance-name: the install in ${targetDir} is named "work", and init keeps that name.\n` +
+        `To rename it, stop it first (npx vault-cortex down --dir ${targetDir}), then change INSTANCE_NAME in its .env:\n` +
+        "it starts on new, empty volumes under the new name.",
+    ])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+  })
+
+  it("accepts a re-run whose --instance-name repeats the install's name", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    writeExistingLocalEnv(targetDir, vaultDir)
+    const scripted = createScriptedPrompts([true, [], true, false])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "work" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithExisting(["vault-cortex", "work"]),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("prints commands for the kept file's port, not this run's --port", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     writeExistingLocalEnv(targetDir, vaultDir)
@@ -2091,10 +2140,10 @@ describe("runInit re-run keeps the instance identity", () => {
       false, // don't start now
     ])
 
-    // The flags make this run's generated .env differ from the kept one, so
-    // the printed commands show which file they were read from.
+    // --port makes this run's generated .env differ from the kept one, so the
+    // printed commands show which file they were read from.
     const exitCode = await runInit(
-      { mode: "local", vaultPath: vaultDir, dir: targetDir, instanceName: "other", port: "8002" },
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "8002" },
       {
         prompts: scripted.prompts,
         docker: dockerWithExisting(["vault-cortex", "work"]),
