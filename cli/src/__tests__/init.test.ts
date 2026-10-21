@@ -10,12 +10,14 @@ import { readEnvInstanceName } from "../scaffold.js"
 
 vi.mock("../docker.js", { spy: true })
 import {
+  createRecordingDocker,
   createScriptedPrompts,
   dockerDaemonOnly,
   dockerDown,
   dockerNotInstalled,
   dockerReadyEmptyHost,
   fetchNever,
+  fetchOk,
 } from "./command-stubs.js"
 
 const makeVault = (): string => {
@@ -1527,6 +1529,8 @@ const IN_USE_QUESTION =
   'An install named "vault-cortex" already exists on this machine (its container or data volumes are here). What should this install do?'
 const NAME_QUESTION = "Name for this install (lowercase letters, digits, - and _):"
 const PORT_QUESTION = "Host port for the server:"
+const REPLACE_START_QUESTION =
+  'Start the server now? This stops and replaces the existing "vault-cortex" container. Its data volumes are kept.'
 
 describe("runInit when the instance name is already in use", () => {
   it("gives a local install its own name and port, with PUBLIC_URL on that port", async () => {
@@ -1658,13 +1662,53 @@ describe("runInit when the instance name is already in use", () => {
     expect(scripted.asked).toEqual([
       IN_USE_QUESTION,
       "Any optional settings to change? (press enter to skip)",
-      "Start the server now?",
+      REPLACE_START_QUESTION,
     ])
     expect(readIdentityLines(targetDir)).toEqual([
       "PUBLIC_URL=http://localhost:8000",
       "INSTANCE_NAME=vault-cortex",
       "PORT=8000",
     ])
+  })
+
+  it("replaces the existing container when the user reuses its data and starts now", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", [], true])
+    const recording = createRecordingDocker()
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked.at(-1)).toBe(REPLACE_START_QUESTION)
+    expect(recording.calls).toEqual([
+      "inspect:vault-cortex",
+      "inspect:vault-cortex",
+      "rm:vault-cortex",
+      "run:vault-cortex",
+    ])
+  })
+
+  it("starts nothing when the existing container can't be removed", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts(["reuse", [], true])
+    const recording = createRecordingDocker()
+    const docker: DockerRunner = { ...recording.docker, stopAndRemoveContainer: () => false }
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([
+      "Could not remove the existing container — check: docker rm -f vault-cortex",
+    ])
+    expect(recording.calls).toEqual(["inspect:vault-cortex", "inspect:vault-cortex"])
   })
 
   it("counts a remote install as in use when only its vault volume is left", async () => {

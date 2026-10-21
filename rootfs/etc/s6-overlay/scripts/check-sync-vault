@@ -178,7 +178,7 @@ if [ "$PICKED_ID" = "$REQUESTED_ID" ]; then
     const listed = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
     const otherIds = listed.vaults.map((vault) => vault.id).filter((id) => id !== process.env.REQUESTED_ID)
     if (otherIds.length > 0) console.log(otherIds.join(" "))
-  ')
+  ' 2>/dev/null)
   if [ -n "$OTHER_IDS" ]; then
     echo "[obsidian-sync] WARNING: This install also holds Sync setups for other vaults: $OTHER_IDS" >&2
     echo "[obsidian-sync] They are not used now. Remove each one's folder under ${SYNC_STATE_ROOT} so it can't be picked later." >&2

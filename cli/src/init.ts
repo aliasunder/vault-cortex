@@ -298,7 +298,8 @@ const readInstanceNameFromDisk = (targetDir: string, prompts: Prompts): string |
 /**
  * Offers to start the container, walking a gate ladder where each failed
  * gate degrades to instructions instead of an error: daemon running → user
- * consents → docker run succeeds → health check passes. Returns "running"
+ * consents → any container with this name is removed → docker run succeeds
+ * → health check passes. Returns "running"
  * when the server is confirmed up, "starting" when the container launched
  * but the health check timed out, or "not-started" when a gate failed.
  */
@@ -321,9 +322,19 @@ const offerDockerRun = async (
     )
     return "not-started"
   }
-  const startNow = await prompts.confirm("Start the server now?", true)
+  // docker run refuses a name an existing container already holds, so a yes
+  // replaces that container the way `start` does, and the question says so.
+  const containerExists = docker.containerExists(instanceName)
+  const startQuestion = containerExists
+    ? `Start the server now? This stops and replaces the existing "${instanceName}" container. Its data volumes are kept.`
+    : "Start the server now?"
+  const startNow = await prompts.confirm(startQuestion, true)
 
   if (!startNow) return "not-started"
+  if (containerExists && !docker.stopAndRemoveContainer(instanceName)) {
+    prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
+    return "not-started"
+  }
   const envFilePath = join(targetDir, ".env")
   stripEnvQuotedValues(envFilePath)
   const containerStarted = docker.dockerRun({
