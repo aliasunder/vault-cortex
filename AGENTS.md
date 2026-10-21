@@ -954,9 +954,9 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes), and the hook's and release-notes
-  script's tests in `src/__tests__/` (`install-deps.test.ts`,
-  `generate-notes.test.ts`). These script
+  `init-derive-env` publishes), and the hook's and release scripts'
+  tests in `src/__tests__/` (`install-deps.test.ts`,
+  `generate-notes.test.ts`, `update-changelog.test.ts`). These script
   tests run the real script under its own shell (`sh` for the init
   scripts, `bash` for the others) with stub binaries on `PATH` or, for
   the release-notes script, a temporary git repository, and name
