@@ -223,6 +223,41 @@ describe("runConfigure with picked settings", () => {
     expect(scripted.outros).toEqual(["Configure complete."])
   })
 
+  it("asks again for a PORT another container publishes, and accepts this install's own", async () => {
+    const targetDir = makeTempTargetDir()
+    const envFilePath = writeLocalEnv(targetDir)
+    const docker: DockerRunner = {
+      ...createRecordingDocker().docker,
+      publishedHostPorts: () => {
+        return new Map([
+          [8000, "vault-cortex"],
+          [9100, "other-app"],
+        ])
+      },
+    }
+    const scripted = createScriptedPrompts([
+      ["PORT"],
+      "9100", // taken by "other-app"
+      "8000", // this install's own port
+      false, // decline the restart
+    ])
+
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([
+      'Port 9100 is already used by the "other-app" container on this machine. Pick another port.',
+    ])
+    expect(scripted.textCalls).toEqual([
+      { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
+      { message: "Host port for the server:", defaultValue: "8001", placeholder: "8001" },
+    ])
+    expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
+  })
+
   it("appends SYNC_MODE on a remote .env that predates the setting", async () => {
     const targetDir = makeTempTargetDir()
     const envFilePath = join(targetDir, ".env")

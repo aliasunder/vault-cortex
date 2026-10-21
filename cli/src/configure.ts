@@ -6,7 +6,9 @@ import {
   askOptionalSettings,
   derivePublicUrlOverride,
   describeStrandedPublicUrl,
+  portsOfOtherContainers,
 } from "./optional-settings.js"
+import { readEnvInstanceName } from "./scaffold.js"
 import type { DockerRunner } from "./docker.js"
 import type { Prompts } from "./prompts.js"
 
@@ -42,7 +44,14 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   const { targetDir, envFilePath, mode } = initialized
 
   const envContent = readFileSync(envFilePath, "utf8")
-  const pickedOverrides = await askOptionalSettings({ mode, envContent }, prompts)
+  const daemonStatus = docker.daemonStatus()
+  const instanceNameRead = readEnvInstanceName(envFilePath)
+  // An invalid name stops the restart later, so its ports go unchecked here.
+  const portsInUse =
+    daemonStatus === "running" && instanceNameRead.kind === "ok"
+      ? portsOfOtherContainers(docker.publishedHostPorts(), instanceNameRead.instanceName)
+      : new Map<number, string>()
+  const pickedOverrides = await askOptionalSettings({ mode, envContent, portsInUse }, prompts)
 
   if (Object.keys(pickedOverrides).length === 0) {
     // Covers both empty-overrides paths: nothing picked in the chooser, and
@@ -67,7 +76,6 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   if (publicUrlWarning) prompts.warn(publicUrlWarning)
 
   const restartHint = `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`
-  const daemonStatus = docker.daemonStatus()
 
   if (daemonStatus !== "running") {
     // Settings are already saved — the runtime state only affects the restart

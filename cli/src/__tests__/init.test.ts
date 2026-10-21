@@ -2016,6 +2016,112 @@ describe("runInit when the instance name is already in use", () => {
     expect(scripted.errors).toEqual([])
   })
 
+  it("asks again when a re-run's --port is one another container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\n`,
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup
+      "8001", // the suggestion: the install's own port
+      [], // no optional settings
+      true, // overwrite .env
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir, port: "9000" },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["work"],
+          publishedPorts: [
+            [8001, "work"],
+            [9000, "other-app"],
+          ],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.warnings).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine.',
+    ])
+    expect(scripted.textCalls).toEqual([
+      { message: PORT_QUESTION, defaultValue: "8001", placeholder: "8001" },
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
+  })
+
+  it("stops --yes on a re-run whose --port another container publishes, before writing", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    const existingEnv = `MCP_AUTH_TOKEN=old\nVAULT_PATH=${vaultDir}\nINSTANCE_NAME=work\nPORT=8001\n`
+    writeFileSync(join(targetDir, ".env"), existingEnv)
+    const scripted = createScriptedPrompts([])
+
+    const exitCode = await runInit(
+      { vaultPath: vaultDir, dir: targetDir, port: "9000", yes: true },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({
+          existingNames: ["work"],
+          publishedPorts: [[9000, "other-app"]],
+        }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine. Re-run with --port and a free port.',
+    ])
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(existingEnv)
+  })
+
+  it("asks again when the port picked in the optional settings is one another container publishes", async () => {
+    const vaultDir = makeVault()
+    const targetDir = makeTargetDir()
+    const scripted = createScriptedPrompts([
+      ["PORT"],
+      "9000", // taken by "other-app"
+      "8001",
+      false, // don't start now
+    ])
+
+    const exitCode = await runInit(
+      { mode: "local", vaultPath: vaultDir, dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerWithPorts({ existingNames: [], publishedPorts: [[9000, "other-app"]] }),
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.textCalls).toEqual([
+      { message: PORT_QUESTION, defaultValue: "8000", placeholder: "8000" },
+      { message: PORT_QUESTION, defaultValue: "8001", placeholder: "8001" },
+    ])
+    expect(scripted.errors).toEqual([
+      'Port 9000 is already used by the "other-app" container on this machine. Pick another port.',
+    ])
+    expect(readIdentityLines(targetDir)).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=vault-cortex",
+      "PORT=8001",
+    ])
+  })
+
   it("lets a reuse keep the port the reused install's own container publishes", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()

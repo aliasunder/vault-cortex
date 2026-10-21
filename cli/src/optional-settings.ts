@@ -289,10 +289,7 @@ const isValidTimezone = (value: string): boolean => {
 }
 
 /** Re-prompts until the answer is a valid port number. */
-export const askPort = async (
-  currentValue: string | undefined,
-  prompts: Prompts,
-): Promise<string> => {
+const askPort = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
   // An empty PORT= line leaves the default port in effect, as readEnvPort reads
   // it; a value that isn't a port is never offered, since it would be rejected.
   const suggestedPort =
@@ -307,6 +304,43 @@ export const askPort = async (
   if (isValidPort(answer)) return answer
   prompts.error("PORT must be a whole number between 1 and 65535.")
   return askPort(currentValue, prompts)
+}
+
+/** Host ports that containers on this machine publish, mapped to each container's name. */
+export type PortsInUse = ReadonlyMap<number, string>
+
+export const portInUseMessage = (port: string, containerName: string): string => {
+  return `Port ${port} is already used by the "${containerName}" container on this machine.`
+}
+
+/** The first port above the default that no container publishes. */
+export const suggestFreePort = (portsInUse: PortsInUse): string => {
+  const findFreePort = (candidatePort: number): number => {
+    return portsInUse.has(candidatePort) ? findFreePort(candidatePort + 1) : candidatePort
+  }
+  return String(findFreePort(DEFAULT_PORT + 1))
+}
+
+/** Re-prompts until the answer is a valid port no other container on the machine publishes. */
+export const askFreePort = async (
+  params: { suggestedPort: string | undefined; portsInUse: PortsInUse },
+  prompts: Prompts,
+): Promise<string> => {
+  const answer = await askPort(params.suggestedPort, prompts)
+  const portUser = params.portsInUse.get(Number(answer))
+
+  if (!portUser) return answer
+  prompts.error(`${portInUseMessage(answer, portUser)} Pick another port.`)
+  // A free suggestion, so pressing enter can't offer the taken port again.
+  return askFreePort({ ...params, suggestedPort: suggestFreePort(params.portsInUse) }, prompts)
+}
+
+/** Start and restart replace the install's own container, so only other containers' ports are taken. */
+export const portsOfOtherContainers = (
+  portsInUse: PortsInUse,
+  containerName: string,
+): PortsInUse => {
+  return new Map([...portsInUse].filter(([, portUser]) => portUser !== containerName))
 }
 
 /** Re-prompts until the answer is a zone the runtime recognizes. */
@@ -396,10 +430,10 @@ const askOptionalText = async (
  * or undefined when an optionalText prompt was left blank (nothing to write).
  */
 const askSettingValue = async (
-  params: { setting: OptionalSetting; currentValue: string | undefined },
+  params: { setting: OptionalSetting; currentValue: string | undefined; portsInUse: PortsInUse },
   prompts: Prompts,
 ): Promise<string | undefined> => {
-  const { setting, currentValue } = params
+  const { setting, currentValue, portsInUse } = params
   switch (setting.kind) {
     case "toggle": {
       // An unset or empty var means the server default applies — seed the
@@ -414,7 +448,7 @@ const askSettingValue = async (
       return String(enabled)
     }
     case "port":
-      return askPort(currentValue, prompts)
+      return askFreePort({ suggestedPort: currentValue, portsInUse }, prompts)
     case "timezone":
       return askTimezone(currentValue, prompts)
     case "folder":
@@ -455,13 +489,15 @@ const askSettingValue = async (
  * The guided optional-settings flow shared by init and configure: one
  * multiselect chooser (enter with nothing picked = change nothing), then one
  * prompt per picked setting. Returns the chosen values keyed by var name —
- * the caller owns applying them via applyOptionalSettings.
+ * the caller owns applying them via applyOptionalSettings. The port prompt
+ * refuses a port in portsInUse: the ports other containers publish, empty
+ * when Docker can't be asked.
  */
 export const askOptionalSettings = async (
-  params: { mode: Mode; envContent: string },
+  params: { mode: Mode; envContent: string; portsInUse?: PortsInUse },
   prompts: Prompts,
 ): Promise<Record<string, string>> => {
-  const { mode, envContent } = params
+  const { mode, envContent, portsInUse = new Map<number, string>() } = params
   const offeredSettings = OPTIONAL_SETTINGS.filter(
     (setting) => !setting.remoteOnly || mode === "remote",
   )
@@ -493,7 +529,7 @@ export const askOptionalSettings = async (
   for (const setting of offeredSettings) {
     if (!pickedNames.includes(setting.name)) continue
     const value = await askSettingValue(
-      { setting, currentValue: readOptionalValue(envContent, setting.name) },
+      { setting, currentValue: readOptionalValue(envContent, setting.name), portsInUse },
       prompts,
     )
 

@@ -440,7 +440,14 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   const generatedEnvContent = applyInstanceIdentity(templateEnvContent, identityResult.identity)
   const optionalOverrides = flags.yes
     ? {}
-    : await askOptionalSettings({ mode: "local", envContent: generatedEnvContent }, prompts)
+    : await askOptionalSettings(
+        {
+          mode: "local",
+          envContent: generatedEnvContent,
+          portsInUse: identityResult.portsInUse,
+        },
+        prompts,
+      )
   const appliedOverrides = derivePublicUrlOverride(generatedEnvContent, optionalOverrides)
   const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
   const publicUrlWarning =
@@ -575,7 +582,7 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
     identityResult.identity,
   )
   const optionalOverrides = await askOptionalSettings(
-    { mode: "remote", envContent: generatedEnvContent },
+    { mode: "remote", envContent: generatedEnvContent, portsInUse: identityResult.portsInUse },
     prompts,
   )
   const appliedOverrides = derivePublicUrlOverride(generatedEnvContent, optionalOverrides)
