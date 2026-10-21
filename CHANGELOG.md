@@ -1,126 +1,5 @@
 # Changelog
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ## [0.54.16] — 2026-10-20
 
 ### Features
@@ -2794,13 +2673,11 @@
 
 - Update CHANGELOG.md for v0.12.1
 
-
 ## [0.12.1] — 2026-05-18
 
 ### Bug Fixes
 
 - Prevent port 8000 wipe by avoiding ForceNew on InstancePublicPorts (#42)
-
 
 ## [0.12.0] — 2026-05-18
 
@@ -2811,7 +2688,6 @@
 ### Maintenance
 
 - Remove unneeded type
-
 
 ## [0.11.3] — 2026-05-17
 
@@ -2827,7 +2703,6 @@
 
 - Add gitleaks secret scanning (#38)
 
-
 ## [0.11.2] — 2026-05-16
 
 ### Documentation
@@ -2839,13 +2714,11 @@
 
 - Align Node references on Node 24 and fix doc inaccuracies (#37)
 
-
 ## [0.11.1] — 2026-05-16
 
 ### Bug Fixes
 
 - Env-var import — default import, not namespace (#35)
-
 
 ## [0.11.0] — 2026-05-16
 
@@ -2858,7 +2731,6 @@
 - README rewrite and deployment docs for open-source (#33)
 - Update CHANGELOG.md for v0.10.0
 
-
 ## [0.10.0] — 2026-05-16
 
 ### Features
@@ -2869,7 +2741,6 @@
 ### Documentation
 
 - Update CHANGELOG.md for v0.9.0
-
 
 ## [0.9.0] — 2026-05-16
 
@@ -2886,14 +2757,12 @@
 
 - **deps:** Update all dependencies, Node 24, TypeScript 6 (#27)
 
-
 ## [0.8.1] — 2026-05-15
 
 ### Documentation
 
 - Improve tool descriptions for structural edit safety (#23)
 - Update CHANGELOG.md for v0.8.0
-
 
 ## [0.8.0] — 2026-05-15
 
@@ -2906,11 +2775,9 @@
 - Document sort order in search-by-tag/folder/property tool descriptions
 - Update CHANGELOG.md for v0.7.0
 
-
 ## [0.7.0] — 2026-05-14
 
 No notable changes.
-
 
 ## [0.6.4] — 2026-05-14
 
@@ -2921,7 +2788,6 @@ No notable changes.
 ### Documentation
 
 - Update CHANGELOG.md for v0.6.3
-
 
 ## [0.6.3] — 2026-05-14
 
@@ -2934,7 +2800,6 @@ No notable changes.
 
 - Update CHANGELOG.md for v0.6.2
 
-
 ## [0.6.2] — 2026-05-14
 
 ### Bug Fixes
@@ -2944,7 +2809,6 @@ No notable changes.
 ### Documentation
 
 - Update CHANGELOG.md for v0.6.1
-
 
 ## [0.6.1] — 2026-05-14
 
@@ -2960,7 +2824,6 @@ No notable changes.
 
 - Update .gitignore
 
-
 ## [0.6.0] — 2026-05-13
 
 ### Features
@@ -2970,7 +2833,6 @@ No notable changes.
 ### Documentation
 
 - Update CHANGELOG.md for v0.5.0
-
 
 ## [0.5.0] — 2026-05-13
 
@@ -2994,7 +2856,6 @@ No notable changes.
 
 - **vault-mcp:** Cover server.ts helpers and mcp-router.ts (#14)
 
-
 ## [0.4.0] — 2026-05-13
 
 ### Features
@@ -3009,7 +2870,6 @@ No notable changes.
 
 - Update CHANGELOG.md for v0.3.0
 
-
 ## [0.3.0] — 2026-05-12
 
 ### Features
@@ -3019,7 +2879,6 @@ No notable changes.
 ### Documentation
 
 - Update CHANGELOG.md for v0.2.0
-
 
 ## [0.2.0] — 2026-05-11
 
@@ -3037,7 +2896,6 @@ No notable changes.
 ### Bug Fixes
 
 - **ci:** Inline deploy + release in manual_release so the chain fires (#6)
-
 
 ## [0.1.1] — 2026-05-11
 
