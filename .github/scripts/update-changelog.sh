@@ -25,10 +25,10 @@ UNRELEASED_SECTION = re.compile(
 ENTRY_HEADING = re.compile(r'^## \[', re.MULTILINE)
 
 version, date, notes_file = sys.argv[1:]
-notes = Path(notes_file).read_text()
+notes = Path(notes_file).read_text(encoding="utf-8")
 
 changelog = Path("CHANGELOG.md")
-text = changelog.read_text() if changelog.exists() else ""
+text = changelog.read_text(encoding="utf-8") if changelog.exists() else ""
 # Remove an [Unreleased] section, and insert the entry at that spot separately:
 # re.sub reads backslashes in a replacement string as escapes.
 text = UNRELEASED_SECTION.sub('', text, count=1)
@@ -44,5 +44,5 @@ earlier_entries = text[header_end:].rstrip()
 # Every part is rstripped, so the join leaves exactly one blank line between
 # parts and a single newline at the end of the file.
 parts = [header, entry, earlier_entries]
-changelog.write_text("\n\n".join(part for part in parts if part) + "\n")
+changelog.write_text("\n\n".join(part for part in parts if part) + "\n", encoding="utf-8")
 PYTHON
