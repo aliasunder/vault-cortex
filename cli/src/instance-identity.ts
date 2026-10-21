@@ -158,7 +158,7 @@ const nameInUseWithYesFlagMessage = (instanceName: string): string => {
   return (
     `An install named "${instanceName}" already exists on this machine (its container or data volumes are here).\n` +
     `Re-run with --instance-name <name> (and --port <port> if ${instanceName}'s port is taken) to give this install its own name,\n` +
-    `or with --instance-name ${instanceName} to reuse that install's data for the same vault.`
+    `or with --instance-name ${instanceName} (and --port <port> unless that install uses ${DEFAULT_PORT}) to reuse its data for the same vault.`
   )
 }
 

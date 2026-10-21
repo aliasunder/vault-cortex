@@ -1880,7 +1880,7 @@ describe("runInit --yes when the instance name is already in use", () => {
     expect(scripted.errors).toEqual([
       'An install named "vault-cortex" already exists on this machine (its container or data volumes are here).\n' +
         "Re-run with --instance-name <name> (and --port <port> if vault-cortex's port is taken) to give this install its own name,\n" +
-        "or with --instance-name vault-cortex to reuse that install's data for the same vault.",
+        "or with --instance-name vault-cortex (and --port <port> unless that install uses 8000) to reuse its data for the same vault.",
     ])
   })
 

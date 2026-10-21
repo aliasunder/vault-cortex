@@ -41,20 +41,16 @@ const ENV_INSTANCE_NAME_LINES = /^INSTANCE_NAME=(.*)$/gm
 const INSTANCE_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]+$/
 
 /**
- * Matches every active (uncommented) VAULT_PATH line. Global, like the
- * PUBLIC_URL and token patterns below, because `docker run --env-file` lets
- * the last duplicate win.
+ * Match every active (uncommented) line of their variable, empty values
+ * included: `docker run --env-file` lets the last duplicate win, even an
+ * empty one, and the readers below treat an empty value as unset.
  */
-const ENV_VAULT_PATH_LINES = /^VAULT_PATH=(.+)\s*$/gm
+const ENV_VAULT_PATH_LINES = /^VAULT_PATH=(.*)$/gm
+const ENV_PUBLIC_URL_VALUE_LINES = /^PUBLIC_URL=(.*)$/gm
+const ENV_OBSIDIAN_TOKEN_LINES = /^OBSIDIAN_AUTH_TOKEN=(.*)$/gm
 
 /** Matches an active (uncommented) PUBLIC_URL line. */
 const ENV_PUBLIC_URL_LINE = /^PUBLIC_URL=/m
-
-/** Matches every active (uncommented) PUBLIC_URL line, capturing a non-empty value. */
-const ENV_PUBLIC_URL_VALUE_LINES = /^PUBLIC_URL=(.+)\s*$/gm
-
-/** Matches every active (uncommented) OBSIDIAN_AUTH_TOKEN line with a value. */
-const ENV_OBSIDIAN_TOKEN_LINES = /^OBSIDIAN_AUTH_TOKEN=(.+)$/gm
 
 /** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
 const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m

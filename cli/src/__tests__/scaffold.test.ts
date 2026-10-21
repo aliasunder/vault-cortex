@@ -551,7 +551,7 @@ describe("readEnvObsidianToken", () => {
     expect(readEnvObsidianToken(envPath)).toBeUndefined()
   })
 
-  it("takes the last line with a value, as docker --env-file does", () => {
+  it("takes the last active line, as docker --env-file does", () => {
     const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
     writeFileSync(
       envPath,
@@ -654,4 +654,32 @@ describe("stripEnvQuotedValues", () => {
 
     expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My 'Cool' Vault\n")
   })
+})
+
+describe("value readers with an empty last line", () => {
+  it.each([
+    {
+      label: "VAULT_PATH",
+      envContent: "VAULT_PATH=/Users/me/OldVault\nVAULT_PATH=\n",
+      readValue: readEnvVaultPath,
+    },
+    {
+      label: "PUBLIC_URL",
+      envContent: "PUBLIC_URL=https://old.example.com\nPUBLIC_URL=\n",
+      readValue: readEnvPublicUrl,
+    },
+    {
+      label: "OBSIDIAN_AUTH_TOKEN",
+      envContent: "OBSIDIAN_AUTH_TOKEN=old-token\nOBSIDIAN_AUTH_TOKEN=\n",
+      readValue: readEnvObsidianToken,
+    },
+  ])(
+    "read an empty last $label line as unset, as docker --env-file does",
+    ({ envContent, readValue }) => {
+      const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+      writeFileSync(envPath, envContent)
+
+      expect(readValue(envPath)).toBeUndefined()
+    },
+  )
 })
