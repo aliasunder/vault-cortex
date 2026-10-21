@@ -118,8 +118,7 @@ MEMORY_DIR=About Me
 # setting adds no daily folder, so those daily notes remain eligible.
 # When set, replaces the whole default — include every folder to keep excluded.
 # Set ORPHAN_EXCLUDE_FOLDERS=, to exclude nothing; an empty value uses the defaults.
-# To apply environment changes, run the CLI's restart command
-# or recreate the Compose container.
+# Environment changes apply when the container is re-created.
 # Obsidian settings apply on the next query; daily-notes.json is read
 # directly from your bind-mounted vault.
 # ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
@@ -128,16 +127,15 @@ MEMORY_DIR=About Me
 # (default: https://github.com/aliasunder/vault-cortex).
 # SERVICE_DOCUMENTATION_URL=https://github.com/youruser/your-fork
 
-# Name of this install's container, Compose project and search-index volume
+# Name of this install's container and search-index volume
 # (<name>_mcp_data). To run more than one vault on this machine, give each
 # install its own INSTANCE_NAME and PORT, with PUBLIC_URL on that port.
 # Valid values: two or more lowercase letters, digits, hyphens or underscores,
 # starting with a letter or digit.
 # Default: vault-cortex
-# Set it before the first start. To change it later, stop the container first
-# (docker compose down, or npx vault-cortex@latest down), then change it to a
-# name no other install uses: the install starts on a new, empty index volume,
-# and the old one stays until you remove it
+# Set it before the first start. To change it later, stop the container first,
+# then change it to a name no other install uses: the install starts on a new,
+# empty index volume, and the old one stays until you remove it
 # (docker volume rm <old name>_mcp_data).
 INSTANCE_NAME=vault-cortex
 
@@ -173,7 +171,7 @@ LOG_LEVEL=info
 # Directory for persistent log files inside the container (default: none).
 # The container's own log (what \`docker logs\` shows) is always written, but
 # Docker discards it whenever the container is recreated — on image updates
-# or compose changes. Set a path (e.g. /data/logs) to also write date-stamped
+# or settings changes. Set a path (e.g. /data/logs) to also write date-stamped
 # log files there; the /data volume keeps them.
 LOG_DIR=none
 
@@ -285,8 +283,7 @@ MEMORY_DIR=About Me
 # setting adds no daily folder, so those daily notes remain eligible.
 # When set, replaces the whole default — include every folder to keep excluded.
 # Set ORPHAN_EXCLUDE_FOLDERS=, to exclude nothing; an empty value uses the defaults.
-# To apply environment changes, run the CLI's restart command
-# or recreate the Compose container.
+# Environment changes apply when the container is re-created.
 # Obsidian settings apply on the next query once daily-notes.json reaches the server.
 # ORPHAN_EXCLUDE_FOLDERS=Daily Notes,Templates,About Me
 
@@ -294,18 +291,17 @@ MEMORY_DIR=About Me
 # (default: https://github.com/aliasunder/vault-cortex).
 # SERVICE_DOCUMENTATION_URL=https://github.com/youruser/your-fork
 
-# Name of this install's container, Compose project and data volumes
+# Name of this install's container and data volumes
 # (<name>_vault_data, <name>_mcp_data and <name>_obsidian_config). To run more
 # than one vault on this server, give each install its own INSTANCE_NAME, PORT
 # and PUBLIC_URL.
 # Valid values: two or more lowercase letters, digits, hyphens or underscores,
 # starting with a letter or digit.
 # Default: vault-cortex
-# Set it before the first start. To change it later, stop the container first
-# (docker compose down, or npx vault-cortex@latest down), then change it to a
-# name no other install uses: the install starts on new, empty volumes and
-# downloads the vault again as a new Obsidian Sync device, while the old
-# volumes stay until you remove them.
+# Set it before the first start. To change it later, stop the container first,
+# then change it to a name no other install uses: the install starts on new,
+# empty volumes and downloads the vault again as a new Obsidian Sync device,
+# while the old volumes stay until you remove them.
 INSTANCE_NAME=vault-cortex
 
 # Host port to expose (default: 8000).
@@ -340,7 +336,7 @@ LOG_LEVEL=info
 # Directory for persistent log files inside the container (default: /data/logs).
 # The container's own log (what \`docker logs\` shows) is always written, but
 # Docker discards it whenever the container is recreated — on image updates
-# or compose changes. Log files under LOG_DIR live on the data volume and
+# or settings changes. Log files under LOG_DIR live on the data volume and
 # survive. Set to "none" to keep only the container log.
 LOG_DIR=/data/logs
 
