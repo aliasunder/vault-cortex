@@ -773,10 +773,10 @@ describe("runInit remote flow", () => {
     expect(envContent.split("\n")).toContain("OBSIDIAN_AUTH_TOKEN=captured-token")
   })
 
-  it("skips the start offer when the sync token was left blank", async () => {
+  it("warns and skips the start offer when the Docker daemon is down", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
-      "http://203.0.113.10:8000",
+      "https://vault.example.com",
       "MyVault",
       false, // don't generate the token now (declined auto-capture)
       false, // no encryption
@@ -794,7 +794,12 @@ describe("runInit remote flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain("Start the server now?")
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
+    expect(scripted.warnings).toEqual([
+      nameCheckSkippedWarning("vault-cortex"),
+      buildDaemonNotRunningMessage(
+        `, then run:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
+      ),
+    ])
   })
 
   it("preserves existing token and offers start when capture is declined on re-init", async () => {
