@@ -945,18 +945,21 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `vi.mock(path, { spy: true })` to keep the real implementation.
   **Exception — shell scripts outside vitest's include paths.** The
   remote image's s6 init scripts under `rootfs/etc/s6-overlay/scripts/`
-  are the `vault-mcp` server's boot chain for the `:remote` target, and
-  the Claude Code hook sits in `.claude/hooks/`. Neither is a TypeScript
-  module, and vitest's include paths (`src/`, `cli/src/`, `scripts/`)
-  reach neither folder. The init-script tests live in
+  are the `vault-mcp` server's boot chain for the `:remote` target, the
+  Claude Code hook sits in `.claude/hooks/`, and the release scripts sit
+  in `.github/scripts/`. None is a TypeScript module, and vitest's
+  include paths (`src/`, `cli/src/`, `scripts/`) reach none of those
+  folders. The init-script tests live in
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes), and the hook's test in `src/__tests__/`
-  (`install-deps.test.ts`). These script
+  `init-derive-env` publishes), and the hook's and release scripts'
+  tests in `src/__tests__/` (`install-deps.test.ts`,
+  `generate-notes.test.ts`, `update-changelog.test.ts`). These script
   tests run the real script under its own shell (`sh` for the init
-  scripts, `bash` for the hook) with stub binaries on `PATH`, and name
+  scripts, `bash` for the others) with stub binaries on `PATH` or, for
+  the release-notes script, a temporary git repository, and name
   the script they cover —
   don't move them next to the scripts or widen vitest's include for
   them. Whole-image behaviour (the init chain's ordering,
