@@ -65,6 +65,9 @@ type ReleaseRepo = {
   /** Commits the changes with the message; no changes makes an empty commit.
    *  Returns the commit's hash. */
   commit: (message: string, changes: FileChanges) => string
+  /** Deletes the commit's root tree object, so git still lists the commit but
+   *  cannot diff it. */
+  deleteRootTree: (commitHash: string) => void
   /** Tags HEAD as the release under test and runs the script for it. */
   generateNotes: () => NotesRun
 }
@@ -108,6 +111,12 @@ const createReleaseRepo = (): ReleaseRepo => {
     return git("rev-parse", "HEAD").trimEnd()
   }
 
+  const deleteRootTree = (commitHash: string): void => {
+    const treeHash = git("rev-parse", `${commitHash}^{tree}`).trimEnd()
+    // A fresh repository stores each object loose, at objects/<2 hex>/<rest>.
+    rmSync(join(repoDir, ".git", "objects", treeHash.slice(0, 2), treeHash.slice(2)))
+  }
+
   mkdirSync(repoDir)
   git("init", "--quiet")
   commit("feat: first release", {
@@ -127,7 +136,7 @@ const createReleaseRepo = (): ReleaseRepo => {
     return { status: result.status, stdout: result.stdout, stderr: result.stderr }
   }
 
-  return { commit, generateNotes }
+  return { commit, deleteRootTree, generateNotes }
 }
 
 /** A commit the notes always list, so a run that leaves out every commit
@@ -209,6 +218,17 @@ describe("generate-notes.sh", () => {
 
       expect(repo.generateNotes().stdout).toBe(LISTED_FEATURE_ONLY)
     })
+
+    it("leaves out a deps-dev commit git cannot diff, without a warning", () => {
+      const repo = createReleaseRepo()
+      commitListedFeature(repo)
+      const commitHash = repo.commit("chore(deps-dev): bump a dev tool", {
+        "src/tooling.ts": "tool\n",
+      })
+      repo.deleteRootTree(commitHash)
+
+      expect(repo.generateNotes()).toEqual({ status: 0, stdout: LISTED_FEATURE_ONLY, stderr: "" })
+    })
   })
 
   describe("contributor-only paths", () => {
@@ -249,6 +269,26 @@ describe("generate-notes.sh", () => {
       repo.commit("chore: trigger a release", {})
 
       expect(repo.generateNotes().stdout).toBe("### Maintenance\n\n- Trigger a release\n")
+    })
+
+    it("keeps a commit git cannot diff, and warns", () => {
+      const repo = createReleaseRepo()
+      // Changes only AGENTS.md, so a successful diff would leave it out.
+      const commitHash = repo.commit("docs: update the conventions", {
+        "AGENTS.md": "conventions\n",
+      })
+      repo.deleteRootTree(commitHash)
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "### Documentation\n\n- Update the conventions\n",
+        stderr: expect.stringMatching(
+          new RegExp(
+            `^generate-notes: git diff-tree ${commitHash} failed \\(exit 128\\): ` +
+              "fatal: .+ — listing the commit\\n$",
+          ),
+        ),
+      })
     })
   })
 

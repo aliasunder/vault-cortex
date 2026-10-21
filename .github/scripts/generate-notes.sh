@@ -225,12 +225,16 @@ for record in records:
 
     match = subject_pat.match(subject)
     has_contributor_only_scope = bool(match) and match["scope"] in CONTRIBUTOR_ONLY_SCOPES
+    # The scope check comes first: a failed path lookup warns that the commit
+    # is listed.
+    if has_contributor_only_scope:
+        continue
     paths = changed_paths(commit_hash)
     # An empty commit has no paths, and all() of nothing is True; keep it listed.
     changes_only_contributor_files = bool(paths) and all(
         is_contributor_only_path(path) for path in paths
     )
-    if has_contributor_only_scope or changes_only_contributor_files:
+    if changes_only_contributor_files:
         continue
     if changes_only_dev_dependencies(commit_hash, paths):
         continue
