@@ -1036,6 +1036,23 @@ describe("filesystem errors name the path vault-relative", () => {
       isError: true,
     })
   })
+
+  it.skipIf(runsAsRoot)(
+    "vault_get_memory on a memory folder it cannot open names the folder",
+    async () => {
+      const memoryFolder = join(serverVaultPath, "About Me")
+      await chmod(memoryFolder, 0o000)
+      onTestFinished(async () => {
+        await chmod(memoryFolder, 0o755)
+      })
+
+      const result = await callTool({ client, name: "vault_get_memory", args: {} })
+      expect(result).toEqual({
+        content: [{ type: "text", text: '[Error]: cannot list memory folder "About Me"' }],
+        isError: true,
+      })
+    },
+  )
 })
 
 // ── Unreadable properties blocks ─────────────────────────────
