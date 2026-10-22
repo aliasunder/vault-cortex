@@ -1188,8 +1188,22 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
   const noteEditParts = noteEditRoutes.map((route) => route.part).join(" or ")
   const noteEditToolNames = formatEnabledToolList(noteEditRoutes.map((route) => route.tool))
   const noteEditSentence = noteEditToolNames
-    ? ` To only change a note's ${noteEditParts}, use ${noteEditToolNames}.`
+    ? `To only change a note's ${noteEditParts}, use ${noteEditToolNames}.`
     : ""
+  // The two-tool alternative is worth warning against only while both tools
+  // are served
+  const writeAndDeleteServed =
+    isToolEnabled(TOOL_NAMES.VAULT_WRITE_NOTE) && isToolEnabled(TOOL_NAMES.VAULT_DELETE_NOTE)
+  const moveAlternativeSentence = writeAndDeleteServed
+    ? "Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink."
+    : ""
+  const moveRoutingLine = [
+    moveAlternativeSentence,
+    noteEditSentence,
+    `Protected paths cannot be moved: ${describeProtectedPaths(config)}.`,
+  ]
+    .filter(Boolean)
+    .join(" ")
 
   registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
@@ -1203,7 +1217,7 @@ Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.m
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink.${noteEditSentence} Protected paths cannot be moved: ${describeProtectedPaths(config)}.
+${moveRoutingLine}
 
 Parameters:
 - prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call.

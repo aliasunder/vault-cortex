@@ -3036,21 +3036,26 @@ describe("DISABLED_TOOLS", () => {
     expect(whenToUse).toBe(expectedSection)
   })
 
-  const PROPERTY_VALUES_WHEN_TO_USE =
-    "When to use: Enumerating possible values for a property key before calling vault_search_by_property. Call vault_list_property_keys first to discover valid key names."
+  const PROPERTY_VALUES_KEYS_SENTENCE =
+    " Call vault_list_property_keys first to discover valid key names."
   const PROPERTY_VALUES_SEARCH_SENTENCE =
     ' vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
 
   it.each([
     {
-      label: "explains vault_search_by_property's matching while it is served",
+      label: "names both tools while they are served",
       disabledTools: "",
-      expectedSection: `${PROPERTY_VALUES_WHEN_TO_USE}${PROPERTY_VALUES_SEARCH_SENTENCE}`,
+      expectedSection: `When to use: Enumerating possible values for a property key before calling vault_search_by_property.${PROPERTY_VALUES_KEYS_SENTENCE}${PROPERTY_VALUES_SEARCH_SENTENCE}`,
     },
     {
-      label: "drops the vault_search_by_property sentence when that tool is disabled",
+      label: "drops both vault_search_by_property references when that tool is disabled",
       disabledTools: "vault_search_by_property",
-      expectedSection: PROPERTY_VALUES_WHEN_TO_USE,
+      expectedSection: `When to use: Enumerating possible values for a property key.${PROPERTY_VALUES_KEYS_SENTENCE}`,
+    },
+    {
+      label: "drops the vault_list_property_keys sentence when that tool is disabled",
+      disabledTools: "vault_list_property_keys",
+      expectedSection: `When to use: Enumerating possible values for a property key before calling vault_search_by_property.${PROPERTY_VALUES_SEARCH_SENTENCE}`,
     },
   ])("vault_list_property_values's when-to-use $label", ({ disabledTools, expectedSection }) => {
     const whenToUse = extractDescriptionSection({
@@ -3415,6 +3420,20 @@ describe("DISABLED_TOOLS", () => {
     })
     expect(editRouting).toBe(`which would orphan every backlink.${expectedSentence}`)
   })
+
+  it.each(["vault_write_note", "vault_delete_note"])(
+    "vault_move_note drops its write-and-delete warning when %s is disabled",
+    (disabledTool) => {
+      const routingLine = findDescriptionLine({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTool }),
+        toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+        linePrefix: "To only change a note's body or properties",
+      })
+      expect(routingLine).toBe(
+        "To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths cannot be moved: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank).",
+      )
+    },
+  )
 
   const PATCH_NOTE_WHEN_TO_USE =
     "When to use: Modifying part of an existing note without overwriting the entire body."
