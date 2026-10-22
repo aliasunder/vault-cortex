@@ -43,10 +43,8 @@ jobs:
       version: ${{ steps.next.outputs.version }}
       tag: v${{ steps.next.outputs.version }}
     steps:
-      # A release dispatched on another branch would tag and publish that
-      # branch's code while main's version stays behind. The ref is compared
-      # in the shell: an if: expression ignores case, so it would let a
-      # branch named Main through.
+      # A release dispatched off main would publish that branch's code.
+      # Compared in the shell because if: expressions ignore case.
       - name: Require main
         run: |
           if [ "$GITHUB_REF" != refs/heads/main ]; then
@@ -63,35 +61,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the v* tag check and the commit check below
-          # need it.
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
-          # First attempt: the branch's latest commit, so a run queued behind
-          # a CLI release builds on the commit that release pushed. A re-run
-          # passes '', which checkout reads as the dispatch-time commit
-          # (github.sha), so re-running a finished release fails instead of
-          # cutting the next version.
-          ref: ${{ github.run_attempt == '1' && github.ref || '' }}
-
-      # Since dispatch, only a CLI release may have landed: the one bump
-      # commit cli_release.yml pushes with github-actions[bot] as committer
-      # (GitHub is the committer of every PR merged on GitHub). Anything
-      # else (a second server release, a merged PR, a rewound branch) would
-      # ship under an image label and signature that name the dispatch
-      # commit, so the run stops.
-      - name: Refuse commits since dispatch other than a CLI release
-        run: |
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" HEAD; then
-            echo "::error::$GITHUB_REF no longer contains $GITHUB_SHA, the commit this run was dispatched from. Nothing was pushed; dispatch again."
-            exit 1
-          fi
-          COMMITS=$(git log --format='%cn: %s' "$GITHUB_SHA..HEAD")
-          UNEXPECTED=$(printf '%s\n' "$COMMITS" | { grep -vxE 'github-actions\[bot\]: release\(cli\): v[0-9.]+' || true; } | paste -sd, -)
-          if [ -n "$UNEXPECTED" ]; then
-            echo "::error::$GITHUB_REF moved from $GITHUB_SHA to $(git rev-parse HEAD) after this run was dispatched ($UNEXPECTED). Nothing was pushed; dispatch again, unless this run duplicated a server release that has since landed."
-            exit 1
-          fi
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -150,7 +121,7 @@ jobs:
           # next release. All-or-nothing keeps the failure path a bare
           # re-dispatch with nothing to clean up.
           if ! git push --atomic "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD "refs/tags/v$NEXT"; then
-            echo "::error::Push rejected — $GITHUB_REF moved during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again (a re-run checks out the dispatch commit, so its push fails again if $GITHUB_REF has moved)."
+            echo "::error::Push rejected — $GITHUB_REF moved during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again."
             exit 1
           fi
 
