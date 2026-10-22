@@ -82,7 +82,7 @@ const resolvePromotedKeys = (properties: Record<string, unknown>): ReadonlySet<s
 }
 
 /** Reshapes NoteMetadata for client responses: keeps the top-level fields,
- *  leaving out an empty leading_callout, and replaces `properties` (full
+ *  leaving out a null leading_callout, and replaces `properties` (full
  *  frontmatter, mostly duplicated) with `additional_properties` (only
  *  unpromoted keys like topic, agent, date), left out when there are none. */
 export const formatNoteMetadata = (meta: {
