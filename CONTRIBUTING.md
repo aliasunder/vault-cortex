@@ -244,11 +244,12 @@ What each release's notes list:
     change only `devDependencies` or `overrides` in the root `package.json`,
     and in `package-lock.json` only packages marked `"dev": true`
   - Claude Code hook changes (commit scope `hooks`)
-  - commits that change only `AGENTS.md`, `CHANGELOG.md`, dotfiles at the
-    repository root (`.gitignore`, `.trivyignore`; not `.dockerignore`, which
-    decides what the image build copies, or `.env.example`, which DEPLOY.md
-    has deployers copy), or files under `.claude/`,
-    `.devin/` or `.husky/`
+  - commits that change only these files:
+    - `AGENTS.md` and `CHANGELOG.md`
+    - dotfiles at the repository root, such as `.gitignore` and
+      `.trivyignore`, except `.dockerignore` (it decides what the image
+      build copies) and `.env.example` (DEPLOY.md has deployers copy it)
+    - files under `.claude/`, `.devin/` or `.husky/`
 - **CLI releases** (`.github/scripts/generate-cli-notes.sh`): every commit
   that changes `cli/`, dependency bumps included, except commits whose added
   and removed lines under `cli/` are all:

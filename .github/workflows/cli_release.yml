@@ -31,7 +31,7 @@ on:
 # main, so running them at once would reject one push. A run dispatched
 # while a server release is in flight queues until it's done.
 # GitHub keeps one queued run per group, so a later release or deploy
-# dispatch cancels the queued one.
+# dispatch cancels the queued one; dispatch the cancelled run again.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false

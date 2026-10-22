@@ -251,7 +251,7 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 | `gitleaks.yml`              | PR + push to main                | Secret detection across the repo and its git history                                                                                                                                                                                                                                                                                                     |
 | `trivy.yml`                 | PR + push to main + weekly cron  | Vulnerability scan of the Docker image — PRs scan an image built from the branch (`trivy-pr` gates merges on fixable CRITICAL/HIGH findings); pushes and the cron scan the published GHCR `:latest` and `:remote` images report-only, at every severity. Findings upload as SARIF to the Security tab.                                                   |
 | `scorecard.yml`             | Push to main + weekly cron       | [OpenSSF Scorecard](https://github.com/ossf/scorecard) supply-chain posture analysis; results upload to the Security tab. Also re-runs when branch protection settings change.                                                                                                                                                                           |
-| `manual_release.yml`        | Actions UI (`workflow_dispatch`) | Bumps version, commits, tags, pushes → calls `deploy.yml` + `publish-registry.yml` → creates a GitHub Release with auto-generated notes and updates `CHANGELOG.md`                                                                                                                                                                                       |
+| `manual_release.yml`        | Actions UI (`workflow_dispatch`) | Bumps version, commits, tags, pushes → calls `deploy.yml`, then `publish-registry.yml` and `dockerhub-description.yml` → updates `CHANGELOG.md`, creates a GitHub Release with auto-generated notes, and attaches the signed image digests (see [Release Signing](./SECURITY.md#release-signing))                                                        |
 | `deploy.yml`                | Reusable (`workflow_call`)       | OIDC AWS auth → `sst deploy` → Docker build/push to GHCR + Docker Hub → SSH to Lightsail → `docker compose pull && up -d` → `/healthz` gate → host health report (non-blocking warning annotations when the instance's apt is broken, a security-update backlog has built up, or a kernel update awaits a reboot; `test_deploy.yml` runs the same step)  |
 | `force_deploy.yml`          | Actions UI (`workflow_dispatch`) | Redeploys the current release with fresh configuration — no new image build. Re-runs SST, rewrites `.env` from current secrets/vars, restarts compose. Use after rotating a secret or repo variable.                                                                                                                                                     |
 | `test_deploy.yml`           | Actions UI (`workflow_dispatch`) | Deploys the selected branch to the instance for testing without cutting a release — builds an amd64-only `remote`-target image pushed as `:test` (never `:remote`, `:latest`, or version tags, so released users are unaffected) and points the instance at it via `VAULT_CORTEX_TAG=test`. Run Force Deploy afterwards to return to the released image. |
@@ -261,7 +261,9 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 | `ghcr-cleanup.yml`          | Weekly cron + Actions UI         | Deletes untagged GHCR image digests to reclaim storage. Manual runs default to dry-run mode.                                                                                                                                                                                                                                                             |
 | `dockerhub-description.yml` | Reusable (`workflow_call`)       | Syncs `DOCKERHUB.md` to the Docker Hub repository description via `peter-evans/dockerhub-description`. Called by `manual_release.yml` after `deploy` — keeps the Hub listing in sync on every release.                                                                                                                                                   |
 
-> **MCP Registry publishing is automatic.** `manual_release.yml` calls `publish-registry.yml`, so the [official MCP Registry](https://registry.modelcontextprotocol.io/) entry tracks every release — no manual `mcp-publisher publish`. It authenticates with [GitHub OIDC](https://modelcontextprotocol.io/registry/github-actions) and needs **no secret**: the registry authorizes the `io.github.<owner>/*` namespace from the OIDC token's repo owner, so a fork publishing `io.github.<your-user>/...` works out of the box (unlike the AWS OIDC role below, which you must provision).
+> **MCP Registry publishing is automatic.** `manual_release.yml` calls `publish-registry.yml`, so the [official MCP Registry](https://registry.modelcontextprotocol.io/) entry tracks every release — no manual `mcp-publisher publish`. It authenticates with [GitHub OIDC](https://modelcontextprotocol.io/registry/github-actions) and needs **no secret** (unlike the AWS OIDC role below, which you must provision): the registry authorizes the `io.github.<owner>/*` namespace from the OIDC token's repo owner.
+>
+> A fork's publish job fails until the fork renames the server under its own `io.github.<your-user>/` namespace: `io.github.aliasunder/vault-cortex` is hardcoded in `server.json`'s `name` and the `Dockerfile`'s `io.modelcontextprotocol.server.name` label, and the bump step in `manual_release.yml` writes this repository's GHCR image path into `server.json`. The job has no off switch, but a failed publish does not stop the GitHub Release.
 
 ### GitHub OIDC setup (for forkers)
 
@@ -404,9 +406,9 @@ Both halves come from the dedicated deploy keypair set up in [Prerequisites](#pr
 
 ### Cutting a release
 
-Actions tab → "Manual Release" → Run workflow → choose `patch`/`minor`/`major`. The job bumps `package.json`, commits, tags, deploys, and creates the GitHub Release.
+Actions tab → "Manual Release" → Run workflow → choose `patch`/`minor`/`major`. The job bumps the version in `package.json`, `package-lock.json`, and `server.json`, commits, tags, deploys, and creates the GitHub Release. Tick `skip_deploy` when restarting compose would overwrite a manually deployed stack: the Docker image is still built and pushed, but the SST deploy and the instance update are skipped.
 
-Direct commits to `main` are blocked by a branch ruleset — every change lands via PR. Release automation is the only actor that pushes to `main` directly (the changelog and version-bump commits in the workflows above).
+Direct commits to `main` are blocked by a branch ruleset — every change lands via PR. Release automation is the only actor that pushes to `main` directly: `manual_release.yml` pushes the version-bump and CHANGELOG commits, and `cli_release.yml` pushes the CLI's version-bump commit.
 
 ### Rotating SSH keys
 
@@ -435,7 +437,7 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp> \
 
 Rotation ends every OAuth session — each connected client goes back through the consent page on its next request, and clients that use the token directly need the new value.
 
-The token must stay in sync across four places: the SST secret (`npm run sst -- secret set McpAuthToken`), the GitHub repo secret, `~/.config/vault-cortex/.env` (which `npm run lightsail:up` copies to the instance), and the instance `.env`. CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure becomes:
+The token must stay in sync across four places: the SST secret (`npm run sst -- secret set McpAuthToken`), the GitHub repo secret, `~/.config/vault-cortex/.env` (which `npm run lightsail:up` copies to the instance), and the instance `.env`. CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure is:
 
 ```bash
 NEW_TOKEN=$(openssl rand -hex 32)
