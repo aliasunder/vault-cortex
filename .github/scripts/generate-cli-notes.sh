@@ -31,10 +31,16 @@ fi
 # "-- x") is never read as a header.
 has_counted_change() {
   awk '
-    /^diff --git / { in_hunk = 0; next }
+    /^diff --git / { in_hunk = 0; path = ""; next }
     /^@@/ { in_hunk = 1; next }
-    !in_hunk && /^--- a\// { path = substr($0, 7); next }
-    !in_hunk && /^\+\+\+ b\// { path = substr($0, 7); next }
+    # Git wraps a name holding special characters in quotes, and ends the
+    # header with a tab when the name holds a space.
+    !in_hunk && /^(---|\+\+\+) "?[ab]\// {
+      path = $0
+      sub(/^(---|\+\+\+) "?[ab]\//, "", path)
+      sub(/"?\t?$/, "", path)
+      next
+    }
     !in_hunk { next }
     /^[+-]/ {
       content = substr($0, 2)

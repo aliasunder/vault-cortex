@@ -169,6 +169,20 @@ describe("generate-cli-notes.sh", () => {
       })
     })
 
+    it("lists a heading added to an .md file git quotes, after .ts comments in the same commit", () => {
+      const repo = createCliReleaseRepo()
+      repo.commit("docs(cli): add a guide", {
+        "cli/src/guide.ts": "// Points to the guide\n",
+        "cli/ünïcode.md": "# Guide\n",
+      })
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "- docs(cli): add a guide\n",
+        stderr: "",
+      })
+    })
+
     it("lists every commit from the first when no earlier CLI tag exists, ignoring server tags", () => {
       const repo = createCliReleaseRepo({ firstCommitTag: "v0.1.0" })
       commitListedCodeChange(repo)
@@ -194,6 +208,17 @@ describe("generate-cli-notes.sh", () => {
             setting: "VAULT_PATH=/vault\n",
           }),
       })
+
+      expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
+    it.each([
+      { label: "a space", path: "cli/src/env notes.ts" },
+      { label: "non-ASCII characters", path: "cli/src/ünïcode.ts" },
+    ])("leaves out a comment-only change to a .ts file whose name has $label", ({ path }) => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.commit("docs(cli): add a comment file", { [path]: "// A note\n" })
 
       expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
     })

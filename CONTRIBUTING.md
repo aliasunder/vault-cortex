@@ -261,7 +261,8 @@ What each release's notes list:
   - in files under `cli/src/__tests__/`
   - the `"version"` line of `cli/package.json` (the release bump)
   - comment lines in `.ts` files, including the `#` lines of the `.env`
-    templates in `cli/src/env.ts`; every line of `cli/README.md` counts
+    templates in `cli/src/env.ts`; in other files, `cli/README.md` included,
+    every non-blank line counts
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 

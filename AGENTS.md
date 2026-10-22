@@ -957,10 +957,11 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `init-setup-vault` runs, and `print-derived-env.test.ts`, which covers
   the derivation that `init-derive-env` publishes), and the hook's and
   release scripts' tests in `src/__tests__/` (`install-deps.test.ts`,
-  `generate-notes.test.ts`, `update-changelog.test.ts`). These script
+  `generate-notes.test.ts`, `generate-cli-notes.test.ts`,
+  `update-changelog.test.ts`). These script
   tests run the real script under its own shell (`sh` for the init
   scripts, `bash` for the others) with stub binaries on `PATH` or, for
-  the release-notes script, a temporary git repository, and name
+  the release-notes scripts, a temporary git repository, and name
   the script they cover —
   don't move them next to the scripts or widen vitest's include for
   them. Whole-image behaviour (the init chain's ordering,
