@@ -28,7 +28,7 @@ on:
           - none
 
 # Shares the server release/deploy group: both release flows push to
-# main, so running them at once would reject one push. A run dispatched
+# main, so running them at once can reject one push. A run dispatched
 # while a server release is in flight queues until it's done.
 # GitHub keeps one queued run per group, so any later run in the group (a
 # release or deploy dispatch, or a v* tag push) cancels the queued one.
@@ -49,14 +49,16 @@ jobs:
     steps:
       # Only a beta publishes from other branches. A versioned release
       # dispatched on another branch would publish that branch's code and
-      # push its bump commit there, while main's version stays behind.
+      # push its bump commit there, while main's version stays behind. The
+      # ref is compared in the shell: an if: expression ignores case, so it
+      # would let a branch named Main through.
       - name: Require main for a versioned release
-        if: github.ref != 'refs/heads/main' && inputs.bump != 'beta'
-        env:
-          REF: ${{ github.ref }}
+        if: inputs.bump != 'beta'
         run: |
-          echo "::error::Release CLI runs on main except for a beta; this run was dispatched on $REF."
-          exit 1
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Release CLI runs on main except for a beta; this run was dispatched on $GITHUB_REF."
+            exit 1
+          fi
 
       - name: Generate App token
         if: inputs.bump != 'beta'

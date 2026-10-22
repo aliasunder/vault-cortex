@@ -44,14 +44,15 @@ jobs:
       tag: v${{ steps.next.outputs.version }}
     steps:
       # A release dispatched on another branch would tag and publish that
-      # branch's code while main's version stays behind.
+      # branch's code while main's version stays behind. The ref is compared
+      # in the shell: an if: expression ignores case, so it would let a
+      # branch named Main through.
       - name: Require main
-        if: github.ref != 'refs/heads/main'
-        env:
-          REF: ${{ github.ref }}
         run: |
-          echo "::error::Manual Release runs on main only; this run was dispatched on $REF."
-          exit 1
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Manual Release runs on main only; this run was dispatched on $GITHUB_REF."
+            exit 1
+          fi
 
       - name: Generate App token
         id: app-token
@@ -138,7 +139,7 @@ jobs:
           # another commit: a published release the checked-out package.json
           # predates, or a tag from a failed run.
           if git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
-            echo "::error::Tag v$NEXT exists but $GITHUB_REF's package.json is still at the previous version. If v$NEXT is published, stop here; otherwise the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and dispatch again."
+            echo "::error::Tag v$NEXT exists but the package.json this run checked out is still at the previous version. If v$NEXT is published, stop here; otherwise the tag is stale from a failed run: delete it on origin (git push origin :refs/tags/v$NEXT) and dispatch again."
             exit 1
           fi
           git tag "v$NEXT"
