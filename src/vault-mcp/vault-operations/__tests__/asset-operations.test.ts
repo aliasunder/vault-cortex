@@ -360,7 +360,10 @@ describe("readAssetContent — PDF extraction", () => {
       bytes: 14,
       extension: ".pdf",
     })
-    const loadFailure = new Error("worker terminated")
+    // The engine's own failure to load arrives under this message
+    const loadFailure = new Error("PDF reader could not start", {
+      cause: new Error("worker terminated"),
+    })
     mockCreatePdfDocumentProxy.mockRejectedValue(loadFailure)
     // Restore the default mock regardless of assertion outcome — without
     // this, a failing assertion leaves subsequent tests with a rejecting mock.

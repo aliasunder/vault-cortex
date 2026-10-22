@@ -115,23 +115,24 @@ A module's folder is decided by **what it depends on**, not just its topic:
   fence state machine (`advanceFence`) — every function that walks lines
   and tracks code fences calls it, so they can't disagree about where a
   fence opens.
-  **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
-  that performs side effects — it resolves `pdfjs-dist` package paths from disk
-  via `createRequire` and mutates `globalThis` (canvas polyfill injection). It
-  lives here because it is PDF domain logic: the bootstrap that configures pdfjs
-  so `pdf.ts`'s extraction pipeline works. The two PDF modules are a unit and
-  belong together in the parser layer.
-  `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
-  **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
-  signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields (`[completion:: date]`,
-  `[priority:: high]`). Mutation functions must strip both formats when removing
-  a field (a Dataview-formatted task must not get fields orphaned). `tasks.ts`
-  takes the format as a parameter; `vault-operations/task-format-config.ts`
-  decides it from the user's Tasks plugin settings (`taskFormat` in
-  `.obsidian/plugins/obsidian-tasks-plugin/data.json`, emoji by default), and
-  its `setDoneDate`/`setCancelledDate` switches control whether completion
-  dates are stamped at all. When `.obsidian/` is not synced to the server,
-  `task-format-config.ts` falls back to emoji.
+  - **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
+    that performs side effects — it resolves `pdfjs-dist` package paths from
+    disk via `createRequire` and mutates `globalThis` (canvas polyfill
+    injection). It lives here because it is PDF domain logic: the bootstrap
+    that configures pdfjs so `pdf.ts`'s extraction pipeline works. The two PDF
+    modules are a unit and belong together in the parser layer.
+    `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
+  - **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
+    signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields
+    (`[completion:: date]`, `[priority:: high]`). Mutation functions must strip
+    both formats when removing a field (a Dataview-formatted task must not get
+    fields orphaned). `tasks.ts` takes the format as a parameter;
+    `vault-operations/task-format-config.ts` decides it from the user's Tasks
+    plugin settings (`taskFormat` in
+    `.obsidian/plugins/obsidian-tasks-plugin/data.json`, emoji by default), and
+    its `setDoneDate`/`setCancelledDate` switches control whether completion
+    dates are stamped at all. When `.obsidian/` is not synced to the server,
+    `task-format-config.ts` falls back to emoji.
 - **`vault-operations/`** — everything that reads/writes the vault.
   `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
   read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
@@ -726,6 +727,15 @@ which are the description and the input schema with each parameter's Zod
     and cut `.describe()` back to the plain meaning. Format and
     default stay in `.describe()`. Never drop a fact only
     `.describe()` carries.
+- **Every sentence changes what a calling agent does.** A sentence earns
+  its place when it changes which tool or values the agent sends, what it
+  does with the result or an error, or when it corrects a wrong assumption
+  the rest of the definition leaves open. Judge each claim in a sentence on
+  its own, and keep only the claims that meet this test. How the server
+  carries out the call (which `.obsidian` file holds a setting, what the
+  search index holds, how a save stages its write) goes in ARCHITECTURE.md,
+  however accurate it is; the outcome the caller sees stays in the
+  description.
 - **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich validation
   (format, date validity, mutual exclusivity) lives in the data layer or
   handler, where failures flow through `safeHandler` as structured tool

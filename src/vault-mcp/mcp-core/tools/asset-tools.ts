@@ -1,15 +1,13 @@
 /** Asset tool registration — reading and discovering non-markdown vault files. */
 
 import { z } from "zod"
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { describeTextWindow } from "./tool-helpers.js"
-
-type ContentBlock =
-  { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
@@ -27,49 +25,51 @@ const describeDeliveredImage = (result: {
 
 /** Formats an asset read result into MCP content blocks — the image, pages,
  *  or text representation the model sees. */
-const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
-  if (result.kind === "image") {
-    return [
-      {
-        type: "image",
-        data: result.fitted.data.toString("base64"),
-        mimeType: result.fitted.mimeType,
-      },
-      { type: "text", text: describeDeliveredImage(result) },
-    ]
-  }
-  if (result.kind === "pages") {
-    const titleSegment = result.title ? `, "${result.title}"` : ""
-    const metadataLine =
-      `${result.path} — PDF, ${result.totalPages} pages` +
-      titleSegment +
-      ` — rendered ${result.pagesRendered} ` +
-      `page${result.pagesRendered === 1 ? "" : "s"} as images`
-    const pageBlocks = result.pages.flatMap((page) => [
-      {
-        type: "image" as const,
-        data: page.fitted.data.toString("base64"),
-        mimeType: page.fitted.mimeType,
-      },
-      {
-        type: "text" as const,
-        text:
-          `Page ${page.pageNumber} — ${page.fitted.mimeType}, ` +
-          `${page.fitted.width}×${page.fitted.height}, ` +
-          `${page.fitted.data.length} bytes`,
-      },
-    ])
-    return [{ type: "text", text: metadataLine }, ...pageBlocks]
-  }
-  if (result.lineWindow) {
-    const metadataBlock = {
-      type: "text" as const,
-      text: describeTextWindow(result.path, result.lineWindow),
+const formatAssetReadResult = (result: AssetReadResult): CallToolResult["content"] => {
+  switch (result.kind) {
+    case "image":
+      return [
+        {
+          type: "image",
+          data: result.fitted.data.toString("base64"),
+          mimeType: result.fitted.mimeType,
+        },
+        { type: "text", text: describeDeliveredImage(result) },
+      ]
+    case "pages": {
+      const titleSegment = result.title ? `, "${result.title}"` : ""
+      const pluralizePages = (count: number): string => `${count} page${count === 1 ? "" : "s"}`
+      const metadataLine =
+        `${result.path} — PDF, ${pluralizePages(result.totalPages)}` +
+        titleSegment +
+        ` — rendered ${pluralizePages(result.pagesRendered)} as images`
+      const pageBlocks = result.pages.flatMap((page) => [
+        {
+          type: "image" as const,
+          data: page.fitted.data.toString("base64"),
+          mimeType: page.fitted.mimeType,
+        },
+        {
+          type: "text" as const,
+          text:
+            `Page ${page.pageNumber} — ${page.fitted.mimeType}, ` +
+            `${page.fitted.width}×${page.fitted.height}, ` +
+            `${page.fitted.data.length} bytes`,
+        },
+      ])
+      return [{ type: "text", text: metadataLine }, ...pageBlocks]
     }
-    const contentBlock = { type: "text" as const, text: result.text }
-    return [metadataBlock, contentBlock]
+    case "text": {
+      if (!result.lineWindow) return [{ type: "text", text: result.text }]
+
+      const metadataBlock = {
+        type: "text" as const,
+        text: describeTextWindow(result.path, result.lineWindow),
+      }
+      const contentBlock = { type: "text" as const, text: result.text }
+      return [metadataBlock, contentBlock]
+    }
   }
-  return [{ type: "text", text: result.text }]
 }
 
 export const registerAssetTools = ({
@@ -109,12 +109,12 @@ When to use: whenever a note references a file you need to actually see or read 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md; read notes with vault_read_note
 - "file not found" / "ENAMETOOLONG: …" — no file exists at that path (a folder is not a file), or the path (or a name in it) is longer than the filesystem allows; discover valid paths via vault_list_files
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable, matching Obsidian)
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable)
 - "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's owner can raise
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
 - "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input; paging applies only to text results, and an image always comes back as its image block
-- "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content; ask for a UTF-8 copy
+- "not valid UTF-8" — the file's bytes aren't UTF-8 text; ask for a UTF-8 copy
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
 - "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
@@ -122,6 +122,8 @@ Errors:
 - "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead. If that read also finds no text, this tool can't read the PDF
 - "image cannot be fitted" — the image could not be compressed under the image output budget; ask for a smaller export
 - "EACCES: …" or another filesystem error code — the file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
+- "file changed while reading" — the file was written while it was read (for example by Sync); retry the read
+- "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the vault's owner to restart the server
 - "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
 
 Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,
@@ -175,30 +177,34 @@ Returns: for images, an image content block plus a one-line metadata text block;
             reqLogger,
           ),
         (result) => {
-          if (result.kind === "image") {
-            reqLogger.info("tool_result", {
-              path,
-              mimeType: result.fitted.mimeType,
-              deliveredBytes: result.fitted.data.length,
-              originalBytes: result.originalBytes,
-              width: result.fitted.width,
-              height: result.fitted.height,
-              originalWidth: result.fitted.originalWidth,
-              originalHeight: result.fitted.originalHeight,
-              recompressed: result.fitted.recompressed,
-            })
-          } else if (result.kind === "pages") {
-            reqLogger.info("tool_result", {
-              path,
-              totalPages: result.totalPages,
-              pagesRendered: result.pagesRendered,
-            })
-          } else {
-            reqLogger.info("tool_result", {
-              path,
-              textBytes: Buffer.byteLength(result.text, "utf8"),
-              ...(result.lineWindow ?? {}),
-            })
+          switch (result.kind) {
+            case "image":
+              reqLogger.info("tool_result", {
+                path,
+                mimeType: result.fitted.mimeType,
+                deliveredBytes: result.fitted.data.length,
+                originalBytes: result.originalBytes,
+                width: result.fitted.width,
+                height: result.fitted.height,
+                originalWidth: result.fitted.originalWidth,
+                originalHeight: result.fitted.originalHeight,
+                recompressed: result.fitted.recompressed,
+              })
+              break
+            case "pages":
+              reqLogger.info("tool_result", {
+                path,
+                totalPages: result.totalPages,
+                pagesRendered: result.pagesRendered,
+              })
+              break
+            case "text":
+              reqLogger.info("tool_result", {
+                path,
+                textBytes: Buffer.byteLength(result.text, "utf8"),
+                ...(result.lineWindow ?? {}),
+              })
+              break
           }
           return formatAssetReadResult(result)
         },
@@ -212,19 +218,20 @@ Returns: for images, an image content block plus a one-line metadata text block;
       title: "List Files",
       description: `List non-markdown files in the vault or a folder — images, canvases, PDFs, data files — with per-file byte sizes and per-extension counts.
 
-Example: vault_list_files({}) — every non-markdown file in the vault
+Example: vault_list_files({}) — non-markdown files across the whole vault
 Example: vault_list_files({ folder: "attachments" })
 Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
 When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.
 
-Behavior: Reads the filesystem rather than the search index, so use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
+Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
 
 Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable, matching Obsidian); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
+- "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it. For ENAMETOOLONG, shorten folder.
 
-Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers; one over 100 KiB must be read in windows with vault_read_file's start_line and limit. Only supported types are readable via vault_read_file.`,
+Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers; one over 100 KiB must be read in windows with vault_read_file's start_line and limit. vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base; other listed types are not readable.`,
       inputSchema: {
         folder: z
           .string()

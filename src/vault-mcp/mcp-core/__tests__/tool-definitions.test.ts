@@ -11,6 +11,7 @@ import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createSearchIndex } from "../../search/search-index.js"
 import type { SearchIndex } from "../../search/search-index.js"
+import { assetOperations } from "../../vault-operations/asset-operations.js"
 import { logger, type Logger } from "../../../logger.js"
 
 const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
@@ -310,9 +311,14 @@ describe("registerTools", () => {
   })
 
   it("vault_delete_memory description documents duplicate-entry remediation", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
-    expect(config.description).toContain("ambiguous")
-    expect(config.description).toContain("vault_update_memory refuses to write exact duplicates")
+    const ambiguousEntry = findDescriptionLine({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_DELETE_MEMORY,
+      linePrefix: '- "ambiguous: N entries match …"',
+    })
+    expect(ambiguousEntry).toBe(
+      '- "ambiguous: N entries match …" — more than one identical bullet exists in the section. Remove the extra copy with vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or a manual edit, then retry.',
+    )
   })
 
   it("vault_update_properties description documents null-deletes-key contract", () => {
@@ -346,7 +352,7 @@ describe("registerTools", () => {
       linePrefix: "- sort_by + limit interact",
     })
     expect(sortLine).toBe(
-      '- sort_by + limit interact: "modified" (default) uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
+      '- sort_by + limit interact: "modified" uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
     )
   })
 
@@ -535,7 +541,7 @@ describe("config interpolation in descriptions", () => {
       linePrefix: "- Links to the note",
     })
     expect(linksEntry).toBe(
-      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank).",
+      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank).",
     )
   })
 
@@ -880,9 +886,12 @@ describe("optional filter lists reject an empty array", () => {
 describe("vault_update_memory handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
-  it("reports the duplicate no-op instead of the append confirmation when retried", async () => {
-    // A real temp vault so the handler exercises the actual memory store —
-    // the global harness registers against a nonexistent path.
+  /** The registered handler over a real temp vault holding one memory file,
+   *  so it exercises the actual memory store — the global harness registers
+   *  against a nonexistent path. */
+  const setupUpdateMemoryHandler = async (): Promise<
+    (args: Record<string, unknown>) => Promise<unknown>
+  > => {
     const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-memory-"))
     onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
     await mkdir(join(tempVault, "About Me"), { recursive: true })
@@ -906,7 +915,11 @@ describe("vault_update_memory handler", () => {
 
     if (!updateMemoryCall) throw new Error("vault_update_memory not registered")
     const [, , handler] = updateMemoryCall
+    return (args) => handler(args, mockExtra)
+  }
 
+  it("reports the duplicate no-op instead of the append confirmation when retried", async () => {
+    const updateMemory = await setupUpdateMemoryHandler()
     const args = {
       file: "Principles",
       section: "Decision heuristics (newest first)",
@@ -916,24 +929,49 @@ describe("vault_update_memory handler", () => {
 
     // First call appends and confirms — proves the entry actually landed
     // before the retry, so the no-op can't be a silent failure.
-    const firstResult = (await handler(args, mockExtra)) as {
-      content: Array<{ text: string }>
-      isError?: boolean
-    }
-    expect(firstResult.isError).toBeUndefined()
-    expect(firstResult.content[0]?.text).toBe(
-      "Added entry to About Me/Principles.md → ## Decision heuristics (newest first)",
-    )
+    expect(await updateMemory(args)).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Added entry to About Me/Principles.md → ## Decision heuristics (newest first)",
+        },
+      ],
+    })
 
     // Identical retry succeeds but reports the no-op instead of "Added entry".
-    const retryResult = (await handler(args, mockExtra)) as {
-      content: Array<{ text: string }>
-      isError?: boolean
-    }
-    expect(retryResult.isError).toBeUndefined()
-    expect(retryResult.content[0]?.text).toBe(
-      "Entry already exists in About Me/Principles.md → ## Decision heuristics (newest first) — nothing was written.",
-    )
+    expect(await updateMemory(args)).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Entry already exists in About Me/Principles.md → ## Decision heuristics (newest first) — nothing was written.",
+        },
+      ],
+    })
+  })
+
+  it("asks the caller to fill in the scope callout of a memory file it created", async () => {
+    const updateMemory = await setupUpdateMemoryHandler()
+
+    expect(
+      await updateMemory({ file: "Health", section: "Sleep", entry: "Aims for 8 hours" }),
+    ).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Added entry to About Me/Health.md → ## Sleep. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn\'t)" placeholder with what the file contains, so other agents know what it is for.',
+        },
+      ],
+    })
+  })
+
+  it("confirms an entry that starts a new section of an existing file without the new-file nudge", async () => {
+    const updateMemory = await setupUpdateMemoryHandler()
+
+    expect(
+      await updateMemory({ file: "Principles", section: "Tools", entry: "Prefer rg" }),
+    ).toEqual({
+      content: [{ type: "text", text: "Added entry to About Me/Principles.md → ## Tools" }],
+    })
   })
 })
 
@@ -1097,9 +1135,10 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
 
   it("describes hybrid search when EMBEDDING_ENABLED=true", () => {
     const description = findSearchDescription(registerWithConfig({}))
-    expect(description).toContain("Hybrid search")
-    expect(description).toContain("Reciprocal Rank Fusion")
-    expect(description).toContain("semantic")
+    const openingSentence = description.slice(0, description.indexOf(". ") + 1)
+    expect(openingSentence).toBe(
+      "Hybrid search across vault notes and file content (canvas, PDF, and text files), ranked by combined keyword and semantic relevance.",
+    )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
   })
@@ -1108,7 +1147,6 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({ EMBEDDING_ENABLED: "false" }))
     expect(description).toContain("Full-text search")
     expect(description).not.toContain("Hybrid")
-    expect(description).not.toContain("Reciprocal Rank Fusion")
     expect(description).not.toContain("semantic")
     expect(description).not.toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1192,12 +1230,10 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     '- "concurrent write in progress" — another write to this note is in flight; retry',
     '- "note not found: …" — verify path with vault_list_notes',
   ]
-  const OTHER_DELETE_ERROR_ENTRY =
-    '- "cannot delete …" (other than a protected path), "EACCES: …" or another filesystem error code — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry'
+  const FILESYSTEM_ERROR_ENTRY =
+    '- "cannot delete …" (other than a protected path), "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the note stays put. A name too long for the filesystem needs a shorter path; otherwise ask the vault owner to fix the cause (e.g. permissions), then retry'
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
-    '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
-  const NAME_TOO_LONG_ERROR_ENTRY =
-    '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path'
+    '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
 
   it("lists the trash-move and trash-setting errors when the server does not sync", () => {
     expect(deleteNoteErrors({})).toBe(
@@ -1205,10 +1241,9 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
         '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry',
-        '- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
-        OTHER_DELETE_ERROR_ENTRY,
-        NAME_TOO_LONG_ERROR_ENTRY,
-        "- \"cannot read trash config from .obsidian/app.json\" — the file exists but can't be read or parsed, and guessing the setting could let the server's trash cleanup delete a note Obsidian keeps forever; ask the vault owner to repair it, then retry",
+        '- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
+        FILESYSTEM_ERROR_ENTRY,
+        '- "cannot read trash config from .obsidian/app.json" — the file exists but can\'t be read or parsed; ask the vault owner to repair it, then retry',
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -1219,8 +1254,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
       [
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
-        OTHER_DELETE_ERROR_ENTRY,
-        NAME_TOO_LONG_ERROR_ENTRY,
+        FILESYSTEM_ERROR_ENTRY,
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -1241,7 +1275,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     })
   }
   const LINKS_AND_PROTECTED_PATHS_ENTRY =
-    "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank)."
+    "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank)."
 
   it("describes the Deleted files outcomes when the server does not sync", () => {
     expect(deleteNoteOpener({})).toBe(
@@ -1250,11 +1284,10 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     expect(deleteNoteBehavior({})).toBe(
       [
         "Behavior:",
-        '- The "Deleted files" setting (`trashOption` in `.obsidian/app.json`) decides the outcome:',
-        '  - "Move to system trash" (`system`, also what an absent setting means) moves the note to `.trash/`, since the server has no system trash. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none); notes Obsidian itself trashed are never touched.',
-        '  - "Move to Obsidian trash" (`local`) moves the note to `.trash/` and keeps it forever.',
-        '  - "Permanently delete" (`none`) removes the note for good.',
-        "- The caller can't choose or see the outcome in advance; the returned message says which happened.",
+        '- The "Deleted files" setting decides the outcome, which the caller can\'t choose or see in advance:',
+        '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
+        '  - "Move to Obsidian trash" moves the note to `.trash/` and keeps it forever.',
+        '  - "Permanently delete" removes the note for good.',
         LINKS_AND_PROTECTED_PATHS_ENTRY,
       ].join("\n"),
     )
@@ -1262,7 +1295,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
 
   it("describes permanent deletion and Sync recovery under OBSIDIAN_SYNC=true", () => {
     expect(deleteNoteOpener({ OBSIDIAN_SYNC: "true" })).toBe(
-      "Delete a markdown note for good: this server syncs through Obsidian Sync, so it bypasses the vault's \"Deleted files\" setting; recover a deleted note from Sync's version history (1 month on Standard, 12 months on Plus).",
+      "Delete a markdown note for good. The vault owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
     )
     expect(deleteNoteBehavior({ OBSIDIAN_SYNC: "true" })).toBe(
       `Behavior:\n${LINKS_AND_PROTECTED_PATHS_ENTRY}`,
@@ -1915,13 +1948,13 @@ describe("vault_find_orphans live folder defaults", () => {
     expect(await queryPaths()).toEqual(["Daily Notes/daily.md", "ordinary.md"])
   })
 
-  it("describes live sources and states the exclusion default in the schema", async () => {
+  it("states the daily-folder rule and the exclusion default without naming the live folder", async () => {
     const { toolConfig } = await setupOrphans({ settings: '{"folder":"Journal"}' })
-    const defaultsLine = toolConfig.description
+    const excludeFoldersLine = toolConfig.description
       ?.split("\n")
-      .find((line) => line.startsWith("- With exclude_folders"))
-    expect(defaultsLine).toBe(
-      '- With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). When that folder is the vault root or blank, no daily folder is excluded.',
+      .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
+    expect(excludeFoldersLine).toBe(
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it (vault_get_daily_note\'s path starts with the daily notes folder whenever the defaults exclude one). Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. When the daily notes folder is the vault root or blank, the default list holds no daily folder.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -1929,15 +1962,20 @@ describe("vault_find_orphans live folder defaults", () => {
     )
   })
 
-  it("describes an explicit environment list instead of implicit default sources", async () => {
+  it("states an explicit environment list in the schema and leaves the daily-folder rule out", async () => {
     const { toolConfig } = await setupOrphans({
       env: { ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch" },
     })
-    const defaultsLine = toolConfig.description
-      ?.split("\n")
-      .find((line) => line.startsWith("- With exclude_folders"))
-    expect(defaultsLine).toBe(
-      "- With exclude_folders omitted, the server's configured list (the schema default) is used.",
+    // The whole Parameters section, so a missing description or a reworded
+    // daily-folder line can't pass as "left out"
+    const parametersSection = toolConfig.description
+      ?.split("\nParameters:\n")[1]
+      ?.split("\n\nErrors:")[0]
+    expect(parametersSection).toBe(
+      [
+        '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.',
+        "- limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.",
+      ].join("\n"),
     )
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
       'Folder paths to exclude (e.g. Projects; default: ["Archive","Scratch"])',
@@ -2062,25 +2100,26 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(requireTextContent(result)) as {
-      total: number
-      tasks: Array<Record<string, unknown>>
-    }
-    expect(payload.total).toBe(1)
-    expect(payload.tasks[0]).toEqual({
-      path: "Projects/board.md",
-      line: 3,
-      status: "todo",
-      status_char: " ",
-      description: "Open card",
-      heading: "Active",
-      folder: "Projects",
-      created: "2026-06-20",
-      due: "2026-07-01",
-      depends_on: [],
-      tags: [],
-      depth: 0,
-      is_kanban_task: false,
+    // The whole payload, so a key added at the top level fails here
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      total: 1,
+      tasks: [
+        {
+          path: "Projects/board.md",
+          line: 3,
+          status: "todo",
+          status_char: " ",
+          description: "Open card",
+          heading: "Active",
+          folder: "Projects",
+          created: "2026-06-20",
+          due: "2026-07-01",
+          depends_on: [],
+          tags: [],
+          depth: 0,
+          is_kanban_task: false,
+        },
+      ],
     })
   })
 
@@ -2448,6 +2487,74 @@ describe("file tool handlers", () => {
     })
   })
 
+  /** One rendered PDF page as the data layer returns it. */
+  const buildRenderedPage = (pageNumber: number, imageBytes: Buffer) => ({
+    pageNumber,
+    originalBytes: 9_000,
+    fitted: {
+      data: imageBytes,
+      mimeType: "image/jpeg",
+      width: 800,
+      height: 1036,
+      originalWidth: 1224,
+      originalHeight: 1584,
+      recompressed: true,
+    },
+  })
+
+  it("returns rendered PDF pages as image blocks after a metadata line naming the title", async () => {
+    const { readAsset } = await setupAssetHarness()
+    const firstPageImage = Buffer.from("page-one")
+    const secondPageImage = Buffer.from("page-two-bytes")
+    // A stand-in result, so the title and page counts are known exactly
+    const readContentSpy = vi.spyOn(assetOperations, "readAssetContent").mockResolvedValueOnce({
+      kind: "pages",
+      path: "doc.pdf",
+      title: "Visual Doc",
+      totalPages: 3,
+      pagesRendered: 2,
+      pages: [buildRenderedPage(1, firstPageImage), buildRenderedPage(2, secondPageImage)],
+    })
+    onTestFinished(() => readContentSpy.mockRestore())
+
+    const result = await readAsset({ path: "doc.pdf", raw: true })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'doc.pdf — PDF, 3 pages, "Visual Doc" — rendered 2 pages as images',
+        },
+        { type: "image", data: firstPageImage.toString("base64"), mimeType: "image/jpeg" },
+        { type: "text", text: "Page 1 — image/jpeg, 800×1036, 8 bytes" },
+        { type: "image", data: secondPageImage.toString("base64"), mimeType: "image/jpeg" },
+        { type: "text", text: "Page 2 — image/jpeg, 800×1036, 14 bytes" },
+      ],
+    })
+  })
+
+  it("leaves the title out of an untitled one-page PDF's metadata line and counts its page in the singular", async () => {
+    const { readAsset } = await setupAssetHarness()
+    const pageImage = Buffer.from("page-one")
+    const readContentSpy = vi.spyOn(assetOperations, "readAssetContent").mockResolvedValueOnce({
+      kind: "pages",
+      path: "doc.pdf",
+      title: undefined,
+      totalPages: 1,
+      pagesRendered: 1,
+      pages: [buildRenderedPage(1, pageImage)],
+    })
+    onTestFinished(() => readContentSpy.mockRestore())
+
+    const result = await readAsset({ path: "doc.pdf", raw: true })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "doc.pdf — PDF, 1 page — rendered 1 page as images" },
+        { type: "image", data: pageImage.toString("base64"), mimeType: "image/jpeg" },
+        { type: "text", text: "Page 1 — image/jpeg, 800×1036, 8 bytes" },
+      ],
+    })
+  })
+
   it("rejects an unsupported extension naming the readable types", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     await writeFile(join(vault, "song.mp3"), "xxxx", "utf8")
@@ -2749,7 +2856,7 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const ENTRY_START =
-      "- A path nothing links to returns an empty result (count 0), not an error — if you expected links,"
+      "- A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links,"
 
     expect(emptyResultEntry("")).toBe(
       `${ENTRY_START} find valid paths with vault_search, vault_list_notes, or vault_list_files.`,
@@ -2771,7 +2878,7 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const PROTECTED_PATHS_SENTENCE =
-      " Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank)."
+      " Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank)."
 
     expect(linksEntry("")).toBe(
       `- Links to the note from other notes become broken; list them first with vault_get_backlinks.${PROTECTED_PATHS_SENTENCE}`,
@@ -2792,7 +2899,7 @@ describe("DISABLED_TOOLS", () => {
     const ENTRY_START =
       "- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it"
     const ENTRY_END =
-      '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.'
+      '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. When the daily notes folder is the vault root or blank, the default list holds no daily folder.'
 
     expect(excludeFoldersEntry("")).toBe(
       `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)${ENTRY_END}`,
@@ -2841,7 +2948,7 @@ describe("DISABLED_TOOLS", () => {
     const description = recallCall?.[1].description
 
     expect(description).toContain(
-      "text is the raw entry markdown (wikilinks intact, continuation lines included). entries ascend by date",
+      "text is the raw entry markdown (wikilinks intact, continuation lines included). total counts all matched entries",
     )
     expect(description).not.toContain("feed directly into")
   })
@@ -2929,35 +3036,35 @@ describe("DISABLED_TOOLS", () => {
     expect(whenToUse).toBe(expectedSection)
   })
 
-  const PROPERTY_VALUES_CHECKBOX_LINE =
-    '- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.'
-  const PROPERTY_VALUES_SEARCH_LINE =
-    '- vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
-  const PROPERTY_VALUES_NULL_LINE = "- null values are skipped."
+  const PROPERTY_VALUES_KEYS_SENTENCE =
+    " Call vault_list_property_keys first to discover valid key names."
+  const PROPERTY_VALUES_SEARCH_SENTENCE =
+    ' vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
 
   it.each([
     {
-      label: "names vault_search_by_property while it is served",
+      label: "names both tools while they are served",
       disabledTools: "",
-      expectedLines: [
-        PROPERTY_VALUES_CHECKBOX_LINE,
-        PROPERTY_VALUES_SEARCH_LINE,
-        PROPERTY_VALUES_NULL_LINE,
-      ],
+      expectedSection: `When to use: Enumerating possible values for a property key before calling vault_search_by_property.${PROPERTY_VALUES_KEYS_SENTENCE}${PROPERTY_VALUES_SEARCH_SENTENCE}`,
     },
     {
-      label: "drops the vault_search_by_property line when that tool is disabled",
+      label: "drops both vault_search_by_property references when that tool is disabled",
       disabledTools: "vault_search_by_property",
-      expectedLines: [PROPERTY_VALUES_CHECKBOX_LINE, PROPERTY_VALUES_NULL_LINE],
+      expectedSection: `When to use: Enumerating possible values for a property key.${PROPERTY_VALUES_KEYS_SENTENCE}`,
     },
-  ])("vault_list_property_values's behavior $label", ({ disabledTools, expectedLines }) => {
-    const behaviorTail = extractDescriptionSection({
+    {
+      label: "drops the vault_list_property_keys sentence when that tool is disabled",
+      disabledTools: "vault_list_property_keys",
+      expectedSection: `When to use: Enumerating possible values for a property key before calling vault_search_by_property.${PROPERTY_VALUES_SEARCH_SENTENCE}`,
+    },
+  ])("vault_list_property_values's when-to-use $label", ({ disabledTools, expectedSection }) => {
+    const whenToUse = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
-      startMarker: "- Checkbox values",
-      endMarker: "\n\nErrors:",
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
     })
-    expect(behaviorTail).toBe(expectedLines.join("\n"))
+    expect(whenToUse).toBe(expectedSection)
   })
 
   it.each([
@@ -3009,7 +3116,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FILESYSTEM_ENTRY_RENAME_REMEDY =
-    'a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter'
+    'a quoted name ending in ".tmp" means the note exists but cannot be saved under its current name, so rename it at least 41 bytes shorter'
 
   it.each([
     {
@@ -3025,7 +3132,8 @@ describe("DISABLED_TOOLS", () => {
   ])("the filesystem Errors entry's rename remedy $label", ({ disabledTools, expectedRemedy }) => {
     const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
     // One tool from each module that builds the entry: vault-crud-tools shares
-    // one const, task-tools builds it inline
+    // one const, task-tools builds it inline. The memory tools carry their own
+    // entry, pinned below.
     const renameRemedies = [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_UPDATE_TASK].map(
       (toolName) => {
         return extractDescriptionSection({
@@ -3039,8 +3147,33 @@ describe("DISABLED_TOOLS", () => {
     expect(renameRemedies).toEqual([expectedRemedy, expectedRemedy])
   })
 
+  // The memory folder is protected, so the memory tools' entry never names
+  // vault_move_note, served or not
+  it.each([
+    {
+      toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
+      expectedEntry:
+        '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A quoted name ending in ".tmp" means the memory file\'s name is too long to save: for a new file, pass a name at least 41 bytes shorter; an existing file needs a name at least 41 bytes shorter, renamed in Obsidian. Permissions or a full or read-only disk need the vault\'s owner',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_DELETE_MEMORY,
+      expectedEntry:
+        '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A quoted name ending in ".tmp" means the memory file\'s name is too long to save; give it a name at least 41 bytes shorter, renamed in Obsidian. Permissions or a full or read-only disk need the vault\'s owner',
+    },
+  ])(
+    "$toolName's filesystem Errors entry sends a rename to Obsidian",
+    ({ toolName, expectedEntry }) => {
+      const filesystemEntry = findDescriptionLine({
+        registeredCalls: registerWithConfig({}),
+        toolName,
+        linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
+      })
+      expect(filesystemEntry).toBe(expectedEntry)
+    },
+  )
+
   const FENCED_BLOCK_WARNING =
-    "A span that includes a code block's opening fence can't end at a plain closing fence (```): every fragment of the closing fence also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
+    "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
 
   it.each([
     {
@@ -3074,7 +3207,7 @@ describe("DISABLED_TOOLS", () => {
         registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName,
         startMarker: "A span that includes a code block",
-        endMarker: "\n- ",
+        endMarker: "\n",
       })
       expect(fencedBlockWarning).toBe(expectedSentences)
     },
@@ -3264,14 +3397,14 @@ describe("DISABLED_TOOLS", () => {
         " To only change a note's body or properties, use vault_patch_note or vault_update_properties.",
     },
     {
-      label: "names only vault_patch_note when vault_update_properties is disabled",
+      label: "routes only body edits when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
-      expectedSentence: " To only change a note's body or properties, use vault_patch_note.",
+      expectedSentence: " To only change a note's body, use vault_patch_note.",
     },
     {
-      label: "names only vault_update_properties when vault_patch_note is disabled",
+      label: "routes only property edits when vault_patch_note is disabled",
       disabledTools: "vault_patch_note",
-      expectedSentence: " To only change a note's body or properties, use vault_update_properties.",
+      expectedSentence: " To only change a note's properties, use vault_update_properties.",
     },
     {
       label: "drops the sentence when both edit tools are disabled",
@@ -3287,6 +3420,20 @@ describe("DISABLED_TOOLS", () => {
     })
     expect(editRouting).toBe(`which would orphan every backlink.${expectedSentence}`)
   })
+
+  it.each(["vault_write_note", "vault_delete_note"])(
+    "vault_move_note drops its write-and-delete warning when %s is disabled",
+    (disabledTool) => {
+      const routingLine = findDescriptionLine({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTool }),
+        toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+        linePrefix: "To only change a note's body or properties",
+      })
+      expect(routingLine).toBe(
+        "To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths cannot be moved: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank).",
+      )
+    },
+  )
 
   const PATCH_NOTE_WHEN_TO_USE =
     "When to use: Modifying part of an existing note without overwriting the entire body."

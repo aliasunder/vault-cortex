@@ -3522,6 +3522,21 @@ describe("readAsset", () => {
     ).rejects.toThrow('file not found: "photo.png/inner.png"')
   })
 
+  it("rejects a file that grew between its size check and the read", async () => {
+    await writeFile(join(vault, "growing.bin"), "123456", "utf8")
+    // Report one byte fewer than the file holds, as a write landing right
+    // after the stat would
+    vi.mocked(stat).mockImplementationOnce(async (path) => {
+      const realStats = await stat(path)
+      return Object.assign(realStats, { size: realStats.size - 1 })
+    })
+    await expect(
+      readAsset({ vaultPath: vault, path: "growing.bin", maxBytes: 1024 }, logger),
+    ).rejects.toThrow(
+      'file changed while reading: "growing.bin" grew past its measured size — retry the read',
+    )
+  })
+
   it("rejects a file over the byte cap before reading it", async () => {
     await writeFile(join(vault, "big.bin"), "12345678901", "utf8")
     await expect(

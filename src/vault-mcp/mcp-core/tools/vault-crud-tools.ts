@@ -1,6 +1,7 @@
 /** Vault CRUD tool registrations — read, write, patch, replace, delete, move. */
 
 import { z } from "zod"
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import type { VaultConfig } from "../../config.js"
 import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
 import { DEFAULT_DAILY_NOTES_FOLDER } from "../../vault-operations/daily-notes.js"
@@ -37,13 +38,13 @@ const describeDisplacedLeadingContent = ({
 
 /** Protected-path list for tool descriptions. Descriptions are built once at
  *  registration and the daily notes folder is resolved per call, so the text
- *  names that folder's sources and its fallback, not its resolved value. */
+ *  names that folder's default, not its resolved value. */
 const describeProtectedPaths = (config: VaultConfig): string => {
   if (config.protectedPathsOverride) {
     // loadConfig strips trailing slashes from override entries.
     return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ")
   }
-  return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to ${DEFAULT_DAILY_NOTES_FOLDER}/; not protected when it is the vault root or blank)`
+  return `${config.memoryDir}/ and the daily notes folder (${DEFAULT_DAILY_NOTES_FOLDER}/ by default; not protected when it is the vault root or blank)`
 }
 
 /** Sentences that point to other tools, each already "" when its tool is
@@ -180,15 +181,13 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
       }
 
       // The read modes select different content; allowing more than one would
-      // make the result ambiguous, so reject the combination up front. A
-      // whitespace-only heading (the schema's min(1) already rejects "") still
-      // counts as section mode (heading !== undefined), so the heading lookup
-      // rejects it rather than the read silently falling through to a full one.
-      const selectedModeCount = [
-        properties_only === true,
-        outline === true,
-        heading !== undefined,
-      ].filter(Boolean).length
+      // make the result ambiguous, so reject the combination up front. The
+      // schema's min(1) rejects an empty heading and a 0 for heading_level,
+      // start_line and limit, so truthy checks below find every value sent; a
+      // whitespace-only heading still counts as section mode, so the heading
+      // lookup rejects it rather than the read silently falling through to a
+      // full one.
+      const selectedModeCount = [properties_only, outline, Boolean(heading)].filter(Boolean).length
 
       if (selectedModeCount > 1) {
         return returnError(
@@ -198,11 +197,28 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
 
       // heading_level only disambiguates a heading; on its own it would be
       // silently ignored, so require its companion explicitly.
-      if (heading_level !== undefined && heading === undefined) {
+      if (heading_level && !heading) {
         return returnError("heading_level requires a heading")
       }
 
-      const isPagedRead = start_line !== undefined || limit !== undefined
+      const isPagedRead = Boolean(start_line || limit)
+
+      const formatPagedRead = (params: {
+        text: string
+        mode: "section" | "full"
+      }): CallToolResult["content"] => {
+        const { text: windowText, lineWindow } = pageTextByLines({
+          text: params.text,
+          path,
+          startLine: start_line,
+          limit,
+        })
+        reqLogger.info("tool_result", { mode: params.mode, lineWindow })
+        return [
+          { type: "text" as const, text: describeTextWindow(path, lineWindow) },
+          { type: "text" as const, text: windowText },
+        ]
+      }
 
       if (isPagedRead && outline) {
         return returnError("line paging is not available in outline mode")
@@ -226,16 +242,15 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
         return safeHandler(
           reqLogger,
           () => vaultFs.readNoteOutline({ vaultPath, path }, reqLogger),
-          (outline) => {
+          (noteOutline) => {
             reqLogger.info("tool_result", { mode: "outline" })
-            return JSON.stringify(outline)
+            return JSON.stringify(noteOutline)
           },
         )
       }
 
       // A present heading selects section mode; its absence falls through to a
-      // full read. The schema's min(1) already rejects an empty heading, so a
-      // truthy check is sufficient.
+      // full read.
       if (heading) {
         if (isPagedRead) {
           return safeHandlerContent(
@@ -245,22 +260,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
                 { vaultPath, path, heading, headingLevel: heading_level },
                 reqLogger,
               ),
-            (text) => {
-              const { text: windowText, lineWindow } = pageTextByLines({
-                text,
-                path,
-                startLine: start_line,
-                limit,
-              })
-              reqLogger.info("tool_result", { mode: "section", lineWindow })
-              return [
-                {
-                  type: "text" as const,
-                  text: describeTextWindow(path, lineWindow),
-                },
-                { type: "text" as const, text: windowText },
-              ]
-            },
+            (text) => formatPagedRead({ text, mode: "section" }),
           )
         }
         return safeHandler(
@@ -281,22 +281,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
         return safeHandlerContent(
           reqLogger,
           () => vaultFs.readNote({ vaultPath, path }, reqLogger),
-          (text) => {
-            const { text: windowText, lineWindow } = pageTextByLines({
-              text,
-              path,
-              startLine: start_line,
-              limit,
-            })
-            reqLogger.info("tool_result", { mode: "full", lineWindow })
-            return [
-              {
-                type: "text" as const,
-                text: describeTextWindow(path, lineWindow),
-              },
-              { type: "text" as const, text: windowText },
-            ]
-          },
+          (text) => formatPagedRead({ text, mode: "full" }),
         )
       }
 
@@ -325,14 +310,15 @@ When to use: Browsing what exists in a folder by filename, or finding notes matc
 Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
 Parameters:
-- folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". This tool reads the filesystem rather than the search index, so use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
-- glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "*.md" lists the folder's top-level notes and "**/*.md" every note under it. Returned paths are always vault-relative.
+- folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
+- glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "**/*.md" lists every note under it.
 
-Behavior: Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed, matching Obsidian; symlinked notes are included.
+Behavior: Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed; symlinked notes are included.
 
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
+- "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it. For ENAMETOOLONG, shorten folder.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
@@ -565,7 +551,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           ),
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
-          .describe("append | prepend | replace | insert_before."),
+          .describe("The edit to apply."),
         content: z
           .string()
           .min(1)
@@ -624,7 +610,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
         (result) => {
           reqLogger.info("tool_result", {
             outcome: "patched",
-            displaced: result.displacedLeadingContent !== null,
+            displaced: Boolean(result.displacedLeadingContent),
           })
           if (!result.displacedLeadingContent) return result.message
           return `${result.message}. ${describeDisplacedLeadingContent(result.displacedLeadingContent)}`
@@ -669,9 +655,9 @@ Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "Q3", new_t
 When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.${replaceInNoteAlternativesLine}
 
 Parameters:
-- old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
+- old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places.
 - new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") that leaves text on its line is written exactly as asked. One that empties its line never doubles blank lines: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So include the line break in old_text to remove a table row or list item, or the empty line left behind splits the table or list. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
-- replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
+- replace_all_occurrences: set true for deliberate bulk renames or term replacements.
 
 Errors:
 - "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
@@ -694,7 +680,7 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
           .describe(
             'Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md"). Use the exact letter case.',
           ),
-        old_text: z.string().min(1).describe("Exact text to find (case-sensitive)."),
+        old_text: z.string().min(1).describe("Exact text to find, no regex (case-sensitive)."),
         new_text: z
           .string()
           .describe('Replacement text. Empty string ("") deletes the matched text.'),
@@ -741,14 +727,15 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
 
   /** The span tools' warning about a fenced code block: an end anchor on its
    *  closing fence also matches the opening fence, which the span includes.
-   *  `blockEdit` names the vault_replace_in_note call that edits such a block. */
-  const fencedBlockEndAnchorText = (blockEdit: "remove" | "replace"): string => {
-    const newTextArgument = blockEdit === "remove" ? ' with new_text: ""' : ""
+   *  `editVerb` names the span tool's edit, and picks the vault_replace_in_note
+   *  arguments that make the same edit to such a block. */
+  const fencedBlockEndAnchorText = (editVerb: "remove" | "replace"): string => {
+    const newTextArgument = editVerb === "remove" ? ' with new_text: ""' : ""
     const fallbackAdvice = whenToolEnabledText(
       "vault_replace_in_note",
-      `; to ${blockEdit} such a block, use vault_replace_in_note${newTextArgument}`,
+      `; to ${editVerb} such a block, use vault_replace_in_note${newTextArgument}`,
     )
-    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): every fragment of the closing fence also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence${fallbackAdvice}.`
+    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): the end anchor is ambiguous, and first_match: true would end the span at the opening fence${fallbackAdvice}.`
   }
 
   const replaceBlockAdvice = isToolEnabled("vault_replace_span")
@@ -775,9 +762,9 @@ Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone.${deleteSpanAlternativesLine}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range. Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
-- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
-- first_match covers both anchors.
+- end_anchor is searched at or after the start line and must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
+
+Behavior: Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
@@ -874,10 +861,8 @@ Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning]
 When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone.${replaceSpanAlternativesLine}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range.
-- end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
+- end_anchor is searched at or after the start line and must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
 - content: line breaks at its start or end merge with the note's empty lines on that side, keeping the wider run (at the note's end, content's trailing line breaks count one fewer). So content can widen a gap but never narrow it: content with no line break at either end keeps the gaps as they were, and content ending in one ("| X |\\n") leaves an empty line after it, which splits a table. Content made only of line breaks joins both sides into one gap. Empty lines inside content are written as given. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
-- first_match covers both anchors.
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
@@ -984,7 +969,6 @@ Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", p
 When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.${insertAtAnchorAlternativesLine}
 
 Parameters:
-- anchor locates a full line — the insert never splits a line.
 - content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
 
 Errors:
@@ -1064,59 +1048,58 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
 
   // Under Obsidian Sync a delete never reads the "Deleted files" setting or
   // touches .trash/, so the text about that setting, the trash outcomes, and
-  // the errors they produce is left out.
-  const deleteNoteOpener = config.obsidianSyncEnabled
-    ? `Delete a markdown note for good: this server syncs through Obsidian Sync, so it bypasses the vault's "Deleted files" setting; recover a deleted note from Sync's version history (1 month on Standard, 12 months on Plus).`
-    : `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`
-  const trashOutcomeEntries = config.obsidianSyncEnabled
-    ? ""
-    : `
-- The "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) decides the outcome:
-  - "Move to system trash" (\`system\`, also what an absent setting means) moves the note to \`.trash/\`, since the server has no system trash. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none); notes Obsidian itself trashed are never touched.
-  - "Move to Obsidian trash" (\`local\`) moves the note to \`.trash/\` and keeps it forever.
-  - "Permanently delete" (\`none\`) removes the note for good.
-- The caller can't choose or see the outcome in advance; the returned message says which happened.`
-  const trashMoveErrorEntries = config.obsidianSyncEnabled
-    ? ""
-    : `
+  // the errors they produce is left out. Each entry text starts with a line
+  // break because it joins a list mid-way, and is "" when left out.
+  const deleteNoteText = config.obsidianSyncEnabled
+    ? {
+        opener: `Delete a markdown note for good. The vault owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).`,
+        trashOutcomeEntries: "",
+        trashMoveErrorEntries: "",
+        trashConfigErrorEntry: "",
+        returns: `Confirmation message — "Deleted <path>".`,
+      }
+    : {
+        opener: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
+        trashOutcomeEntries: `
+- The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance:
+  - "Move to system trash" (also what an absent setting means) moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
+  - "Move to Obsidian trash" moves the note to \`.trash/\` and keeps it forever.
+  - "Permanently delete" removes the note for good.`,
+        trashMoveErrorEntries: `
 - "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry
-- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`
-  const trashConfigErrorEntry = config.obsidianSyncEnabled
-    ? ""
-    : `
-- "cannot read trash config from .obsidian/app.json" — the file exists but can't be read or parsed, and guessing the setting could let the server's trash cleanup delete a note Obsidian keeps forever; ask the vault owner to repair it, then retry`
-  const deleteNoteReturns = config.obsidianSyncEnabled
-    ? `Confirmation message — "Deleted <path>".`
-    : `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`
+- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
+        trashConfigErrorEntry: `
+- "cannot read trash config from .obsidian/app.json" — the file exists but can't be read or parsed; ask the vault owner to repair it, then retry`,
+        returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`,
+      }
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `${deleteNoteOpener}
+      description: `${deleteNoteText.opener}
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
 When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}${whenToolEnabledText("vault_move_note", "\nTo relocate a note, use vault_move_note instead.")}${whenToolEnabledText("vault_write_note", "\nTo replace a note's content, use vault_write_note with overwrite: true instead.")}
 
-Behavior:${trashOutcomeEntries}
+Behavior:${deleteNoteText.trashOutcomeEntries}
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", "; list them first with vault_get_backlinks")}. Protected paths are refused: ${describeProtectedPaths(config)}.
 
 Parameters:
-- prune_empty_folders removes each parent folder the delete leaves with zero entries, up to but never including the vault root; a folder holding any file, even a hidden .DS_Store, is kept. Pruning runs after the delete or trash move and is best-effort: a folder that can't be removed never fails the call. Without it, empty folders stay, matching Obsidian.
+- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; retry
-- "note not found: …" — ${noteNotFoundVerifyRemedy}${trashMoveErrorEntries}
-- "cannot delete …" (other than a protected path), "EACCES: …" or another filesystem error code — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry
-- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path${trashConfigErrorEntry}
-- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
+- "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
+- "cannot delete …" (other than a protected path), "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the note stays put. A name too long for the filesystem needs a shorter path; otherwise ask the vault owner to fix the cause (e.g. permissions), then retry${deleteNoteText.trashConfigErrorEntry}
+- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 
-Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any were.`,
+Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when any were.`,
       inputSchema: {
         path: z
           .string()
@@ -1166,11 +1149,11 @@ Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any 
               // "local" is Obsidian's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
               // Passed for every option, not only "system":
-              // - Emptying .trash/ by hand leaves rows behind, so a stale row
-              //   can sit at the path this delete lands on.
+              // - Emptying .trash/ by hand leaves trash records behind, so a
+              //   stale record can sit at the path this delete lands on.
               // - A move the server does not record ("local", or a "system"
-              //   move whose record failed) drops that row, so the retention
-              //   sweep never deletes the note just trashed.
+              //   move whose record failed) drops that stale record, so the
+              //   retention sweep never deletes the note just trashed.
               // - A "none" delete lands nothing in .trash/ and never calls it.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
@@ -1196,19 +1179,37 @@ Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any 
     },
   )
 
-  const bodyOrPropertiesEditToolNames = formatEnabledToolList([
-    "vault_patch_note",
-    "vault_update_properties",
-  ])
-  const bodyOrPropertiesEditSentence = bodyOrPropertiesEditToolNames
-    ? ` To only change a note's body or properties, use ${bodyOrPropertiesEditToolNames}.`
+  // Each edit tool changes one part of a note, so the sentence names only the
+  // parts whose tool is served.
+  const noteEditRoutes = [
+    { tool: TOOL_NAMES.VAULT_PATCH_NOTE, part: "body" },
+    { tool: TOOL_NAMES.VAULT_UPDATE_PROPERTIES, part: "properties" },
+  ].filter((route) => isToolEnabled(route.tool))
+  const noteEditParts = noteEditRoutes.map((route) => route.part).join(" or ")
+  const noteEditToolNames = formatEnabledToolList(noteEditRoutes.map((route) => route.tool))
+  const noteEditSentence = noteEditToolNames
+    ? `To only change a note's ${noteEditParts}, use ${noteEditToolNames}.`
     : ""
+  // The two-tool alternative is worth warning against only while both tools
+  // are served
+  const writeAndDeleteServed =
+    isToolEnabled(TOOL_NAMES.VAULT_WRITE_NOTE) && isToolEnabled(TOOL_NAMES.VAULT_DELETE_NOTE)
+  const moveAlternativeSentence = writeAndDeleteServed
+    ? "Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink."
+    : ""
+  const moveRoutingLine = [
+    moveAlternativeSentence,
+    noteEditSentence,
+    `Protected paths cannot be moved: ${describeProtectedPaths(config)}.`,
+  ]
+    .filter(Boolean)
+    .join(" ")
 
   registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Moving a note any other way can silently break its backlinks.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
@@ -1216,29 +1217,28 @@ Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.m
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink.${bodyOrPropertiesEditSentence} Protected paths cannot be moved: ${describeProtectedPaths(config)}.
+${moveRoutingLine}
 
 Parameters:
-- prune_empty_folders removes each parent folder of old_path that the move leaves with zero entries, up to but never including the vault root; a folder holding any file, even a hidden .DS_Store, is kept. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call. Without it, empty folders stay, matching Obsidian.
+- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call.
 
 Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
-- "note not found: …" — old_path does not exist; verify it with vault_list_notes.
+- "note not found: …" — old_path does not exist; ${noteNotFoundVerifyRemedy}.
 - "source and destination are the same path" — old_path and new_path name the same note, so there is nothing to move.
-- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
-- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry.
+- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder (listed under When to use); pick a new_path outside it, or leave a protected note where it is.
+- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry.
 - "path must end in …" — both old_path and new_path must end in .md.
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them (notes cannot move from or into hidden paths, matching Obsidian).
-- "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them.
+- "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources; retry the move.
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
-- An ordinary move that fails partway (rare: a permission or disk error) — no data is lost, and the error names what failed and the resulting state. The original is deleted last, after the destination and every backlink are written. If a backlink write failed: new_path exists and old_path is intact, so delete the partial new_path, then re-run the move. If the final delete failed: both paths exist, so delete old_path to finish.
-- A case-only rename that fails partway — the note is renamed in place first. If the rename failed: nothing was written. If a later link write failed: the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
+- An ordinary move that fails partway (rare: a permission or disk error) — no data is lost, and the error names what failed and the resulting state. If a backlink write failed: new_path exists and old_path is intact, so delete the partial new_path, then re-run the move. If the final delete failed: both paths exist, so delete old_path to finish.
+- A case-only rename that fails partway — if the rename failed: nothing was written. If a later link write failed: the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
 - "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
-- "move aborted: could not write to …" — new_path could not be created; nothing was written. Saving stages a temp file 41 bytes longer than new_path's name, so a long name fails; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
-- "ENAMETOOLONG: …" — old_path or new_path, or a name in it, is longer than the filesystem allows; check the path.
-- "EACCES: …" or another filesystem error code — a note or folder can't be read or written (permissions, a full or read-only disk); nothing was written; ask the vault's owner to fix it.
+- "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
+- "ENAMETOOLONG: …", "EEXIST: …", "ENOTDIR: …", "EACCES: …" or another filesystem error code — the message names the failing path; nothing was written. EEXIST or ENOTDIR from mkdir means a folder in new_path is an existing file. A name too long needs a shorter path (the one the message names); a folder that is a file needs a different new_path; permissions or a full or read-only disk need the vault's owner.
 
-Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.
+Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.
 
 Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten, including the moved note's own relative links), updated_notes (sorted paths of the other notes and Canvas files that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of empty parent folders removed — 0 unless prune_empty_folders was set).`,
       inputSchema: {
@@ -1277,8 +1277,8 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
         async () => {
           // Canonicalize before the index lookup so an aliased input (e.g.
           // "A/../Note.md") still finds its backlinks; absolute input throws
-          // here. moveNote re-canonicalizes internally (idempotent on
-          // canonical input) — this call serves the backlinks lookup only.
+          // here. moveNote canonicalizes again, which leaves these paths as
+          // they are.
           const normalizedOldPath = resolveVaultRelativePath({
             vaultPath,
             notePath: oldPath,

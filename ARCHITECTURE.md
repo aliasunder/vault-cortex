@@ -176,7 +176,7 @@ The three anchor tools share one resolution rule: a short, case-sensitive substr
 Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
 
 - **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
-- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in every backlink source it reads to plan its rewrites, even one whose link needs no change, and a list, a single value or a tag only in a note where it must rewrite a link.
+- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in every backlink source it reads to plan its rewrites, even a source whose link needs no change. It refuses a list, a single value or a tag only in a note where it must rewrite a link.
 - **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit that removes the text above such lines, or a call that removes every property.
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
   - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
@@ -197,7 +197,7 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
-- **Canvas files:** links in text cards are rewritten like note links, and a file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
+- **Canvas files:** links in text cards are rewritten like note links; the link index does not record them, so the move finds them with its own scan ([File I/O safety](#file-io-safety)). A file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
 - **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
@@ -505,10 +505,10 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 1. The watcher starts holding: from then on, it records each path chokidar reports as changed instead of indexing it. Startup waits for chokidar's initial scan to finish.
 2. `rebuildFromVault` runs. The watcher is the index's only other writer, because a tool's vault write reaches the index as a watcher event. The watcher is holding, so nothing else writes while the rebuild reads.
-3. The watcher goes live. In the same step, it removes each held path whose latest event was a deletion, and marks every held path so that a live change to it takes over from the step 4 batch.
+3. The watcher goes live. In the same step, it removes each held path whose latest event was a deletion, and marks every held path so that the step 4 batch drops its own read of a path that a live change then indexes.
 4. One batch checks each held path against the disk, `INDEXING_FILE_READ_CONCURRENCY` (16) at a time. Paths gone from disk are removed first. The rest are read again within the rebuild's limits: other files 16 at a time, then the PDFs whose text is extracted, `PDF_EXTRACTION_CONCURRENCY` (4) at a time.
 
-The server starts accepting requests once the step 4 batch has finished writing to the index, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. A held path that a live change takes over is indexed by that change, which can finish just after the server starts.
+The server starts accepting requests once the step 4 batch has finished writing to the index, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. A live change that indexes a held path can finish just after the server starts.
 
 A file that is created after step 1 and deleted within chokidar's 2 s write-stability window emits no event, so if the rebuild read it, it stays searchable until the next restart.
 
@@ -1199,9 +1199,12 @@ Docker hardening, and durability seatbelts above.
 - **Atomic writes** (`atomicWriteFile` in `vault-filesystem.ts`):
   write-to-temp-then-rename. The target is never truncated — the
   Obsidian Sync process sees either old content or new content, never a
-  0-byte or partial write. The temp file is cleaned up in a `finally`
-  block on failure (`catch` in `atomicWriteFile`; `finally` in
-  `atomicWriteFileExclusive`).
+  0-byte or partial write. The temp file is named after the note plus
+  `.<UUID>.tmp`, 41 bytes longer, so a note whose name sits fewer than
+  41 bytes under the filesystem's limit reads fine but cannot be saved; the
+  tools' filesystem-error entry asks for a name at least 41 bytes
+  shorter. On failure the temp file is removed, by a `catch` in
+  `atomicWriteFile` and by a `finally` in `atomicWriteFileExclusive`.
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with
   `EEXIST` if the target already exists, closing the TOCTOU race on
