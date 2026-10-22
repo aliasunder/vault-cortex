@@ -317,7 +317,7 @@ Behavior: Paths come back sorted by vault-relative path in code-unit order (uppe
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
-- "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it.
+- "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it. For ENAMETOOLONG, shorten folder.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
@@ -1060,11 +1060,10 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
     : {
         opener: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
         trashOutcomeEntries: `
-- The "Deleted files" setting decides the outcome:
+- The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance; the returned message says which of these happened:
   - "Move to system trash" (also what an absent setting means) moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
   - "Move to Obsidian trash" moves the note to \`.trash/\` and keeps it forever.
-  - "Permanently delete" removes the note for good.
-- The caller can't choose or see the outcome in advance; the returned message says which happened.`,
+  - "Permanently delete" removes the note for good.`,
         trashMoveErrorEntries: `
 - "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry
 - "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
@@ -1096,8 +1095,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
-- "cannot delete …" (other than a protected path), "EACCES: …" or another filesystem error code — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry
-- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path${deleteNoteText.trashConfigErrorEntry}
+- "cannot delete …" (other than a protected path), "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the note stays put. A name too long for the filesystem needs a shorter path; otherwise ask the vault owner to fix the cause (e.g. permissions), then retry${deleteNoteText.trashConfigErrorEntry}
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 
 Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when any were.`,
@@ -1223,9 +1221,7 @@ Errors:
 - A case-only rename that fails partway — if the rename failed: nothing was written. If a later link write failed: the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
 - "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
 - "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
-- "ENAMETOOLONG: …" — old_path or new_path, or a name in it, is longer than the filesystem allows; check the path.
-- "EEXIST: …" / "ENOTDIR: …" naming a folder of new_path — part of new_path's folder path is an existing file; nothing was written; pick a new_path whose folders are not files.
-- "EACCES: …" or another filesystem error code — a note or folder can't be read or written (permissions, a full or read-only disk); nothing was written; ask the vault's owner to fix it.
+- "ENAMETOOLONG: …", "EEXIST: …", "ENOTDIR: …", "EACCES: …" or another filesystem error code — the message names the failing path; nothing was written. EEXIST or ENOTDIR from mkdir means a folder in new_path is an existing file. A name too long or a folder that is a file needs a different new_path; permissions or a full or read-only disk need the vault's owner.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.
 

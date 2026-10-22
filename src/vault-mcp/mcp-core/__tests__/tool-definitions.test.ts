@@ -1230,12 +1230,10 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     '- "concurrent write in progress" — another write to this note is in flight; retry',
     '- "note not found: …" — verify path with vault_list_notes',
   ]
-  const OTHER_DELETE_ERROR_ENTRY =
-    '- "cannot delete …" (other than a protected path), "EACCES: …" or another filesystem error code — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry'
+  const FILESYSTEM_ERROR_ENTRY =
+    '- "cannot delete …" (other than a protected path), "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the note stays put. A name too long for the filesystem needs a shorter path; otherwise ask the vault owner to fix the cause (e.g. permissions), then retry'
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
     '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
-  const NAME_TOO_LONG_ERROR_ENTRY =
-    '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path'
 
   it("lists the trash-move and trash-setting errors when the server does not sync", () => {
     expect(deleteNoteErrors({})).toBe(
@@ -1244,8 +1242,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
         '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry',
         '- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
-        OTHER_DELETE_ERROR_ENTRY,
-        NAME_TOO_LONG_ERROR_ENTRY,
+        FILESYSTEM_ERROR_ENTRY,
         '- "cannot read trash config from .obsidian/app.json" — the file exists but can\'t be read or parsed; ask the vault owner to repair it, then retry',
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
@@ -1257,8 +1254,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
       [
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
-        OTHER_DELETE_ERROR_ENTRY,
-        NAME_TOO_LONG_ERROR_ENTRY,
+        FILESYSTEM_ERROR_ENTRY,
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -1288,11 +1284,10 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     expect(deleteNoteBehavior({})).toBe(
       [
         "Behavior:",
-        '- The "Deleted files" setting decides the outcome:',
+        '- The "Deleted files" setting decides the outcome, which the caller can\'t choose or see in advance; the returned message says which of these happened:',
         '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
         '  - "Move to Obsidian trash" moves the note to `.trash/` and keeps it forever.',
         '  - "Permanently delete" removes the note for good.',
-        "- The caller can't choose or see the outcome in advance; the returned message says which happened.",
         LINKS_AND_PROTECTED_PATHS_ENTRY,
       ].join("\n"),
     )
@@ -2861,7 +2856,7 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const ENTRY_START =
-      "- A path nothing links to returns an empty result (count 0), not an error — if you expected links,"
+      "- A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links,"
 
     expect(emptyResultEntry("")).toBe(
       `${ENTRY_START} find valid paths with vault_search, vault_list_notes, or vault_list_files.`,

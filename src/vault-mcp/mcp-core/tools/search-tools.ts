@@ -54,7 +54,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
 
   const searchErrorsSection = `Errors:
 - No matches returns { results: [], total: 0 }, not an error
-- Malformed query syntax never throws: the operators AND, OR, NOT and NEAR, and punctuation such as *, ^, parentheses and colons, are dropped before matching
+- Malformed query syntax never throws: the operators AND, OR, NOT and NEAR, and punctuation such as *, ^, parentheses and colons, are dropped before matching; a query left with no terms returns { results: [], total: 0 }
 - "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
 - "… is not a calendar date" — a created/modified bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name`
@@ -284,7 +284,7 @@ Prefer vault_search for content-based discovery. Prefer vault_search_by_folder f
 
 Parameters:
 - sort_by + limit interact: "modified" uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
-- "modified" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
+- sort_by "modified" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
 
 Errors:
 - An empty vault returns an empty array, not an error.
@@ -559,7 +559,7 @@ Returns: JSON with path (the queried note or canvas), backlinks (array of { path
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
-- A path nothing links to returns an empty result (count 0), not an error — if you expected links, ${backlinksEmptyResultRemedy}.`,
+- A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links, ${backlinksEmptyResultRemedy}.`,
       inputSchema: {
         path: z
           .string()
@@ -675,7 +675,7 @@ Errors:
       description: `Find notes with no incoming links from other notes or canvases — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan.
 
 Example: vault_find_orphans({})
-Example: vault_find_orphans({ exclude_folders: ["Templates", "Archive"], limit: 20 }) — replaces the default exclusions with these two folders
+Example: vault_find_orphans({ exclude_folders: ["Templates", "Archive"], limit: 20 })
 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.

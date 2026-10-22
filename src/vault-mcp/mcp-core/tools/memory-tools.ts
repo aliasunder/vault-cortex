@@ -21,7 +21,7 @@ const DELETE_MEMORY_FILESYSTEM_ERROR_ENTRY = `${MEMORY_FILESYSTEM_ERROR_ENTRY_LE
 /** The memory store wraps a failed read without the Node error's code, so the
  *  filesystem-error entry's code names never match this message. */
 const MEMORY_FILE_READ_ERROR_ENTRY =
-  "- \"cannot read memory file …\" — the file exists but can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise its permissions need the vault's owner"
+  "- \"cannot read memory file …\" — the file can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise its permissions need the vault's owner"
 
 /** Errors entries for a memory file whose properties block the server
  *  refuses. Reads refuse only YAML they cannot read. Writes also refuse a
@@ -78,6 +78,7 @@ export const registerMemoryTools = ({
 
 With file+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when new entries go at the top, the default). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
 
+Example: vault_get_memory({ file: "Principles" }) — the whole file
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
 Example: vault_get_memory({ file: "Opinions", section: "Code patterns", on_or_after: "2026-09-01" })
 Example: vault_get_memory({ file: "Opinions", on_or_after: "2026-09-01" }) — every section's entries since the date
@@ -447,18 +448,11 @@ Returns: "Deleted entry from ${config.memoryDir}/<file>.md → ## <section>".`,
           .describe(
             'H2 section heading containing the entry. Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
-        date: z
-          .string()
-          .min(1)
-          .describe(
-            'ISO YYYY-MM-DD date of the entry (e.g. "2026-05-01"). Must match the date shown by vault_get_memory.',
-          ),
+        date: z.string().min(1).describe('ISO YYYY-MM-DD date of the entry (e.g. "2026-05-01").'),
         entry: z
           .string()
           .min(1)
-          .describe(
-            'Exact entry text as shown by vault_get_memory — without the "- **YYYY-MM-DD**: " prefix or bullet.',
-          ),
+          .describe('Exact entry text, without the "- **YYYY-MM-DD**: " prefix or bullet.'),
       },
     },
     async ({ file, section, date, entry }, extra) => {
