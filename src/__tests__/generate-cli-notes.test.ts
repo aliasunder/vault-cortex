@@ -169,6 +169,22 @@ describe("generate-cli-notes.sh", () => {
       })
     })
 
+    it("lists a commented-out setting added to a .ts template", () => {
+      const repo = createCliReleaseRepo()
+      repo.commit("feat(cli): offer the log level setting", {
+        "cli/src/env.ts": envTemplateModule({
+          comment: "# Path to the vault",
+          setting: "VAULT_PATH=/vault\n\n# How much the server logs\n# LOG_LEVEL=info",
+        }),
+      })
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "- feat(cli): offer the log level setting\n",
+        stderr: "",
+      })
+    })
+
     it("lists a heading added to an .md file git quotes, after .ts comments in the same commit", () => {
       const repo = createCliReleaseRepo()
       repo.commit("docs(cli): add a guide", {
@@ -204,7 +220,7 @@ describe("generate-cli-notes.sh", () => {
           "// Written to a new .env file\n" +
           "/**\n * The local template.\n */\n" +
           envTemplateModule({
-            comment: "# Folder that holds your vault",
+            comment: "# Folder that holds your vault (default: VAULT_PATH=/vault)",
             setting: "VAULT_PATH=/vault\n",
           }),
       })

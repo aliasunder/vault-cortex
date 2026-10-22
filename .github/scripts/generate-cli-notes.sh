@@ -11,9 +11,11 @@
 # - lines in files under cli/src/__tests__/
 # - the "version" line of cli/package.json (the release bump)
 # - in .ts files, lines that start, after any indent, with #, //, /*, * or */;
-#   the rule reads only how a line starts, so it skips comment lines, the .env
-#   templates' # lines in cli/src/env.ts (they stay comments in the .env the
-#   CLI writes), and any code line that starts the same way
+#   the rule reads only how a line starts, so it skips comment lines, the
+#   comment text of the .env templates in cli/src/env.ts, and any code line
+#   that starts the same way. A # line shaped like a setting (# KEY=value,
+#   the key in capitals) still counts: the templates ship optional settings
+#   commented out, for the user to uncomment.
 # In files other than .ts, cli/README.md included, every non-blank line
 # counts: npm shows the README.
 
@@ -54,6 +56,8 @@ has_counted_change() {
       content = substr($0, 2)
       if (content ~ /^[ \t\r]*$/) next
       if (path == "cli/package.json" && content ~ /^[ \t]*"version"[ \t]*:/) next
+      # Before the # skip below, so a commented-out setting (# KEY=value) counts.
+      if (path ~ /\.ts$/ && content ~ /^[ \t]*#[ \t]*[A-Z][A-Z0-9_]*=/) { found = 1; exit }
       if (path ~ /\.ts$/ && content ~ /^[ \t]*(#|\/\/|\/\*|\*)/) next
       found = 1
       exit
