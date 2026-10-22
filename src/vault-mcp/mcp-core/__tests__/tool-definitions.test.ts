@@ -3136,22 +3136,46 @@ describe("DISABLED_TOOLS", () => {
     },
   ])("the filesystem Errors entry's rename remedy $label", ({ disabledTools, expectedRemedy }) => {
     const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
-    // One tool from each module that builds the entry: vault-crud-tools and
-    // memory-tools each share one const, task-tools builds it inline
-    const renameRemedies = [
-      TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-      TOOL_NAMES.VAULT_UPDATE_TASK,
-      TOOL_NAMES.VAULT_UPDATE_MEMORY,
-    ].map((toolName) => {
-      return extractDescriptionSection({
-        registeredCalls,
-        toolName,
-        startMarker: 'a quoted name ending in ".tmp"',
-        endMarker: " Permissions or a full",
-      })
-    })
-    expect(renameRemedies).toEqual([expectedRemedy, expectedRemedy, expectedRemedy])
+    // One tool from each module that builds the entry: vault-crud-tools shares
+    // one const, task-tools builds it inline. The memory tools carry their own
+    // entry, pinned below.
+    const renameRemedies = [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_UPDATE_TASK].map(
+      (toolName) => {
+        return extractDescriptionSection({
+          registeredCalls,
+          toolName,
+          startMarker: 'a quoted name ending in ".tmp"',
+          endMarker: " Permissions or a full",
+        })
+      },
+    )
+    expect(renameRemedies).toEqual([expectedRemedy, expectedRemedy])
   })
+
+  // The memory folder is protected, so the memory tools' entry never names
+  // vault_move_note, served or not
+  it.each([
+    {
+      toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
+      expectedEntry:
+        '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A quoted name ending in ".tmp" means the memory file\'s name is too long to save: for a new file, pass a name at least 41 bytes shorter; an existing file needs a name at least 41 bytes shorter, renamed in Obsidian. Permissions or a full or read-only disk need the vault\'s owner',
+    },
+    {
+      toolName: TOOL_NAMES.VAULT_DELETE_MEMORY,
+      expectedEntry:
+        '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A quoted name ending in ".tmp" means the memory file\'s name is too long to save; give it a name at least 41 bytes shorter, renamed in Obsidian. Permissions or a full or read-only disk need the vault\'s owner',
+    },
+  ])(
+    "$toolName's filesystem Errors entry sends a rename to Obsidian",
+    ({ toolName, expectedEntry }) => {
+      const filesystemEntry = findDescriptionLine({
+        registeredCalls: registerWithConfig({}),
+        toolName,
+        linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
+      })
+      expect(filesystemEntry).toBe(expectedEntry)
+    },
+  )
 
   const FENCED_BLOCK_WARNING =
     "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is ambiguous, and first_match: true would end the span at the opening fence"

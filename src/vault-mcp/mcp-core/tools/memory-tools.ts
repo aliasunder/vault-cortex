@@ -4,7 +4,19 @@ import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { createStrictInputObject, describeFilesystemErrorEntry } from "./tool-helpers.js"
+import { createStrictInputObject } from "./tool-helpers.js"
+
+/** The memory tools' filesystem-error entries. Their remedy for a name too
+ *  long to save differs from the shared entry's: the memory folder is
+ *  protected, so vault_move_note cannot rename a memory file, and
+ *  vault_update_memory can hit the error while creating the file, when no
+ *  file exists to rename. */
+const MEMORY_FILESYSTEM_ERROR_ENTRY_LEAD =
+  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A quoted name ending in ".tmp" means the memory file\'s name is too long to save'
+const MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL =
+  "Permissions or a full or read-only disk need the vault's owner"
+const UPDATE_MEMORY_FILESYSTEM_ERROR_ENTRY = `${MEMORY_FILESYSTEM_ERROR_ENTRY_LEAD}: for a new file, pass a name at least 41 bytes shorter; an existing file needs a name at least 41 bytes shorter, renamed in Obsidian. ${MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL}`
+const DELETE_MEMORY_FILESYSTEM_ERROR_ENTRY = `${MEMORY_FILESYSTEM_ERROR_ENTRY_LEAD}; give it a name at least 41 bytes shorter, renamed in Obsidian. ${MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL}`
 
 /** Errors entries for a memory file whose properties block the server
  *  refuses. Reads refuse only YAML they cannot read. Writes also refuse a
@@ -28,7 +40,6 @@ export const registerMemoryTools = ({
   config,
 }: ToolRegistrationContext): void => {
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
-  const filesystemErrorEntry = describeFilesystemErrorEntry(whenToolEnabledText)
 
   // Tools a reader follows vault_list_memory_files with. Every one of them —
   // the read tool included — can be dropped individually via DISABLED_TOOLS,
@@ -307,7 +318,7 @@ Errors:
 - "entry contains a control character" / "section contains a control character" — the value includes a non-printable control byte; remove it before writing.
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — use a bare file name: no folder or slash, and no leading dot.
 - "section not created: … is nearly identical to existing section …" — near-duplicate guard; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section.
-${filesystemErrorEntry}
+${UPDATE_MEMORY_FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
@@ -412,7 +423,7 @@ Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section. Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
-${filesystemErrorEntry}
+${DELETE_MEMORY_FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
