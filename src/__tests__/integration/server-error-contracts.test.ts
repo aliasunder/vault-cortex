@@ -786,6 +786,7 @@ describe("filesystem errors name the path vault-relative", () => {
     { name: "vault_replace_in_note", args: { old_text: "line one", new_text: "line 1" } },
     { name: "vault_delete_span", args: { start_anchor: "line one" } },
     { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
+    { name: "vault_create_task", args: { description: "another task", block_id: "another" } },
   ])("$name on a note whose name is too long for the save's temp file", async ({ name, args }) => {
     const nameTooLongForTempFile = `${"b".repeat(230)}.md`
     await plantFileWithMode({ filePath: nameTooLongForTempFile, mode: 0o644 })
@@ -811,6 +812,42 @@ describe("filesystem errors name the path vault-relative", () => {
       "line one\n- [ ] a task\n",
     )
   })
+
+  const memoryFileContent = "## Notes (newest first)\n- **2026-01-01**: kept\n"
+
+  it.each([
+    { name: "vault_update_memory", args: { section: "Notes", entry: "added" } },
+    { name: "vault_delete_memory", args: { section: "Notes", date: "2026-01-01", entry: "kept" } },
+  ])(
+    "$name on a memory file whose name is too long for the save's temp file",
+    async ({ name, args }) => {
+      const fileTooLongForTempFile = "m".repeat(230)
+      const memoryFilePath = join(serverVaultPath, "About Me", `${fileTooLongForTempFile}.md`)
+      await writeFile(memoryFilePath, memoryFileContent)
+      onTestFinished(() => rm(memoryFilePath))
+
+      const result = await callTool({
+        client,
+        name,
+        args: { file: fileTooLongForTempFile, ...args },
+      })
+      expect(result).toEqual({
+        content: [
+          {
+            type: "text",
+            // The temp file's name ends in a random UUID
+            text: expect.stringMatching(
+              new RegExp(
+                `^\\[Error\\]: ENAMETOOLONG: name too long, open 'About Me/${fileTooLongForTempFile}\\.md\\.[0-9a-f-]{36}\\.tmp'$`,
+              ),
+            ),
+          },
+        ],
+        isError: true,
+      })
+      await expect(readFile(memoryFilePath, "utf8")).resolves.toBe(memoryFileContent)
+    },
+  )
 
   it.skipIf(runsAsRoot)(
     "vault_write_note into a read-only folder names the temp file vault-relative",

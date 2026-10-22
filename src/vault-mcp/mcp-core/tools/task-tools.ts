@@ -260,6 +260,7 @@ Errors: (messages use camelCase names, e.g. blockId for block_id)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; use a rule such as "every week" or "every 2 weeks when done"
 - "invalid date" — a date param fails calendar validation; pass a real YYYY-MM-DD date
 - "concurrent write in progress" — another write to this note is in flight; retry
+${describeFilesystemErrorEntry(whenToolEnabledText)}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
