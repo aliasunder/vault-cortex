@@ -1,15 +1,13 @@
 /** Asset tool registration — reading and discovering non-markdown vault files. */
 
 import { z } from "zod"
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { describeTextWindow } from "./tool-helpers.js"
-
-type ContentBlock =
-  { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
@@ -27,49 +25,51 @@ const describeDeliveredImage = (result: {
 
 /** Formats an asset read result into MCP content blocks — the image, pages,
  *  or text representation the model sees. */
-const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
-  if (result.kind === "image") {
-    return [
-      {
-        type: "image",
-        data: result.fitted.data.toString("base64"),
-        mimeType: result.fitted.mimeType,
-      },
-      { type: "text", text: describeDeliveredImage(result) },
-    ]
-  }
-  if (result.kind === "pages") {
-    const titleSegment = result.title ? `, "${result.title}"` : ""
-    const metadataLine =
-      `${result.path} — PDF, ${result.totalPages} pages` +
-      titleSegment +
-      ` — rendered ${result.pagesRendered} ` +
-      `page${result.pagesRendered === 1 ? "" : "s"} as images`
-    const pageBlocks = result.pages.flatMap((page) => [
-      {
-        type: "image" as const,
-        data: page.fitted.data.toString("base64"),
-        mimeType: page.fitted.mimeType,
-      },
-      {
-        type: "text" as const,
-        text:
-          `Page ${page.pageNumber} — ${page.fitted.mimeType}, ` +
-          `${page.fitted.width}×${page.fitted.height}, ` +
-          `${page.fitted.data.length} bytes`,
-      },
-    ])
-    return [{ type: "text", text: metadataLine }, ...pageBlocks]
-  }
-  if (result.lineWindow) {
-    const metadataBlock = {
-      type: "text" as const,
-      text: describeTextWindow(result.path, result.lineWindow),
+const formatAssetReadResult = (result: AssetReadResult): CallToolResult["content"] => {
+  switch (result.kind) {
+    case "image":
+      return [
+        {
+          type: "image",
+          data: result.fitted.data.toString("base64"),
+          mimeType: result.fitted.mimeType,
+        },
+        { type: "text", text: describeDeliveredImage(result) },
+      ]
+    case "pages": {
+      const titleSegment = result.title ? `, "${result.title}"` : ""
+      const metadataLine =
+        `${result.path} — PDF, ${result.totalPages} pages` +
+        titleSegment +
+        ` — rendered ${result.pagesRendered} ` +
+        `page${result.pagesRendered === 1 ? "" : "s"} as images`
+      const pageBlocks = result.pages.flatMap((page) => [
+        {
+          type: "image" as const,
+          data: page.fitted.data.toString("base64"),
+          mimeType: page.fitted.mimeType,
+        },
+        {
+          type: "text" as const,
+          text:
+            `Page ${page.pageNumber} — ${page.fitted.mimeType}, ` +
+            `${page.fitted.width}×${page.fitted.height}, ` +
+            `${page.fitted.data.length} bytes`,
+        },
+      ])
+      return [{ type: "text", text: metadataLine }, ...pageBlocks]
     }
-    const contentBlock = { type: "text" as const, text: result.text }
-    return [metadataBlock, contentBlock]
+    case "text": {
+      if (!result.lineWindow) return [{ type: "text", text: result.text }]
+
+      const metadataBlock = {
+        type: "text" as const,
+        text: describeTextWindow(result.path, result.lineWindow),
+      }
+      const contentBlock = { type: "text" as const, text: result.text }
+      return [metadataBlock, contentBlock]
+    }
   }
-  return [{ type: "text", text: result.text }]
 }
 
 export const registerAssetTools = ({
@@ -175,30 +175,34 @@ Returns: for images, an image content block plus a one-line metadata text block;
             reqLogger,
           ),
         (result) => {
-          if (result.kind === "image") {
-            reqLogger.info("tool_result", {
-              path,
-              mimeType: result.fitted.mimeType,
-              deliveredBytes: result.fitted.data.length,
-              originalBytes: result.originalBytes,
-              width: result.fitted.width,
-              height: result.fitted.height,
-              originalWidth: result.fitted.originalWidth,
-              originalHeight: result.fitted.originalHeight,
-              recompressed: result.fitted.recompressed,
-            })
-          } else if (result.kind === "pages") {
-            reqLogger.info("tool_result", {
-              path,
-              totalPages: result.totalPages,
-              pagesRendered: result.pagesRendered,
-            })
-          } else {
-            reqLogger.info("tool_result", {
-              path,
-              textBytes: Buffer.byteLength(result.text, "utf8"),
-              ...(result.lineWindow ?? {}),
-            })
+          switch (result.kind) {
+            case "image":
+              reqLogger.info("tool_result", {
+                path,
+                mimeType: result.fitted.mimeType,
+                deliveredBytes: result.fitted.data.length,
+                originalBytes: result.originalBytes,
+                width: result.fitted.width,
+                height: result.fitted.height,
+                originalWidth: result.fitted.originalWidth,
+                originalHeight: result.fitted.originalHeight,
+                recompressed: result.fitted.recompressed,
+              })
+              break
+            case "pages":
+              reqLogger.info("tool_result", {
+                path,
+                totalPages: result.totalPages,
+                pagesRendered: result.pagesRendered,
+              })
+              break
+            case "text":
+              reqLogger.info("tool_result", {
+                path,
+                textBytes: Buffer.byteLength(result.text, "utf8"),
+                ...(result.lineWindow ?? {}),
+              })
+              break
           }
           return formatAssetReadResult(result)
         },

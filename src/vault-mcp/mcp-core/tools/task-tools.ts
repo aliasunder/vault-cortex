@@ -39,7 +39,7 @@ ${whenToolEnabledText("vault_read_note", "Prefer vault_read_note (heading mode) 
 Behavior: A file change takes a few seconds to appear here, so a task written moments ago may still show its old state.
 
 Parameters:
-- status: virtual values expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
+- status: "not_done" and "all" expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
 - due / scheduled / start / done / created / cancelled: a date filter only matches tasks that HAVE that date.
 - folder: a whole folder, subfolders included ("Projects" covers "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
 
@@ -47,7 +47,7 @@ Errors:
 - "invalid due.before date: …" (any date filter's bound) — the bound isn't in YYYY-MM-DD form; use that form
 - "… is not a calendar date" — the bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - "path must end in .md" — add the ".md" extension
-- tag must not be empty after its leading "#" — tag is "#" alone; pass the tag name
+- "tag must not be empty …" — tag is "#" alone; pass the tag name
 - No matches returns { total: 0, tasks: [] }, not an error
 
 Returns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist; done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
@@ -207,10 +207,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
             resultCount: result.tasks.length,
             total: result.total,
           })
-          return JSON.stringify({
-            total: result.total,
-            tasks: result.tasks,
-          })
+          return JSON.stringify(result)
         },
       )
     },

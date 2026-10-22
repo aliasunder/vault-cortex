@@ -1,6 +1,7 @@
 /** Vault CRUD tool registrations — read, write, patch, replace, delete, move. */
 
 import { z } from "zod"
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import type { VaultConfig } from "../../config.js"
 import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
 import { DEFAULT_DAILY_NOTES_FOLDER } from "../../vault-operations/daily-notes.js"
@@ -180,15 +181,12 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
       }
 
       // The read modes select different content; allowing more than one would
-      // make the result ambiguous, so reject the combination up front. A
-      // whitespace-only heading (the schema's min(1) already rejects "") still
-      // counts as section mode (heading !== undefined), so the heading lookup
-      // rejects it rather than the read silently falling through to a full one.
-      const selectedModeCount = [
-        properties_only === true,
-        outline === true,
-        heading !== undefined,
-      ].filter(Boolean).length
+      // make the result ambiguous, so reject the combination up front. The
+      // schema's min(1) rejects an empty heading, so a truthy check finds every
+      // heading; a whitespace-only one still counts as section mode, so the
+      // heading lookup rejects it rather than the read silently falling
+      // through to a full one.
+      const selectedModeCount = [properties_only, outline, Boolean(heading)].filter(Boolean).length
 
       if (selectedModeCount > 1) {
         return returnError(
@@ -198,11 +196,28 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
 
       // heading_level only disambiguates a heading; on its own it would be
       // silently ignored, so require its companion explicitly.
-      if (heading_level !== undefined && heading === undefined) {
+      if (heading_level && !heading) {
         return returnError("heading_level requires a heading")
       }
 
-      const isPagedRead = start_line !== undefined || limit !== undefined
+      const isPagedRead = Boolean(start_line || limit)
+
+      const formatPagedRead = (params: {
+        text: string
+        mode: "section" | "full"
+      }): CallToolResult["content"] => {
+        const { text: windowText, lineWindow } = pageTextByLines({
+          text: params.text,
+          path,
+          startLine: start_line,
+          limit,
+        })
+        reqLogger.info("tool_result", { mode: params.mode, lineWindow })
+        return [
+          { type: "text" as const, text: describeTextWindow(path, lineWindow) },
+          { type: "text" as const, text: windowText },
+        ]
+      }
 
       if (isPagedRead && outline) {
         return returnError("line paging is not available in outline mode")
@@ -226,16 +241,15 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
         return safeHandler(
           reqLogger,
           () => vaultFs.readNoteOutline({ vaultPath, path }, reqLogger),
-          (outline) => {
+          (noteOutline) => {
             reqLogger.info("tool_result", { mode: "outline" })
-            return JSON.stringify(outline)
+            return JSON.stringify(noteOutline)
           },
         )
       }
 
       // A present heading selects section mode; its absence falls through to a
-      // full read. The schema's min(1) already rejects an empty heading, so a
-      // truthy check is sufficient.
+      // full read.
       if (heading) {
         if (isPagedRead) {
           return safeHandlerContent(
@@ -245,22 +259,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
                 { vaultPath, path, heading, headingLevel: heading_level },
                 reqLogger,
               ),
-            (text) => {
-              const { text: windowText, lineWindow } = pageTextByLines({
-                text,
-                path,
-                startLine: start_line,
-                limit,
-              })
-              reqLogger.info("tool_result", { mode: "section", lineWindow })
-              return [
-                {
-                  type: "text" as const,
-                  text: describeTextWindow(path, lineWindow),
-                },
-                { type: "text" as const, text: windowText },
-              ]
-            },
+            (text) => formatPagedRead({ text, mode: "section" }),
           )
         }
         return safeHandler(
@@ -281,22 +280,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
         return safeHandlerContent(
           reqLogger,
           () => vaultFs.readNote({ vaultPath, path }, reqLogger),
-          (text) => {
-            const { text: windowText, lineWindow } = pageTextByLines({
-              text,
-              path,
-              startLine: start_line,
-              limit,
-            })
-            reqLogger.info("tool_result", { mode: "full", lineWindow })
-            return [
-              {
-                type: "text" as const,
-                text: describeTextWindow(path, lineWindow),
-              },
-              { type: "text" as const, text: windowText },
-            ]
-          },
+          (text) => formatPagedRead({ text, mode: "full" }),
         )
       }
 
@@ -624,7 +608,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
         (result) => {
           reqLogger.info("tool_result", {
             outcome: "patched",
-            displaced: result.displacedLeadingContent !== null,
+            displaced: Boolean(result.displacedLeadingContent),
           })
           if (!result.displacedLeadingContent) return result.message
           return `${result.message}. ${describeDisplacedLeadingContent(result.displacedLeadingContent)}`
@@ -741,12 +725,13 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
 
   /** The span tools' warning about a fenced code block: an end anchor on its
    *  closing fence also matches the opening fence, which the span includes.
-   *  `blockEdit` names the vault_replace_in_note call that edits such a block. */
-  const fencedBlockEndAnchorText = (blockEdit: "remove" | "replace"): string => {
-    const newTextArgument = blockEdit === "remove" ? ' with new_text: ""' : ""
+   *  `editVerb` names the span tool's edit, and picks the vault_replace_in_note
+   *  arguments that make the same edit to such a block. */
+  const fencedBlockEndAnchorText = (editVerb: "remove" | "replace"): string => {
+    const newTextArgument = editVerb === "remove" ? ' with new_text: ""' : ""
     const fallbackAdvice = whenToolEnabledText(
       "vault_replace_in_note",
-      `; to ${blockEdit} such a block, use vault_replace_in_note${newTextArgument}`,
+      `; to ${editVerb} such a block, use vault_replace_in_note${newTextArgument}`,
     )
     return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): the end anchor is ambiguous, and first_match: true would end the span at the opening fence${fallbackAdvice}.`
   }
@@ -1061,43 +1046,44 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
 
   // Under Obsidian Sync a delete never reads the "Deleted files" setting or
   // touches .trash/, so the text about that setting, the trash outcomes, and
-  // the errors they produce is left out.
-  const deleteNoteOpener = config.obsidianSyncEnabled
-    ? `Delete a markdown note for good; recover a deleted note from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).`
-    : `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`
-  const trashOutcomeEntries = config.obsidianSyncEnabled
-    ? ""
-    : `
+  // the errors they produce is left out. Each entry text starts with a line
+  // break because it joins a list mid-way, and is "" when left out.
+  const deleteNoteText = config.obsidianSyncEnabled
+    ? {
+        opener: `Delete a markdown note for good; recover a deleted note from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).`,
+        trashOutcomeEntries: "",
+        trashMoveErrorEntries: "",
+        trashConfigErrorEntry: "",
+        returns: `Confirmation message — "Deleted <path>".`,
+      }
+    : {
+        opener: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
+        trashOutcomeEntries: `
 - The "Deleted files" setting decides the outcome:
   - "Move to system trash" (also what an absent setting means) moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
   - "Move to Obsidian trash" moves the note to \`.trash/\` and keeps it forever.
   - "Permanently delete" removes the note for good.
-- The caller can't choose or see the outcome in advance; the returned message says which happened.`
-  const trashMoveErrorEntries = config.obsidianSyncEnabled
-    ? ""
-    : `
+- The caller can't choose or see the outcome in advance; the returned message says which happened.`,
+        trashMoveErrorEntries: `
 - "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry
-- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`
-  const trashConfigErrorEntry = config.obsidianSyncEnabled
-    ? ""
-    : `
-- "cannot read trash config from .obsidian/app.json" — the file exists but can't be read or parsed; ask the vault owner to repair it, then retry`
-  const deleteNoteReturns = config.obsidianSyncEnabled
-    ? `Confirmation message — "Deleted <path>".`
-    : `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`
+- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
+        trashConfigErrorEntry: `
+- "cannot read trash config from .obsidian/app.json" — the file exists but can't be read or parsed; ask the vault owner to repair it, then retry`,
+        returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`,
+      }
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `${deleteNoteOpener}
+      description: `${deleteNoteText.opener}
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
 When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}${whenToolEnabledText("vault_move_note", "\nTo relocate a note, use vault_move_note instead.")}${whenToolEnabledText("vault_write_note", "\nTo replace a note's content, use vault_write_note with overwrite: true instead.")}
 
-Behavior:${trashOutcomeEntries}
+Behavior:${deleteNoteText.trashOutcomeEntries}
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", "; list them first with vault_get_backlinks")}. Protected paths are refused: ${describeProtectedPaths(config)}.
 
 Parameters:
@@ -1108,12 +1094,12 @@ Errors:
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; retry
-- "note not found: …" — ${noteNotFoundVerifyRemedy}${trashMoveErrorEntries}
+- "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
 - "cannot delete …" (other than a protected path), "EACCES: …" or another filesystem error code — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry
-- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path${trashConfigErrorEntry}
+- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path${deleteNoteText.trashConfigErrorEntry}
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 
-Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any were.`,
+Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when any were.`,
       inputSchema: {
         path: z
           .string()
@@ -1163,11 +1149,11 @@ Returns: ${deleteNoteReturns} Notes how many empty folders were pruned when any 
               // "local" is Obsidian's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
               // Passed for every option, not only "system":
-              // - Emptying .trash/ by hand leaves rows behind, so a stale row
-              //   can sit at the path this delete lands on.
+              // - Emptying .trash/ by hand leaves trash records behind, so a
+              //   stale record can sit at the path this delete lands on.
               // - A move the server does not record ("local", or a "system"
-              //   move whose record failed) drops that row, so the retention
-              //   sweep never deletes the note just trashed.
+              //   move whose record failed) drops that stale record, so the
+              //   retention sweep never deletes the note just trashed.
               // - A "none" delete lands nothing in .trash/ and never calls it.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
@@ -1274,8 +1260,8 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
         async () => {
           // Canonicalize before the index lookup so an aliased input (e.g.
           // "A/../Note.md") still finds its backlinks; absolute input throws
-          // here. moveNote re-canonicalizes internally (idempotent on
-          // canonical input) — this call serves the backlinks lookup only.
+          // here. moveNote canonicalizes again, which leaves these paths as
+          // they are.
           const normalizedOldPath = resolveVaultRelativePath({
             vaultPath,
             notePath: oldPath,

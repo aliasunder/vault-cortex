@@ -195,7 +195,7 @@ Behavior: A note written in the last few seconds may not appear yet.
 Errors:
 - An unknown tag or no matches returns an empty array, not an error.
 - "project/" matches neither "project" nor "project/a"; drop the "/".
-- tag must not be empty after its leading "#" — tag is "#" alone; pass the tag name.
+- "tag must not be empty …" — tag is "#" alone; pass the tag name.
 
 Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag Obsidian accepts, in the note's letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
@@ -648,20 +648,23 @@ Errors:
     },
   )
 
-  const orphanDefaultFolders = config.orphanExcludeFoldersOverride
-    ? JSON.stringify(config.orphanExcludeFoldersOverride)
-    : `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`
   // An override list may not include the daily notes folder, so the line about
   // that folder and the hint accompany only the built-in defaults.
-  const orphanDailyFolderLine = config.orphanExcludeFoldersOverride
-    ? ""
-    : "\n- When the daily notes folder is the vault root or blank, the defaults exclude no daily folder."
-  const dailyNotesFolderHint = config.orphanExcludeFoldersOverride
-    ? ""
-    : whenToolEnabledText(
-        "vault_get_daily_note",
-        " (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)",
-      )
+  const orphanDefaultsText = config.orphanExcludeFoldersOverride
+    ? {
+        folders: JSON.stringify(config.orphanExcludeFoldersOverride),
+        dailyFolderLine: "",
+        dailyFolderHint: "",
+      }
+    : {
+        folders: `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`,
+        dailyFolderLine:
+          "\n- When the daily notes folder is the vault root or blank, the defaults exclude no daily folder.",
+        dailyFolderHint: whenToolEnabledText(
+          "vault_get_daily_note",
+          " (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)",
+        ),
+      }
 
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
@@ -674,8 +677,8 @@ Example: vault_find_orphans({})
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
-Parameters:${orphanDailyFolderLine}
-- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it${dailyNotesFolderHint}. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
+Parameters:
+- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it${orphanDefaultsText.dailyFolderHint}. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.${orphanDefaultsText.dailyFolderLine}
 - limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
@@ -687,7 +690,9 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         exclude_folders: z
           .array(z.string().min(1))
           .optional()
-          .describe(`Folder paths to exclude (e.g. Projects; default: ${orphanDefaultFolders})`),
+          .describe(
+            `Folder paths to exclude (e.g. Projects; default: ${orphanDefaultsText.folders})`,
+          ),
         limit: z.number().int().min(1).optional().default(50).describe("Max results (default 50)"),
       },
     },

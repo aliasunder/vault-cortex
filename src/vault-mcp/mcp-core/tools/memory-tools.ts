@@ -38,10 +38,9 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     TOOL_NAMES.VAULT_DELETE_MEMORY,
   ])
-  const discoveryPurpose =
-    discoveryFollowUpTools.length > 0
-      ? `Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}.`
-      : "Discovering what memory files and sections exist — and what each file is for."
+  const discoveryPurpose = discoveryFollowUpTools
+    ? `Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}.`
+    : "Discovering what memory files and sections exist — and what each file is for."
 
   // The tools a recall entry's file/section fields feed into. Rendered as a
   // trailing clause (semicolon included) so the surrounding sentence keeps its
@@ -50,10 +49,9 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_GET_MEMORY,
     TOOL_NAMES.VAULT_DELETE_MEMORY,
   ])
-  const recallConsumerClause =
-    recallConsumerTools.length > 0
-      ? `; file and section feed directly into ${recallConsumerTools}`
-      : ""
+  const recallConsumerClause = recallConsumerTools
+    ? `; file and section feed directly into ${recallConsumerTools}`
+    : ""
 
   registerTool(
     TOOL_NAMES.VAULT_GET_MEMORY,
@@ -108,16 +106,18 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
       })
       reqLogger.info("tool_call", { file, section, onOrAfter })
 
-      if (onOrAfter) {
-        if (!file) {
-          reqLogger.warn("tool_error", {
-            error: "on_or_after requires a file",
-          })
-          return {
-            content: [{ type: "text" as const, text: "on_or_after requires a file" }],
-            isError: true as const,
-          }
+      const returnError = (
+        message: string,
+      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
+        reqLogger.warn("tool_error", { error: message })
+        return {
+          content: [{ type: "text" as const, text: message }],
+          isError: true as const,
         }
+      }
+
+      if (onOrAfter) {
+        if (!file) return returnError("on_or_after requires a file")
 
         return safeHandler(
           reqLogger,
@@ -145,15 +145,7 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
         )
       }
 
-      if (section && !file) {
-        reqLogger.warn("tool_error", {
-          error: "section requires a file",
-        })
-        return {
-          content: [{ type: "text" as const, text: "section requires a file" }],
-          isError: true as const,
-        }
-      }
+      if (section && !file) return returnError("section requires a file")
 
       return safeHandler(
         reqLogger,
@@ -205,6 +197,18 @@ Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, l
     },
   )
 
+  // These parts read the same with or without embeddings, so both
+  // vault_memory_recall description variants share them
+  const recallUsageSections = `Example: vault_memory_recall({ query: "working hours and pacing" })
+Example: vault_memory_recall({ query: "testing philosophy", file: "Opinions" })
+
+When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.
+
+Errors:
+- No matching entries returns { entries: [], total: 0 }, not an error
+- An unknown file returns empty results — call vault_list_memory_files to discover valid names`
+  const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range — so raise limit or narrow the query for the complete set. file is applied before limit, so limit keeps the most relevant matches from that file.`
+
   // The recall description leads with its matching mode — hybrid semantic
   // matching is the tool's core promise, so keyword-only deployments
   // (EMBEDDING_ENABLED=false) get an honest variant with a synonym-requery
@@ -212,28 +216,14 @@ Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, l
   const memoryRecallDescription = config.embeddingEnabled
     ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every relevant dated entry sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.
 
-Example: vault_memory_recall({ query: "working hours and pacing" })
-Example: vault_memory_recall({ query: "testing philosophy", file: "Opinions" })
+${recallUsageSections}
 
-When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.
-
-Errors:
-- No matching entries returns { entries: [], total: 0 }, not an error
-- An unknown file returns empty results — call vault_list_memory_files to discover valid names
-
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range — so raise limit or narrow the query for the complete set. file is applied before limit, so limit keeps the most relevant matches from that file. search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.`
+${recallReturnsLead} search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.`
     : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
 
-Example: vault_memory_recall({ query: "working hours and pacing" })
-Example: vault_memory_recall({ query: "testing philosophy", file: "Opinions" })
+${recallUsageSections}
 
-When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.
-
-Errors:
-- No matching entries returns { entries: [], total: 0 }, not an error
-- An unknown file returns empty results — call vault_list_memory_files to discover valid names
-
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range — so raise limit or narrow the query for the complete set. file is applied before limit, so limit keeps the most relevant matches from that file. search_mode is always "fts" and reranked always false in keyword-only mode.`
+${recallReturnsLead} search_mode is always "fts" and reranked always false in keyword-only mode.`
 
   registerTool(
     TOOL_NAMES.VAULT_MEMORY_RECALL,
@@ -378,15 +368,19 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
         },
         (outcome) => {
           reqLogger.info("tool_result", { outcome })
-          if (outcome === "unchanged") {
-            return `Entry already exists in ${config.memoryDir}/${file}.md → ## ${section} — nothing was written.`
-          }
           const confirmation = `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`
-          // Nudge the caller to author the scope callout the new file was
-          // seeded with, so the file self-documents what belongs in it.
-          return outcome === "created-file"
-            ? `${confirmation}. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
-            : confirmation
+
+          switch (outcome) {
+            case "unchanged":
+              return `Entry already exists in ${config.memoryDir}/${file}.md → ## ${section} — nothing was written.`
+            // Nudge the caller to author the scope callout the new file was
+            // seeded with, so the file self-documents what belongs in it.
+            case "created-file":
+              return `${confirmation}. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
+            case "created-section":
+            case "appended":
+              return confirmation
+          }
         },
       )
     },

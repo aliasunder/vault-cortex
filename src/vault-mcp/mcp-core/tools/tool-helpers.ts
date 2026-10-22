@@ -17,6 +17,10 @@ import {
   UnsupportedPropertiesBlockError,
 } from "../../obsidian-markdown/frontmatter.js"
 
+// Zod's base object config would add an index signature to handler args, so a
+// misspelled parameter name would still compile
+export type ToolInputObject<Shape extends z.ZodRawShape> = z.ZodObject<Shape, z.core.$strict>
+
 /** Registers one tool through the enabled-set gate: skips silently when the
  *  config disables the tool, and injects the registry's annotations so group
  *  modules never restate them — the config type carries no annotations key,
@@ -29,10 +33,8 @@ export type RegisterGatedTool = <InputShape extends z.ZodRawShape>(
   handler: ToolCallback<ToolInputObject<InputShape>>,
 ) => void
 
-// Zod's base object config would add an index signature to handler args, so a
-// misspelled parameter name would still compile
-export type ToolInputObject<Shape extends z.ZodRawShape> = z.ZodObject<Shape, z.core.$strict>
-
+/** An input object that rejects keys its shape lacks, naming the accepted
+ *  ones in the error; a shape with no keys accepts any key. */
 export const createStrictInputObject = <Shape extends z.ZodRawShape>(
   shape: Shape,
 ): ToolInputObject<Shape> => {
@@ -79,9 +81,10 @@ const resolvePromotedKeys = (properties: Record<string, unknown>): ReadonlySet<s
   return noteTagsKey ? new Set([...FIXED_PROMOTED_KEYS, noteTagsKey]) : FIXED_PROMOTED_KEYS
 }
 
-/** Reshapes NoteMetadata for client responses: keeps all top-level fields,
- *  replaces `properties` (full frontmatter, mostly duplicated) with
- *  `additional_properties` (only unpromoted keys like topic, agent, date). */
+/** Reshapes NoteMetadata for client responses: keeps the top-level fields,
+ *  leaving out an empty leading_callout, and replaces `properties` (full
+ *  frontmatter, mostly duplicated) with `additional_properties` (only
+ *  unpromoted keys like topic, agent, date), left out when there are none. */
 export const formatNoteMetadata = (meta: {
   properties: Record<string, unknown>
   [key: string]: unknown
@@ -89,14 +92,16 @@ export const formatNoteMetadata = (meta: {
   const { properties, leading_callout: leadingCallout, ...fields } = meta
 
   const promotedKeys = resolvePromotedKeys(properties)
-  const additional_properties = Object.fromEntries(
+  const additionalProperties = Object.fromEntries(
     Object.entries(properties).filter(([key]) => !promotedKeys.has(key)),
   )
 
   return {
     ...fields,
     ...(leadingCallout ? { leading_callout: leadingCallout } : {}),
-    ...(Object.keys(additional_properties).length > 0 ? { additional_properties } : {}),
+    ...(Object.keys(additionalProperties).length > 0
+      ? { additional_properties: additionalProperties }
+      : {}),
   }
 }
 
@@ -117,7 +122,7 @@ export const dateFilterSchema = createStrictInputObject({
 }).optional()
 
 /** One-line, model-facing summary of a paged text read: the window served,
- *  the rendition's total line count, and the next start_line when more
+ *  the paged text's total line count, and the next start_line when more
  *  remains — shared by vault_read_note and vault_read_file. */
 export const describeTextWindow = (path: string, lineWindow: LineWindow): string => {
   const { startLine, endLine, totalLines } = lineWindow
@@ -167,8 +172,9 @@ type SafeHandlers = {
 
 /** The tools each kind's repair steps name: a raw read and a whole-block
  *  replace, plus a body edit to put prose back for the kinds that often hold
- *  it. Keep each list in step with the text describePropertiesBlockRepair
- *  returns for that kind. */
+ *  it. An "explicit-tag" block is valid key-value YAML whose value carries a
+ *  tag such as `!!timestamp`, so it holds no prose. Keep each list in step with
+ *  the text describePropertiesBlockRepair returns for that kind. */
 const REPAIR_TOOLS_BY_KIND = {
   "explicit-tag": ["vault_read_note", "vault_update_properties"],
   "invalid-yaml": ["vault_read_note", "vault_update_properties", "vault_patch_note"],
@@ -214,10 +220,11 @@ const describeOverwriteRepair = (isToolEnabled: (name: ToolName) => boolean): st
   return "To overwrite it, read the note in full with vault_read_note, call vault_update_properties with replace: true and the properties to keep ({} for none), then run this write again."
 }
 
-/** When a note has properties, the server writes its own properties block at
- *  the top, so the `---` lines in the body are no longer at the top of the
- *  note; text above them or their removal has the same effect. The sentence
- *  names no tool, so it needs no gating. */
+/** Each remedy keeps the body's `---` lines from opening the note:
+ *  - with a property, the server writes its own properties block above them;
+ *  - a line of text above them pushes them down the same way;
+ *  - removing them leaves no block to read.
+ *  The sentence names no tool, so it needs no gating. */
 const OPENING_BLOCK_REMEDY =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
 
@@ -278,9 +285,10 @@ export const createSafeHandlers = (params: {
     if (error instanceof UnkeepableOpeningBlockError) {
       return `${message}${separator}${OPENING_BLOCK_REMEDY}`
     }
-    // Checked before its parent class, whose repair steps carry prose over.
-    // OverwriteBlockedError extends UnsupportedPropertiesBlockError, while
-    // UnkeepableOpeningBlockError extends Error directly, so its order is free.
+    // OverwriteBlockedError extends UnsupportedPropertiesBlockError, so it is
+    // checked first: the parent's repair steps copy body text out and back,
+    // which an overwrite does not need. UnkeepableOpeningBlockError extends
+    // Error directly, so its place in this order is free.
     if (error instanceof OverwriteBlockedError) {
       return `${message}${separator}${describeOverwriteRepair(isToolEnabled)}`
     }
