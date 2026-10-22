@@ -3,7 +3,7 @@
 # `- <subject>` line each, newest first.
 # Usage: generate-cli-notes.sh <new-tag> [previous-tag]
 # If previous-tag is omitted, uses the CLI tag before new-tag; with no earlier
-# CLI tag, lists every commit reachable from new-tag.
+# CLI tag, checks every commit reachable from new-tag.
 #
 # A commit is listed when its diff under cli/ adds or removes a line that none
 # of these rules skips:
@@ -12,7 +12,7 @@
 # - the "version" line of cli/package.json (the release bump)
 # - in .ts files, lines that start, after any indent, with #, //, /*, * or */;
 #   the rule reads only how a line starts, so it skips comment lines, the .env
-#   template's # lines in cli/src/env.ts (they stay comments in the .env the
+#   templates' # lines in cli/src/env.ts (they stay comments in the .env the
 #   CLI writes), and any code line that starts the same way
 # In files other than .ts, cli/README.md included, every non-blank line
 # counts: npm shows the README.
@@ -52,7 +52,7 @@ has_counted_change() {
     !in_hunk { next }
     /^[+-]/ {
       content = substr($0, 2)
-      if (content ~ /^[ \t]*$/) next
+      if (content ~ /^[ \t\r]*$/) next
       if (path == "cli/package.json" && content ~ /^[ \t]*"version"[ \t]*:/) next
       if (path ~ /\.ts$/ && content ~ /^[ \t]*(#|\/\/|\/\*|\*)/) next
       found = 1
@@ -64,9 +64,12 @@ has_counted_change() {
 
 CLI_PATHSPEC=(cli/ ':(exclude)cli/src/__tests__/')
 
-# Hex hashes only, so word splitting in the loop below is safe. Merge commits
-# are left out: the commits they merge are listed on their own.
-COMMIT_HASHES=$(git log --no-merges --format=%H "$RANGE" -- "${CLI_PATHSPEC[@]}")
+# Hex hashes only, so word splitting in the loop below is safe.
+# - --no-merges: the commits a merge brings in are checked on their own.
+# - --no-show-signature (here and on git show below): a log.showSignature
+#   setting would add signature lines to the output.
+COMMIT_HASHES=$(git log --no-merges --no-show-signature --format=%H "$RANGE" \
+  -- "${CLI_PATHSPEC[@]}")
 
 for commit_hash in $COMMIT_HASHES; do
   # - --no-renames: a moved file shows as removed and re-added, so a move
@@ -78,6 +81,6 @@ for commit_hash in $COMMIT_HASHES; do
   PATCH=$(git diff-tree -p --root --no-commit-id --no-renames --text -U0 \
     "$commit_hash" -- "${CLI_PATHSPEC[@]}")
   if has_counted_change <<< "$PATCH"; then
-    git show -s --format='- %s' "$commit_hash"
+    git show -s --no-show-signature --format='- %s' "$commit_hash"
   fi
 done

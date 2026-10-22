@@ -240,7 +240,7 @@ jobs:
             exit 0
           fi
           {
-            .github/scripts/generate-cli-notes.sh "cli-v$NEXT"
+            bash .github/scripts/generate-cli-notes.sh "cli-v$NEXT"
             echo ""
             echo "Published to npm: https://www.npmjs.com/package/vault-cortex/v/$NEXT"
           } > /tmp/release-notes.md

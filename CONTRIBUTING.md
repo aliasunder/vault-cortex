@@ -262,8 +262,8 @@ What each release's notes list:
   - in files under `cli/src/__tests__/`
   - the `"version"` line of `cli/package.json` (the release bump)
   - lines in `.ts` files that start, after any indent, with `#`, `//`, `/*`
-    or `*`: comment lines, and the `#` lines of the `.env` templates in
-    `cli/src/env.ts`
+    or `*`: comment lines, the `#` lines of the `.env` templates in
+    `cli/src/env.ts`, and any code line that starts the same way
 
   In files other than `.ts`, `cli/README.md` included, every non-blank line
   counts. A moved file counts as removing and re-adding all of its lines.
