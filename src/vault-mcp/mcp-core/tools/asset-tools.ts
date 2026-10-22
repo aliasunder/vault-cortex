@@ -38,11 +38,11 @@ const formatAssetReadResult = (result: AssetReadResult): CallToolResult["content
       ]
     case "pages": {
       const titleSegment = result.title ? `, "${result.title}"` : ""
+      const pluralizePages = (count: number): string => `${count} page${count === 1 ? "" : "s"}`
       const metadataLine =
-        `${result.path} — PDF, ${result.totalPages} pages` +
+        `${result.path} — PDF, ${pluralizePages(result.totalPages)}` +
         titleSegment +
-        ` — rendered ${result.pagesRendered} ` +
-        `page${result.pagesRendered === 1 ? "" : "s"} as images`
+        ` — rendered ${pluralizePages(result.pagesRendered)} as images`
       const pageBlocks = result.pages.flatMap((page) => [
         {
           type: "image" as const,

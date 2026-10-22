@@ -2537,14 +2537,14 @@ describe("file tool handlers", () => {
     })
   })
 
-  it("leaves the title out of an untitled PDF's metadata line and counts one rendered page", async () => {
+  it("leaves the title out of an untitled one-page PDF's metadata line and counts its page in the singular", async () => {
     const { readAsset } = await setupAssetHarness()
     const pageImage = Buffer.from("page-one")
     const readContentSpy = vi.spyOn(assetOperations, "readAssetContent").mockResolvedValueOnce({
       kind: "pages",
       path: "doc.pdf",
       title: undefined,
-      totalPages: 2,
+      totalPages: 1,
       pagesRendered: 1,
       pages: [buildRenderedPage(1, pageImage)],
     })
@@ -2553,7 +2553,7 @@ describe("file tool handlers", () => {
     const result = await readAsset({ path: "doc.pdf", raw: true })
     expect(result).toEqual({
       content: [
-        { type: "text", text: "doc.pdf — PDF, 2 pages — rendered 1 page as images" },
+        { type: "text", text: "doc.pdf — PDF, 1 page — rendered 1 page as images" },
         { type: "image", data: pageImage.toString("base64"), mimeType: "image/jpeg" },
         { type: "text", text: "Page 1 — image/jpeg, 800×1036, 8 bytes" },
       ],
