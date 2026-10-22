@@ -52,8 +52,9 @@ Everything needed to continue the project is public:
 - Source, CI workflows, tests, and documentation live in this repository
 - The [MIT license](./LICENSE) permits anyone to fork and continue
   development
-- Releases are built by GitHub Actions from tagged commits — there are no
-  maintainer-local build steps
+- Releases are cut by GitHub Actions workflows (Manual Release for the
+  server, Release CLI for the npm package), which tag a commit and build
+  from it — there are no maintainer-local build steps
 
 A successor or fork would need to re-create the private pieces: the
 deploy workflows' secrets (deployment credentials, the Docker Hub
