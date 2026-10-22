@@ -29,10 +29,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false # publish reads server.json only; don't persist the token to .git/config
-          # The bumped commit is tagged before this job runs in both release
-          # paths (auto_release is triggered by the tag; manual_release pushes
-          # the tag in bump-and-tag, which deploy + this job depend on), so the
-          # tag always resolves to the version-bumped server.json.
+          # manual_release.yml pushes this tag in its bump-and-tag job before
+          # it calls this workflow, so the tag should resolve to the
+          # version-bumped server.json; the next step stops the run if not.
           ref: v${{ inputs.version }}
 
       - name: Verify server.json version matches release

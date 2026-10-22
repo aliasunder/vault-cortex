@@ -224,18 +224,13 @@ the allowance states why.
 
 ## Release Process
 
-Releases are cut by the maintainer, in one of two ways:
+Releases are cut by the maintainer: Actions tab → "Manual Release" → choose
+`patch`/`minor`/`major`. The workflow bumps the version, deploys, and creates
+the GitHub Release.
 
-- **Manual Release:** Actions tab → "Manual Release" → choose
-  `patch`/`minor`/`major`. The workflow bumps the version, deploys, and
-  creates the GitHub Release.
-- **Tag push:** merge a version-bump PR into `main`, then run
-  `git tag v<version> && git push --tags`. The tag push deploys and creates
-  the GitHub Release.
-
-Direct commits to `main` are blocked by a branch ruleset — all changes, a tag
-push's version bump included, land via PR. Only the release workflows push to
-`main` directly, for their version-bump and CHANGELOG commits.
+Direct commits to `main` are blocked by a branch ruleset — all changes land
+via PR. Only the release workflows push to `main` directly, for their
+version-bump and CHANGELOG commits.
 
 The CLI releases separately: Actions tab → "Release CLI" (see
 [The `cli/` Package](#the-cli-package)).
@@ -249,11 +244,12 @@ What each release's notes list:
     change only `devDependencies` or `overrides` in the root `package.json`,
     and in `package-lock.json` only packages marked `"dev": true`
   - Claude Code hook changes (commit scope `hooks`)
-  - commits that change only `AGENTS.md`, `CHANGELOG.md`, dotfiles at the
-    repository root (`.gitignore`, `.trivyignore`; not `.dockerignore`, which
-    decides what the image build copies, or `.env.example`, which DEPLOY.md
-    has deployers copy), or files under `.claude/`,
-    `.devin/` or `.husky/`
+  - commits that change only these files:
+    - `AGENTS.md` and `CHANGELOG.md`
+    - dotfiles at the repository root, such as `.gitignore` and
+      `.trivyignore`, except `.dockerignore` (it decides what the image
+      build copies) and `.env.example` (DEPLOY.md has deployers copy it)
+    - files under `.claude/`, `.devin/` or `.husky/`
 - **CLI releases** (`.github/scripts/generate-cli-notes.sh`): every commit
   that changes `cli/`, including dependency bumps that edit
   `cli/package.json`, except commits whose added and removed lines under

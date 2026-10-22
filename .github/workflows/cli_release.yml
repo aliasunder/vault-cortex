@@ -30,8 +30,8 @@ on:
 # Shares the server release/deploy group: both release flows push to
 # main, so running them at once can reject one push. A run dispatched
 # while a server release is in flight queues until it's done.
-# GitHub keeps one queued run per group, so any later run in the group (a
-# release or deploy dispatch, or a v* tag push) cancels the queued one.
+# GitHub keeps one queued run per group, so a later release or deploy
+# dispatch cancels the queued one; dispatch the cancelled run again.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false

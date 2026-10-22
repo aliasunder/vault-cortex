@@ -338,7 +338,7 @@ gh release download v0.38.0 --pattern 'digests.txt*'
 
 cosign verify-blob \
   --bundle digests.txt.sigstore.json \
-  --certificate-identity-regexp '^https://github\.com/aliasunder/vault-cortex/\.github/workflows/(auto_release|manual_release)\.yml@.*$' \
+  --certificate-identity-regexp '^https://github\.com/aliasunder/vault-cortex/\.github/workflows/manual_release\.yml@.*$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   digests.txt
 ```
@@ -347,7 +347,8 @@ Then confirm the image you pulled matches a signed digest:
 
 ```bash
 docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/aliasunder/vault-cortex:v0.38.0
-# Compare the sha256:... with the corresponding line in digests.txt
+# Compare the sha256:... with the digests.txt line for the same tag:
+# :v0.38.0 is the local target, :v0.38.0-remote the remote target
 ```
 
 ## Reporting a Vulnerability
