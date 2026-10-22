@@ -212,6 +212,19 @@ describe("generate-cli-notes.sh", () => {
       expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
     })
 
+    it("leaves out a commit that adds comment lines to two .ts files", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.commit("docs(cli): explain the template and the flag", {
+        "cli/src/env.ts":
+          "// Written to a new .env file\n" +
+          envTemplateModule({ comment: "# Path to the vault", setting: "VAULT_PATH=/vault" }),
+        "cli/src/program.ts": "// Read by the start command\nexport const flag = 2\n",
+      })
+
+      expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
     it.each([
       { label: "a space", path: "cli/src/env notes.ts" },
       { label: "non-ASCII characters", path: "cli/src/ünïcode.ts" },
