@@ -77,12 +77,13 @@ jobs:
           # below need it.
           fetch-depth: 0
           persist-credentials: false
-          # First attempt: the branch's latest commit, so a run queued behind
-          # a server release builds on the commits that release pushed. A
-          # re-run passes '', which checkout reads as the dispatch-time commit
-          # (github.sha), so re-running a finished release fails instead of
-          # publishing the next version.
-          ref: ${{ github.run_attempt == '1' && github.ref || '' }}
+          # - First attempt of a versioned release: the branch's latest commit,
+          #   so a run queued behind a server release builds on that release's
+          #   commits.
+          # - A beta (it pushes nothing) or a re-run: '' keeps checkout's
+          #   default, the dispatch-time commit (github.sha), so re-running a
+          #   finished release fails instead of publishing the next version.
+          ref: ${{ github.run_attempt == '1' && inputs.bump != 'beta' && github.ref || '' }}
 
       # Since dispatch, only a server release may have landed: the bump and
       # CHANGELOG commits manual_release.yml pushes with github-actions[bot]
