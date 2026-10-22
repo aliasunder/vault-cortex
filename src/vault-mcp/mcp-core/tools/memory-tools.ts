@@ -18,6 +18,11 @@ const MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL =
 const UPDATE_MEMORY_FILESYSTEM_ERROR_ENTRY = `${MEMORY_FILESYSTEM_ERROR_ENTRY_LEAD}: for a new file, pass a name at least 41 bytes shorter; an existing file needs a name at least 41 bytes shorter, renamed in Obsidian. ${MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL}`
 const DELETE_MEMORY_FILESYSTEM_ERROR_ENTRY = `${MEMORY_FILESYSTEM_ERROR_ENTRY_LEAD}; give it a name at least 41 bytes shorter, renamed in Obsidian. ${MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL}`
 
+/** The memory store wraps a failed read without the Node error's code, so the
+ *  filesystem-error entry's code names never match this message. */
+const MEMORY_FILE_READ_ERROR_ENTRY =
+  "- \"cannot read memory file …\" — the file exists but can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise its permissions need the vault's owner"
+
 /** Errors entries for a memory file whose properties block the server
  *  refuses. Reads refuse only YAML they cannot read. Writes also refuse a
  *  block a rewrite would lose, and a result that would open the file with
@@ -71,7 +76,7 @@ export const registerMemoryTools = ({
       title: "Get Memory",
       description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large. Returns empty string when no memory files exist yet.
 
-With file+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when new entries go at the top, the default). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution. It gives complete coverage from a known date.
+With file+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when new entries go at the top, the default). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
 
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
 Example: vault_get_memory({ file: "Opinions", section: "Code patterns", on_or_after: "2026-09-01" })
@@ -86,6 +91,7 @@ Errors:
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — pass the file's bare name: no folder or slash, and no leading dot
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
+- "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise permissions need the vault's owner
 ${MEMORY_BLOCK_READ_ERROR_ENTRY}; without file, one such file fails the whole read
 
 Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact). An empty match returns { entries: [], total: 0 }.`,
@@ -230,7 +236,7 @@ Errors:
 
 ${recallUsageSections}
 
-${recallReturnsLead} search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.`
+${recallReturnsLead} search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the cross-encoder relevance cut was applied.`
     : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
 
 ${recallUsageSections}
@@ -303,7 +309,7 @@ Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest
 Example: vault_update_memory({ file: "Routines", section: "Daily/weekly rhythm (newest first)", entry: "Gym Mon/Wed at 6am", options: { date: "2026-10-01", position: "bottom" } }) — a backdated entry placed below the existing ones
 
 When to use: Recording a new preference, principle, opinion, or fact about the user. Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped.
-Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note). A new section name nearly identical to an existing heading (an HTML-entity slip, typo, or spacing variation) is rejected, so a mistyped name cannot silently fragment the file — names differing only in digits (e.g. "2025" vs "2026") are distinct.
+Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note).
 
 Parameters:
 - options.date only sets the bullet's date; placement follows options.position, never the date.
@@ -317,7 +323,8 @@ Errors:
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
 - "entry contains a control character" / "section contains a control character" — the value includes a non-printable control byte; remove it before writing.
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — use a bare file name: no folder or slash, and no leading dot.
-- "section not created: … is nearly identical to existing section …" — near-duplicate guard; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section.
+- "section not created: … is nearly identical to existing section …" — the name differs from an existing heading only by an HTML-entity slip, a typo, or spacing; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section. Names differing only in digits (e.g. "2025" vs "2026") count as different.
+${MEMORY_FILE_READ_ERROR_ENTRY}
 ${UPDATE_MEMORY_FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
@@ -412,7 +419,7 @@ When to use: Removing an entry that was wrong when it was written — a mistake,
 Prefer vault_delete_note for deleting entire non-protected notes.
 
 Parameters:
-- date + entry together uniquely identify the bullet line within the given section.
+- date + entry together pick the bullet line within the given section; identical copies make the match ambiguous.
 - section scopes the match — an identical entry under a different heading is not found.
 
 Errors:
@@ -423,6 +430,7 @@ Errors:
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section. Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
+${MEMORY_FILE_READ_ERROR_ENTRY}
 ${DELETE_MEMORY_FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}

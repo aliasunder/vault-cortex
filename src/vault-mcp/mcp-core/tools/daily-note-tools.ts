@@ -35,7 +35,7 @@ Errors:
 - "path traversal blocked" / "hidden path blocked" / "absolute path blocked" — the configured daily notes folder or format leads outside the vault or into a hidden folder; change it in Obsidian, or set DAILY_NOTES_FOLDER and DAILY_NOTES_FORMAT
 - "EACCES: …" or another filesystem error code — the daily note's file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
 
-Returns: JSON with path (string — resolved vault-relative path), content (string|null — full note body, or null when the note doesn't exist), and exists (boolean). ${isToolEnabled("vault_write_note") ? "When exists is false, create the note with vault_write_note using the returned path." : "When exists is false, the note has not been created yet."}`,
+Returns: JSON with path (string — resolved vault-relative path), content (string|null — full note body, or null when the note doesn't exist), and exists (boolean).${isToolEnabled("vault_write_note") ? " When exists is false, create the note with vault_write_note using the returned path." : ""}`,
       inputSchema: {
         date: z
           .string()

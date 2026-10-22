@@ -1243,7 +1243,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
         '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry',
-        '- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
+        '- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
         OTHER_DELETE_ERROR_ENTRY,
         NAME_TOO_LONG_ERROR_ENTRY,
         '- "cannot read trash config from .obsidian/app.json" — the file exists but can\'t be read or parsed; ask the vault owner to repair it, then retry',
@@ -1300,7 +1300,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
 
   it("describes permanent deletion and Sync recovery under OBSIDIAN_SYNC=true", () => {
     expect(deleteNoteOpener({ OBSIDIAN_SYNC: "true" })).toBe(
-      "Delete a markdown note for good; recover a deleted note from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
+      "Delete a markdown note for good. The vault owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
     )
     expect(deleteNoteBehavior({ OBSIDIAN_SYNC: "true" })).toBe(
       `Behavior:\n${LINKS_AND_PROTECTED_PATHS_ENTRY}`,
@@ -1955,11 +1955,11 @@ describe("vault_find_orphans live folder defaults", () => {
 
   it("states the daily-folder rule and the exclusion default without naming the live folder", async () => {
     const { toolConfig } = await setupOrphans({ settings: '{"folder":"Journal"}' })
-    const dailyFolderLine = toolConfig.description
+    const excludeFoldersLine = toolConfig.description
       ?.split("\n")
-      .find((line) => line.startsWith("- When the daily notes folder"))
-    expect(dailyFolderLine).toBe(
-      "- When the daily notes folder is the vault root or blank, the defaults exclude no daily folder.",
+      .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
+    expect(excludeFoldersLine).toBe(
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it (vault_get_daily_note\'s path starts with the daily notes folder whenever the defaults exclude one). Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. When the daily notes folder is the vault root or blank, the default list holds no daily folder.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -2904,7 +2904,7 @@ describe("DISABLED_TOOLS", () => {
     const ENTRY_START =
       "- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it"
     const ENTRY_END =
-      '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.'
+      '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. When the daily notes folder is the vault root or blank, the default list holds no daily folder.'
 
     expect(excludeFoldersEntry("")).toBe(
       `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)${ENTRY_END}`,
@@ -3041,35 +3041,30 @@ describe("DISABLED_TOOLS", () => {
     expect(whenToUse).toBe(expectedSection)
   })
 
-  const PROPERTY_VALUES_CHECKBOX_LINE =
-    '- Checkbox true and false come back as "1" and "0", counted with the numbers 1 and 0.'
-  const PROPERTY_VALUES_SEARCH_LINE =
-    '- vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
-  const PROPERTY_VALUES_NULL_LINE = "- null values are skipped."
+  const PROPERTY_VALUES_WHEN_TO_USE =
+    "When to use: Enumerating possible values for a property key before calling vault_search_by_property. Call vault_list_property_keys first to discover valid key names."
+  const PROPERTY_VALUES_SEARCH_SENTENCE =
+    ' vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
 
   it.each([
     {
-      label: "names vault_search_by_property while it is served",
+      label: "explains vault_search_by_property's matching while it is served",
       disabledTools: "",
-      expectedLines: [
-        PROPERTY_VALUES_CHECKBOX_LINE,
-        PROPERTY_VALUES_SEARCH_LINE,
-        PROPERTY_VALUES_NULL_LINE,
-      ],
+      expectedSection: `${PROPERTY_VALUES_WHEN_TO_USE}${PROPERTY_VALUES_SEARCH_SENTENCE}`,
     },
     {
-      label: "drops the vault_search_by_property line when that tool is disabled",
+      label: "drops the vault_search_by_property sentence when that tool is disabled",
       disabledTools: "vault_search_by_property",
-      expectedLines: [PROPERTY_VALUES_CHECKBOX_LINE, PROPERTY_VALUES_NULL_LINE],
+      expectedSection: PROPERTY_VALUES_WHEN_TO_USE,
     },
-  ])("vault_list_property_values's behavior $label", ({ disabledTools, expectedLines }) => {
-    const behaviorTail = extractDescriptionSection({
+  ])("vault_list_property_values's when-to-use $label", ({ disabledTools, expectedSection }) => {
+    const whenToUse = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
-      startMarker: "- Checkbox true",
-      endMarker: "\n\nErrors:",
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
     })
-    expect(behaviorTail).toBe(expectedLines.join("\n"))
+    expect(whenToUse).toBe(expectedSection)
   })
 
   it.each([
@@ -3402,14 +3397,14 @@ describe("DISABLED_TOOLS", () => {
         " To only change a note's body or properties, use vault_patch_note or vault_update_properties.",
     },
     {
-      label: "names only vault_patch_note when vault_update_properties is disabled",
+      label: "routes only body edits when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
-      expectedSentence: " To only change a note's body or properties, use vault_patch_note.",
+      expectedSentence: " To only change a note's body, use vault_patch_note.",
     },
     {
-      label: "names only vault_update_properties when vault_patch_note is disabled",
+      label: "routes only property edits when vault_patch_note is disabled",
       disabledTools: "vault_patch_note",
-      expectedSentence: " To only change a note's body or properties, use vault_update_properties.",
+      expectedSentence: " To only change a note's properties, use vault_update_properties.",
     },
     {
       label: "drops the sentence when both edit tools are disabled",

@@ -25,7 +25,7 @@ export const registerTaskTools = ({
     TOOL_NAMES.VAULT_LIST_TASKS,
     {
       title: "List Tasks",
-      description: `List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🏁 onCompletion, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result carries its attribution — note path, folder, line number, and the nearest heading when the task sits under one (the lane on a Kanban board) — so no follow-up reads are needed to locate a task. Task lines inside fenced code blocks and %% %% comment blocks are not indexed. Checkboxes typed NON_TASK in the Tasks plugin's status registry are also excluded.
+      description: `List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🏁 onCompletion, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result says where the task lives (path, line, heading; see Returns), so no follow-up reads are needed to locate it. Task lines inside fenced code blocks and %% %% comment blocks are not indexed. Checkboxes typed NON_TASK in the Tasks plugin's status registry are also excluded.
 
 Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the "what's overdue?" call
 Example: vault_list_tasks({ path: "Code Projects/vault-cortex/TASKS.md", heading: ["Active", "Up Next", "Waiting On"], sort_by: "position" }) — actionable Kanban lanes in board order
@@ -222,7 +222,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
       description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The task is always created as todo (the Tasks plugin's todo symbol, [ ] by default), with its created date (➕) set to today${whenToolEnabledText("vault_update_task", "; set in_progress later with vault_update_task")}. Override format only at the user's request, since the Tasks plugin reads just one format.
 
 Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" }) — a card in a Kanban board's Active lane
-Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under fix-login; no block_id on a Kanban sub-task
+Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under fix-login
 Example: vault_create_task({ path: "Projects/plan.md", description: "Quick fix", block_id: "quick-fix", parent_line: 42 }) — sub-task in a regular note under a parent identified by line number
 Example: vault_create_task({ path: "TASKS.md", description: "Write release notes", block_id: "release-notes", heading: "Active", position: 3 }) — insert as the 3rd card in the lane
 
@@ -468,7 +468,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
       description: `Update a task's status, priority, description, dates, dependencies, block_id, checklist items, or heading placement in one call. Any combination of these can change together — every field passed is written in a single edit.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring (null removes the rule)
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading (the checkbox is unchanged)
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01", scheduled: null }) — change the description, set one date, and clear another
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtasks: ["Design", "Implement", "Test"] }) — start working and add checklist stages

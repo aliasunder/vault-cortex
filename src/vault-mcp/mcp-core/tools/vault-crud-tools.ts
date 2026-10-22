@@ -310,13 +310,14 @@ Prefer vault_search_by_folder when you need metadata (tags, type, related) along
 
 Parameters:
 - folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
-- glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "*.md" lists the folder's top-level notes and "**/*.md" every note under it.
+- glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "**/*.md" lists every note under it.
 
 Behavior: Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed; symlinked notes are included.
 
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
+- "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
@@ -1050,7 +1051,7 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
   // break because it joins a list mid-way, and is "" when left out.
   const deleteNoteText = config.obsidianSyncEnabled
     ? {
-        opener: `Delete a markdown note for good; recover a deleted note from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).`,
+        opener: `Delete a markdown note for good. The vault owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).`,
         trashOutcomeEntries: "",
         trashMoveErrorEntries: "",
         trashConfigErrorEntry: "",
@@ -1066,7 +1067,7 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
 - The caller can't choose or see the outcome in advance; the returned message says which happened.`,
         trashMoveErrorEntries: `
 - "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry
-- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
+- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry`,
         trashConfigErrorEntry: `
 - "cannot read trash config from .obsidian/app.json" — the file exists but can't be read or parsed; ask the vault owner to repair it, then retry`,
         returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`,
@@ -1087,7 +1088,7 @@ Behavior:${deleteNoteText.trashOutcomeEntries}
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", "; list them first with vault_get_backlinks")}. Protected paths are refused: ${describeProtectedPaths(config)}.
 
 Parameters:
-- prune_empty_folders stops below the vault root, and keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
+- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
@@ -1179,19 +1180,23 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
     },
   )
 
-  const bodyOrPropertiesEditToolNames = formatEnabledToolList([
-    "vault_patch_note",
-    "vault_update_properties",
-  ])
-  const bodyOrPropertiesEditSentence = bodyOrPropertiesEditToolNames
-    ? ` To only change a note's body or properties, use ${bodyOrPropertiesEditToolNames}.`
+  // Each edit tool changes one part of a note, so the sentence names only the
+  // parts whose tool is served.
+  const noteEditRoutes = [
+    { tool: TOOL_NAMES.VAULT_PATCH_NOTE, part: "body" },
+    { tool: TOOL_NAMES.VAULT_UPDATE_PROPERTIES, part: "properties" },
+  ].filter((route) => isToolEnabled(route.tool))
+  const noteEditParts = noteEditRoutes.map((route) => route.part).join(" or ")
+  const noteEditToolNames = formatEnabledToolList(noteEditRoutes.map((route) => route.tool))
+  const noteEditSentence = noteEditToolNames
+    ? ` To only change a note's ${noteEditParts}, use ${noteEditToolNames}.`
     : ""
 
   registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Moving a note any other way can silently break its backlinks.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
@@ -1199,16 +1204,16 @@ Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.m
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink.${bodyOrPropertiesEditSentence} Protected paths cannot be moved: ${describeProtectedPaths(config)}.
+Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink.${noteEditSentence} Protected paths cannot be moved: ${describeProtectedPaths(config)}.
 
 Parameters:
-- prune_empty_folders stops below the vault root, and keeps a folder that holds any file, even a hidden .DS_Store. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call.
+- prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call.
 
 Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
 - "note not found: …" — old_path does not exist; verify it with vault_list_notes.
 - "source and destination are the same path" — old_path and new_path name the same note, so there is nothing to move.
-- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
+- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder (listed under When to use); pick a new_path outside it, or leave a protected note where it is.
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry.
 - "path must end in …" — both old_path and new_path must end in .md.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them.
@@ -1219,6 +1224,7 @@ Errors:
 - "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
 - "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
 - "ENAMETOOLONG: …" — old_path or new_path, or a name in it, is longer than the filesystem allows; check the path.
+- "EEXIST: …" / "ENOTDIR: …" naming a folder of new_path — part of new_path's folder path is an existing file; nothing was written; pick a new_path whose folders are not files.
 - "EACCES: …" or another filesystem error code — a note or folder can't be read or written (permissions, a full or read-only disk); nothing was written; ask the vault's owner to fix it.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.

@@ -122,6 +122,8 @@ Errors:
 - "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead. If that read also finds no text, this tool can't read the PDF
 - "image cannot be fitted" — the image could not be compressed under the image output budget; ask for a smaller export
 - "EACCES: …" or another filesystem error code — the file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
+- "file changed while reading" — the file was written while it was read (for example by Sync); retry the read
+- "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the vault's owner to restart the server
 - "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
 
 Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,
@@ -216,7 +218,7 @@ Returns: for images, an image content block plus a one-line metadata text block;
       title: "List Files",
       description: `List non-markdown files in the vault or a folder — images, canvases, PDFs, data files — with per-file byte sizes and per-extension counts.
 
-Example: vault_list_files({}) — non-markdown files across the whole vault, up to limit (default 50)
+Example: vault_list_files({}) — non-markdown files across the whole vault
 Example: vault_list_files({ folder: "attachments" })
 Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
@@ -227,8 +229,9 @@ Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a d
 Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
+- "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it.
 
-Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers; one over 100 KiB must be read in windows with vault_read_file's start_line and limit. Only supported types are readable via vault_read_file.`,
+Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers; one over 100 KiB must be read in windows with vault_read_file's start_line and limit. vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base; other listed types are not readable.`,
       inputSchema: {
         folder: z
           .string()
