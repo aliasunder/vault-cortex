@@ -18,6 +18,7 @@ import { describe, expect, it, onTestFinished } from "vitest"
 /** Every shell script in the repo, sorted: what a run with no paths checks. */
 const ALL_SHELL_SCRIPTS = [
   ".claude/hooks/install-deps.sh",
+  ".github/scripts/generate-cli-notes.sh",
   ".github/scripts/generate-notes.sh",
   ".github/scripts/update-changelog.sh",
   "cli/src/__tests__/integration/fixtures/docker",
