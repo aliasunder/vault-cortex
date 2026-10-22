@@ -11,6 +11,7 @@ import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createSearchIndex } from "../../search/search-index.js"
 import type { SearchIndex } from "../../search/search-index.js"
+import { assetOperations } from "../../vault-operations/asset-operations.js"
 import { logger, type Logger } from "../../../logger.js"
 
 const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
@@ -310,9 +311,14 @@ describe("registerTools", () => {
   })
 
   it("vault_delete_memory description documents duplicate-entry remediation", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
-    expect(config.description).toContain("ambiguous")
-    expect(config.description).toContain("Remove the extra copy with vault_delete_span")
+    const ambiguousEntry = findDescriptionLine({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_DELETE_MEMORY,
+      linePrefix: '- "ambiguous: N entries match …"',
+    })
+    expect(ambiguousEntry).toBe(
+      '- "ambiguous: N entries match …" — more than one identical bullet exists in the section. Remove the extra copy with vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or a manual edit, then retry.',
+    )
   })
 
   it("vault_update_properties description documents null-deletes-key contract", () => {
@@ -880,9 +886,12 @@ describe("optional filter lists reject an empty array", () => {
 describe("vault_update_memory handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
-  it("reports the duplicate no-op instead of the append confirmation when retried", async () => {
-    // A real temp vault so the handler exercises the actual memory store —
-    // the global harness registers against a nonexistent path.
+  /** The registered handler over a real temp vault holding one memory file,
+   *  so it exercises the actual memory store — the global harness registers
+   *  against a nonexistent path. */
+  const setupUpdateMemoryHandler = async (): Promise<
+    (args: Record<string, unknown>) => Promise<unknown>
+  > => {
     const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-memory-"))
     onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
     await mkdir(join(tempVault, "About Me"), { recursive: true })
@@ -906,7 +915,11 @@ describe("vault_update_memory handler", () => {
 
     if (!updateMemoryCall) throw new Error("vault_update_memory not registered")
     const [, , handler] = updateMemoryCall
+    return (args) => handler(args, mockExtra)
+  }
 
+  it("reports the duplicate no-op instead of the append confirmation when retried", async () => {
+    const updateMemory = await setupUpdateMemoryHandler()
     const args = {
       file: "Principles",
       section: "Decision heuristics (newest first)",
@@ -916,24 +929,49 @@ describe("vault_update_memory handler", () => {
 
     // First call appends and confirms — proves the entry actually landed
     // before the retry, so the no-op can't be a silent failure.
-    const firstResult = (await handler(args, mockExtra)) as {
-      content: Array<{ text: string }>
-      isError?: boolean
-    }
-    expect(firstResult.isError).toBeUndefined()
-    expect(firstResult.content[0]?.text).toBe(
-      "Added entry to About Me/Principles.md → ## Decision heuristics (newest first)",
-    )
+    expect(await updateMemory(args)).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Added entry to About Me/Principles.md → ## Decision heuristics (newest first)",
+        },
+      ],
+    })
 
     // Identical retry succeeds but reports the no-op instead of "Added entry".
-    const retryResult = (await handler(args, mockExtra)) as {
-      content: Array<{ text: string }>
-      isError?: boolean
-    }
-    expect(retryResult.isError).toBeUndefined()
-    expect(retryResult.content[0]?.text).toBe(
-      "Entry already exists in About Me/Principles.md → ## Decision heuristics (newest first) — nothing was written.",
-    )
+    expect(await updateMemory(args)).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Entry already exists in About Me/Principles.md → ## Decision heuristics (newest first) — nothing was written.",
+        },
+      ],
+    })
+  })
+
+  it("asks the caller to fill in the scope callout of a memory file it created", async () => {
+    const updateMemory = await setupUpdateMemoryHandler()
+
+    expect(
+      await updateMemory({ file: "Health", section: "Sleep", entry: "Aims for 8 hours" }),
+    ).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Added entry to About Me/Health.md → ## Sleep. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn\'t)" placeholder with what the file contains, so other agents know what it is for.',
+        },
+      ],
+    })
+  })
+
+  it("confirms an entry that starts a new section of an existing file without the new-file nudge", async () => {
+    const updateMemory = await setupUpdateMemoryHandler()
+
+    expect(
+      await updateMemory({ file: "Principles", section: "Tools", entry: "Prefer rg" }),
+    ).toEqual({
+      content: [{ type: "text", text: "Added entry to About Me/Principles.md → ## Tools" }],
+    })
   })
 })
 
@@ -1097,9 +1135,10 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
 
   it("describes hybrid search when EMBEDDING_ENABLED=true", () => {
     const description = findSearchDescription(registerWithConfig({}))
-    expect(description).toContain("Hybrid search")
-    expect(description).toContain("keyword and semantic relevance")
-    expect(description).toContain("semantic")
+    const openingSentence = description.slice(0, description.indexOf(". ") + 1)
+    expect(openingSentence).toBe(
+      "Hybrid search across vault notes and file content (canvas, PDF, and text files), ranked by combined keyword and semantic relevance.",
+    )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
   })
@@ -1108,7 +1147,6 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({ EMBEDDING_ENABLED: "false" }))
     expect(description).toContain("Full-text search")
     expect(description).not.toContain("Hybrid")
-    expect(description).not.toContain("keyword and semantic relevance")
     expect(description).not.toContain("semantic")
     expect(description).not.toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1933,10 +1971,17 @@ describe("vault_find_orphans live folder defaults", () => {
     const { toolConfig } = await setupOrphans({
       env: { ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch" },
     })
-    const dailyFolderLine = toolConfig.description
-      ?.split("\n")
-      .find((line) => line.startsWith("- When the daily notes folder"))
-    expect(dailyFolderLine).toBeUndefined()
+    // The whole Parameters section, so a missing description or a reworded
+    // daily-folder line can't pass as "left out"
+    const parametersSection = toolConfig.description
+      ?.split("\nParameters:\n")[1]
+      ?.split("\n\nErrors:")[0]
+    expect(parametersSection).toBe(
+      [
+        '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.',
+        "- limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.",
+      ].join("\n"),
+    )
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
       'Folder paths to exclude (e.g. Projects; default: ["Archive","Scratch"])',
     )
@@ -2060,25 +2105,26 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(requireTextContent(result)) as {
-      total: number
-      tasks: Array<Record<string, unknown>>
-    }
-    expect(payload.total).toBe(1)
-    expect(payload.tasks[0]).toEqual({
-      path: "Projects/board.md",
-      line: 3,
-      status: "todo",
-      status_char: " ",
-      description: "Open card",
-      heading: "Active",
-      folder: "Projects",
-      created: "2026-06-20",
-      due: "2026-07-01",
-      depends_on: [],
-      tags: [],
-      depth: 0,
-      is_kanban_task: false,
+    // The whole payload, so a key added at the top level fails here
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      total: 1,
+      tasks: [
+        {
+          path: "Projects/board.md",
+          line: 3,
+          status: "todo",
+          status_char: " ",
+          description: "Open card",
+          heading: "Active",
+          folder: "Projects",
+          created: "2026-06-20",
+          due: "2026-07-01",
+          depends_on: [],
+          tags: [],
+          depth: 0,
+          is_kanban_task: false,
+        },
+      ],
     })
   })
 
@@ -2442,6 +2488,74 @@ describe("file tool handlers", () => {
           type: "text",
           text: expect.stringMatching(/^Title: \(untitled\) \| Pages: 1\n\n[\s\S]*Hello PDF/),
         },
+      ],
+    })
+  })
+
+  /** One rendered PDF page as the data layer returns it. */
+  const buildRenderedPage = (pageNumber: number, imageBytes: Buffer) => ({
+    pageNumber,
+    originalBytes: 9_000,
+    fitted: {
+      data: imageBytes,
+      mimeType: "image/jpeg",
+      width: 800,
+      height: 1036,
+      originalWidth: 1224,
+      originalHeight: 1584,
+      recompressed: true,
+    },
+  })
+
+  it("returns rendered PDF pages as image blocks after a metadata line naming the title", async () => {
+    const { readAsset } = await setupAssetHarness()
+    const firstPageImage = Buffer.from("page-one")
+    const secondPageImage = Buffer.from("page-two-bytes")
+    // A stand-in result, so the title and page counts are known exactly
+    const readContentSpy = vi.spyOn(assetOperations, "readAssetContent").mockResolvedValueOnce({
+      kind: "pages",
+      path: "doc.pdf",
+      title: "Visual Doc",
+      totalPages: 3,
+      pagesRendered: 2,
+      pages: [buildRenderedPage(1, firstPageImage), buildRenderedPage(2, secondPageImage)],
+    })
+    onTestFinished(() => readContentSpy.mockRestore())
+
+    const result = await readAsset({ path: "doc.pdf", raw: true })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'doc.pdf — PDF, 3 pages, "Visual Doc" — rendered 2 pages as images',
+        },
+        { type: "image", data: firstPageImage.toString("base64"), mimeType: "image/jpeg" },
+        { type: "text", text: "Page 1 — image/jpeg, 800×1036, 8 bytes" },
+        { type: "image", data: secondPageImage.toString("base64"), mimeType: "image/jpeg" },
+        { type: "text", text: "Page 2 — image/jpeg, 800×1036, 14 bytes" },
+      ],
+    })
+  })
+
+  it("leaves the title out of an untitled PDF's metadata line and counts one rendered page", async () => {
+    const { readAsset } = await setupAssetHarness()
+    const pageImage = Buffer.from("page-one")
+    const readContentSpy = vi.spyOn(assetOperations, "readAssetContent").mockResolvedValueOnce({
+      kind: "pages",
+      path: "doc.pdf",
+      title: undefined,
+      totalPages: 2,
+      pagesRendered: 1,
+      pages: [buildRenderedPage(1, pageImage)],
+    })
+    onTestFinished(() => readContentSpy.mockRestore())
+
+    const result = await readAsset({ path: "doc.pdf", raw: true })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: "doc.pdf — PDF, 2 pages — rendered 1 page as images" },
+        { type: "image", data: pageImage.toString("base64"), mimeType: "image/jpeg" },
+        { type: "text", text: "Page 1 — image/jpeg, 800×1036, 8 bytes" },
       ],
     })
   })
@@ -3022,19 +3136,21 @@ describe("DISABLED_TOOLS", () => {
     },
   ])("the filesystem Errors entry's rename remedy $label", ({ disabledTools, expectedRemedy }) => {
     const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
-    // One tool from each module that builds the entry: vault-crud-tools shares
-    // one const, task-tools builds it inline
-    const renameRemedies = [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_UPDATE_TASK].map(
-      (toolName) => {
-        return extractDescriptionSection({
-          registeredCalls,
-          toolName,
-          startMarker: 'a quoted name ending in ".tmp"',
-          endMarker: " Permissions or a full",
-        })
-      },
-    )
-    expect(renameRemedies).toEqual([expectedRemedy, expectedRemedy])
+    // One tool from each module that builds the entry: vault-crud-tools and
+    // memory-tools each share one const, task-tools builds it inline
+    const renameRemedies = [
+      TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      TOOL_NAMES.VAULT_UPDATE_TASK,
+      TOOL_NAMES.VAULT_UPDATE_MEMORY,
+    ].map((toolName) => {
+      return extractDescriptionSection({
+        registeredCalls,
+        toolName,
+        startMarker: 'a quoted name ending in ".tmp"',
+        endMarker: " Permissions or a full",
+      })
+    })
+    expect(renameRemedies).toEqual([expectedRemedy, expectedRemedy, expectedRemedy])
   })
 
   const FENCED_BLOCK_WARNING =
