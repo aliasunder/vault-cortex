@@ -21,10 +21,9 @@ on:
         type: boolean
         default: false
 
-# Shared with the other release workflows, which also push to main, and
-# the deploy workflows. GitHub keeps one queued run per group, so any
-# later run in the group (a release or deploy dispatch, or a v* tag push)
-# cancels the queued one.
+# Shared with cli_release.yml, which also pushes to main, and the deploy
+# workflows. GitHub keeps one queued run per group, so a later release or
+# deploy dispatch cancels the queued one.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false
