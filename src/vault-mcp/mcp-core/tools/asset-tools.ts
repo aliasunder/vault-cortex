@@ -109,12 +109,12 @@ When to use: whenever a note references a file you need to actually see or read 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md; read notes with vault_read_note
 - "file not found" / "ENAMETOOLONG: …" — no file exists at that path (a folder is not a file), or the path (or a name in it) is longer than the filesystem allows; discover valid paths via vault_list_files
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable, matching Obsidian)
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable)
 - "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's owner can raise
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
 - "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input; paging applies only to text results, and an image always comes back as its image block
-- "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content; ask for a UTF-8 copy
+- "not valid UTF-8" — the file's bytes aren't UTF-8 text; ask for a UTF-8 copy
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
 - "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
@@ -212,17 +212,17 @@ Returns: for images, an image content block plus a one-line metadata text block;
       title: "List Files",
       description: `List non-markdown files in the vault or a folder — images, canvases, PDFs, data files — with per-file byte sizes and per-extension counts.
 
-Example: vault_list_files({}) — every non-markdown file in the vault
+Example: vault_list_files({}) — non-markdown files across the whole vault, up to limit (default 50)
 Example: vault_list_files({ folder: "attachments" })
 Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
 When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.
 
-Behavior: Reads the filesystem rather than the search index, so use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
+Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
 
 Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable, matching Obsidian); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers; one over 100 KiB must be read in windows with vault_read_file's start_line and limit. Only supported types are readable via vault_read_file.`,
       inputSchema: {

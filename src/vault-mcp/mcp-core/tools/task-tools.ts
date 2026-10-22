@@ -36,7 +36,7 @@ Example: vault_list_tasks({ top_level_only: true, path: "TASKS.md" }) — board 
 When to use: Reading task status and order on one board (path + sort_by: "position"; add status: "all" to include done and cancelled cards). Also any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
 ${whenToolEnabledText("vault_read_note", "Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write. ")}Prefer vault_search for full-text queries over note content.
 
-Behavior: Reads the search index, which picks up a file change within a few seconds, so a task written moments ago may still show its old state.
+Behavior: A file change takes a few seconds to appear here, so a task written moments ago may still show its old state.
 
 Parameters:
 - status: virtual values expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
@@ -222,23 +222,23 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
     TOOL_NAMES.VAULT_CREATE_TASK,
     {
       title: "Create Task",
-      description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The task is always created as todo (the Tasks plugin's todo symbol, [ ] by default), with its created date (➕) set to today${whenToolEnabledText("vault_update_task", "; set in_progress later with vault_update_task")}. Metadata uses the format the vault's Tasks plugin is configured for (emoji unless its config says Dataview); override it only at the user's request, since the plugin reads just one format.
+      description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The task is always created as todo (the Tasks plugin's todo symbol, [ ] by default), with its created date (➕) set to today${whenToolEnabledText("vault_update_task", "; set in_progress later with vault_update_task")}. Override format only at the user's request, since the Tasks plugin reads just one format.
 
 Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" }) — a card in a Kanban board's Active lane
 Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under fix-login; no block_id on a Kanban sub-task
 Example: vault_create_task({ path: "Projects/plan.md", description: "Quick fix", block_id: "quick-fix", parent_line: 42 }) — sub-task in a regular note under a parent identified by line number
 Example: vault_create_task({ path: "TASKS.md", description: "Write release notes", block_id: "release-notes", heading: "Active", position: 3 }) — insert as the 3rd card in the lane
 
-When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → 🔁 recurrence → 🏁 on_completion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
+When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering${whenToolEnabledText("vault_list_tasks", ", so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
 Parameters:
 - heading is required on Kanban boards (notes with a kanban-plugin property) unless a parent is given.
-- parent_block_id / parent_line: ${whenToolEnabledText("vault_update_task", "the same pair vault_update_task uses (block_id / line). ")}Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
+- parent_block_id / parent_line: pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
 - block_id / subtasks: block_id is required, except on a Kanban sub-task, where it is refused, as is a subtasks item ending in a ^block-id on a board. When the Kanban plugin saves the board, it copies an indented line's block ID onto its card, replacing the card's own ID.
 - position: ignored without a heading, and under a parent, where the sub-task goes after the parent's last sub-item.
 - priority: the plugin ranks "no signifier" (normal priority) between medium and low.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day; a task with no dates recurs as a dateless copy.
-- due / scheduled / start: omit a date rather than guessing — an absent 📅 means "no deadline".
+- due / scheduled / start: omit a date rather than guessing.
 
 Errors: (messages use camelCase names, e.g. blockId for block_id)
 - "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}
@@ -247,7 +247,7 @@ Errors: (messages use camelCase names, e.g. blockId for block_id)
 - "heading required for Kanban boards" — kanban-plugin note without heading; pass heading with the target lane
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
 - "cannot place at position P under "X" — the heading appears N times" — integer position on a note with duplicate heading names; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
-- "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried), or the line is inside a fenced code block or %% %% comment; re-read the parent's block_id or line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}
+- "parent task not found" — parent_block_id or parent_line doesn't resolve to a task, or the line is inside a fenced code block or %% %% comment; re-read the parent's block_id or line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}
 - "parent task ambiguous" — more than one task line ends in that ^id (the message lists their line numbers); pass parent_line instead
 - "checkbox "[c]" is a NON_TASK status" — the parent's checkbox character (c) is typed NON_TASK in the Tasks plugin's status settings, so it is not a task; the user must change its type there, then restart the server
 - "no checkbox symbol for status ..." — the Tasks plugin's status settings have no symbol for todo, and the default [ ] character has another type; the user must add a todo symbol there, then restart the server
@@ -258,15 +258,15 @@ Errors: (messages use camelCase names, e.g. blockId for block_id)
 - "blockId is required" — pass block_id
 - "blockId is not allowed on a sub-task on a Kanban board" / "subtask ... ends in a block ID" — drop the block_id, or the trailing ^id from the checklist item
 - "description is empty" / "subtasks cannot contain an empty item" — whitespace-only description or checklist item; pass visible text
-- "description must be a single line" / "subtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads; remove the line breaks
-- "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
-- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur; use a rule such as "every week" or "every 2 weeks when done"
+- "description must be a single line" / "subtasks items must be a single line" — remove the line breaks
+- "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+
+- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; use a rule such as "every week" or "every 2 weeks when done"
 - "invalid date" — a date param fails calendar validation; pass a real YYYY-MM-DD date
 - "concurrent write in progress" — another write to this note is in flight; retry
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. When description or subtasks text ends in a signifier the plugin's parser recognizes as a field (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. Captured text can also change the value read back for the field beside it, or add a field the call never set. The write still succeeds either way; when the stored line would read back differently than submitted, the result carries an advisories array naming each divergence; reword the text to avoid one.
+Obsidian syntax: When description or subtasks text ends in a signifier the plugin's parser recognizes as a field (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The write still succeeds either way; reword the text to clear any advisories the result carries.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, changes, advisories } — line is the new task's 1-based line number in the file; description is the text as submitted; block_id is omitted when the task has none (line is then its handle); heading is the nearest heading above the new task (omitted when the note has none); subtasks lists each checklist item written as { line, description } (omitted when none) — checklist items are written without a block_id, so line is the handle for a follow-up update; changes lists every field written as "field: (none) → value", and checklist items as "subtasks: 0 → N"; advisories (omitted when the line round-trips clean) lists one sentence per place the stored line parses back differently than submitted — see Obsidian syntax above.`,
       inputSchema: {
@@ -515,15 +515,15 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "assignBlockId is not allowed" / "description ends in a block ID" / "subtask ... ends in a block ID" — a new ^id on an indented line of a Kanban board; leave the line without an id and target it by line, and drop any trailing ^id from the text
 - "invalid date: …" — a date param isn't in YYYY-MM-DD form or names a day that doesn't exist; pass a real YYYY-MM-DD date
 - "description cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only description or checklist item; pass visible text
-- "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads; remove the line breaks
-- "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
-- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur; use a rule such as "every week" or "every 2 weeks when done"
+- "description must be a single line" / "addSubtasks items must be a single line" — remove the line breaks
+- "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+
+- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; use a rule such as "every week" or "every 2 weeks when done"
 - "concurrent write in progress" — another write to this note is in flight; retry
 ${describeFilesystemErrorEntry(whenToolEnabledText)}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. When description or add_subtasks text ends in a signifier the plugin's parser recognizes as a field (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. Captured text can also change the value read back for the field beside it, or add a field the call never set. The write still succeeds either way; when the stored line would read back differently than this call set, the result carries an advisories array naming each divergence; reword the text to avoid one. The ✅/❌ dates a status change adds or removes produce no advisories by themselves. A description signifier that changes how a stamped date parses back is still reported.
+Obsidian syntax: When description or add_subtasks text ends in a signifier the plugin's parser recognizes as a field (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The write still succeeds either way; reword the text to clear any advisories the result carries. The ✅/❌ dates a status change adds or removes produce no advisories by themselves. A description signifier that changes how a stamped date parses back is still reported.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied }.
 - line is the task's final 1-based line number in the file; after an on_completion delete, the line the task occupied before removal.

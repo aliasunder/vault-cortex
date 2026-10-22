@@ -1199,9 +1199,12 @@ Docker hardening, and durability seatbelts above.
 - **Atomic writes** (`atomicWriteFile` in `vault-filesystem.ts`):
   write-to-temp-then-rename. The target is never truncated — the
   Obsidian Sync process sees either old content or new content, never a
-  0-byte or partial write. The temp file is cleaned up in a `finally`
-  block on failure (`catch` in `atomicWriteFile`; `finally` in
-  `atomicWriteFileExclusive`).
+  0-byte or partial write. The temp file is named after the note plus
+  `.<UUID>.tmp`, 41 bytes longer, so a note whose name sits within 41
+  bytes of the filesystem's limit reads fine but cannot be saved; the
+  tools' filesystem-error entry asks for a name at least 41 bytes
+  shorter. The temp file is cleaned up in a `finally` block on failure
+  (`catch` in `atomicWriteFile`; `finally` in `atomicWriteFileExclusive`).
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with
   `EEXIST` if the target already exists, closing the TOCTOU race on

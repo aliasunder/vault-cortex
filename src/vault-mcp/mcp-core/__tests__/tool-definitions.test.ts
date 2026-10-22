@@ -312,7 +312,7 @@ describe("registerTools", () => {
   it("vault_delete_memory description documents duplicate-entry remediation", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
     expect(config.description).toContain("ambiguous")
-    expect(config.description).toContain("vault_update_memory refuses to write exact duplicates")
+    expect(config.description).toContain("Remove the extra copy with vault_delete_span")
   })
 
   it("vault_update_properties description documents null-deletes-key contract", () => {
@@ -346,7 +346,7 @@ describe("registerTools", () => {
       linePrefix: "- sort_by + limit interact",
     })
     expect(sortLine).toBe(
-      '- sort_by + limit interact: "modified" (default) uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
+      '- sort_by + limit interact: "modified" uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
     )
   })
 
@@ -535,7 +535,7 @@ describe("config interpolation in descriptions", () => {
       linePrefix: "- Links to the note",
     })
     expect(linksEntry).toBe(
-      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank).",
+      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank).",
     )
   })
 
@@ -1098,7 +1098,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
   it("describes hybrid search when EMBEDDING_ENABLED=true", () => {
     const description = findSearchDescription(registerWithConfig({}))
     expect(description).toContain("Hybrid search")
-    expect(description).toContain("Reciprocal Rank Fusion")
+    expect(description).toContain("keyword and semantic relevance")
     expect(description).toContain("semantic")
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1108,7 +1108,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({ EMBEDDING_ENABLED: "false" }))
     expect(description).toContain("Full-text search")
     expect(description).not.toContain("Hybrid")
-    expect(description).not.toContain("Reciprocal Rank Fusion")
+    expect(description).not.toContain("keyword and semantic relevance")
     expect(description).not.toContain("semantic")
     expect(description).not.toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1195,7 +1195,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
   const OTHER_DELETE_ERROR_ENTRY =
     '- "cannot delete …" (other than a protected path), "EACCES: …" or another filesystem error code — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry'
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
-    '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
+    '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
   const NAME_TOO_LONG_ERROR_ENTRY =
     '- "ENAMETOOLONG: …" — the path, or a name in it, is longer than the filesystem allows; check the path'
 
@@ -1208,7 +1208,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         '- any other "cannot move to trash …" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
         OTHER_DELETE_ERROR_ENTRY,
         NAME_TOO_LONG_ERROR_ENTRY,
-        "- \"cannot read trash config from .obsidian/app.json\" — the file exists but can't be read or parsed, and guessing the setting could let the server's trash cleanup delete a note Obsidian keeps forever; ask the vault owner to repair it, then retry",
+        '- "cannot read trash config from .obsidian/app.json" — the file exists but can\'t be read or parsed; ask the vault owner to repair it, then retry',
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -1241,7 +1241,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     })
   }
   const LINKS_AND_PROTECTED_PATHS_ENTRY =
-    "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank)."
+    "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank)."
 
   it("describes the Deleted files outcomes when the server does not sync", () => {
     expect(deleteNoteOpener({})).toBe(
@@ -1250,10 +1250,10 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     expect(deleteNoteBehavior({})).toBe(
       [
         "Behavior:",
-        '- The "Deleted files" setting (`trashOption` in `.obsidian/app.json`) decides the outcome:',
-        '  - "Move to system trash" (`system`, also what an absent setting means) moves the note to `.trash/`, since the server has no system trash. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none); notes Obsidian itself trashed are never touched.',
-        '  - "Move to Obsidian trash" (`local`) moves the note to `.trash/` and keeps it forever.',
-        '  - "Permanently delete" (`none`) removes the note for good.',
+        '- The "Deleted files" setting decides the outcome:',
+        '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
+        '  - "Move to Obsidian trash" moves the note to `.trash/` and keeps it forever.',
+        '  - "Permanently delete" removes the note for good.',
         "- The caller can't choose or see the outcome in advance; the returned message says which happened.",
         LINKS_AND_PROTECTED_PATHS_ENTRY,
       ].join("\n"),
@@ -1262,7 +1262,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
 
   it("describes permanent deletion and Sync recovery under OBSIDIAN_SYNC=true", () => {
     expect(deleteNoteOpener({ OBSIDIAN_SYNC: "true" })).toBe(
-      "Delete a markdown note for good: this server syncs through Obsidian Sync, so it bypasses the vault's \"Deleted files\" setting; recover a deleted note from Sync's version history (1 month on Standard, 12 months on Plus).",
+      "Delete a markdown note for good; recover a deleted note from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
     )
     expect(deleteNoteBehavior({ OBSIDIAN_SYNC: "true" })).toBe(
       `Behavior:\n${LINKS_AND_PROTECTED_PATHS_ENTRY}`,
@@ -1915,13 +1915,13 @@ describe("vault_find_orphans live folder defaults", () => {
     expect(await queryPaths()).toEqual(["Daily Notes/daily.md", "ordinary.md"])
   })
 
-  it("describes live sources and states the exclusion default in the schema", async () => {
+  it("states the daily-folder rule and the exclusion default without naming the live folder", async () => {
     const { toolConfig } = await setupOrphans({ settings: '{"folder":"Journal"}' })
-    const defaultsLine = toolConfig.description
+    const dailyFolderLine = toolConfig.description
       ?.split("\n")
-      .find((line) => line.startsWith("- With exclude_folders"))
-    expect(defaultsLine).toBe(
-      '- With exclude_folders omitted, the defaults apply; the daily notes folder among them is re-read on each call: DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else "Daily Notes" (also used when that file is unreadable). When that folder is the vault root or blank, no daily folder is excluded.',
+      .find((line) => line.startsWith("- When the daily notes folder"))
+    expect(dailyFolderLine).toBe(
+      "- When the daily notes folder is the vault root or blank, the defaults exclude no daily folder.",
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -1929,16 +1929,14 @@ describe("vault_find_orphans live folder defaults", () => {
     )
   })
 
-  it("describes an explicit environment list instead of implicit default sources", async () => {
+  it("states an explicit environment list in the schema and leaves the daily-folder rule out", async () => {
     const { toolConfig } = await setupOrphans({
       env: { ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch" },
     })
-    const defaultsLine = toolConfig.description
+    const dailyFolderLine = toolConfig.description
       ?.split("\n")
-      .find((line) => line.startsWith("- With exclude_folders"))
-    expect(defaultsLine).toBe(
-      "- With exclude_folders omitted, the server's configured list (the schema default) is used.",
-    )
+      .find((line) => line.startsWith("- When the daily notes folder"))
+    expect(dailyFolderLine).toBeUndefined()
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
       'Folder paths to exclude (e.g. Projects; default: ["Archive","Scratch"])',
     )
@@ -2771,7 +2769,7 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const PROTECTED_PATHS_SENTENCE =
-      " Protected paths are refused: About Me/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/; not protected when it is the vault root or blank)."
+      " Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank)."
 
     expect(linksEntry("")).toBe(
       `- Links to the note from other notes become broken; list them first with vault_get_backlinks.${PROTECTED_PATHS_SENTENCE}`,
@@ -2841,7 +2839,7 @@ describe("DISABLED_TOOLS", () => {
     const description = recallCall?.[1].description
 
     expect(description).toContain(
-      "text is the raw entry markdown (wikilinks intact, continuation lines included). entries ascend by date",
+      "text is the raw entry markdown (wikilinks intact, continuation lines included). total counts all matched entries",
     )
     expect(description).not.toContain("feed directly into")
   })
@@ -2930,7 +2928,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const PROPERTY_VALUES_CHECKBOX_LINE =
-    '- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.'
+    '- Checkbox true and false come back as "1" and "0", counted with the numbers 1 and 0.'
   const PROPERTY_VALUES_SEARCH_LINE =
     '- vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
   const PROPERTY_VALUES_NULL_LINE = "- null values are skipped."
@@ -2954,7 +2952,7 @@ describe("DISABLED_TOOLS", () => {
     const behaviorTail = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
-      startMarker: "- Checkbox values",
+      startMarker: "- Checkbox true",
       endMarker: "\n\nErrors:",
     })
     expect(behaviorTail).toBe(expectedLines.join("\n"))
@@ -3009,7 +3007,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FILESYSTEM_ENTRY_RENAME_REMEDY =
-    'a quoted name ending in ".tmp" means the note exists but saving it needs a temp file name 41 bytes longer, so rename it at least 41 bytes shorter'
+    'a quoted name ending in ".tmp" means the note exists but cannot be saved under its current name, so rename it at least 41 bytes shorter'
 
   it.each([
     {
@@ -3040,7 +3038,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FENCED_BLOCK_WARNING =
-    "A span that includes a code block's opening fence can't end at a plain closing fence (```): every fragment of the closing fence also appears in the opening fence, so the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
+    "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
 
   it.each([
     {
@@ -3074,7 +3072,7 @@ describe("DISABLED_TOOLS", () => {
         registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName,
         startMarker: "A span that includes a code block",
-        endMarker: "\n- ",
+        endMarker: "\n",
       })
       expect(fencedBlockWarning).toBe(expectedSentences)
     },
