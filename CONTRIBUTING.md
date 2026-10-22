@@ -262,14 +262,12 @@ What each release's notes list:
   - in files under `cli/src/__tests__/`
   - the `"version"` line of `cli/package.json` (the release bump)
   - lines in `.ts` files that start, after any indent, with `#`, `//`, `/*`
-    or `*`: comment lines, the comment text of the `.env` templates in
-    `cli/src/env.ts`, and any code line that starts the same way. A `#` line
-    shaped like a setting (`# KEY=value`, the key in capitals) still counts:
-    the templates ship optional settings commented out, for the user to
-    uncomment.
+    or `*`: comments, and the comment text of the `.env` templates in
+    `cli/src/env.ts`. A `#` line shaped like a setting (`# KEY=value`) still
+    counts: the templates ship optional settings commented out, for the user
+    to uncomment.
 
-  In files other than `.ts`, `cli/README.md` included, every non-blank line
-  counts. A moved file counts as removing and re-adding all of its lines.
+  In other files, `cli/README.md` included, every non-blank line counts.
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
