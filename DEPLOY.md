@@ -442,7 +442,7 @@ NEW_TOKEN=$(openssl rand -hex 32)
 npm run sst -- secret set McpAuthToken "$NEW_TOKEN"
 gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
 # Set MCP_AUTH_TOKEN to the same value in ~/.config/vault-cortex/.env.
-# Then dispatch manual_release.yml or push a new tag — CI takes care of the rest.
+# Then dispatch manual_release.yml — CI takes care of the rest.
 ```
 
 ### Don't fork-deploy without re-staging
