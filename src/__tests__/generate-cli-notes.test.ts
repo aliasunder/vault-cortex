@@ -169,6 +169,36 @@ describe("generate-cli-notes.sh", () => {
       })
     })
 
+    it("lists a commented-out setting added to a .ts template", () => {
+      const repo = createCliReleaseRepo()
+      repo.commit("feat(cli): offer the log level setting", {
+        "cli/src/env.ts": envTemplateModule({
+          comment: "# Path to the vault",
+          setting: "VAULT_PATH=/vault\n\n# How much the server logs\n# LOG_LEVEL=info",
+        }),
+      })
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "- feat(cli): offer the log level setting\n",
+        stderr: "",
+      })
+    })
+
+    it("lists a heading added to an .md file git quotes, after .ts comments in the same commit", () => {
+      const repo = createCliReleaseRepo()
+      repo.commit("docs(cli): add a guide", {
+        "cli/src/guide.ts": "// Points to the guide\n",
+        "cli/ünïcode.md": "# Guide\n",
+      })
+
+      expect(repo.generateNotes()).toEqual({
+        status: 0,
+        stdout: "- docs(cli): add a guide\n",
+        stderr: "",
+      })
+    })
+
     it("lists every commit from the first when no earlier CLI tag exists, ignoring server tags", () => {
       const repo = createCliReleaseRepo({ firstCommitTag: "v0.1.0" })
       commitListedCodeChange(repo)
@@ -190,10 +220,34 @@ describe("generate-cli-notes.sh", () => {
           "// Written to a new .env file\n" +
           "/**\n * The local template.\n */\n" +
           envTemplateModule({
-            comment: "# Folder that holds your vault",
+            comment: "# Folder that holds your vault (default: VAULT_PATH=/vault)",
             setting: "VAULT_PATH=/vault\n",
           }),
       })
+
+      expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
+    it("leaves out a commit that adds comment lines to two .ts files", () => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.commit("docs(cli): explain the template and the flag", {
+        "cli/src/env.ts":
+          "// Written to a new .env file\n" +
+          envTemplateModule({ comment: "# Path to the vault", setting: "VAULT_PATH=/vault" }),
+        "cli/src/program.ts": "// Read by the start command\nexport const flag = 2\n",
+      })
+
+      expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
+    })
+
+    it.each([
+      { label: "a space", path: "cli/src/env notes.ts" },
+      { label: "non-ASCII characters", path: "cli/src/ünïcode.ts" },
+    ])("leaves out a comment-only change to a .ts file whose name has $label", ({ path }) => {
+      const repo = createCliReleaseRepo()
+      commitListedCodeChange(repo)
+      repo.commit("docs(cli): add a comment file", { [path]: "// A note\n" })
 
       expect(repo.generateNotes()).toEqual(LISTED_CODE_CHANGE_ONLY)
     })

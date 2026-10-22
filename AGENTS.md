@@ -943,32 +943,37 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   centralized test directory higher up the tree. Don't spawn a
   standalone test file just to mock differently; use
   `vi.mock(path, { spy: true })` to keep the real implementation.
-  **Exception — shell scripts outside vitest's include paths.** The
-  remote image's s6 init scripts under `rootfs/etc/s6-overlay/scripts/`
-  are the `vault-mcp` server's boot chain for the `:remote` target, the
-  Claude Code hook sits in `.claude/hooks/`, and the release scripts sit
-  in `.github/scripts/`. None is a TypeScript module, and vitest's
-  include paths (`src/`, `cli/src/`, `scripts/`) reach none of those
-  folders. The init-script tests live in
-  `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
-  `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
-  `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
-  `check-sync-vault.test.ts`, which covers the vault check
-  `init-setup-vault` runs, and `print-derived-env.test.ts`, which covers
-  the derivation that `init-derive-env` publishes), and the hook's and
-  release scripts' tests in `src/__tests__/` (`install-deps.test.ts`,
-  `generate-notes.test.ts`, `update-changelog.test.ts`). These script
-  tests run the real script under its own shell (`sh` for the init
-  scripts, `bash` for the others) with stub binaries on `PATH` or, for
-  the release-notes script, a temporary git repository, and name
-  the script they cover —
-  don't move them next to the scripts or widen vitest's include for
-  them. Whole-image behaviour (the init chain's ordering,
-  the `container_environment` files the chain publishes, the volume
-  layout, and the checks that stop the container) belongs in the
-  remote-boot test suite (`src/__tests__/docker/`, see "Remote image
-  boot tests — when to add"); the branches inside one script stay in
-  that script's test file.
+
+  **Exception — shell scripts outside vitest's include paths.** These
+  scripts are not TypeScript modules, and vitest's include paths (`src/`,
+  `cli/src/`, `scripts/`) reach none of their folders, so their tests
+  live in folders vitest reaches:
+  - the remote image's s6 init scripts in
+    `rootfs/etc/s6-overlay/scripts/` (the `vault-mcp` server's boot chain
+    for the `:remote` target) → `src/vault-mcp/__tests__/`:
+    `init-check-auth.test.ts`, `init-obsidian-login.test.ts`,
+    `init-first-sync.test.ts`, `init-setup-user.test.ts`,
+    `init-setup-vault.test.ts`, `check-sync-vault.test.ts` (the vault
+    check `init-setup-vault` runs), and `print-derived-env.test.ts` (the
+    derivation that `init-derive-env` publishes)
+  - the Claude Code hook in `.claude/hooks/` →
+    `src/__tests__/install-deps.test.ts`
+  - the release scripts in `.github/scripts/` → `src/__tests__/`:
+    `generate-notes.test.ts`, `generate-cli-notes.test.ts`,
+    `update-changelog.test.ts`
+
+  These script tests run the real script under its own shell (`sh` for
+  the init scripts, `bash` for the others) with stub binaries on `PATH`
+  or, for `generate-notes.sh` and `generate-cli-notes.sh`, a temporary
+  git repository, and name the script they cover — don't move them next
+  to the scripts or widen vitest's include for them.
+
+  Whole-image behaviour (the init chain's ordering, the
+  `container_environment` files the chain publishes, the volume layout,
+  and the checks that stop the container) belongs in the remote-boot test
+  suite (`src/__tests__/docker/`, see "Remote image boot tests — when to
+  add"); the branches inside one script stay in that script's test file.
+
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
   identical assertion shapes (input → expected). Use labeled case objects
