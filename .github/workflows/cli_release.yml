@@ -47,6 +47,17 @@ jobs:
       contents: write # gh release create (git pushes use the App token)
       id-token: write # npm provenance
     steps:
+      # Only a beta publishes from other branches. A versioned release
+      # dispatched on another branch would publish that branch's code and
+      # push its bump commit there, while main's version stays behind.
+      - name: Require main for a versioned release
+        if: github.ref != 'refs/heads/main' && inputs.bump != 'beta'
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "::error::Release CLI runs on main except for a beta; this run was dispatched on $REF."
+          exit 1
+
       - name: Generate App token
         if: inputs.bump != 'beta'
         id: app-token
