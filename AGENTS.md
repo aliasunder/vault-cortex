@@ -732,9 +732,10 @@ which are the description and the input schema with each parameter's Zod
   does with the result or an error, or when it corrects a wrong assumption
   the rest of the definition leaves open. Judge each claim in a sentence on
   its own, and keep only the claims that meet this test. How the server
-  carries out the call (how a move rewrites Canvas cards, what the search
-  index holds, how a save stages its write) goes in ARCHITECTURE.md,
-  however accurate it is.
+  carries out the call (which `.obsidian` file holds a setting, what the
+  search index holds, how a save stages its write) goes in ARCHITECTURE.md,
+  however accurate it is; the outcome the caller sees stays in the
+  description.
 - **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich validation
   (format, date validity, mutual exclusivity) lives in the data layer or
   handler, where failures flow through `safeHandler` as structured tool

@@ -52,9 +52,14 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     : `kind is always "note".`
   const searchResultDetailsText = `${searchResultKindText} created is omitted, not null, when a result has none; type is null when the result has no type property. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
 
+  // The vector leg embeds the raw query, so an all-operator query still
+  // returns semantic neighbours while embeddings are on
+  const emptiedQueryOutcome = config.embeddingEnabled
+    ? "a query left with no terms is matched by meaning only"
+    : "a query left with no terms returns { results: [], total: 0 }"
   const searchErrorsSection = `Errors:
 - No matches returns { results: [], total: 0 }, not an error
-- Malformed query syntax never throws: the operators AND, OR, NOT and NEAR, and punctuation such as *, ^, parentheses and colons, are dropped before matching; a query left with no terms returns { results: [], total: 0 }
+- Malformed query syntax never throws: the operators AND, OR, NOT and NEAR, and punctuation such as *, ^, parentheses and colons, are dropped before keyword matching; ${emptiedQueryOutcome}
 - "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
 - "… is not a calendar date" — a created/modified bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name`

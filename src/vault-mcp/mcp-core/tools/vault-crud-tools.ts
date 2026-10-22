@@ -182,10 +182,11 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
 
       // The read modes select different content; allowing more than one would
       // make the result ambiguous, so reject the combination up front. The
-      // schema's min(1) rejects an empty heading, so a truthy check finds every
-      // heading; a whitespace-only one still counts as section mode, so the
-      // heading lookup rejects it rather than the read silently falling
-      // through to a full one.
+      // schema's min(1) rejects an empty heading and a 0 for heading_level,
+      // start_line and limit, so truthy checks below find every value sent; a
+      // whitespace-only heading still counts as section mode, so the heading
+      // lookup rejects it rather than the read silently falling through to a
+      // full one.
       const selectedModeCount = [properties_only, outline, Boolean(heading)].filter(Boolean).length
 
       if (selectedModeCount > 1) {
@@ -1060,7 +1061,7 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
     : {
         opener: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
         trashOutcomeEntries: `
-- The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance; the returned message says which of these happened:
+- The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance:
   - "Move to system trash" (also what an absent setting means) moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
   - "Move to Obsidian trash" moves the note to \`.trash/\` and keeps it forever.
   - "Permanently delete" removes the note for good.`,
@@ -1209,7 +1210,7 @@ Parameters:
 
 Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
-- "note not found: …" — old_path does not exist; verify it with vault_list_notes.
+- "note not found: …" — old_path does not exist; ${noteNotFoundVerifyRemedy}.
 - "source and destination are the same path" — old_path and new_path name the same note, so there is nothing to move.
 - "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder (listed under When to use); pick a new_path outside it, or leave a protected note where it is.
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry.
@@ -1221,7 +1222,7 @@ Errors:
 - A case-only rename that fails partway — if the rename failed: nothing was written. If a later link write failed: the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
 - "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
 - "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
-- "ENAMETOOLONG: …", "EEXIST: …", "ENOTDIR: …", "EACCES: …" or another filesystem error code — the message names the failing path; nothing was written. EEXIST or ENOTDIR from mkdir means a folder in new_path is an existing file. A name too long or a folder that is a file needs a different new_path; permissions or a full or read-only disk need the vault's owner.
+- "ENAMETOOLONG: …", "EEXIST: …", "ENOTDIR: …", "EACCES: …" or another filesystem error code — the message names the failing path; nothing was written. EEXIST or ENOTDIR from mkdir means a folder in new_path is an existing file. A name too long needs a shorter path (the one the message names); a folder that is a file needs a different new_path; permissions or a full or read-only disk need the vault's owner.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.
 

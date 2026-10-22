@@ -993,14 +993,31 @@ describe("filesystem errors name the path vault-relative", () => {
     })
   })
 
-  it.skipIf(runsAsRoot)("vault_list_notes on a vault holding a folder it cannot open", async () => {
-    await plantFolderWithMode({ folderPath: "Sealed Folder", mode: 0o000 })
+  it.skipIf(runsAsRoot).each(["vault_list_notes", "vault_list_files"])(
+    "%s on a vault holding a folder it cannot open names the folder",
+    async (name) => {
+      await plantFolderWithMode({ folderPath: "Sealed Folder", mode: 0o000 })
 
-    const result = await callTool({ client, name: "vault_list_notes", args: {} })
+      const result = await callTool({ client, name, args: {} })
+      expect(result).toEqual({
+        content: [
+          { type: "text", text: "[Error]: EACCES: permission denied, scandir 'Sealed Folder'" },
+        ],
+        isError: true,
+      })
+    },
+  )
+
+  it.skipIf(runsAsRoot).each([
+    { name: "vault_get_memory", args: {} },
+    { name: "vault_update_memory", args: { section: "Notes", entry: "an entry" } },
+    { name: "vault_delete_memory", args: { section: "Notes", date: "2026-01-01", entry: "x" } },
+  ])("$name on a memory file it cannot open names the file", async ({ name, args }) => {
+    await plantFileWithMode({ filePath: "About Me/Locked.md", mode: 0o000 })
+
+    const result = await callTool({ client, name, args: { file: "Locked", ...args } })
     expect(result).toEqual({
-      content: [
-        { type: "text", text: "[Error]: EACCES: permission denied, scandir 'Sealed Folder'" },
-      ],
+      content: [{ type: "text", text: '[Error]: cannot read memory file "About Me/Locked.md"' }],
       isError: true,
     })
   })

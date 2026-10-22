@@ -1284,7 +1284,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     expect(deleteNoteBehavior({})).toBe(
       [
         "Behavior:",
-        '- The "Deleted files" setting decides the outcome, which the caller can\'t choose or see in advance; the returned message says which of these happened:',
+        '- The "Deleted files" setting decides the outcome, which the caller can\'t choose or see in advance:',
         '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
         '  - "Move to Obsidian trash" moves the note to `.trash/` and keeps it forever.',
         '  - "Permanently delete" removes the note for good.',
