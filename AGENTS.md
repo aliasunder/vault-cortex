@@ -726,6 +726,13 @@ which are the description and the input schema with each parameter's Zod
     and cut `.describe()` back to the plain meaning. Format and
     default stay in `.describe()`. Never drop a fact only
     `.describe()` carries.
+- **Every sentence changes what a calling agent does.** A sentence earns
+  its place when it changes which tool or values the agent sends, what it
+  does with the result or an error, or a wrong assumption the rest of the
+  definition leaves open. Judge each claim in a sentence on its own, and
+  keep only the claims that pass. How the server carries out the call
+  (which link forms a move rewrites, what the search index holds, how a
+  save stages its write) goes in ARCHITECTURE.md, however accurate it is.
 - **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich validation
   (format, date validity, mutual exclusivity) lives in the data layer or
   handler, where failures flow through `safeHandler` as structured tool
