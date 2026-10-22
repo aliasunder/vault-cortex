@@ -219,18 +219,22 @@ jobs:
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # --latest=false keeps the "Latest" badge on server releases. Notes
-      # list only commits that change what a CLI user gets (rules in
-      # generate-cli-notes.sh) — server commits interleave on main, so
-      # range-wide auto-notes would include unrelated work. If this step
-      # fails after a successful publish, create the release manually
-      # (re-running the workflow would refuse to republish the version).
+      # - --latest=false keeps the "Latest" badge on server releases.
+      # - Server commits interleave on main, so GitHub's --generate-notes
+      #   would list them too; generate-cli-notes.sh lists only commits that
+      #   change what a CLI user gets.
+      # - If this step fails after a successful publish, run its commands by
+      #   hand with NEXT set to the version: re-running the workflow would
+      #   refuse to republish it.
       - name: Create GitHub release
         if: inputs.bump != 'beta'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEXT: ${{ steps.next.outputs.version }}
         run: |
+          # "Refuse to republish an existing version" stops every repeat after
+          # a publish, so this skip is reached only for a release created by
+          # hand before the version reached npm.
           if gh release view "cli-v$NEXT" > /dev/null 2>&1; then
             echo "Release cli-v$NEXT already exists; skipping"
             exit 0

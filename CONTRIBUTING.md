@@ -255,14 +255,18 @@ What each release's notes list:
     has deployers copy), or files under `.claude/`,
     `.devin/` or `.husky/`
 - **CLI releases** (`.github/scripts/generate-cli-notes.sh`): every commit
-  that changes `cli/`, dependency bumps included, except commits whose added
-  and removed lines under `cli/` are all:
+  that changes `cli/`, including dependency bumps that edit
+  `cli/package.json`, except commits whose added and removed lines under
+  `cli/` are all:
   - blank
   - in files under `cli/src/__tests__/`
   - the `"version"` line of `cli/package.json` (the release bump)
-  - comment lines in `.ts` files, including the `#` lines of the `.env`
-    templates in `cli/src/env.ts`; in other files, `cli/README.md` included,
-    every non-blank line counts
+  - lines in `.ts` files that start, after any indent, with `#`, `//`, `/*`
+    or `*`: comment lines, and the `#` lines of the `.env` templates in
+    `cli/src/env.ts`
+
+  In files other than `.ts`, `cli/README.md` included, every non-blank line
+  counts. A moved file counts as removing and re-adding all of its lines.
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 
