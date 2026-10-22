@@ -1008,6 +1008,21 @@ describe("filesystem errors name the path vault-relative", () => {
     },
   )
 
+  it("vault_move_note into a folder path that is a file names that file", async () => {
+    await plantFileWithMode({ filePath: "Reports", mode: 0o644 })
+    await plantFileWithMode({ filePath: "Source.md", mode: 0o644 })
+
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Source.md", new_path: "Reports/Summary.md" },
+    })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'Reports'" }],
+      isError: true,
+    })
+  })
+
   it.skipIf(runsAsRoot).each([
     { name: "vault_get_memory", args: {} },
     { name: "vault_update_memory", args: { section: "Notes", entry: "an entry" } },
