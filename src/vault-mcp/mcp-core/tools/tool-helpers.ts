@@ -268,6 +268,19 @@ export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): st
   return `- "properties block …" — ${conditionClause}the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it`
 }
 
+/** A handler's refusal of its own arguments, before any data-layer call. The
+ *  message names the fix, so it goes out with no remedy appended. */
+export const toolInputErrorResult = (params: {
+  message: string
+  logger: Logger
+}): { content: Array<{ type: "text"; text: string }>; isError: true } => {
+  params.logger.warn("tool_error", { error: params.message })
+  return {
+    content: [{ type: "text" as const, text: params.message }],
+    isError: true as const,
+  }
+}
+
 export const createSafeHandlers = (params: {
   isToolEnabled: (name: ToolName) => boolean
   vaultPath: string

@@ -79,11 +79,14 @@ const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
-/** Appends "(newest first)" when absent (case-insensitive match). */
+/** Appends "(newest first)" when absent (case-insensitive match). Trailing
+ *  spaces are dropped, so "Notes " writes the heading a later "Notes" finds. */
 const headingWithNewestFirstSuffix = (sectionName: string): string => {
-  return sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
-    ? sectionName
-    : `${sectionName} (newest first)`
+  const trimmedName = sectionName.trimEnd()
+
+  return trimmedName.toLowerCase().endsWith("(newest first)")
+    ? trimmedName
+    : `${trimmedName} (newest first)`
 }
 
 /** Matches runs of non-alphanumeric characters (replaced with hyphens in kebab-case). */

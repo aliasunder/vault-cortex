@@ -20,6 +20,7 @@ import {
   describePropertiesBlockErrorEntry,
   describeTextWindow,
   OPENING_BLOCK_ERROR_ENTRY,
+  toolInputErrorResult,
 } from "./tool-helpers.js"
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
@@ -176,15 +177,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
         limit,
       })
 
-      const returnError = (
-        message: string,
-      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
-        reqLogger.warn("tool_error", { error: message })
-        return {
-          content: [{ type: "text" as const, text: message }],
-          isError: true as const,
-        }
-      }
+      const returnError = (message: string) => toolInputErrorResult({ message, logger: reqLogger })
 
       // The read modes select different content; allowing more than one would
       // make the result ambiguous, so reject the combination up front. The

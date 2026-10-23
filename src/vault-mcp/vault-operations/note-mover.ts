@@ -1149,7 +1149,6 @@ const moveNote = async (
           to: newPath,
           linksUpdated,
           sourcesUpdated: plannedRewrites.length,
-          sourcesFailed: 0,
           prunedFolderCount,
         })
 

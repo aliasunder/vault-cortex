@@ -764,6 +764,33 @@ created: 2026-01-01T00:00:00-05:00
     expect(result).toBe("- **2026-05-15**: section entry")
   })
 
+  it("drops a new section name's trailing spaces, so the name without them appends to it", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Spaced  ",
+        entry: "first entry",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Spaced",
+        entry: "second entry",
+        date: "2026-05-16",
+      },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      `${PRINCIPLES_MD}\n## Spaced (newest first)\n- **2026-05-16**: second entry\n- **2026-05-15**: first entry\n`,
+    )
+  })
+
   it("appends to an existing section by its short name without duplicating it", async () => {
     await updateMemory(
       {

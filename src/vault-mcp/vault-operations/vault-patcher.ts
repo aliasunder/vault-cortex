@@ -15,7 +15,6 @@ import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseHeadings,
   findHeading,
-  findTrailingCommentBlockStart,
   linesBeforeFirstHeading,
   type HeadingInfo,
 } from "../obsidian-markdown/headings.js"
@@ -818,5 +817,4 @@ export const vaultPatcher = {
   deleteSpan,
   replaceSpan,
   insertAtAnchor,
-  findTrailingCommentBlockStart,
 }

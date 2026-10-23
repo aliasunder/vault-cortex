@@ -8,6 +8,7 @@ import {
   createStrictInputObject,
   FILESYSTEM_ERROR_ENTRY,
   INDEX_ENGINE_ERROR_ENTRY,
+  toolInputErrorResult,
 } from "./tool-helpers.js"
 
 /** The memory tools' filesystem-error entry: the shared one plus where an
@@ -128,15 +129,7 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
       })
       reqLogger.info("tool_call", { file, section, onOrAfter })
 
-      const returnError = (
-        message: string,
-      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
-        reqLogger.warn("tool_error", { error: message })
-        return {
-          content: [{ type: "text" as const, text: message }],
-          isError: true as const,
-        }
-      }
+      const returnError = (message: string) => toolInputErrorResult({ message, logger: reqLogger })
 
       if (onOrAfter) {
         if (!file) return returnError("on_or_after requires a file")

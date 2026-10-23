@@ -1986,7 +1986,6 @@ describe("moveNote — failure safety", () => {
       to: "Bar.md",
       linksUpdated: 1,
       sourcesUpdated: 1,
-      sourcesFailed: 0,
       prunedFolderCount: 0,
     })
   })
