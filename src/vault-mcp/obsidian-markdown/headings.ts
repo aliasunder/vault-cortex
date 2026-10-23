@@ -143,8 +143,8 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // `let` carries fence, comment, and setext-candidate state across lines.
   let openFence: OpenFence = null
   let commentOpen = false
-  // The previous non-blank, non-heading, non-fence/comment content line — a
-  // candidate for setext heading text if the current line is an underline.
+  // The previous line when it is paragraph text — a candidate for setext
+  // heading text if the current line is an underline.
   let setextCandidate: { text: string; index: number } | null = null
 
   for (let i = 0; i < lines.length; i++) {
@@ -186,8 +186,8 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       continue
     }
 
-    // Setext underline check — a setext heading is a non-blank content line
-    // followed by a `===` (H1) or `---` (H2) underline (CommonMark §4.3).
+    // Setext underline check — a setext heading is a paragraph line followed
+    // by a `===` (H1) or `---` (H2) underline (CommonMark §4.3).
     if (setextCandidate !== null) {
       const setextMatch = SETEXT_UNDERLINE_REGEX.exec(line)
       const underlineChars = setextMatch?.[1]
@@ -299,7 +299,7 @@ export const findHeading = ({
     const matchedHeadings = matches.map(describeMatch).join(", ")
 
     // The message states facts only; each tool's description gives the remedy
-    // that fits it, since a read and an edit recover differently
+    // that fits it, since a read and an edit recover differently.
     throw new Error(
       `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${matchedHeadings}`,
     )
