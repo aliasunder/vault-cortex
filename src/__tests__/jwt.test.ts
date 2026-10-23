@@ -329,4 +329,29 @@ describe("verifyJwt", () => {
     flipped[0] = firstByte ^ 0xff
     expect(verify(`${header}.${body}.${flipped.toString("base64url")}`, SECRET)).toBeNull()
   })
+
+  it.each([
+    { label: "padding appended", rewriteSignature: (signature: string) => `${signature}=` },
+    {
+      label: "a stray character appended",
+      rewriteSignature: (signature: string) => `${signature}!`,
+    },
+    {
+      label: "a space inserted",
+      rewriteSignature: (signature: string) => `${signature.slice(0, 8)} ${signature.slice(8)}`,
+    },
+  ])("returns null for a valid signature re-encoded with $label", ({ rewriteSignature }) => {
+    const payload = buildPayload()
+    const token = signJwt(payload, SECRET)
+    const signedPart = token.slice(0, token.lastIndexOf("."))
+    const signature = token.slice(token.lastIndexOf(".") + 1)
+    const rewrittenSignature = rewriteSignature(signature)
+
+    // Same bytes once decoded, so only the canonical-encoding check rejects it.
+    expect(Buffer.from(rewrittenSignature, "base64url")).toEqual(
+      Buffer.from(signature, "base64url"),
+    )
+    expect(verify(token, SECRET)).toEqual(payload)
+    expect(verify(`${signedPart}.${rewrittenSignature}`, SECRET)).toBeNull()
+  })
 })

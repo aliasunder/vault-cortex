@@ -83,11 +83,17 @@ const payloadWithVerifiedSignature = (token: string, secret: string): unknown =>
 
   if (hasEmptySegment) return null
 
-  // The header's `alg` is never read: every token is checked as HS256, and
-  // the signature covers the header, so a token claiming another `alg` fails.
+  // The header's `alg` is never read: every signature is checked as HS256
+  // with the secret, so a token signed any other way fails, whatever its
+  // header claims.
   const expectedSignature = computeHmacSha256(`${header}.${payload}`, secret)
   const signature = Buffer.from(encodedSignature, "base64url")
 
+  // Accept only the encoding signJwt emits:
+  // - Node's decoder skips padding and stray characters, so a token with `=`
+  //   appended would verify under a string a revocation list does not hold.
+  // - Neither side of `!==` depends on the secret, so it leaks no timing.
+  if (signature.toString("base64url") !== encodedSignature) return null
   if (signature.length !== expectedSignature.length) return null
   if (!timingSafeEqual(signature, expectedSignature)) return null
 

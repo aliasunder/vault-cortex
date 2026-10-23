@@ -34,8 +34,9 @@ import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { getDeploymentJwtVerification } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
-// Both lists mirror the open routes in sst.config.ts; a route added there
-// goes here too.
+// Both lists mirror the open routes in sst.config.ts. Keep them in step: a
+// path listed here but protected there is open to any request that carries
+// an Authorization header.
 const OPEN_PATHS = ["/authorize", "/token", "/register", "/revoke", "/healthz"]
 const OPEN_PATH_PREFIXES = ["/.well-known/", "/oauth/"]
 
