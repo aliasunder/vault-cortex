@@ -187,8 +187,8 @@ mechanism-level detail.
 ### Information leak prevention
 
 - `safeHandler()` catches all exceptions and returns the error's name and
-  message, plus how to fix a properties-block refusal — no stack traces
-  reach the client
+  message, plus one remedy sentence for a raw filesystem or search-index
+  error or a properties-block refusal — no stack traces reach the client
 - An image sharp cannot decode, a password-protected PDF, a damaged PDF,
   and a PDF reader that fails to start each return the server's own
   message; the library's error, which can quote the server's install paths,
