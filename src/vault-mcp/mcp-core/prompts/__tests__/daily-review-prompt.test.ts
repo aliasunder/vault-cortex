@@ -865,7 +865,7 @@ describe("daily-review error degradation", () => {
     vi.spyOn(throwingSearch, "listTasks").mockImplementation(() => {
       throw Object.assign(
         new Error(`EACCES: permission denied, open '${vault}/Projects/plan.md'`),
-        { code: "EACCES" },
+        { code: "EACCES", syscall: "open", path: `${vault}/Projects/plan.md` },
       )
     })
     const calls = registerWithSearch(vault, throwingSearch)
@@ -873,7 +873,7 @@ describe("daily-review error degradation", () => {
 
     const text = textOf(await handler({}, fakeExtra))
     expect(text).toBe(
-      "Could not assemble the daily review ([Error]: EACCES: permission denied, open 'Projects/plan.md'). Try vault_get_daily_note to fetch the note directly.",
+      "Could not assemble the daily review ([Error]: EACCES: permission denied, open 'Projects/plan.md'. Ask the vault's owner to fix the file's or folder's permissions.). Try vault_get_daily_note to fetch the note directly.",
     )
   })
 

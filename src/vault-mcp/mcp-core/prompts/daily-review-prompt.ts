@@ -14,6 +14,7 @@ import {
   readDailyNotesConfig,
 } from "../../vault-operations/daily-notes.js"
 import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
+import { appendCodedErrorRemedy } from "../coded-error-remedy.js"
 import type { TaskEntry } from "../../search/search-index.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import {
@@ -440,7 +441,11 @@ export const registerDailyReviewPrompt = ({
         // the exception: it passes those checks, but the task filter refuses
         // the day after it
         reqLogger.error("prompt_error", describeErrorForLog(error))
-        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
+        const clientMessage = appendCodedErrorRemedy({
+          message: describeErrorRelativeTo({ error, directory: vaultPath }),
+          error,
+          isToolEnabled,
+        })
         const dailyFallbackHint = whenToolEnabledText(
           "vault_get_daily_note",
           " Try vault_get_daily_note to fetch the note directly.",

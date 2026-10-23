@@ -881,7 +881,17 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
             `cannot write memory file "${memoryDir}/${params.file}.md": that path is not a file`,
           )
         }
-        await mkdir(dirname(filePath), { recursive: true })
+        try {
+          await mkdir(dirname(filePath), { recursive: true })
+        } catch (error) {
+          // The folder is server configuration (MEMORY_DIR), so a file sitting
+          // at its path is the vault owner's to move, not the caller's
+          logger.warn("cannot create memory folder", {
+            folder: memoryDir,
+            error: describeError(error),
+          })
+          throw new Error(`cannot create memory folder "${memoryDir}"`, { cause: error })
+        }
         const content = buildNewMemoryFile({
           fileName: params.file,
           section: newSection,

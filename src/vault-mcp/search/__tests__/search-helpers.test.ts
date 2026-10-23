@@ -20,6 +20,7 @@ import {
   normalizeTagQuery,
   tagMatchesQuery,
   nestedTagLikePattern,
+  IndexIntegrityError,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
 import { parseNote, UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
@@ -251,27 +252,50 @@ describe("rowToMetadata", () => {
     expect(metadata.leading_callout).toBeNull()
   })
 
-  it("throws when tags column contains a non-array value", () => {
+  it("throws IndexIntegrityError when tags column contains a non-array value", () => {
     expect(() => rowToMetadata(makeNoteRow({ tags: '"not-an-array"' }))).toThrow(
-      "expected string[] from JSON column",
+      new IndexIntegrityError('expected string[] from JSON column, got: "not-an-array"'),
     )
   })
 
-  it("throws when tags column contains an array with non-string elements", () => {
+  it("throws IndexIntegrityError when tags column contains an array with non-string elements", () => {
     expect(() => rowToMetadata(makeNoteRow({ tags: JSON.stringify(["ok", 123]) }))).toThrow(
-      "expected string[] from JSON column",
+      new IndexIntegrityError('expected string[] from JSON column, got: ["ok",123]'),
     )
   })
 
-  it("throws when properties column contains a non-object value", () => {
+  it("throws IndexIntegrityError, with the parse error as its cause, when tags column is not JSON", () => {
+    const thrown = (() => {
+      try {
+        rowToMetadata(makeNoteRow({ tags: "{" }))
+        return undefined
+      } catch (error) {
+        return error
+      }
+    })()
+
+    if (!(thrown instanceof IndexIntegrityError)) throw new Error("expected IndexIntegrityError")
+    expect(thrown.name).toBe("IndexIntegrityError")
+    expect(thrown.message).toBe("JSON column is not JSON: {")
+    // JSON.parse's message text is the engine's, so only its class is pinned
+    expect(thrown.cause).toBeInstanceOf(SyntaxError)
+  })
+
+  it("throws IndexIntegrityError when properties column contains a non-object value", () => {
     expect(() => rowToMetadata(makeNoteRow({ properties: '"string"' }))).toThrow(
-      "expected object from JSON column",
+      new IndexIntegrityError('expected object from JSON column, got: "string"'),
     )
   })
 
-  it("throws when leading_callout column has missing fields", () => {
+  it("throws IndexIntegrityError when leading_callout column has missing fields", () => {
     expect(() => rowToMetadata(makeNoteRow({ leading_callout: '{"type":"info"}' }))).toThrow(
-      "expected LeadingCallout from JSON column",
+      new IndexIntegrityError('expected LeadingCallout from JSON column, got: {"type":"info"}'),
+    )
+  })
+
+  it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
+    expect(() => rowToMetadata(makeNoteRow({ mtime: NaN }))).toThrow(
+      new IndexIntegrityError("invalid mtime: NaN"),
     )
   })
 })

@@ -616,6 +616,33 @@ created: 2026-01-01T00:00:00-05:00
     expect(linkStats.isSymbolicLink()).toBe(true)
   })
 
+  it("wraps the memory folder's mkdir failure with the folder's vault-relative path", async () => {
+    // The folder is server configuration, so a file at its path is the vault
+    // owner's to move; the raw EEXIST from mkdir would read as the caller's path
+    await rm(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me"), "not a folder")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('cannot create memory folder "About Me"'))
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "About Me",
+      error: expect.stringMatching(/^\[Error\]: EEXIST: file already exists, mkdir '/),
+    })
+  })
+
   it("rejects a folder named like the memory file with a vault-relative message", async () => {
     await mkdir(join(vault, "About Me", "Archive.md"))
     await expect(

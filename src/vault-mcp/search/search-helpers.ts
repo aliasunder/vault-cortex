@@ -111,25 +111,61 @@ export const parseNoteForIndex = (
   }
 }
 
+// ── Stored row integrity ───────────────────────────────────────
+
+/** A stored index row cannot be read back: a JSON column that is not JSON or
+ *  has the wrong shape, or an mtime Luxon rejects. The indexer wrote every
+ *  such column itself, so the failure is the index's, never the call's, and
+ *  the tool boundary appends the index remedy to it. */
+export class IndexIntegrityError extends Error {
+  constructor(message: string, options?: { cause: unknown }) {
+    super(message, options)
+    this.name = "IndexIntegrityError"
+  }
+}
+
+/** JSON.parse over a stored column, with a non-JSON column reported as index
+ *  damage instead of a bare SyntaxError. */
+const parseJsonColumn = (json: string): unknown => {
+  try {
+    return JSON.parse(json)
+  } catch (error) {
+    throw new IndexIntegrityError(`JSON column is not JSON: ${json}`, { cause: error })
+  }
+}
+
+/** mtimeToIso over a stored mtime, with a rejected value reported as index
+ *  damage; the outline's real file time goes through mtimeToIso directly. */
+const storedMtimeToIso = (mtimeMs: number): string => {
+  try {
+    return mtimeToIso(mtimeMs)
+  } catch (error) {
+    throw new IndexIntegrityError(`invalid mtime: ${mtimeMs}`, { cause: error })
+  }
+}
+
 // ── JSON column parsers (private) ──────────────────────────────
 
 /** Parses a JSON column that must contain a string array (tags, related,
  *  depends_on). Throws on corruption — these columns are serialized by the
  *  indexer, so a non-array value indicates index corruption. */
 const parseStringArray = (json: string): string[] => {
-  const parsed: unknown = JSON.parse(json)
+  const parsed = parseJsonColumn(json)
 
-  if (!Array.isArray(parsed) || !parsed.every(isString))
-    throw new Error(`expected string[] from JSON column, got: ${json}`)
+  if (!Array.isArray(parsed) || !parsed.every(isString)) {
+    throw new IndexIntegrityError(`expected string[] from JSON column, got: ${json}`)
+  }
   return parsed
 }
 
 /** Parses a JSON column that must contain a record (properties).
  *  Throws on corruption — the indexer stores JSON.stringify(frontmatter). */
 const parseRecord = (json: string): Record<string, unknown> => {
-  const parsed: unknown = JSON.parse(json)
+  const parsed = parseJsonColumn(json)
 
-  if (!isRecord(parsed)) throw new Error(`expected object from JSON column, got: ${json}`)
+  if (!isRecord(parsed)) {
+    throw new IndexIntegrityError(`expected object from JSON column, got: ${json}`)
+  }
   return parsed
 }
 
@@ -144,10 +180,11 @@ const isLeadingCalloutShape = (
 /** Parses a JSON column that must contain a LeadingCallout ({type, title, body}).
  *  Throws on corruption — the indexer stores JSON.stringify(parseLeadingCallout(...)). */
 const parseLeadingCalloutJson = (json: string): LeadingCallout => {
-  const parsed: unknown = JSON.parse(json)
+  const parsed = parseJsonColumn(json)
 
-  if (!isRecord(parsed) || !isLeadingCalloutShape(parsed))
-    throw new Error(`expected LeadingCallout from JSON column, got: ${json}`)
+  if (!isRecord(parsed) || !isLeadingCalloutShape(parsed)) {
+    throw new IndexIntegrityError(`expected LeadingCallout from JSON column, got: ${json}`)
+  }
   return { type: parsed.type, title: parsed.title, body: parsed.body }
 }
 
@@ -210,7 +247,7 @@ export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   folder: row.folder,
   type: row.type,
   created: row.created,
-  modified: mtimeToIso(row.mtime),
+  modified: storedMtimeToIso(row.mtime),
   bytes: row.bytes ?? 0,
   properties: parseRecord(row.properties),
   leading_callout: row.leading_callout ? parseLeadingCalloutJson(row.leading_callout) : null,
@@ -270,7 +307,7 @@ export const noteRowToSearchResult = (params: {
   type: params.row.type,
   kind: "note",
   ...(params.row.created !== null ? { created: params.row.created } : {}),
-  modified: mtimeToIso(params.row.mtime),
+  modified: storedMtimeToIso(params.row.mtime),
   bytes: params.row.bytes ?? 0,
   ...(params.includeLeadingCallout && params.row.leading_callout
     ? {
@@ -304,7 +341,7 @@ export const fileContentRowToSearchResult = (
   type: null,
   kind: "file",
   extension: posix.extname(row.path) || undefined,
-  modified: mtimeToIso(row.mtime),
+  modified: storedMtimeToIso(row.mtime),
   bytes: row.bytes,
 })
 

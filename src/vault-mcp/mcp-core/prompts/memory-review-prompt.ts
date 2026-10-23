@@ -16,6 +16,7 @@ import {
   describeErrorForLog,
   describeErrorRelativeTo,
 } from "../../../utils/describe-error.js"
+import { appendCodedErrorRemedy } from "../coded-error-remedy.js"
 import {
   type PromptRegistrationContext,
   textResult,
@@ -231,7 +232,11 @@ export const registerMemoryReviewPrompt = ({
         // An unknown file returns earlier in the try, so a failure caught here
         // is the server's own and logs at error, not warn
         reqLogger.error("prompt_error", describeErrorForLog(error))
-        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
+        const clientMessage = appendCodedErrorRemedy({
+          message: describeErrorRelativeTo({ error, directory: vaultPath }),
+          error,
+          isToolEnabled,
+        })
         const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"])
         const fallbackHint = fallbackTools
           ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`

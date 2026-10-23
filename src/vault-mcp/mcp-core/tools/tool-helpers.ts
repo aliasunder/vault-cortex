@@ -10,6 +10,7 @@ import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
+import { appendCodedErrorRemedy } from "../coded-error-remedy.js"
 import { isTagsKey } from "../../obsidian-markdown/tags.js"
 import {
   OverwriteBlockedError,
@@ -273,11 +274,16 @@ export const createSafeHandlers = (params: {
   const { isToolEnabled, vaultPath } = params
 
   /** The error's text with a Node error's paths made vault-relative, plus how
-   *  to fix a properties-block failure: repair steps for a block already in
-   *  the vault, or a way around `---` lines a write would leave at the top of
+   *  to fix it: the remedy for a raw filesystem or index error, or for a
+   *  properties-block failure the repair steps for a block already in the
+   *  vault, or a way around `---` lines a write would leave at the top of
    *  the note. */
   const describeToolError = (error: unknown): string => {
-    const message = describeErrorRelativeTo({ error, directory: vaultPath })
+    const message = appendCodedErrorRemedy({
+      message: describeErrorRelativeTo({ error, directory: vaultPath }),
+      error,
+      isToolEnabled,
+    })
     // A move abort's properties-block message already ends with a period
     // ("Nothing was written."), so the repair steps follow after a space
     const separator = message.endsWith(".") ? " " : ". "
