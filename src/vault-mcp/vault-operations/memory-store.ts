@@ -616,7 +616,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
    *  - Returns null when no file is there. That covers nothing at the path, a
    *    memory folder that is itself a file, and a folder named like the file.
    *  - Any other failure throws with the file's vault-relative path. The raw
-   *    error names the server's absolute path, so it goes to the log instead. */
+   *    error names the server's absolute path, so it goes to the log instead.
+   *    The thrown error carries no Node code, so the tool boundary adds no
+   *    remedy to it. */
   const readMemoryFileOrNull = async (
     params: { vaultPath: string; file: string },
     logger: Logger,
@@ -881,12 +883,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
             `cannot write memory file "${memoryDir}/${params.file}.md": that path is not a file`,
           )
         }
+
         try {
           await mkdir(dirname(filePath), { recursive: true })
         } catch (error) {
           // The folder is server configuration (MEMORY_DIR), so a file sitting
-          // at its path is the vault owner's to move, not the caller's. Other
-          // failures keep their code, so the tool boundary appends its remedy
+          // at its path is the vault owner's to move, not the caller's:
+          // - that failure is wrapped without its code, and the memory tools'
+          //   Errors entry names its fix;
+          // - other failures keep their code, so the tool boundary appends
+          //   its remedy.
           const fileAtFolderPath =
             isErrnoException(error, "EEXIST") || isErrnoException(error, "ENOTDIR")
 
@@ -898,6 +904,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           })
           throw new Error(`cannot create memory folder "${memoryDir}"`, { cause: error })
         }
+
         const content = buildNewMemoryFile({
           fileName: params.file,
           section: newSection,

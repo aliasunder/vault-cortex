@@ -1321,7 +1321,8 @@ Docker hardening, and durability seatbelts above.
   plus one remedy sentence for a raw filesystem or search-index error
   (`coded-error-remedy.ts`, keyed on the error's code, syscall and path) or
   how to fix a properties-block refusal — no stack traces. A buggy tool
-  never crashes the server.
+  never crashes the server. The prompts' fallback messages carry the same
+  remedy sentence.
 - **Library errors**: an image sharp cannot decode, a password-protected
   PDF, a damaged PDF, and a PDF reader that fails to start (pdf.js or the
   canvas library failing to load, whose error quotes install paths) each

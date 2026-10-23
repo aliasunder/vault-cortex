@@ -25,9 +25,10 @@ import type {
 
 export const isString = (value: unknown): value is string => typeof value === "string"
 
-/** Coerces a YAML frontmatter field to a string array, stringifying
- *  non-string elements. gray-matter may parse multi-value YAML fields
- *  as a scalar or an array depending on syntax (flow vs block). */
+/** Coerces a YAML frontmatter field to a string array: scalar elements are
+ *  stringified; null elements, mappings and nested lists are dropped.
+ *  gray-matter may parse multi-value YAML fields as a scalar or an array
+ *  depending on syntax (flow vs block). */
 export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value))
     return value.filter((element) => element != null && typeof element !== "object").map(String)
@@ -135,7 +136,8 @@ const parseJsonColumn = (json: string): unknown => {
 }
 
 /** mtimeToIso over a stored mtime, with a rejected value reported as index
- *  damage; the outline's real file time goes through mtimeToIso directly. */
+ *  damage. vault-filesystem.ts passes a file's live stat time to mtimeToIso
+ *  directly. */
 const storedMtimeToIso = (mtimeMs: number): string => {
   try {
     return mtimeToIso(mtimeMs)
@@ -188,7 +190,7 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
   return { type: parsed.type, title: parsed.title, body: parsed.body }
 }
 
-// ── LIKE escaping ─────────────────────────────────────────────
+// ── Folder paths and LIKE patterns ────────────────────────────
 
 /** Strips trailing slashes so folder paths produce clean LIKE patterns
  *  (e.g. `"Projects/"` → `"Projects"`, avoiding `Projects//%`). */
@@ -248,7 +250,7 @@ export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   type: row.type,
   created: row.created,
   modified: storedMtimeToIso(row.mtime),
-  bytes: row.bytes ?? 0,
+  bytes: row.bytes,
   properties: parseRecord(row.properties),
   leading_callout: row.leading_callout ? parseLeadingCalloutJson(row.leading_callout) : null,
 })
@@ -306,9 +308,9 @@ export const noteRowToSearchResult = (params: {
   folder: params.row.folder,
   type: params.row.type,
   kind: "note",
-  ...(params.row.created !== null ? { created: params.row.created } : {}),
+  ...(params.row.created ? { created: params.row.created } : {}),
   modified: storedMtimeToIso(params.row.mtime),
-  bytes: params.row.bytes ?? 0,
+  bytes: params.row.bytes,
   ...(params.includeLeadingCallout && params.row.leading_callout
     ? {
         leading_callout: parseLeadingCalloutJson(params.row.leading_callout),
@@ -392,7 +394,8 @@ const propertyValueMatches = (params: {
 
 /** Mirrors fullTextSearch's SQL filters for vector-only results. Date filter
  * values and tag inputs are pre-validated by fullTextSearch, which
- * hybridSearch runs first, so their throws never fire here. */
+ * hybridSearch runs first, so their throws never fire here; a damaged stored
+ * row still throws IndexIntegrityError. */
 export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters): boolean => {
   if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
 

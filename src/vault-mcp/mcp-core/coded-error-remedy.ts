@@ -11,9 +11,11 @@ import type { ToolName } from "./tool-registry.js"
 const INDEX_REMEDY =
   "The server's search index could not be read; the call was not at fault. Retry once, then report a repeat to the server's owner."
 
+const CHANGED_DURING_CALL_REMEDY = "The file or folder changed while the call ran; retry."
+
 // A Node system error names its syscall and the path it failed on, plus a
-// second path (`dest`) for rename and link; a coded error without a syscall
-// (an ERR_* TypeError on the arguments) is the caller's to read as it is
+// second path (`dest`) for rename and link. A coded error without a syscall
+// (an ERR_* TypeError on the arguments) gets no remedy
 type SystemError = NodeJS.ErrnoException & { syscall: string; dest?: string }
 
 const isSystemError = (error: NodeJS.ErrnoException): error is SystemError => {
@@ -29,7 +31,7 @@ const describeTempSaveRemedy = (isToolEnabled: (name: ToolName) => boolean): str
 const describeSystemErrorRemedy = (
   error: SystemError,
   isToolEnabled: (name: ToolName) => boolean,
-): string | undefined => {
+): string => {
   switch (error.code) {
     case "ENAMETOOLONG": {
       const failedPaths = [error.path, error.dest].filter((path) => path !== undefined)
@@ -45,7 +47,10 @@ const describeSystemErrorRemedy = (
       if (error.syscall === "scandir") {
         return "The folder changed while it was being listed; retry."
       }
-      return "The file or folder changed while the call ran; retry."
+      // Reads treat ENOTDIR as no file (utils/fs.ts), and both callers of
+      // atomicWriteFileExclusive catch its EEXIST, so any other one means a
+      // folder in the path changed between two steps of the call
+      return CHANGED_DURING_CALL_REMEDY
     }
     case "EACCES":
     case "EPERM":
@@ -68,7 +73,7 @@ const describeSystemErrorRemedy = (
     // one means the file changed between two steps of the call
     case "ENOENT":
     case "EISDIR":
-      return "The file or folder changed while the call ran; retry."
+      return CHANGED_DURING_CALL_REMEDY
     // A code outside the table (EXDEV, ESTALE) comes from the host's disks or
     // mounts, which only the owner can change
     default:
@@ -76,8 +81,9 @@ const describeSystemErrorRemedy = (
   }
 }
 
-/** The remedy sentence for a raw coded error, or undefined for a coded error
- *  that is not a filesystem or index failure (its own text stands). */
+/** The remedy sentence for a raw filesystem error (a Node error with a
+ *  syscall) or a search-index failure (a SqliteError or an
+ *  IndexIntegrityError); undefined for any other error, whose own text stands. */
 export const remedyForCodedError = (params: {
   error: unknown
   isToolEnabled: (name: ToolName) => boolean
@@ -86,7 +92,8 @@ export const remedyForCodedError = (params: {
 
   if (error instanceof IndexIntegrityError) return INDEX_REMEDY
   if (!isErrnoException(error)) return undefined
-  // better-sqlite3's SqliteError carries a SQLITE_* code and no syscall
+  // isErrnoException admits any Error with a string code, so better-sqlite3's
+  // SqliteError (a SQLITE_* code and no syscall) passes it
   if (error.code.startsWith("SQLITE_")) return INDEX_REMEDY
   if (!isSystemError(error)) return undefined
   return describeSystemErrorRemedy(error, isToolEnabled)

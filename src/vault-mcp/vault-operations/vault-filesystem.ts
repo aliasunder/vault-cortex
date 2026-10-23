@@ -175,14 +175,12 @@ export const pruneEmptyParents = async (
 const tempSavePath = (filePath: string): string => `${filePath}.${randomUUID()}.tmp`
 
 /** How many bytes tempSavePath adds to a target's name. */
-export const TEMP_SAVE_SUFFIX_BYTES = tempSavePath("").length
+export const TEMP_SAVE_SUFFIX_BYTES = Buffer.byteLength(tempSavePath(""), "utf8")
 
-/** Matches the suffix tempSavePath appends, with or without a closing quote
- *  from a Node error message. */
+/** Matches the suffix tempSavePath appends, at the end of a path. */
 const TEMP_SAVE_SUFFIX_REGEX =
   /\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
 
-/** True for a path tempSavePath produced. */
 export const isTempSavePath = (path: string): boolean => TEMP_SAVE_SUFFIX_REGEX.test(path)
 
 /**

@@ -76,8 +76,6 @@ export const registerVaultCrudTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  const filesystemErrorEntry = FILESYSTEM_ERROR_ENTRY
-
   registerTool(
     TOOL_NAMES.VAULT_READ_NOTE,
     {
@@ -108,7 +106,7 @@ Errors:
 - 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_read_file", "; read other files (images, .canvas, data files) with vault_read_file")}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "properties block is not valid YAML …" — properties_only, outline and heading need readable YAML, while a full read returns the note as it is; the error says how to repair it
-${filesystemErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}
 
 Returns: Raw markdown string (default); JSON object of properties, {} when the note has none (properties_only); JSON outline object, shaped as the outline parameter describes (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)"). Unpaged full reads return the file's exact bytes; heading sections and paged reads use LF line endings.
 
@@ -400,7 +398,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
-${filesystemErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry("with overwrite: true")}
 - "the note would open with a properties block the server cannot keep …" — the note would get no properties (none passed or kept from an overwritten note, or every key set to null), and the body opens with --- lines around text that is invalid YAML, a list, a single value, or a YAML tag, which would become its properties block; pass at least one property, or start the body without --- lines
 
@@ -543,7 +541,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
-${filesystemErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -675,7 +673,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
-${filesystemErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -782,7 +780,7 @@ Errors:
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-${filesystemErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -881,7 +879,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
-${filesystemErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -988,7 +986,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
-${filesystemErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -1106,7 +1104,7 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
 - "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry
-${filesystemErrorEntry}; the note stays put${deleteNoteText.trashConfigErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}; the note stays put${deleteNoteText.trashConfigErrorEntry}
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 
 Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when any were.`,
@@ -1246,7 +1244,7 @@ Errors:
 - A case-only rename that fails partway — "move aborted: could not rename to …" means nothing was written; retry the move, and if it fails again ask the vault's owner to fix the folder's permissions. "move incomplete: …" means the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
 - "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
 - "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
-${filesystemErrorEntry}; nothing was written.
+${FILESYSTEM_ERROR_ENTRY}; nothing was written.
 ${INDEX_ENGINE_ERROR_ENTRY}; nothing was written.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.
@@ -1348,7 +1346,7 @@ Errors:
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-${filesystemErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry("without replace: true")}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
