@@ -634,7 +634,8 @@ OAuth/MCP spec) and never invoke the Lambda.
 For protected requests, the authorizer:
 
 - accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
-- checks the signature, issuer, and audience of deployment-bound JWTs
+- checks the signature, issuer, and audience of JWTs bound to this deployment
+  (see **JWT payload** below)
 - forwards a correctly bound expired JWT to Express for the **401** refresh challenge
 - denies every other token with a **403**
 
@@ -654,8 +655,8 @@ and revocation. An expired token stops here with **401** and
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
 
-**Why both layers:** Lightsail port 8000 is publicly bound by default. If the
-API Gateway authorizer is misconfigured, or someone hits the public IP
+**Why both layers:** Lightsail port 8000 is open to the internet by default.
+If the API Gateway authorizer is misconfigured, or someone hits the public IP
 directly, Express still rejects. `/healthz` bypasses auth for docker-compose
 healthchecks.
 
@@ -741,8 +742,8 @@ cryptographic or binding checks. The binding claims
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
 - `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
-  `/mcp`. `PUBLIC_URL` must be a bare origin; path prefixes are rejected at
-  startup.
+  `/mcp`. `PUBLIC_URL` must be a bare origin; path prefixes are rejected when
+  the MCP server starts.
 - Each verifier checks both claims against its own copy of `PUBLIC_URL` — the
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
