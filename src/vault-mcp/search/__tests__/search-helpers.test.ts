@@ -651,6 +651,12 @@ describe("noteMatchesSearchFilters", () => {
     expect(noteMatchesSearchFilters(baseRow, { properties: { status: "archived" } })).toBe(false)
   })
 
+  it("matches a property key and text value only in their exact letter case", () => {
+    expect(noteMatchesSearchFilters(baseRow, { properties: { status: "active" } })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { properties: { Status: "active" } })).toBe(false)
+    expect(noteMatchesSearchFilters(baseRow, { properties: { status: "Active" } })).toBe(false)
+  })
+
   it("matches a list property when any element equals the value", () => {
     const rowWithList = {
       ...baseRow,

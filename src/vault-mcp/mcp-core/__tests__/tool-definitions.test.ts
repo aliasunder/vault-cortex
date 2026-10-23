@@ -1335,20 +1335,40 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
     return description
   }
 
+  const openerAndReturnsLines = (
+    description: string,
+  ): { opener: string | undefined; returns: string | undefined } => {
+    const descriptionLines = description.split("\n")
+
+    return {
+      opener: descriptionLines[0],
+      returns: descriptionLines.find((line) => line.startsWith("Returns:")),
+    }
+  }
+
+  // Both variants share this lead; only the Returns line's closing sentence differs
+  const RECALL_RETURNS_LEAD =
+    "Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, not the oldest or newest ones, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file."
+
   it("describes hybrid recall when EMBEDDING_ENABLED=true", () => {
     const description = findRecallDescription(registerWithConfig({}))
-    expect(description).toContain("hybrid (keyword + semantic)")
-    expect(description).toContain("oldest-first")
-    expect(description).toContain("recall over precision")
-    expect(description).toContain("truncated")
+
+    expect(openerAndReturnsLines(description)).toEqual({
+      opener:
+        'Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.',
+      returns: `${RECALL_RETURNS_LEAD} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when a relevance cut was applied.`,
+    })
   })
 
   it("describes keyword-only recall when EMBEDDING_ENABLED=false", () => {
     const description = findRecallDescription(registerWithConfig({ EMBEDDING_ENABLED: "false" }))
-    expect(description).toContain("keyword retrieval")
-    expect(description).toContain("re-query with synonyms")
+
+    expect(openerAndReturnsLines(description)).toEqual({
+      opener:
+        'Recall memory entries about a topic — entry-granular keyword retrieval across ALL About Me/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.',
+      returns: `${RECALL_RETURNS_LEAD} In keyword-only mode search_mode is always "fts" and reranked always false.`,
+    })
     expect(description).not.toContain("hybrid")
-    expect(description).toContain('In keyword-only mode search_mode is always "fts"')
   })
 })
 
@@ -2950,8 +2970,14 @@ describe("DISABLED_TOOLS", () => {
     )
     const description = recallCall?.[1].description
 
-    expect(description).toContain(
-      "text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry",
+    expect(
+      findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_MEMORY_RECALL,
+        linePrefix: "Returns:",
+      }),
+    ).toBe(
+      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, not the oldest or newest ones, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when a relevance cut was applied.',
     )
     expect(description).not.toContain("feed directly into")
   })
