@@ -29,7 +29,7 @@ export const registerSearchTools = ({
   const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${searchFiltersNoteOnlyClause}:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
-- properties: values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
+- properties: keys and text values match exactly, letter case included; values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days in the server's time zone (the UTC offset on returned created and modified values), so "on" matches anywhere within the day. Notes without a parseable created property never match a created filter`
 
   const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
@@ -48,18 +48,26 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? "path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes"
     : "path, title, snippet, score, tags, folder, type, kind, created, modified, bytes"
   const searchResultKindText = config.fileToolsEnabled
-    ? `kind is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").`
-    : `kind is always "note".`
-  const searchResultDetailsText = `${searchResultKindText} created is omitted, not null, when a result has none; type is null when the result has no type property. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
+    ? `The kind field is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").`
+    : `The kind field is always "note".`
+  const searchResultDetailsText = `${searchResultKindText} The created field is omitted, not null, when a result has none; type is null when the result has no type property. The bytes field is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
 
   // The vector leg embeds the raw query, so an all-operator query still
-  // returns semantic neighbours while embeddings are on
-  const emptiedQueryOutcome = config.embeddingEnabled
-    ? "a query left with no terms is matched by meaning only"
-    : "a query left with no terms returns { results: [], total: 0 }"
+  // returns semantic neighbours while embeddings are on — unless the query
+  // embedding fails, when only the keyword leg runs and finds nothing
+  const emptiedQueryText = config.embeddingEnabled
+    ? {
+        stage: "keyword matching",
+        outcome:
+          'a query left with no terms is matched by meaning only, or finds nothing when only keyword matching ran (search_mode "fts")',
+      }
+    : {
+        stage: "matching",
+        outcome: "a query left with no terms returns { results: [], total: 0 }",
+      }
   const searchErrorsSection = `Errors:
 - No matches returns { results: [], total: 0 }, not an error
-- Malformed query syntax never throws: the operators AND, OR, NOT and NEAR, and punctuation such as *, ^, parentheses and colons, are dropped before keyword matching; ${emptiedQueryOutcome}
+- Malformed query syntax never throws: the operators AND, OR, NOT and NEAR, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}
 - "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
 - "… is not a calendar date" — a created/modified bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name`
@@ -73,15 +81,15 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
 
 ${searchFiltersSection}
 
-${searchSharedExamples}
 Example: vault_search({ query: "how the server watches for file changes" })
+${searchSharedExamples}
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Try natural-language queries, not just keywords.
 ${searchAlternativesLine}
 
 ${searchErrorsSection}
 
-Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("hybrid" when vector embeddings contributed, "fts" when only keyword matching ran), and reranked (boolean — true when cross-encoder reranking refined the ordering). A higher score is more relevant. ${searchResultDetailsText}`
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("hybrid" when vector embeddings contributed, "fts" when only keyword matching ran), and reranked (true when cross-encoder reranking refined the ordering). A higher score is more relevant. ${searchResultDetailsText}`
         : `Full-text search across ${searchedContentText}, ranked by relevance. ${searchSyntaxText}
 
 ${searchFiltersSection}
@@ -294,7 +302,7 @@ Parameters:
 Errors:
 - An empty vault returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout, additional_properties), sorted descending by chosen timestamp. created is null when the property is missing or not an ISO date; bytes is on-disk file size. leading_callout appears only when the note has a leading callout; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout, additional_properties), sorted descending by chosen timestamp. The created field is null when the property is missing or not an ISO date; bytes is on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
@@ -331,7 +339,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     {
       title: "Search by Folder",
-      description: `Browse notes in a folder with full metadata — unlike vault_list_notes, which returns paths only.
+      description: `Browse notes in a folder with full metadata.
 
 Example: vault_search_by_folder({ folder: "Projects" })
 Example: vault_search_by_folder({ folder: "${config.memoryEnabled ? config.memoryDir : "Projects/Archive"}", recursive: false, limit: 10 }) — the folder's own notes, 10 most recent
@@ -608,7 +616,7 @@ Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
 When to use: Navigating the graph forward, auditing broken links in one note or canvas, or checking dependencies before editing.
 For incoming links (what links TO a note), use vault_get_backlinks.
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage — and false otherwise, including whenever that folder setting is the vault root or blank. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". The title field is null for files and broken links. The daily_note_forward_ref flag is true on a broken link into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage — and false otherwise, including whenever that folder setting is the vault root or blank. The bytes field is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
@@ -655,22 +663,16 @@ Errors:
     },
   )
 
-  // An override list may not include the daily notes folder, so the line about
-  // that folder and the hint accompany only the built-in defaults.
+  // An override list may not include the daily notes folder, so the sentence
+  // about that folder accompanies only the built-in defaults.
   const orphanDefaultsText = config.orphanExcludeFoldersOverride
     ? {
         folders: JSON.stringify(config.orphanExcludeFoldersOverride),
         dailyFolderLine: "",
-        dailyFolderHint: "",
       }
     : {
         folders: `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`,
-        dailyFolderLine:
-          " When the daily notes folder is the vault root or blank, the default list holds no daily folder.",
-        dailyFolderHint: whenToolEnabledText(
-          "vault_get_daily_note",
-          " (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)",
-        ),
+        dailyFolderLine: ` The defaults' daily notes folder is the vault's own setting${whenToolEnabledText("vault_get_daily_note", ", the one vault_get_daily_note's path starts with")}; when it is the vault root or blank, the defaults hold no daily folder.`,
       }
 
   registerTool(
@@ -686,14 +688,14 @@ When to use: Vault maintenance — surfacing notes to integrate into the graph.$
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
-- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it${orphanDefaultsText.dailyFolderHint}. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.${orphanDefaultsText.dailyFolderLine}
+- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.${orphanDefaultsText.dailyFolderLine}
 - limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
 - "too many excluded folders" — pass a shorter exclude_folders list, then retry.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout, additional_properties), sorted by most recently modified. bytes is the on-disk file size. leading_callout appears only when the note has a leading callout; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout, additional_properties), sorted by most recently modified. The bytes field is the on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {
         exclude_folders: z
           .array(z.string().min(1))

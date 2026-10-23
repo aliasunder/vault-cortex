@@ -1164,14 +1164,14 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
     resultFields:
       "results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes",
     kindSentence:
-      'kind is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").',
+      'The kind field is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").',
   }
   const NOTE_ONLY_WORDING = {
     searchedScope: "search across vault notes",
     filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
     resultFields:
       "results array (path, title, snippet, score, tags, folder, type, kind, created, modified, bytes",
-    kindSentence: 'kind is always "note".',
+    kindSentence: 'The kind field is always "note".',
   }
 
   it.each([
@@ -1209,7 +1209,10 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
       searchedScope: searchSection({ startMarker: "search across ", endMarker: ", ranked by" }),
       filtersLeadIn: searchSection({ startMarker: "Filters — ", endMarker: "\n- folder:" }),
       resultFields: searchSection({ startMarker: "results array (", endMarker: "), total" }),
-      kindSentence: searchSection({ startMarker: "kind is ", endMarker: " created is omitted" }),
+      kindSentence: searchSection({
+        startMarker: "The kind field is ",
+        endMarker: " The created field is omitted",
+      }),
     }).toEqual(expectedWording)
   })
 })
@@ -1345,7 +1348,7 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
     expect(description).toContain("keyword retrieval")
     expect(description).toContain("re-query with synonyms")
     expect(description).not.toContain("hybrid")
-    expect(description).toContain('search_mode is always "fts"')
+    expect(description).toContain('In keyword-only mode search_mode is always "fts"')
   })
 })
 
@@ -1954,7 +1957,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it (vault_get_daily_note\'s path starts with the daily notes folder whenever the defaults exclude one). Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. When the daily notes folder is the vault root or blank, the default list holds no daily folder.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. The defaults\' daily notes folder is the vault\'s own setting, the one vault_get_daily_note\'s path starts with; when it is the vault root or blank, the defaults hold no daily folder.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -2897,12 +2900,11 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const ENTRY_START =
-      "- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it"
-    const ENTRY_END =
-      '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. When the daily notes folder is the vault root or blank, the default list holds no daily folder.'
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. The defaults\' daily notes folder is the vault\'s own setting'
+    const ENTRY_END = "; when it is the vault root or blank, the defaults hold no daily folder."
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)${ENTRY_END}`,
+      `${ENTRY_START}, the one vault_get_daily_note's path starts with${ENTRY_END}`,
     )
     expect(excludeFoldersEntry("vault_get_daily_note")).toBe(`${ENTRY_START}${ENTRY_END}`)
   })
@@ -2948,7 +2950,7 @@ describe("DISABLED_TOOLS", () => {
     const description = recallCall?.[1].description
 
     expect(description).toContain(
-      "text is the raw entry markdown (wikilinks intact, continuation lines included). total counts all matched entries",
+      "text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry",
     )
     expect(description).not.toContain("feed directly into")
   })
