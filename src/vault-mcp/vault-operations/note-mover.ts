@@ -182,7 +182,6 @@ const rewriteTarget = (
     allPaths: context.allNotePaths,
     sourcePath: context.oldSourcePath,
   })
-  const targetKind: TargetKind = resolvedNoteBefore ? "note" : "asset"
   const resolvedBefore =
     resolvedNoteBefore ??
     links.resolveAsset({
@@ -192,6 +191,8 @@ const rewriteTarget = (
     })
 
   if (resolvedBefore === null) return null
+
+  const targetKind: TargetKind = resolvedNoteBefore ? "note" : "asset"
 
   // Follow the moved note to its new location; every other target (an
   // unmoved note, or an asset — assets never move) keeps its resolved path,
@@ -442,13 +443,19 @@ const rewriteNoteContent = (
   if (linksRewritten === 0) return null
 
   if (frontmatterResult.linksRewritten === 0) {
-    const { rawBlock } = splitNoteKeepingBlock(rawContent)
-    return { content: joinNoteKeepingBlock({ rawBlock, body: bodyResult.body }), linksRewritten }
+    const { textBeforeBody } = splitNoteKeepingBlock(rawContent)
+    return {
+      content: joinNoteKeepingBlock({ textBeforeBody, body: bodyResult.body }),
+      linksRewritten,
+    }
   }
 
-  // Called only for the error it throws. The block was read above, but
-  // stringifyNote below would drop or change a block that is a YAML list, a
-  // single value, or holds a value with an explicit tag, wherever that value sits.
+  // Called only for the error it throws:
+  // - A link inside the block changed, so the block is valid YAML: an
+  //   unreadable block reads as no properties and returned above.
+  // - stringifyNote below would still drop or change a block that is a YAML
+  //   list, a single value, or holds a value with an explicit tag, wherever
+  //   that value sits.
   parseNoteForRewrite(rawContent)
 
   const rewrittenData = frontmatterResult.value
@@ -504,8 +511,9 @@ const buildMoveAbortError = (params: { subject: string; error: unknown }): Error
       { cause: error },
     )
   }
-  // Only a rewrite of properties the block's values were read from refuses
-  // here; an unreadable block reads as no properties, so it never does
+  // The message names the rewrite: a refusal here always comes from rewriting
+  // a link inside a readable block, because an unreadable block reads as no
+  // properties and never refuses
   if (error instanceof UnsupportedPropertiesBlockError) {
     return new UnsupportedPropertiesBlockError({
       message: `move aborted: could not rewrite ${subject}: ${error.message}. Nothing was written.`,
@@ -1067,6 +1075,8 @@ const moveNote = async (
         }
 
         // Mutable so a mid-commit failure can report how far the writes got.
+        // Other writes may still be in flight when one fails, so the count it
+        // reports is a lower bound.
         let sourcesWritten = 0
         await mapWithConcurrency({
           items: plannedRewrites,

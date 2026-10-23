@@ -171,8 +171,9 @@ export const pruneEmptyParents = async (
 }
 
 /** The temp file a save writes beside its target: the target's path plus a
- *  dot, a UUID and ".tmp", so a name near the filesystem's length limit can
- *  read fine and still fail to save. */
+ *  dot, a UUID and ".tmp". That suffix makes the temp name longer than the
+ *  target's, so a name near the filesystem's length limit can read fine and
+ *  still fail to save. */
 export const tempSavePath = (filePath: string): string => `${filePath}.${randomUUID()}.tmp`
 
 /** How many bytes tempSavePath adds to a target's name. */
@@ -266,29 +267,34 @@ export const atomicWriteFileExclusive = async (
       // The reservation took but the swap failed — drop the placeholder so a
       // failed write never strands a 0-byte note at the destination. A failed
       // cleanup is logged, not thrown, so the swap failure propagates.
-      await rm(params.filePath, { force: true }).catch((cleanupError: unknown) => {
+      try {
+        await rm(params.filePath, { force: true })
+      } catch (cleanupError) {
         logger.warn("failed to remove reservation placeholder", {
           path: params.filePath,
           error: describeError(cleanupError),
         })
-      })
+      }
       throw renameError
     }
   } finally {
     // Always drop the temp file — renamed away on success, redundant otherwise.
     // A failed cleanup is logged, not thrown, so the original failure (e.g.
     // EEXIST) propagates.
-    await rm(tmpPath, { force: true }).catch((cleanupError: unknown) => {
+    try {
+      await rm(tmpPath, { force: true })
+    } catch (cleanupError) {
       logger.warn("failed to remove temp file", {
         path: tmpPath,
         error: describeError(cleanupError),
       })
-    })
+    }
   }
 }
 
 /** Parses a note an overwrite will merge into. A refused properties block
- *  becomes an OverwriteBlockedError, whose repair skips putting prose back. */
+ *  becomes an OverwriteBlockedError, which the tool layer repairs without
+ *  moving the block's text into the body the overwrite replaces. */
 const parseNoteForOverwrite = (existing: string): ParsedNote => {
   try {
     return parseNoteForRewrite(existing)
@@ -365,9 +371,9 @@ const readNoteOutline = async (
   const headings = parseHeadings(lines)
   const calloutSpan = parseLeadingCalloutSpan(lines)
 
-  // linesBeforeFirstHeading returns a zero-based prefix, so its indices still
-  // match the callout span. Filtering that prefix also keeps a callout after a
-  // leading H1 outside the region without span subtraction or negative slices.
+  // linesBeforeFirstHeading returns a prefix of `lines`, so the callout span's
+  // line indices filter it directly; a callout below the first heading lies
+  // past the prefix and filters nothing.
   const regionLines = linesBeforeFirstHeading(lines, headings)
   const regionOutsideCallout = regionLines.filter(
     (_line, index) =>
@@ -1011,7 +1017,7 @@ const readAsset = async (
     // The buffer is one sentinel byte longer than the statted size — if the
     // file grew after the stat, the sentinel fills and the read is rejected
     // as unstable.
-    const readBuffer = Buffer.alloc(Math.min(fileStats.size, params.maxBytes) + 1)
+    const readBuffer = Buffer.alloc(fileStats.size + 1)
     // A single read() may return short on some platforms, so the loop
     // accumulates until EOF or the buffer is full.
     let totalBytesRead = 0

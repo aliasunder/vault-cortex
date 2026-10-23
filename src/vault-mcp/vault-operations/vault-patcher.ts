@@ -64,6 +64,8 @@ type PatchNoteResult = Readonly<{
  *  `## foo` inside an opening code fence is not a heading. */
 const leadingHeadingOfContent = (contentLines: readonly string[]): HeadingInfo | null => {
   const firstNonBlankLineIndex = contentLines.findIndex((line) => line.trim() !== "")
+
+  if (firstNonBlankLineIndex === -1) return null
   return (
     parseHeadings(contentLines).find(
       (contentHeading) => contentHeading.startLine === firstNonBlankLineIndex,
@@ -123,17 +125,18 @@ const applySectionOperation = (
   }
 }
 
-/** Reads a note for a body edit: its properties block as written (with LF
- *  line breaks), which the edit writes back without parsing, and its body lines. */
+/** Reads a note for a body edit: the text before its body (the properties
+ *  block, with LF line breaks), which the edit writes back without parsing,
+ *  and its body lines. */
 const readNoteForPatch = async (
   vaultPath: string,
   path: string,
 ): Promise<{
   fullPath: string
-  rawBlock: string
+  textBeforeBody: string
   lines: string[]
   /** The 0-based file line `lines` starts on, so messages can name file lines. */
-  bodyStartLine: number
+  bodyStartFileLine: number
   /** Raw on-disk file bytes — used for before/after size logging. */
   beforeBytes: number
 }> => {
@@ -144,15 +147,15 @@ const readNoteForPatch = async (
   if (fileContent === null) {
     throw new Error(`note not found: "${path}"`)
   }
-  const { rawBlock, body } = splitNoteKeepingBlock(fileContent)
+  const { textBeforeBody, body } = splitNoteKeepingBlock(fileContent)
   return {
     fullPath,
-    rawBlock,
+    textBeforeBody,
     // splitIntoLines normalizes CRLF-authored (Windows) notes to LF-only lines
     // so body matching and the empty-line handling after an edit stay
     // consistent, and the note is rewritten as LF.
     lines: splitIntoLines(body),
-    bodyStartLine: findBodyStartLine(fileContent),
+    bodyStartFileLine: findBodyStartLine(fileContent),
     beforeBytes: Buffer.byteLength(fileContent, "utf8"),
   }
 }
@@ -161,11 +164,11 @@ const readNoteForPatch = async (
  *  (atomically). Returns the serialized byte length for size logging. */
 const writePatchedNote = async (
   fullPath: string,
-  rawBlock: string,
+  textBeforeBody: string,
   lines: readonly string[],
   logger: Logger,
 ): Promise<number> => {
-  const serialized = joinNoteKeepingBlock({ rawBlock, body: lines.join("\n") })
+  const serialized = joinNoteKeepingBlock({ textBeforeBody, body: lines.join("\n") })
   await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
   return Buffer.byteLength(serialized, "utf8")
 }
@@ -258,6 +261,8 @@ const listTextDeletionEdits = (params: {
   /** The run of line breaks in `body` around `position`. Reuses the last run
    *  measured when `position` falls inside it, and remembers each new one. */
   const findLineBreakRunAt = (position: number): LineBreakRun => {
+    // The run found around a position always has start <= position <= end, so
+    // a position at either end of the last run measures that same run.
     const isInLastRun = position >= lastLineBreakRun.start && position <= lastLineBreakRun.end
 
     if (isInLastRun) return lastLineBreakRun
@@ -302,7 +307,9 @@ const listTextDeletionEdits = (params: {
     //   at the match's own start or end count toward the gap they sat in.
     // - A match made only of line breaks counts them on both sides. Its gap
     //   below then covers every break from the match to the end of its run,
-    //   more than the removal leaves there, so none of that run is dropped.
+    //   more than the removal leaves there, so none of that run is dropped:
+    //   removing `\n\n` from the start of `\n\n\n\nB` leaves two empty lines,
+    //   and the gap below counts three.
     edits.push({
       boundary: updatedLineIndex,
       gapAbove: countEmptyLinesInBreaks({
@@ -411,10 +418,8 @@ const patchNote = async (
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, rawBlock, lines, bodyStartLine, beforeBytes } = await readNoteForPatch(
-      params.vaultPath,
-      path,
-    )
+    const { fullPath, textBeforeBody, lines, bodyStartFileLine, beforeBytes } =
+      await readNoteForPatch(params.vaultPath, path)
     // The control-character check allows `\r`, so content may hold `\r\n`
     // breaks; splitIntoLines turns them into the LF lines the body uses.
     const contentLines = splitIntoLines(content)
@@ -440,7 +445,7 @@ const patchNote = async (
 
       const updatedLines =
         operation === "append" ? [...lines, ...contentLines] : [...contentLines, ...lines]
-      const afterBytes = await writePatchedNote(fullPath, rawBlock, updatedLines, logger)
+      const afterBytes = await writePatchedNote(fullPath, textBeforeBody, updatedLines, logger)
       logger.info("patched note", {
         path,
         operation,
@@ -457,7 +462,12 @@ const patchNote = async (
 
     // Section-level operation
     const headings = parseHeadings(lines)
-    const target = findHeading({ headings, text: heading, level: headingLevel, bodyStartLine })
+    const target = findHeading({
+      headings,
+      text: heading,
+      level: headingLevel,
+      bodyStartLine: bodyStartFileLine,
+    })
     const targetDesc = `${"#".repeat(target.level)} ${target.text}`
 
     // Heading-targeted ops keep the matched heading, so a content that begins
@@ -498,7 +508,7 @@ const patchNote = async (
 
     const updatedLines = applySectionOperation(lines, contentLines, target, operation)
 
-    const afterBytes = await writePatchedNote(fullPath, rawBlock, updatedLines, logger)
+    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, updatedLines, logger)
     logger.info("patched note", {
       path,
       operation,
@@ -542,7 +552,7 @@ const replaceInNote = async (
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, rawBlock, lines, beforeBytes } = await readNoteForPatch(
+    const { fullPath, textBeforeBody, lines, beforeBytes } = await readNoteForPatch(
       params.vaultPath,
       path,
     )
@@ -559,6 +569,8 @@ const replaceInNote = async (
       ? body.split(searchText)
       : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + searchText.length)]
     const count = bodyParts.length - 1
+    // The body and the replacement already use LF breaks, and splitIntoLines
+    // would also drop a `\r` that new_text puts just before a line break
     const updatedLines = bodyParts.join(replacementText).split("\n")
 
     // A deletion stacks the empty lines from both sides of each match into one
@@ -572,7 +584,7 @@ const replaceInNote = async (
         })
       : updatedLines
 
-    const afterBytes = await writePatchedNote(fullPath, rawBlock, writtenLines, logger)
+    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, writtenLines, logger)
     logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
     return {
       message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
@@ -610,7 +622,7 @@ const deleteSpan = async (
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, rawBlock, lines, beforeBytes } = await readNoteForPatch(
+    const { fullPath, textBeforeBody, lines, beforeBytes } = await readNoteForPatch(
       params.vaultPath,
       path,
     )
@@ -639,7 +651,7 @@ const deleteSpan = async (
         },
       ],
     })
-    const afterBytes = await writePatchedNote(fullPath, rawBlock, writtenLines, logger)
+    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, writtenLines, logger)
 
     logger.info("deleted span", {
       path,
@@ -683,7 +695,7 @@ const replaceSpan = async (
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, rawBlock, lines, beforeBytes } = await readNoteForPatch(
+    const { fullPath, textBeforeBody, lines, beforeBytes } = await readNoteForPatch(
       params.vaultPath,
       path,
     )
@@ -721,7 +733,7 @@ const replaceSpan = async (
         },
       ],
     })
-    const afterBytes = await writePatchedNote(fullPath, rawBlock, writtenLines, logger)
+    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, writtenLines, logger)
 
     logger.info("replaced span", {
       path,
@@ -764,7 +776,7 @@ const insertAtAnchor = async (
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, rawBlock, lines, beforeBytes } = await readNoteForPatch(
+    const { fullPath, textBeforeBody, lines, beforeBytes } = await readNoteForPatch(
       params.vaultPath,
       path,
     )
@@ -785,7 +797,7 @@ const insertAtAnchor = async (
     // No empty-line collapse, unlike the span edits: no text is removed, so no
     // two runs of the note's empty lines end up touching, and the content's
     // own empty lines are written as given.
-    const afterBytes = await writePatchedNote(fullPath, rawBlock, updatedLines, logger)
+    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, updatedLines, logger)
 
     logger.info("inserted at anchor", {
       path,

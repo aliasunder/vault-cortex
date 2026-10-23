@@ -21,8 +21,6 @@ import {
   measureToolListChars,
 } from "./tool-surface-capture.js"
 
-/** A share as a percentage with one decimal, the precision the per-tool
- *  `Errors:` targets are stated in. */
 const formatPercent = (part: number, whole: number): string => {
   return whole === 0 ? "0.0%" : `${((100 * part) / whole).toFixed(1)}%`
 }
@@ -67,8 +65,6 @@ for (const comboName of SIZE_CAPPED_COMBO_NAMES) {
     )
   }
 
-  // The Errors sections' share of the whole list, the measure the
-  // error-prose work is judged by
   const errorsTotal = toolRows.reduce((sum, row) => sum + row.errorsChars, 0)
   const descriptionTotal = toolRows.reduce((sum, row) => sum + row.descriptionChars, 0)
   const definitionTotal = toolRows.reduce((sum, row) => sum + row.totalChars, 0)

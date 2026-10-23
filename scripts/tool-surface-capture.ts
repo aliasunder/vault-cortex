@@ -73,7 +73,7 @@ const comboFromFlippedAxes = (flippedAxes: readonly SurfaceAxis[]): SurfaceCombo
   }
 }
 
-/** The 16 axis combos plus two single-setting representatives:
+/** One combo per subset of SURFACE_AXES, plus two single-setting representatives:
  *  - Conjunction combos pin rendered states that exist only in multi-flip
  *    configs (several description clauses drop together).
  *  - disabled-tools: vault_patch_note is cross-referenced from other tools'
@@ -110,7 +110,8 @@ const assertSinglePage = (listName: string, nextCursor?: string): void => {
 }
 
 /** Bytewise name sort so registration-order refactors don't churn the
- *  baseline — list order is not part of the stability contract. */
+ *  baseline — list order is not part of the stability contract. Tool and
+ *  prompt names are unique, so the comparator never needs to return 0. */
 const sortByName = <T extends { name: string }>(items: readonly T[]): T[] => {
   return items.toSorted((first, second) => (first.name < second.name ? -1 : 1))
 }
@@ -194,15 +195,15 @@ export const measureToolListChars = (tools: readonly Tool[]): number => {
 }
 
 /** A description line that opens the next section after `Errors:`, such as
- *  `Returns:` or `Obsidian syntax:`: a capitalized label of up to 31
- *  characters followed by a colon. Bullet lines start with `- `, so they never
- *  match. */
+ *  `Returns:` or `Obsidian syntax:`: a capital letter, then 1 to 30 letters or
+ *  spaces, then a colon. Bullet lines start with `- `, so they never match. */
 const SECTION_LABEL_LINE = /^[A-Z][A-Za-z ]{1,30}:/
 
 /** Measures a tool description's `Errors:` section in UTF-16 code units: the
  *  `Errors:` line and every line after it up to the next section label, plus
- *  one per line for its line break. A tool with no description or no `Errors:`
- *  line measures zero. */
+ *  one per line for its line break, counted even on a last line that has no
+ *  break after it. A tool with no description or no `Errors:` line measures
+ *  zero. */
 export const measureErrorsSectionChars = (tool: Tool): number => {
   if (!tool.description) return 0
 

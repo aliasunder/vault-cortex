@@ -11,9 +11,9 @@ import {
 } from "./tool-helpers.js"
 
 /** The memory tools' filesystem-error entry: the shared one plus where an
- *  existing file gets a shorter name, because the message's rename remedy
- *  names vault_move_note and the memory folder is protected from moves by
- *  default. */
+ *  existing file gets a shorter name. The remedy the tool boundary appends to
+ *  a too-long name (coded-error-remedy.ts) renames with vault_move_note, and
+ *  the memory folder is protected from moves by default. */
 const MEMORY_FILESYSTEM_ERROR_ENTRY = `${FILESYSTEM_ERROR_ENTRY}; rename an existing memory file with a too-long name in Obsidian`
 
 /** The memory store names a folder standing where the file would go, since a
@@ -32,8 +32,9 @@ const MEMORY_FILE_READ_ERROR_ENTRY =
   "- \"cannot read memory file …\" — the file can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise its permissions need the vault's owner"
 
 /** A memory write keeps the file's properties block, so it refuses only a
- *  file with no block whose opening lines would become one once saved: two
- *  leading BOMs (the save drops one) or a first line of `---` and two CRs. */
+ *  file with no block whose opening lines would become one once saved:
+ *  - two leading BOMs before `---`, of which the save drops one;
+ *  - a first line `---\r\r\n`, which the save writes as `---\r\n`. */
 const MEMORY_OPENING_BLOCK_ERROR_ENTRY =
   "- \"memory file …: the note would open with a properties block …\" — saving would turn the file's opening lines into a properties block the server can't keep; the error says how to avoid it"
 

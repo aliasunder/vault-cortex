@@ -1522,6 +1522,8 @@ export const createSearchIndex = (
       // First path segment only — search filters drill into subfolders
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(frontmatter.type) ? frontmatter.type : null,
+      // toISO() returns null for a value Luxon cannot parse, so such a note
+      // has no created date and never matches a created filter
       created: isString(frontmatter.created) ? DateTime.fromISO(frontmatter.created).toISO() : null,
       mtime: fileStat.mtimeMs,
       properties: JSON.stringify(frontmatter),
@@ -1538,7 +1540,8 @@ export const createSearchIndex = (
     // "Code Projects").
     const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
     // Tasks read the whole file, not noteBody, so their line numbers match the
-    // file's lines; extractTasks skips the properties block itself
+    // file's lines; extractTasks skips the properties block with
+    // splitPropertiesBlock, the same split noteBody comes from
     const extractedTasks = tasks.extractTasks(rawContent, statusRegistry)
     const memoryFile = memoryFileNameFromPath(filePath)
 

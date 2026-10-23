@@ -802,44 +802,44 @@ describe("splitNoteKeepingBlock", () => {
     const note = "---\n# keep me\ntags: [a, b]   # inline\ntitle: 'Quoted'\n---\nbody\n"
 
     expect(splitNoteKeepingBlock(note)).toEqual({
-      rawBlock: "---\n# keep me\ntags: [a, b]   # inline\ntitle: 'Quoted'\n---\n",
+      textBeforeBody: "---\n# keep me\ntags: [a, b]   # inline\ntitle: 'Quoted'\n---\n",
       body: "body\n",
     })
   })
 
   it("splits a block that is not valid YAML without reading it", () => {
     expect(splitNoteKeepingBlock("---\ntitle: [unclosed\n---\nbody\n")).toEqual({
-      rawBlock: "---\ntitle: [unclosed\n---\n",
+      textBeforeBody: "---\ntitle: [unclosed\n---\n",
       body: "body\n",
     })
   })
 
   it("writes the block's CRLF and lone CR line breaks as LF and leaves the body's as they are", () => {
     expect(splitNoteKeepingBlock("---\r\na: 1\r\n---\r\nbody\r\n")).toEqual({
-      rawBlock: "---\na: 1\n---\n",
+      textBeforeBody: "---\na: 1\n---\n",
       body: "body\r\n",
     })
     expect(splitNoteKeepingBlock("---\r\na: 1\r\n---\r")).toEqual({
-      rawBlock: "---\na: 1\n---\n",
+      textBeforeBody: "---\na: 1\n---\n",
       body: "",
     })
   })
 
   it("drops a leading BOM", () => {
     expect(splitNoteKeepingBlock(`${BOM}---\na: 1\n---\nbody\n`)).toEqual({
-      rawBlock: "---\na: 1\n---\n",
+      textBeforeBody: "---\na: 1\n---\n",
       body: "body\n",
     })
-    expect(splitNoteKeepingBlock(`${BOM}body\n`)).toEqual({ rawBlock: "", body: "body\n" })
+    expect(splitNoteKeepingBlock(`${BOM}body\n`)).toEqual({ textBeforeBody: "", body: "body\n" })
   })
 
   it("returns no block for a note without one", () => {
-    expect(splitNoteKeepingBlock("body\n")).toEqual({ rawBlock: "", body: "body\n" })
+    expect(splitNoteKeepingBlock("body\n")).toEqual({ textBeforeBody: "", body: "body\n" })
   })
 
   it("leaves a loose closer's trailing text in the body, as every read splits it", () => {
     expect(splitNoteKeepingBlock("---\na: 1\n--- suffix\nbody")).toEqual({
-      rawBlock: "---\na: 1\n---",
+      textBeforeBody: "---\na: 1\n---",
       body: " suffix\nbody",
     })
   })
@@ -945,24 +945,24 @@ describe("joinNoteKeepingBlock", () => {
       expected: "new\n",
     },
   ])("keeps $label and ends the note with a line break", ({ note, body, expected }) => {
-    const { rawBlock } = splitNoteKeepingBlock(note)
+    const { textBeforeBody } = splitNoteKeepingBlock(note)
 
-    expect(joinNoteKeepingBlock({ rawBlock, body })).toBe(expected)
+    expect(joinNoteKeepingBlock({ textBeforeBody, body })).toBe(expected)
   })
 
   it("writes the same note as stringifyNote when the block is already in its serialized form", () => {
     const note = "---\ntitle: Plan\ntags:\n  - a\n  - b\n---\nbody\n"
-    const { rawBlock, body } = splitNoteKeepingBlock(note)
+    const { textBeforeBody, body } = splitNoteKeepingBlock(note)
     const { data, content } = parseNoteForRewrite(note)
 
-    expect(joinNoteKeepingBlock({ rawBlock, body: `${body}more\n` })).toBe(
+    expect(joinNoteKeepingBlock({ textBeforeBody, body: `${body}more\n` })).toBe(
       stringifyNote(`${content}more\n`, data),
     )
   })
 
   it("refuses a note without a block whose new body would open with a block the server cannot keep", () => {
     const thrown = catchThrown(() => {
-      return joinNoteKeepingBlock({ rawBlock: "", body: "---\n\nSome text\n\n---\nbody\n" })
+      return joinNoteKeepingBlock({ textBeforeBody: "", body: "---\n\nSome text\n\n---\nbody\n" })
     })
 
     expect(describeOutputRefusal(thrown)).toEqual({
@@ -973,7 +973,10 @@ describe("joinNoteKeepingBlock", () => {
 
   it("writes a body that opens with --- lines below a kept block without refusing", () => {
     expect(
-      joinNoteKeepingBlock({ rawBlock: "---\na: 1\n---\n", body: "---\ntitle: [unclosed\n---\n" }),
+      joinNoteKeepingBlock({
+        textBeforeBody: "---\na: 1\n---\n",
+        body: "---\ntitle: [unclosed\n---\n",
+      }),
     ).toBe("---\na: 1\n---\n---\ntitle: [unclosed\n---\n")
   })
 })

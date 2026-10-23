@@ -19,13 +19,15 @@ import type {
 
 export const isString = (value: unknown): value is string => typeof value === "string"
 
+const isScalarListElement = (element: unknown): boolean => {
+  return element != null && typeof element !== "object"
+}
+
 /** Coerces a YAML frontmatter field to a string array: scalar elements are
- *  stringified; null elements, mappings and nested lists are dropped.
- *  gray-matter may parse multi-value YAML fields as a scalar or an array
- *  depending on syntax (flow vs block). */
+ *  stringified; null elements, mappings and nested lists are dropped. A
+ *  multi-value field may be written as one value (`tags: a`) or as a list. */
 export const coerceToArray = (value: unknown): string[] => {
-  if (Array.isArray(value))
-    return value.filter((element) => element != null && typeof element !== "object").map(String)
+  if (Array.isArray(value)) return value.filter(isScalarListElement).map(String)
 
   // A mapping value (related: { note: true }) is dropped, as the array branch
   // above drops mappings in a list; String() would index it as "[object Object]".
@@ -83,7 +85,9 @@ export const nestedTagLikePattern = (input: string): string => {
 /** A stored index row cannot be read back: a JSON column that is not JSON or
  *  has the wrong shape, or an mtime Luxon rejects. The indexer wrote every
  *  such column itself, so the failure is the index's, never the call's, and
- *  the tool boundary appends the index remedy to it. */
+ *  the tool boundary appends the index remedy to it. Its `name` is set so
+ *  `describeError` prints `[IndexIntegrityError]: …`, the prefix the
+ *  index-backed tools' Errors entries name. */
 export class IndexIntegrityError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
     super(message, options)
@@ -190,9 +194,7 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
     if (key === "title") continue
     if (value == null) continue
     if (Array.isArray(value)) {
-      const primitiveElements = value
-        .filter((element) => element != null && typeof element !== "object")
-        .map(String)
+      const primitiveElements = value.filter(isScalarListElement).map(String)
 
       if (primitiveElements.length > 0) {
         lines.push(`${key}: ${primitiveElements.join(" ")}`)
