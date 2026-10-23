@@ -3,7 +3,12 @@
  *  single atomic read-modify-write under an exclusive file lock. */
 
 import { DateTime } from "luxon"
-import { parseNoteForRewrite, stringifyNote } from "../obsidian-markdown/frontmatter.js"
+import {
+  findBodyStartLine,
+  findWrittenBodyStartLine,
+  parseNoteForRewrite,
+  stringifyNote,
+} from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { classifyIsoDate } from "../../utils/classify-iso-date.js"
@@ -1119,12 +1124,12 @@ const appendSubtasks = ({
   const subtaskLines = descriptions.map(
     (subtaskText) => `${subtaskIndent}- [${todoChar}] ${subtaskText}`,
   )
-  // Body-only content (lines has no frontmatter) so extractTasks line
-  // numbers are 1-based within the body, matching taskLineIndex + 1.
+  // The lines are the body alone, so their task lines are numbered from 1,
+  // matching taskLineIndex + 1
   const bodyContent = lines.join("\n")
   const taskBodyLine = taskLineIndex + 1
   const existingSubtaskCount = tasks
-    .extractTasks(bodyContent, statusRegistry)
+    .extractTasksFromBody(bodyContent, statusRegistry)
     .filter((extractedTask) => extractedTask.parentLine === taskBodyLine).length
   return {
     lines: lines.toSpliced(blockEnd, 0, ...subtaskLines),
@@ -1567,9 +1572,11 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
-    // findBodyStartLine needs the raw file (bodyLines came from the parsed
-    // content, which has no frontmatter) to count the frontmatter offset.
-    const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
+    // A parent named by line is found on the note as read. Reported lines are
+    // counted on the note as written, whose rewritten properties block can
+    // have a different number of lines.
+    const readBodyStartLine = findBodyStartLine(fileContent)
+    const writtenBodyStartLine = findWrittenBodyStartLine(parsed.data)
 
     // The block id rules run here, after the read, because the note's
     // properties say whether it is a Kanban board.
@@ -1629,7 +1636,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
       heading: resolvedHeading,
     } = resolveNewTaskPlacement({
       bodyLines,
-      bodyStartLine,
+      bodyStartLine: readBodyStartLine,
       headings,
       parentLocator,
       heading,
@@ -1700,7 +1707,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     // Checklist lines follow the card line, so the first one sits at insertAt + 1
     const subtaskPositions = subtasks?.length
       ? subtaskPositionsFrom({
-          bodyStartLine,
+          bodyStartLine: writtenBodyStartLine,
           firstBodyIndex: insertAt + 1,
           descriptions: subtasks,
         })
@@ -1710,7 +1717,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
     await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
 
-    const finalLine = bodyStartLine + insertAt + 1
+    const finalLine = writtenBodyStartLine + insertAt + 1
 
     logger.info("task created", {
       path,
@@ -1844,13 +1851,16 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
-    // extractTasks uses the same formula (file_line = bodyStartLine +
-    // bodyLineIndex + 1), so the offset must match.
-    const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
+    // The task is found, and its prior values matched, on the note as read,
+    // with the offset extractTasks numbers its rows by. Lines reported for
+    // tasks that survive the write are counted on the note as written, whose
+    // rewritten properties block can have a different number of lines.
+    const readBodyStartLine = findBodyStartLine(fileContent)
+    const writtenBodyStartLine = findWrittenBodyStartLine(parsed.data)
 
     const taskLineIndex = locateTaskLine({
       bodyLines,
-      bodyStartLine,
+      bodyStartLine: readBodyStartLine,
       blockId,
       line,
       path,
@@ -1878,7 +1888,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // Parsed from the whole note so `depth` counts task ancestors the way
     // the index does — raw indentation would call a checklist item under a
     // plain bullet a sub-task while the index lists it as top-level.
-    const taskFileLine = bodyStartLine + taskLineIndex + 1
+    const taskFileLine = readBodyStartLine + taskLineIndex + 1
     const taskBefore = tasks
       .extractTasks(fileContent, formatConfig.statusRegistry)
       .find((task) => task.line === taskFileLine)
@@ -2245,7 +2255,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       const nextOccurrence: NextOccurrencePosition | undefined =
         recurrenceSpawn.kind === "spawn"
           ? buildNextOccurrencePosition({
-              bodyStartLine,
+              bodyStartLine: writtenBodyStartLine,
               spawnIndex: spawnFinalIndexAfterDelete,
               recurrenceSpawn,
             })
@@ -2274,16 +2284,20 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         (heading) => heading.startLine < completedIndexAfterSpawn,
       )
 
+      // The task is gone from the written file, so its line keeps the
+      // documented meaning, the line it held before removal in the note as read
+      const deletedTaskLine = readBodyStartLine + completedIndexAfterSpawn + 1
+
       logger.info("task deleted on completion", {
         path,
-        line: bodyStartLine + completedIndexAfterSpawn + 1,
+        line: deletedTaskLine,
         onCompletion: "delete",
         childrenRemoved: childCount,
       })
 
       return {
         path,
-        line: bodyStartLine + completedIndexAfterSpawn + 1,
+        line: deletedTaskLine,
         description: tasks.describeTaskLine(mutatedLine),
         // The line is gone, so block_id is the id it carried before this call.
         block_id: taskBefore.blockId ?? undefined,
@@ -2367,7 +2381,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           lines: moved.lines,
           taskLineIndex: moved.taskLineIndex,
           descriptions: addSubtasks,
-          bodyStartLine,
+          bodyStartLine: writtenBodyStartLine,
           statusRegistry: formatConfig.statusRegistry,
         })
       : { lines: moved.lines, subtaskPositions: undefined, change: undefined }
@@ -2388,7 +2402,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const checklistSplice =
       firstSubtaskPosition && addSubtasks
         ? {
-            insertIndex: firstSubtaskPosition.line - bodyStartLine - 1,
+            // The position was built with the written offset, so converting it back uses it too
+            insertIndex: firstSubtaskPosition.line - writtenBodyStartLine - 1,
             lineCount: addSubtasks.length,
           }
         : undefined
@@ -2404,7 +2419,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const nextOccurrence: NextOccurrencePosition | undefined =
       recurrenceSpawn.kind === "spawn" && spawnFinalIndex !== undefined
         ? buildNextOccurrencePosition({
-            bodyStartLine,
+            bodyStartLine: writtenBodyStartLine,
             spawnIndex: spawnFinalIndex,
             recurrenceSpawn,
           })
@@ -2429,7 +2444,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
     await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
 
-    const finalLine = bodyStartLine + finalTaskIndex + 1
+    const finalLine = writtenBodyStartLine + finalTaskIndex + 1
     const finalTaskLine = resultLines[finalTaskIndex] ?? mutatedLine
     const finalBlockId = trailingBlockIdOf(finalTaskLine)
     const finalHeading = parseHeadings(resultLines).findLast(

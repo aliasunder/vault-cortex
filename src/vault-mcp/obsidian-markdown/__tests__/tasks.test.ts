@@ -6,6 +6,9 @@ import {
   type TaskFormatConfig,
 } from "../tasks.js"
 
+/** Written as a code point so no invisible literal hides in the source. */
+const BOM = String.fromCharCode(0xfeff)
+
 const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
   [" ", "todo"],
   ["x", "done"],
@@ -707,6 +710,63 @@ describe("tasks.extractTasks", () => {
       const content = ["---", "- [ ] Task under a horizontal rule"].join("\n")
       const extracted = tasks.extractTasks(content)
       expect(extracted).toEqual([task({ line: 2, description: "Task under a horizontal rule" })])
+    })
+
+    // Expected values in the tests below come from Obsidian's own metadata
+    // cache run on the same notes.
+
+    it("skips a properties block that follows a BOM, so its last line makes no heading", () => {
+      const content = `${BOM}---\n# note\na: 1\n---\n- [ ] A`
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([task({ line: 5, description: "A" })])
+    })
+
+    it("lists the tasks after a BOM note's properties block that holds a fence", () => {
+      const content = `${BOM}---\nd: |\n  \`\`\`\n---\n- [ ] A`
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([task({ line: 5, description: "A" })])
+    })
+
+    it("reads a heading on the first line of a BOM note with no properties block", () => {
+      const content = `${BOM}# H\n- [ ] A`
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([task({ line: 2, description: "A", heading: "H" })])
+    })
+
+    it("ends the properties block at a ---- closer, not at a later --- rule", () => {
+      const content = ["---", "a: 1", "----", "- [ ] A", "", "- [ ] B", "---", "- [ ] C"].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 4, description: "A" }),
+        task({ line: 6, description: "B" }),
+        task({ line: 8, description: "C" }),
+      ])
+    })
+
+    it("scans the lines under a spaced --- opener as body", () => {
+      const content = ["--- ", "a: 1", "---", "- [ ] A"].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([task({ line: 4, description: "A", heading: "a: 1" })])
+    })
+  })
+
+  describe("text that is already a body (extractTasksFromBody)", () => {
+    it("reads --- lines at the top of a body as rules, not a properties block", () => {
+      const body = ["---", "- [ ] P", "- [ ] Q", "---", ""].join("\n")
+      const extracted = tasks.extractTasksFromBody(body)
+      expect(extracted).toEqual([
+        task({ line: 2, description: "P" }),
+        task({ line: 3, description: "Q" }),
+      ])
+    })
+
+    it("lists a body's tasks between a --- line and a ---- line", () => {
+      const body = ["---", "- [ ] P", "  - [ ] s1", "----", ""].join("\n")
+      const extracted = tasks.extractTasksFromBody(body)
+      expect(extracted).toEqual([
+        task({ line: 2, description: "P" }),
+        task({ line: 3, description: "s1", depth: 1, parentLine: 2 }),
+      ])
     })
 
     it("excludes task lines inside a fenced code block within a callout", () => {

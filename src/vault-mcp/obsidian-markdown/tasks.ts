@@ -26,6 +26,7 @@
 import { DateTime } from "luxon"
 import { advanceComment, advanceFence, type OpenFence, splitIntoLines } from "./lines.js"
 import { parseHeadings, type HeadingInfo } from "./headings.js"
+import { findBodyStartLine, splitPropertiesBlock } from "./frontmatter.js"
 import type {
   StatusClassification,
   TaskFormatConfig,
@@ -476,20 +477,6 @@ const extractInlineTags = (description: string): string[] => [
 
 // ── Note scanning ───────────────────────────────────────────────
 
-/** Returns the index of the first body line: 0 when the note has no
- *  frontmatter, otherwise the line after the closing `---`. A `---` opener
- *  with no closer is a horizontal rule, not frontmatter. */
-const findBodyStartLine = (lines: readonly string[]): number => {
-  if (lines[0] !== "---") return 0
-  const closingIndex = lines.findIndex((line, index) => index > 0 && line === "---")
-  return closingIndex === -1 ? 0 : closingIndex + 1
-}
-
-/** Extracts task lines from raw note content (frontmatter included — it
- *  is skipped here so reported line numbers stay file-relative). Excluded:
- *  fenced code blocks, `%% %%` comment blocks, and checkboxes the status
- *  registry classifies as NON_TASK. Each task carries the nearest heading
- *  above it (its Kanban lane on a board), or null before the first heading. */
 /** One open task on the extraction indent stack: its structural indent and
  *  1-based file line. */
 type IndentEntry = {
@@ -508,13 +495,20 @@ const ancestorsOf = (
   return indentStack.filter((entry) => entry.indent < itemIndent)
 }
 
-const extractTasks = (
-  rawContent: string,
-  statusRegistry?: ReadonlyMap<string, StatusClassification>,
-): ParsedTask[] => {
-  const allLines = splitIntoLines(rawContent)
-  const bodyStartLine = findBodyStartLine(allLines)
-  const bodyLines = allLines.slice(bodyStartLine)
+/** Scans body lines for tasks, numbering each from `bodyStartLine`, the
+ *  0-based file line the body starts on. Excluded: fenced code blocks,
+ *  `%% %%` comment blocks, and checkboxes the status registry classifies as
+ *  NON_TASK. Each task carries the nearest heading above it (its Kanban lane
+ *  on a board), or null before the first heading. */
+const scanBodyLinesForTasks = ({
+  bodyLines,
+  bodyStartLine,
+  statusRegistry,
+}: {
+  bodyLines: readonly string[]
+  bodyStartLine: number
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+}): ParsedTask[] => {
   const headings = parseHeadings(bodyLines)
 
   const extractedTasks: ParsedTask[] = []
@@ -610,6 +604,35 @@ const extractTasks = (
     })
   }
   return extractedTasks
+}
+
+/** Extracts the tasks in a whole note, skipping its properties block with the
+ *  rule every read uses, so reported line numbers are the file's own. */
+const extractTasks = (
+  rawContent: string,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
+): ParsedTask[] => {
+  const { body } = splitPropertiesBlock(rawContent)
+
+  return scanBodyLinesForTasks({
+    bodyLines: splitIntoLines(body),
+    bodyStartLine: findBodyStartLine(rawContent),
+    statusRegistry,
+  })
+}
+
+/** Extracts the tasks in text that is already a note's body, numbering lines
+ *  from 1. It looks for no properties block, because `---` lines at the top
+ *  of a body are rules, not a second block. */
+const extractTasksFromBody = (
+  bodyContent: string,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
+): ParsedTask[] => {
+  return scanBodyLinesForTasks({
+    bodyLines: splitIntoLines(bodyContent),
+    bodyStartLine: 0,
+    statusRegistry,
+  })
 }
 
 // ── Reverse mappings (status → char, priority → emoji) ─────────
@@ -1856,6 +1879,7 @@ const parseKanbanCardInsertionMethod = (
 
 export const tasks = {
   extractTasks,
+  extractTasksFromBody,
   isTaskId,
   charForStatus,
   statusForChar,
@@ -1877,7 +1901,6 @@ export const tasks = {
   buildTaskLine,
   buildNextOccurrenceLine,
   formatDateField,
-  findBodyStartLine,
   extractDoneLanes,
   parseKanbanCardInsertionMethod,
   deduplicateDescriptionTags,

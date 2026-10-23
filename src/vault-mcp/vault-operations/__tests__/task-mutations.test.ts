@@ -7682,3 +7682,516 @@ describe("properties block a rewrite would lose", () => {
     expect(await readTestNote(vault, "tasks.md")).toBe(STACKED_BLOCK_NOTE)
   })
 })
+
+// ── Where the body starts, and the lines a write reports ─────────
+
+/** Written as a code point so no invisible literal hides in the source. */
+const BOM = String.fromCharCode(0xfeff)
+
+type UpdateInNote = Omit<
+  Parameters<typeof taskMutations.updateTask>[0],
+  "vaultPath" | "path" | "statusRegistry"
+>
+type CreateInNote = Omit<
+  Parameters<typeof taskMutations.createTask>[0],
+  "vaultPath" | "path" | "statusRegistry"
+>
+
+/** Writes `content` to tasks.md in a new vault and runs one update on it. */
+const updateTaskInNote = async (
+  content: string,
+  update: UpdateInNote,
+): Promise<{ vault: string; result: Awaited<ReturnType<typeof taskMutations.updateTask>> }> => {
+  const vault = await createVault()
+  await writeTestNote(vault, "tasks.md", content)
+  const result = await taskMutations.updateTask(
+    { statusRegistry: DEFAULT_STATUS_REGISTRY, vaultPath: vault, path: "tasks.md", ...update },
+    logger,
+  )
+  return { vault, result }
+}
+
+/** Writes `content` to tasks.md in a new vault and creates one task in it. */
+const createTaskInNote = async (
+  content: string,
+  create: CreateInNote,
+): Promise<{ vault: string; result: Awaited<ReturnType<typeof taskMutations.createTask>> }> => {
+  const vault = await createVault()
+  await writeTestNote(vault, "tasks.md", content)
+  const result = await taskMutations.createTask(
+    { statusRegistry: DEFAULT_STATUS_REGISTRY, vaultPath: vault, path: "tasks.md", ...create },
+    logger,
+  )
+  return { vault, result }
+}
+
+/** Two tasks whose values differ, so a write that reads the wrong one shows it. */
+const TWO_TASK_SECTION = "## Active\n- [ ] A ⏫ 🏁 delete ^aa\n\n\n- [ ] B ^bb\n"
+
+/**
+ * Notes whose properties block does not open or close on an exact `---` line.
+ * B sits on line 8 of each. `prefixAfter` is what a task write leaves above
+ * `## Active`, and `lineOfB` is B's line after the write.
+ */
+const ODD_BOUNDARY_NOTES = [
+  {
+    label: "a BOM before the opener",
+    prefix: `${BOM}---\na: 1\n---\n`,
+    prefixAfter: "---\na: 1\n---\n",
+    lineOfB: 8,
+  },
+  {
+    label: "a spaced opener, which starts no block",
+    prefix: "--- \na: 1\n---\n",
+    prefixAfter: "--- \na: 1\n---\n",
+    lineOfB: 8,
+  },
+  {
+    label: "a ---- closer",
+    prefix: "---\na: 1\n----\n",
+    prefixAfter: "---\na: 1\n---\n-\n",
+    lineOfB: 9,
+  },
+  {
+    label: "a closer with a trailing space",
+    prefix: "---\na: 1\n--- \n",
+    prefixAfter: "---\na: 1\n---\n \n",
+    lineOfB: 9,
+  },
+]
+
+describe("properties blocks that open or close on an odd line", () => {
+  it.each(ODD_BOUNDARY_NOTES)(
+    "completes B by block id on a note with $label",
+    async ({ prefix, prefixAfter, lineOfB }) => {
+      const { vault, result } = await updateTaskInNote(prefix + TWO_TASK_SECTION, {
+        blockId: "bb",
+        status: "done",
+      })
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: lineOfB,
+        description: "B",
+        block_id: "bb",
+        heading: "Active",
+        changes: ["status: todo → done"],
+      })
+      expect(await readTestNote(vault, "tasks.md")).toBe(
+        `${prefixAfter}## Active\n- [ ] A ⏫ 🏁 delete ^aa\n\n\n- [x] B ✅ ${today()} ^bb\n`,
+      )
+    },
+  )
+
+  it.each(ODD_BOUNDARY_NOTES)(
+    "completes B by its line on a note with $label",
+    async ({ prefix, prefixAfter, lineOfB }) => {
+      const { vault, result } = await updateTaskInNote(prefix + TWO_TASK_SECTION, {
+        line: 8,
+        status: "done",
+      })
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: lineOfB,
+        description: "B",
+        block_id: "bb",
+        heading: "Active",
+        changes: ["status: todo → done"],
+      })
+      expect(await readTestNote(vault, "tasks.md")).toBe(
+        `${prefixAfter}## Active\n- [ ] A ⏫ 🏁 delete ^aa\n\n\n- [x] B ✅ ${today()} ^bb\n`,
+      )
+    },
+  )
+
+  it.each(ODD_BOUNDARY_NOTES)(
+    "reports B's own prior priority on a note with $label",
+    async ({ prefix, prefixAfter, lineOfB }) => {
+      const { vault, result } = await updateTaskInNote(prefix + TWO_TASK_SECTION, {
+        blockId: "bb",
+        priority: "medium",
+      })
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: lineOfB,
+        description: "B",
+        block_id: "bb",
+        heading: "Active",
+        changes: ["priority: (none) → medium"],
+      })
+      expect(await readTestNote(vault, "tasks.md")).toBe(
+        `${prefixAfter}## Active\n- [ ] A ⏫ 🏁 delete ^aa\n\n\n- [ ] B 🔼 ^bb\n`,
+      )
+    },
+  )
+
+  it.each(ODD_BOUNDARY_NOTES)(
+    "reports the line a created task lands on, on a note with $label",
+    async ({ prefix, prefixAfter, lineOfB }) => {
+      const { vault, result } = await createTaskInNote(prefix + TWO_TASK_SECTION, {
+        description: "C",
+        blockId: "cc",
+        heading: "Active",
+      })
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: lineOfB + 1,
+        description: "C",
+        block_id: "cc",
+        heading: "Active",
+        changes: [`created: (none) → ${today()}`],
+      })
+      expect(await readTestNote(vault, "tasks.md")).toBe(
+        `${prefixAfter}## Active\n- [ ] A ⏫ 🏁 delete ^aa\n\n\n- [ ] B ^bb\n- [ ] C ➕ ${today()} ^cc\n`,
+      )
+    },
+  )
+
+  it("does not run A's recurrence rule when completing B on a BOM note", async () => {
+    const { vault, result } = await updateTaskInNote(
+      `${BOM}---\na: 1\n---\n## Active\n- [ ] A 🔁 every day 📅 2026-01-05 ^aa\n\n\n- [ ] B ^bb\n`,
+      { blockId: "bb", status: "done" },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 8,
+      description: "B",
+      block_id: "bb",
+      heading: "Active",
+      changes: ["status: todo → done"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\na: 1\n---\n## Active\n- [ ] A 🔁 every day 📅 2026-01-05 ^aa\n\n\n- [x] B ✅ ${today()} ^bb\n`,
+    )
+  })
+
+  it("moves a completed card to the done lane when a sub-task sits three lines above it on a BOM board", async () => {
+    // The properties block is three lines, so a body offset that ignores
+    // the BOM reads the sub-task's values in place of B's
+    const { vault, result } = await updateTaskInNote(
+      `${BOM}---\nkanban-plugin: board\n---\n## Active\n- [ ] P ^pp\n  - [ ] child\n\n\n- [ ] B ^bb\n\n## Done\n`,
+      { blockId: "bb", status: "done" },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 11,
+      description: "B",
+      block_id: "bb",
+      heading: "Done",
+      changes: ["status: todo → done", "heading: Active → Done"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\nkanban-plugin: board\n---\n## Active\n- [ ] P ^pp\n  - [ ] child\n\n\n\n## Done\n- [x] B ✅ ${today()} ^bb\n`,
+    )
+  })
+})
+
+/** A block a task write rewrites with more lines: the flow list becomes a block list. */
+const FLOW_LIST_NOTE = "---\ntags: [a, b]\n---\n## Active\n- [ ] A ^aa\n- [ ] B ^bb\n"
+
+/** A comment-only block reads as no properties, so a task write removes it. */
+const COMMENT_ONLY_NOTE = "---\n# kept for later\n---\n## Active\n- [ ] A ^aa\n- [ ] B ^bb\n"
+
+const FLOW_LIST_AFTER_WRITE = "---\ntags:\n  - a\n  - b\n---\n"
+
+describe("lines reported after a write rewrites the properties block", () => {
+  it("reports B's line in the written file when a flow list becomes a block list", async () => {
+    const { vault, result } = await updateTaskInNote(FLOW_LIST_NOTE, {
+      blockId: "bb",
+      status: "done",
+    })
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 8,
+      description: "B",
+      block_id: "bb",
+      heading: "Active",
+      changes: ["status: todo → done"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `${FLOW_LIST_AFTER_WRITE}## Active\n- [ ] A ^aa\n- [x] B ✅ ${today()} ^bb\n`,
+    )
+  })
+
+  it("reports B's line in the written file when a comment-only block is removed", async () => {
+    const { vault, result } = await updateTaskInNote(COMMENT_ONLY_NOTE, {
+      blockId: "bb",
+      status: "done",
+    })
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 3,
+      description: "B",
+      block_id: "bb",
+      heading: "Active",
+      changes: ["status: todo → done"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `## Active\n- [ ] A ^aa\n- [x] B ✅ ${today()} ^bb\n`,
+    )
+  })
+
+  it("reports a created task's line and its checklist lines in the written file", async () => {
+    const { vault, result } = await createTaskInNote(FLOW_LIST_NOTE, {
+      description: "C",
+      blockId: "cc",
+      heading: "Active",
+      subtasks: ["s1"],
+    })
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 9,
+      description: "C",
+      block_id: "cc",
+      heading: "Active",
+      subtasks: [{ line: 10, description: "s1" }],
+      changes: [`created: (none) → ${today()}`, "subtasks: 0 → 1"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `${FLOW_LIST_AFTER_WRITE}## Active\n- [ ] A ^aa\n- [ ] B ^bb\n- [ ] C ➕ ${today()} ^cc\n  - [ ] s1\n`,
+    )
+  })
+
+  it("reports added checklist lines in the written file", async () => {
+    const { vault, result } = await updateTaskInNote(FLOW_LIST_NOTE, {
+      blockId: "bb",
+      addSubtasks: ["s1"],
+    })
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 8,
+      description: "B",
+      block_id: "bb",
+      heading: "Active",
+      subtasks: [{ line: 9, description: "s1" }],
+      changes: ["subtasks: 0 → 1"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `${FLOW_LIST_AFTER_WRITE}## Active\n- [ ] A ^aa\n- [ ] B ^bb\n  - [ ] s1\n`,
+    )
+  })
+
+  it("reports a recurring task's next occurrence in the written file", async () => {
+    const { vault, result } = await updateTaskInNote(
+      "---\ntags: [a, b]\n---\n- [ ] R 🔁 every week 📅 2026-01-05 ^rr\n",
+      { blockId: "rr", status: "done" },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 7,
+      description: "R",
+      block_id: "rr",
+      next_occurrence: { line: 6, description: "R", due: "2026-01-12" },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 6"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `${FLOW_LIST_AFTER_WRITE}- [ ] R 🔁 every week 📅 2026-01-12\n- [x] R 🔁 every week 📅 2026-01-05 ✅ ${today()} ^rr\n`,
+    )
+  })
+
+  it("reports every line when one call completes a recurring card, moves it to Done and adds a checklist", async () => {
+    const { vault, result } = await updateTaskInNote(
+      "---\nkanban-plugin: board\ntags: [a, b]\n---\n## Active\n- [ ] R 🔁 every week 📅 2026-01-05 ^rr\n\n## Done\n",
+      { blockId: "rr", status: "done", addSubtasks: ["s1"] },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 11,
+      description: "R",
+      block_id: "rr",
+      heading: "Done",
+      subtasks: [{ line: 12, description: "s1" }],
+      next_occurrence: { line: 8, description: "R", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "heading: Active → Done",
+        "subtasks: 0 → 1",
+        "next_occurrence: (none) → line 8",
+      ],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\nkanban-plugin: board\ntags:\n  - a\n  - b\n---\n## Active\n- [ ] R 🔁 every week 📅 2026-01-12\n\n## Done\n- [x] R 🔁 every week 📅 2026-01-05 ✅ ${today()} ^rr\n  - [ ] s1\n`,
+    )
+  })
+
+  it("reports the next occurrence's line when a checklist is added in the same call and the block is removed", async () => {
+    // Here the checklist's reported line is converted back to an index to
+    // decide whether the spawn moved, so that conversion must use the
+    // written note's offset too
+    const { vault, result } = await updateTaskInNote(
+      "---\n# kept for later\n---\n- [ ] R 🔁 every week 📅 2026-01-05 ^rr\n",
+      { blockId: "rr", status: "done", addSubtasks: ["s1"] },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 2,
+      description: "R",
+      block_id: "rr",
+      subtasks: [{ line: 3, description: "s1" }],
+      next_occurrence: { line: 1, description: "R", due: "2026-01-12" },
+      changes: ["status: todo → done", "subtasks: 0 → 1", "next_occurrence: (none) → line 1"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `- [ ] R 🔁 every week 📅 2026-01-12\n- [x] R 🔁 every week 📅 2026-01-05 ✅ ${today()} ^rr\n  - [ ] s1\n`,
+    )
+  })
+
+  it("reports a deleted recurring task's line on the note as read and its spawn on the note as written", async () => {
+    const { vault, result } = await updateTaskInNote(
+      "---\ntags: [a, b]\n---\n## Active\n- [ ] A 🔁 every week 📅 2026-01-05 🏁 delete ^aa\n- [ ] B ^bb\n",
+      { blockId: "aa", status: "done" },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "A",
+      block_id: "aa",
+      heading: "Active",
+      next_occurrence: { line: 7, description: "A", due: "2026-01-12" },
+      changes: [
+        "status: todo → done",
+        "next_occurrence: (none) → line 7",
+        "on_completion: task removed (🏁 delete)",
+      ],
+      on_completion_applied: "delete",
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `${FLOW_LIST_AFTER_WRITE}## Active\n- [ ] A 🔁 every week 🏁 delete 📅 2026-01-12\n- [ ] B ^bb\n`,
+    )
+  })
+
+  it("reports physical lines when the written note opens with a mapping that was body", async () => {
+    // The comment-only block is removed, so the body's own --- lines open
+    // the written file; the task still sits on the line counted from the top.
+    // In the body as read, `x: 1` over a --- line is a heading.
+    const { vault, result } = await updateTaskInNote(
+      "---\n# kept for later\n---\n---\nx: 1\n---\n- [ ] A ^aa\n",
+      { blockId: "aa", status: "done" },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 4,
+      description: "A",
+      block_id: "aa",
+      heading: "x: 1",
+      changes: ["status: todo → done"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `---\nx: 1\n---\n- [x] A ✅ ${today()} ^aa\n`,
+    )
+  })
+
+  it("counts existing checklist items in a body that opens with a pair of --- rules", async () => {
+    // In the body, the --- lines are rules, not a second properties block
+    const { vault, result } = await updateTaskInNote(
+      "---\na: 1\n---\n---\n- [ ] P ^pp\n  - [ ] s1\n---\n",
+      { blockId: "pp", addSubtasks: ["s2"] },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "P",
+      block_id: "pp",
+      subtasks: [{ line: 7, description: "s2" }],
+      changes: ["subtasks: 1 → 2"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      "---\na: 1\n---\n---\n- [ ] P ^pp\n  - [ ] s1\n  - [ ] s2\n---\n",
+    )
+  })
+
+  // ── Regression controls: these pass on the code before the fix too ──
+
+  it("finds a parent by its line on the note as read and reports the sub-task on the note as written", async () => {
+    const { vault, result } = await createTaskInNote(
+      "---\ntags: [a, b]\n---\n## Active\n- [ ] P ^pp\n",
+      { description: "S", blockId: "ss", parentLine: 5 },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 8,
+      description: "S",
+      block_id: "ss",
+      heading: "Active",
+      changes: [`created: (none) → ${today()}`],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `${FLOW_LIST_AFTER_WRITE}## Active\n- [ ] P ^pp\n  - [ ] S ➕ ${today()} ^ss\n`,
+    )
+  })
+
+  it("names a duplicate block id's lines on the note as read", async () => {
+    const vault = await createVault()
+    const note = "---\ntags: [a, b]\n---\n- [ ] A ^dup\n- [ ] B ^dup\n"
+    await writeTestNote(vault, "tasks.md", note)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "dup",
+          status: "done",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('blockId "dup" matches 2 task lines (4, 5) in "tasks.md"'))
+    expect(await readTestNote(vault, "tasks.md")).toBe(note)
+  })
+
+  it("reports a deleted task's line on the note as read", async () => {
+    const { vault, result } = await updateTaskInNote(
+      "---\ntags: [a, b]\n---\n## Active\n- [ ] A 🏁 delete ^aa\n- [ ] B ^bb\n",
+      { blockId: "aa", status: "done" },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "A",
+      block_id: "aa",
+      heading: "Active",
+      changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
+      on_completion_applied: "delete",
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      `${FLOW_LIST_AFTER_WRITE}## Active\n- [ ] B ^bb\n`,
+    )
+  })
+
+  it("counts existing checklist items in a body that opens with --- and ends with ----", async () => {
+    const { vault, result } = await updateTaskInNote(
+      "---\na: 1\n---\n---\n- [ ] P ^pp\n  - [ ] s1\n----\n",
+      { blockId: "pp", addSubtasks: ["s2"] },
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 5,
+      description: "P",
+      block_id: "pp",
+      subtasks: [{ line: 7, description: "s2" }],
+      changes: ["subtasks: 1 → 2"],
+    })
+    expect(await readTestNote(vault, "tasks.md")).toBe(
+      "---\na: 1\n---\n---\n- [ ] P ^pp\n  - [ ] s1\n  - [ ] s2\n----\n",
+    )
+  })
+})
