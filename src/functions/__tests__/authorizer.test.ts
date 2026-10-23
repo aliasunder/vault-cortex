@@ -43,18 +43,22 @@ vi.mock("../../logger.js", () => {
 
 const { handler } = await import("../authorizer.js")
 
-/** A gateway event for `/mcp` — the protected path, where the authorizer
- *  validates the Authorization header instead of passing the request
- *  through as it does for the OAuth paths. */
-const protectedRequest = (authorization: string): APIGatewayRequestAuthorizerEventV2 => {
+const requestTo = (path: string, authorization: string): APIGatewayRequestAuthorizerEventV2 => {
   return {
-    rawPath: "/mcp",
+    rawPath: path,
     headers: { authorization },
     requestContext: {
       requestId: "req-1",
       http: { sourceIp: "203.0.113.7" },
     },
   } as unknown as APIGatewayRequestAuthorizerEventV2
+}
+
+/** A gateway event for `/mcp` — the protected path, where the authorizer
+ *  validates the Authorization header instead of passing the request
+ *  through as it does for the OAuth paths. */
+const protectedRequest = (authorization: string): APIGatewayRequestAuthorizerEventV2 => {
+  return requestTo("/mcp", authorization)
 }
 
 const accessToken = ({
@@ -204,6 +208,29 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+  })
+
+  it.each([
+    { label: "an open path", path: "/token" },
+    { label: "a path under an open folder", path: "/oauth/decide" },
+  ])("authorizes $label without checking the token", async ({ path }) => {
+    const result = await handler(requestTo(path, "Bearer not-a-token"))
+    expect(result).toEqual({ isAuthorized: true })
+  })
+
+  it.each([
+    { label: "an open path's name", path: "/tokens" },
+    { label: "another open path's name", path: "/healthz-extra" },
+  ])("checks the token on a path that only starts with $label", async ({ path }) => {
+    recordedLogs.length = 0
+
+    const result = await handler(requestTo(path, "Bearer not-a-token"))
+
+    expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies a malformed Authorization header", async () => {

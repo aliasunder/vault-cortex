@@ -34,19 +34,14 @@ import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { getDeploymentJwtVerification } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
-/** Mirrors the open routes in sst.config.ts; a route added there goes here too. */
-const OPEN_PATH_PREFIXES = [
-  "/.well-known/",
-  "/authorize",
-  "/token",
-  "/register",
-  "/revoke",
-  "/oauth/",
-  "/healthz",
-]
+// Both lists mirror the open routes in sst.config.ts; a route added there
+// goes here too.
+const OPEN_PATHS = ["/authorize", "/token", "/register", "/revoke", "/healthz"]
+const OPEN_PATH_PREFIXES = ["/.well-known/", "/oauth/"]
 
-const isOpenPath = (path: string): boolean =>
-  OPEN_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+const isOpenPath = (path: string): boolean => {
+  return OPEN_PATHS.includes(path) || OPEN_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+}
 
 export const handler = async (
   event: APIGatewayRequestAuthorizerEventV2,
