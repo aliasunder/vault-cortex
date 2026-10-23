@@ -226,7 +226,7 @@ When to use: Answering "what does my memory say about X?" or "how has my view on
 Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names`
-  const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, not the oldest or newest ones, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file.`
+  const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file.`
 
   // The recall description leads with its matching mode — hybrid semantic
   // matching is the tool's core promise, so keyword-only deployments

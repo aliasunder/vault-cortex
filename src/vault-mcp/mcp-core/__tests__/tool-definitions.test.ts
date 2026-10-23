@@ -1348,7 +1348,7 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
 
   // Both variants share this lead; only the Returns line's closing sentence differs
   const RECALL_RETURNS_LEAD =
-    "Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, not the oldest or newest ones, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file."
+    "Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file."
 
   it("describes hybrid recall when EMBEDDING_ENABLED=true", () => {
     const description = findRecallDescription(registerWithConfig({}))
@@ -2977,7 +2977,7 @@ describe("DISABLED_TOOLS", () => {
         linePrefix: "Returns:",
       }),
     ).toBe(
-      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, not the oldest or newest ones, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker\'s relevance cut was applied.',
+      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker\'s relevance cut was applied.',
     )
     expect(description).not.toContain("feed directly into")
   })
