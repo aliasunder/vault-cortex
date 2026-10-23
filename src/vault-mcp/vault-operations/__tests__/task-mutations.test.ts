@@ -3243,6 +3243,35 @@ kanban-plugin: board
         expect(result.changes).toEqual([])
       })
 
+      it("same-lane position=top is a no-op for the first card below a blank line", async () => {
+        // The top slot is the blank line above Alpha, so the raw insert index
+        // differs from Alpha's while its card position does not
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            position: "top",
+          },
+          logger,
+        )
+
+        expect(result).toEqual({
+          path: "board.md",
+          line: 8,
+          description: "Alpha",
+          block_id: "alpha",
+          heading: "Active",
+          changes: [],
+        })
+        expect(await readTestNote(vault, "board.md")).toBe(board)
+      })
+
       it("cross-lane move with position=2 lands at the 2nd card in the target lane", async () => {
         const vault = await createVault()
         const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Delta ^delta\n`
@@ -3575,6 +3604,37 @@ kanban-plugin: board
         )
       })
 
+      it("integer overshoot in a lane with no cards of its own lands above the child heading", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\nLane notes.\n\n### Sub\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 5,
+          },
+          logger,
+        )
+
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 9,
+          description: "Charlie",
+          block_id: "charlie",
+          heading: "Active",
+          changes: [`created: (none) → ${today()}`],
+        })
+        expect(await readTestNote(vault, "notes.md")).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\nLane notes.\n\n- [ ] Charlie ➕ ${today()} ^charlie\n### Sub\n\n- [ ] Beta ^beta\n`,
+        )
+      })
+
       it("integer position in a Complete-marked lane inserts after the marker", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Archive\n\n**Complete**\n- [x] Old task ^old\n- [x] Older task ^older\n\n## Active\n\n- [ ] New task ^new\n`
@@ -3732,6 +3792,75 @@ kanban-plugin: board
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [ ] Read for 30 min ^read\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${today()} ^water\n\n## Done\n`,
+        )
+      })
+
+      it("spawn + cross-lane position reports the pre-spawn before-position", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-05 ^water\n- [ ] Read for 30 min ^read\n\n## Done\n\n- [x] Old ^old\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "water",
+            status: "done",
+            heading: "Done",
+            position: 1,
+          },
+          logger,
+        )
+
+        // The spawn written above the card makes it the 2nd card in Habits;
+        // the before-position is its slot before the spawn
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 12,
+          description: "Water plants",
+          block_id: "water",
+          heading: "Done",
+          next_occurrence: { line: 7, description: "Water plants", due: "2026-01-12" },
+          changes: [
+            "status: todo → done",
+            "heading: Habits → Done",
+            "position: 1 → 1",
+            "next_occurrence: (none) → line 7",
+          ],
+        })
+        expect(await readTestNote(vault, "notes.md")).toBe(
+          `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [ ] Read for 30 min ^read\n\n## Done\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${today()} ^water\n- [x] Old ^old\n`,
+        )
+      })
+
+      it("reports no before-position when moving a task from above the first heading", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n- [ ] Loose ^loose\n\n## Active\n\n- [ ] Alpha ^alpha\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "loose",
+            heading: "Active",
+            position: 1,
+          },
+          logger,
+        )
+
+        expect(result).toEqual({
+          path: "notes.md",
+          line: 7,
+          description: "Loose",
+          block_id: "loose",
+          heading: "Active",
+          changes: ["heading: (before first heading) → Active", "position: (none) → 1"],
+        })
+        expect(await readTestNote(vault, "notes.md")).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Loose ^loose\n- [ ] Alpha ^alpha\n`,
         )
       })
 
@@ -5270,9 +5399,19 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'tag: "#urgent" appeared in both the description and the metadata tail — deduplicated to one copy',
-      ])
+      // The parser counts a trailing tag as description, so #urgent is already
+      // in the before-value. The after-value comes from the written line,
+      // which holds one copy of it.
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix bug #urgent",
+        block_id: "x",
+        changes: ["description: Fix bug #urgent → Fix bug #urgent"],
+        advisories: [
+          'tag: "#urgent" appeared in both the description and the metadata tail — deduplicated to one copy',
+        ],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 ^x\n")
     })
@@ -5296,10 +5435,17 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toEqual([
-        'tag: "#urgent" appeared in both the description and the metadata tail — deduplicated to one copy',
-        'tag: "#review" appeared in both the description and the metadata tail — deduplicated to one copy',
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Fix bug #urgent #review",
+        block_id: "x",
+        changes: ["description: Fix bug #urgent #review → Fix bug #urgent #review"],
+        advisories: [
+          'tag: "#urgent" appeared in both the description and the metadata tail — deduplicated to one copy',
+          'tag: "#review" appeared in both the description and the metadata tail — deduplicated to one copy',
+        ],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent #review 📅 2026-01-01 ^x\n",
@@ -8026,9 +8172,8 @@ describe("lines reported after a write rewrites the properties block", () => {
   })
 
   it("reports the next occurrence's line when a checklist is added in the same call and the block is removed", async () => {
-    // Here the checklist's reported line is converted back to an index to
-    // decide whether the spawn moved, so that conversion must use the
-    // written note's offset too
+    // The checklist lands below the spawn, so the spawn keeps its line, and
+    // every reported line counts from the top of the note as written
     const { vault, result } = await updateTaskInNote(
       "---\n# kept for later\n---\n- [ ] R 🔁 every week 📅 2026-01-05 ^rr\n",
       { blockId: "rr", status: "done", addSubtasks: ["s1"] },

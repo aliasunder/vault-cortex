@@ -748,26 +748,6 @@ describe("tasks.extractTasks", () => {
       const extracted = tasks.extractTasks(content)
       expect(extracted).toEqual([task({ line: 4, description: "A", heading: "a: 1" })])
     })
-  })
-
-  describe("text that is already a body (extractTasksFromBody)", () => {
-    it("reads --- lines at the top of a body as rules, not a properties block", () => {
-      const body = ["---", "- [ ] P", "- [ ] Q", "---", ""].join("\n")
-      const extracted = tasks.extractTasksFromBody(body)
-      expect(extracted).toEqual([
-        task({ line: 2, description: "P" }),
-        task({ line: 3, description: "Q" }),
-      ])
-    })
-
-    it("lists a body's tasks between a --- line and a ---- line", () => {
-      const body = ["---", "- [ ] P", "  - [ ] s1", "----", ""].join("\n")
-      const extracted = tasks.extractTasksFromBody(body)
-      expect(extracted).toEqual([
-        task({ line: 2, description: "P" }),
-        task({ line: 3, description: "s1", depth: 1, parentLine: 2 }),
-      ])
-    })
 
     it("excludes task lines inside a fenced code block within a callout", () => {
       const content = [
@@ -827,6 +807,26 @@ describe("tasks.extractTasks", () => {
       ].join("\n")
       const extracted = tasks.extractTasks(content)
       expect(extracted).toEqual([task({ line: 5, description: "Task after nested fence" })])
+    })
+  })
+
+  describe("text that is already a body (extractTasksFromBody)", () => {
+    it("reads --- lines at the top of a body as rules, not a properties block", () => {
+      const body = ["---", "- [ ] P", "- [ ] Q", "---", ""].join("\n")
+      const extracted = tasks.extractTasksFromBody(body)
+      expect(extracted).toEqual([
+        task({ line: 2, description: "P" }),
+        task({ line: 3, description: "Q" }),
+      ])
+    })
+
+    it("lists a body's tasks between a --- line and a ---- line", () => {
+      const body = ["---", "- [ ] P", "  - [ ] s1", "----", ""].join("\n")
+      const extracted = tasks.extractTasksFromBody(body)
+      expect(extracted).toEqual([
+        task({ line: 2, description: "P" }),
+        task({ line: 3, description: "s1", depth: 1, parentLine: 2 }),
+      ])
     })
   })
 
@@ -1445,7 +1445,7 @@ describe("task line mutations", () => {
     })
   })
 
-  // ── getStructuralIndent ──────────────────────────────────────────────
+  // ── getStructuralIndent ───────────────────────────────────────
 
   describe("getStructuralIndent", () => {
     it("returns 0 for a top-level task", () => {
@@ -1706,6 +1706,14 @@ describe("task line mutations", () => {
       expect(result).toEqual({
         taskLine: "- [ ] Deploy #urgent 📅 2026-09-01 ^deploy  ",
         deduplicatedTags: ["#urgent"],
+      })
+    })
+
+    it("matches a tag holding regex metacharacters literally", () => {
+      const result = tasks.deduplicateDescriptionTags("- [ ] Learn #c++ 📅 2026-01-01 #c++ #cc ^x")
+      expect(result).toEqual({
+        taskLine: "- [ ] Learn #c++ 📅 2026-01-01 #cc ^x",
+        deduplicatedTags: ["#c++"],
       })
     })
 
