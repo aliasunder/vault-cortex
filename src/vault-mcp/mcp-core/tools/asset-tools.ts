@@ -224,7 +224,7 @@ Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
 When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.
 
-Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing. Files inside hidden (dot-prefixed) folders, .obsidian/ among them, never appear.
+Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing. Hidden (dot-prefixed) files and folders, .obsidian/ among them, never appear.
 
 Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
