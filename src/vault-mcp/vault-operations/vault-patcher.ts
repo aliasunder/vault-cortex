@@ -466,7 +466,7 @@ const patchNote = async (
       headings,
       text: heading,
       level: headingLevel,
-      bodyStartLine: bodyStartFileLine,
+      bodyStartFileLine,
     })
     const targetDesc = `${"#".repeat(target.level)} ${target.text}`
 

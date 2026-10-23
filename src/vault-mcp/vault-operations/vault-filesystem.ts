@@ -439,7 +439,7 @@ const readNoteSection = async (
     headings,
     text: params.heading,
     level: params.headingLevel,
-    bodyStartLine: findBodyStartLine(content),
+    bodyStartFileLine: findBodyStartLine(content),
   })
   logger.info("read note section", {
     path: params.path,

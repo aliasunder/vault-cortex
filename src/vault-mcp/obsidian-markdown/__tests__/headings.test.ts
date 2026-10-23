@@ -516,15 +516,15 @@ describe("findHeading", () => {
   const headings = parseHeadings(["# Board", "## Active", "## Done", "### Active"])
 
   it("returns the single matching heading", () => {
-    expect(findHeading({ headings, text: "Board", bodyStartLine: 0 }).level).toBe(1)
+    expect(findHeading({ headings, text: "Board", bodyStartFileLine: 0 }).level).toBe(1)
   })
 
   it("disambiguates duplicate text by level", () => {
-    expect(findHeading({ headings, text: "Active", level: 3, bodyStartLine: 0 }).level).toBe(3)
+    expect(findHeading({ headings, text: "Active", level: 3, bodyStartFileLine: 0 }).level).toBe(3)
   })
 
   it("throws and lists available headings when none match", () => {
-    expect(() => findHeading({ headings, text: "Missing", bodyStartLine: 0 })).toThrow(
+    expect(() => findHeading({ headings, text: "Missing", bodyStartFileLine: 0 })).toThrow(
       new Error(
         'heading not found: "Missing". Available headings: # Board, ## Active, ## Done, ### Active',
       ),
@@ -532,7 +532,7 @@ describe("findHeading", () => {
   })
 
   it("throws ambiguous when more than one heading matches", () => {
-    expect(() => findHeading({ headings, text: "Active", bodyStartLine: 0 })).toThrow(
+    expect(() => findHeading({ headings, text: "Active", bodyStartFileLine: 0 })).toThrow(
       new Error(
         'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ### Active (line 4)',
       ),
@@ -540,7 +540,7 @@ describe("findHeading", () => {
   })
 
   it("names file lines in the ambiguity error when the body starts below a properties block", () => {
-    expect(() => findHeading({ headings, text: "Active", bodyStartLine: 3 })).toThrow(
+    expect(() => findHeading({ headings, text: "Active", bodyStartFileLine: 3 })).toThrow(
       new Error(
         'ambiguous heading: "Active" matches 2 sections: ## Active (line 5), ### Active (line 7)',
       ),
@@ -550,7 +550,7 @@ describe("findHeading", () => {
   it("throws ambiguous for same-level matches, naming each one's line", () => {
     const sameLevelHeadings = parseHeadings(["# Board", "## Active", "## Done", "## Active"])
     expect(() => {
-      findHeading({ headings: sameLevelHeadings, text: "Active", bodyStartLine: 0 })
+      findHeading({ headings: sameLevelHeadings, text: "Active", bodyStartFileLine: 0 })
     }).toThrow(
       new Error(
         'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ## Active (line 4)',
@@ -559,7 +559,7 @@ describe("findHeading", () => {
   })
 
   it("throws when the heading text is empty or whitespace", () => {
-    expect(() => findHeading({ headings, text: "   ", bodyStartLine: 0 })).toThrow(
+    expect(() => findHeading({ headings, text: "   ", bodyStartFileLine: 0 })).toThrow(
       new Error("heading cannot be empty"),
     )
   })
@@ -567,7 +567,7 @@ describe("findHeading", () => {
   it("resolves a setext heading by text and level", () => {
     const mixedHeadings = parseHeadings(["# ATX", "Setext Title", "---"])
     expect(
-      findHeading({ headings: mixedHeadings, text: "Setext Title", bodyStartLine: 0 }),
+      findHeading({ headings: mixedHeadings, text: "Setext Title", bodyStartFileLine: 0 }),
     ).toEqual({
       text: "Setext Title",
       level: 2,

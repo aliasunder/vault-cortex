@@ -417,7 +417,8 @@ export const createSearchIndex = (
       mtime       INTEGER,
       properties  TEXT,
       leading_callout TEXT,
-      bytes       INTEGER NOT NULL DEFAULT 0
+      bytes       INTEGER NOT NULL DEFAULT 0,
+      kanban_done_lanes TEXT
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
