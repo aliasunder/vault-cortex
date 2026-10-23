@@ -728,9 +728,11 @@ const CREATED_DATE_INLINE_RE =
 /** Matches a task ID in either format. */
 const TASK_ID_INLINE_RE = /🆔️? *[a-zA-Z0-9_-]+|[[(] *id:: *[a-zA-Z0-9_-]+ *[\])](?: *,)?/u
 
-/** Matches a depends-on field in either format (comma-separated IDs). */
+/** Matches a depends-on field in either format. The ID list allows spaces
+ *  around each comma, as TASK_ID_SEQUENCE does, so a write replaces every ID
+ *  the parser read. */
 const DEPENDS_ON_INLINE_RE =
-  /⛔️? *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)*|[[(] *dependsOn:: *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)* *[\])](?: *,)?/u
+  /⛔️? *[a-zA-Z0-9_-]+(?: *, *[a-zA-Z0-9_-]+)*|[[(] *dependsOn:: *[a-zA-Z0-9_-]+(?: *, *[a-zA-Z0-9_-]+)* *[\])](?: *,)?/u
 
 /** Matches a recurrence rule in either format: `🔁 rule text` (emoji) or
  *  `[repeat:: rule text]` / `(repeat:: rule text)` (Dataview). The value

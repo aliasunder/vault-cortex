@@ -2142,6 +2142,27 @@ describe("task line mutations", () => {
       })
       expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
     })
+
+    // The parser reads `a , b` as two ids, so a write must replace the whole list
+    it("replaces a depends-on list typed with spaces around the comma", () => {
+      const line = "- [ ] My task ⛔ a , b ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineDependsOn({
+        taskLine: line,
+        dependsOn: ["c"],
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ⛔ c ^my-task")
+    })
+
+    it("clears a depends-on list typed with spaces around the comma", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 [dependsOn:: a , b] ^my-task"
+      const result = tasks.updateTaskLineDependsOn({
+        taskLine: line,
+        dependsOn: null,
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
   })
 
   // ── buildTaskLine + extractTasks round-trip ───────────────────
