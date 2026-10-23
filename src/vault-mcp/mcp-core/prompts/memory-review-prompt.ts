@@ -11,14 +11,10 @@
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js"
 import { z } from "zod"
 import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
-import {
-  describeError,
-  describeErrorForLog,
-  describeErrorRelativeTo,
-} from "../../../utils/describe-error.js"
-import { appendCodedErrorRemedy } from "../coded-error-remedy.js"
+import { describeError, describeErrorForLog } from "../../../utils/describe-error.js"
 import {
   type PromptRegistrationContext,
+  describeErrorForPromptFallback,
   textResult,
   wrapWithDataMarkers,
   exceedsCharCap,
@@ -232,11 +228,7 @@ export const registerMemoryReviewPrompt = ({
         // An unknown file returns earlier in the try, so a failure caught here
         // is the server's own and logs at error, not warn
         reqLogger.error("prompt_error", describeErrorForLog(error))
-        const clientMessage = appendCodedErrorRemedy({
-          message: describeErrorRelativeTo({ error, directory: vaultPath }),
-          error,
-          isToolEnabled,
-        })
+        const clientMessage = describeErrorForPromptFallback({ error, vaultPath, isToolEnabled })
         const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"])
         const fallbackHint = fallbackTools
           ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`

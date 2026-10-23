@@ -676,7 +676,7 @@ describe("vault-orientation error degradation", () => {
 
     const text = textOf(await handler(fakeExtra))
     expect(text).toBe(
-      "Could not fully survey the vault ([Error]: EACCES: permission denied, open 'Projects/plan.md'. Ask the vault's owner to fix the file's or folder's permissions.). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, vault_find_orphans, or vault_list_memory_files.",
+      "Could not fully survey the vault ([Error]: EACCES: permission denied, open 'Projects/plan.md'. Ask the vault's owner to fix the file's or folder's permissions). You can still explore it directly with the vault tools — try vault_list_tags, vault_list_property_keys, vault_find_orphans, or vault_list_memory_files.",
     )
   })
 })
