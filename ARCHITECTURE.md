@@ -636,8 +636,7 @@ For protected requests, the authorizer:
 - accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
 - checks the signature, issuer, and audience of deployment-bound JWTs
 - forwards a correctly bound expired JWT to Express for the **401** refresh challenge
-- denies every other token with a **403**, including a JWT that carries no
-  audience claim
+- denies every other token with a **403**
 
 The Authorization header is the route's identity source, so a
 tokenless request gets an automatic **401** from API Gateway without invoking
