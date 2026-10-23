@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.55.1] — 2026-10-23
+
+### Bug Fixes
+
+- Read properties blocks the way Obsidian does and report task lines on the written note (#700)
+- **tools:** Polish eleven tool-description faults left after the caller-use sweep (#698)
+- **auth:** Tighten gateway token checks and keep revoked tokens revoked (#699)
+- **tools:** Cut description text a calling agent cannot act on (#697)
+
+### CI / Infrastructure
+
+- **release:** Remove the tag-push release workflow (#696)
+- **release:** List only CLI changes in CLI release notes (#694)
+- **release:** Build a queued CLI release on main's latest commit (#693)
+
+### Maintenance
+
+- **deps:** Bump ip-address from 10.7.2 to 10.7.4 (#703)
+
 ## [0.55.0] — 2026-10-21
 
 ### Features
