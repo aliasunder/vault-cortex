@@ -1037,6 +1037,29 @@ describe("vault_patch_note handler", () => {
     expect(await readNote()).toBe("## New Section\n- entry\nIntro prose.\n\n## Section\n\nbody\n")
   })
 
+  it("names no insert_before target when the first heading has no text", async () => {
+    // A hash-only heading has empty text, and insert_before rejects an empty heading
+    const { handler, readNote } = await setupPatchHandler(
+      "hash-only.md",
+      "Intro prose.\n\n### ###\n\nbody\n",
+    )
+
+    const result = await handler(
+      { path: "hash-only.md", operation: "prepend", content: "## New Section" },
+      mockExtra,
+    )
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Applied prepend to hash-only.md → file body. The 12 bytes of pre-existing content above the note\'s first heading are now nested under the inserted heading. The first heading is an empty H3, which operation "insert_before" cannot target.',
+        },
+      ],
+    })
+    expect(await readNote()).toBe("## New Section\nIntro prose.\n\n### ###\n\nbody\n")
+  })
+
   it("recommends append when the note had no heading to insert before", async () => {
     const { handler, readNote } = await setupPatchHandler("flat.md", "Just prose.\n")
 
@@ -3275,13 +3298,13 @@ describe("DISABLED_TOOLS", () => {
       label: "offers vault_replace_in_note while it is served",
       disabledTools: "",
       expectedEntry:
-        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or use vault_replace_in_note to target by text content when headings share the same level',
+        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate; if they share a level, rename one or use vault_replace_in_note to target by text content',
     },
     {
-      label: "offers only heading_level when vault_replace_in_note is disabled",
+      label: "still names a same-level remedy when vault_replace_in_note is disabled",
       disabledTools: "vault_replace_in_note",
       expectedEntry:
-        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate',
+        '- "ambiguous heading" — multiple headings match; use heading_level to disambiguate; if they share a level, rename one',
     },
   ])("vault_patch_note's ambiguous-heading entry $label", ({ disabledTools, expectedEntry }) => {
     const ambiguousHeadingEntry = extractDescriptionSection({

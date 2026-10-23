@@ -33,7 +33,13 @@ const describeDisplacedLeadingContent = ({
   if (!firstHeading) {
     return `The note's entire pre-existing body (${bytes} bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To add a section below existing content instead, use operation "append".`
   }
-  return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
+  const nestedSentence = `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading.`
+
+  // insert_before rejects an empty heading, so naming one would send the agent into a failing call.
+  if (!firstHeading.text) {
+    return `${nestedSentence} The first heading is an empty H${firstHeading.level}, which operation "insert_before" cannot target.`
+  }
+  return `${nestedSentence} To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
 }
 
 /** Protected-path list for tool descriptions. Descriptions are built once at
@@ -526,7 +532,7 @@ Errors:
 - "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
 - "path must end in …" — add the .md extension
 - "heading not found" — no heading matches the text; error lists available headings
-- "ambiguous heading" — multiple headings match; use heading_level to disambiguate${whenToolEnabledText("vault_replace_in_note", ", or use vault_replace_in_note to target by text content when headings share the same level")}
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate; if they share a level, rename one${whenToolEnabledText("vault_replace_in_note", " or use vault_replace_in_note to target by text content")}
 - "operation … requires a heading target" — pass heading, or use append or prepend to edit the file body
 - "heading cannot be empty" — heading is whitespace only; pass the heading's text
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it
@@ -541,7 +547,7 @@ ${OPENING_BLOCK_ERROR_ENTRY}
 Obsidian syntax: Content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block. Inserting heading-level content (## New Section) changes the note's structure — future heading-targeted ops may resolve differently.
 Table rows: send only the data row ("| cell1 | cell2 |"), not the header or separator — duplicating them splits the table.
 
-Returns: Confirmation message — "Applied <operation> to <path> → <target>", where target is the matched heading (e.g. "## Active") or "file body" for a no-heading append/prepend. A no-heading prepend that nested existing content under an inserted heading adds a sentence naming the content's size and the call that would have avoided it.`,
+Returns: Confirmation message — "Applied <operation> to <path> → <target>", where target is the matched heading (e.g. "## Active") or "file body" for a no-heading append/prepend. A no-heading prepend that nested existing content under an inserted heading adds a sentence naming the content's size and any call that would have avoided it.`,
       inputSchema: {
         path: z
           .string()
