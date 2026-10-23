@@ -47,6 +47,10 @@ const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/
  *  between and after them. A break is never a setext heading's text. */
 const THEMATIC_BREAK_REGEX = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
 
+/** Whether a line is a thematic break (`***`, `---`, `_ _ _`), which can never
+ *  be a setext heading's text. */
+export const isThematicBreak = (line: string): boolean => THEMATIC_BREAK_REGEX.test(line)
+
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
  * final section's body can stop short of it. Returns `lines.length` when none
@@ -207,9 +211,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     // A non-blank paragraph line can become a setext heading's text, and a
     // blank line ends that chance.
     const isParagraphLine =
-      line.trim() !== "" &&
-      !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart()) &&
-      !THEMATIC_BREAK_REGEX.test(line)
+      line.trim() !== "" && !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart()) && !isThematicBreak(line)
     setextCandidate = isParagraphLine ? { text: line, index: i } : null
   }
 

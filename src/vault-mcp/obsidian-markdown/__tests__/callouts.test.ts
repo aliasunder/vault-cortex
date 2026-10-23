@@ -129,6 +129,12 @@ describe("parseLeadingCallout", () => {
     expect(parseLeadingCallout(lines)).toBeNull()
   })
 
+  it("does not swallow a thematic break followed by === as setext H1", () => {
+    // The break comes first, so the callout is not the note's first content
+    const lines = ["***", "===", "> [!info] Scope", "> body"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
+
   it("collects only the first of two stacked callouts", () => {
     const lines = ["> [!info] First", "> first body", "> [!warning] Second", "> second body"]
     expect(parseLeadingCallout(lines)).toEqual({
