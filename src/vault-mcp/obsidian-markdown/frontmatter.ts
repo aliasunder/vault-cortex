@@ -1,6 +1,7 @@
 import matter from "gray-matter"
 import { LineCounter, parseDocument, stringify as stringifyYaml, visit } from "yaml"
 import type { Document } from "yaml"
+import { splitIntoLines } from "./lines.js"
 
 /** A parsed note, with its properties in `data` and its body in `content`. */
 export type ParsedNote = {
@@ -13,8 +14,8 @@ type UnsupportedPropertiesBlockKind = "invalid-yaml" | "not-key-value" | "explic
 
 /**
  * A properties block the server cannot read, or cannot keep through a
- * rewrite. The default `name` is kept, so the error reaches clients as
- * `[Error]: …` like every other domain error.
+ * rewrite. The default `name` is kept, so `describeError` prints it as
+ * `[Error]: …` like every other domain error a client receives.
  */
 export class UnsupportedPropertiesBlockError extends Error {
   readonly kind: UnsupportedPropertiesBlockKind
@@ -28,7 +29,8 @@ export class UnsupportedPropertiesBlockError extends Error {
 /**
  * An overwrite refused because the note's existing properties block cannot
  * be read or kept. The overwrite replaces the body anyway, so its repair is
- * a block replace and a second try, not carrying prose back into the body.
+ * a block replace and a second try. The not-key-value repair, which moves
+ * the block's text into the body, does not apply.
  */
 export class OverwriteBlockedError extends UnsupportedPropertiesBlockError {}
 
@@ -41,14 +43,15 @@ export class OverwriteBlockedError extends UnsupportedPropertiesBlockError {}
 export class UnkeepableOpeningBlockError extends Error {}
 
 /**
- * Matches a frontmatter opener: `---` alone on the first line (optional
- * BOM, trailing spaces/tabs, CRLF, or a whole-file `---`). Obsidian
- * starts a properties block only on this form; gray-matter alone is
- * wider — it reads `--- <text>` as a named parser-engine and throws on
- * unregistered names (Multi Column Markdown's
- * `--- start-multi-column: <name>` syntax).
+ * Matches the frontmatter opener, which is `---` alone on the first line
+ * after an optional BOM, ending in LF, CRLF or the end of the note. That is
+ * the only form Obsidian starts a properties block on, so the regex rejects:
+ * - an opener with trailing spaces or tabs, which Obsidian shows as body text;
+ * - `--- <text>`, which gray-matter alone would read as a parser-engine name,
+ *   throwing on unregistered names (Multi Column Markdown's
+ *   `--- start-multi-column: <name>` syntax).
  */
-const FRONTMATTER_OPENER = /^\uFEFF?---[ \t]*(\r?\n|$)/
+const FRONTMATTER_OPENER = /^\uFEFF?---(\r?\n|$)/
 
 /**
  * Matches a frontmatter closer, which is a line after the first that starts
@@ -76,18 +79,15 @@ const SPLIT_ONLY_OPTIONS = {
  * Obsidian's metadata cache follows. Otherwise `blockText` is null and the
  * body is the whole note. A leading BOM is stripped on both paths, as
  * gray-matter does. The body keeps its bytes, line endings included.
- *
- * `tasks.findBodyStartLine` finds where the body starts by its own,
- * stricter rule: a first line and a later line that are exactly `---`. It
- * reads lines from `splitIntoLines`, so a CRLF note's `---\r` counts as `---`.
  */
 export const splitPropertiesBlock = (
   content: string,
 ): {
-  /** The text between the `---` lines. It starts with the end of the opener
-   *  line, line break included, so its line numbers match the note's. Its
-   *  lines keep the note's line breaks, `\r\n` included; only the `\r` before
-   *  the closer is dropped, so the last line reads as in an LF note. */
+  /** The text between the `---` lines. It starts with the opener's line
+   *  break, so its first line is empty and its line numbers match the note's
+   *  (`---\na: 1\n---` gives `\na: 1`). Its lines keep the note's line
+   *  breaks, `\r\n` included; only the `\r` before the closer is dropped, so
+   *  the last line reads as in an LF note. */
   blockText: string | null
   body: string
 } => {
@@ -112,6 +112,21 @@ export const splitPropertiesBlock = (
   // gray-matter strips the BOM on the path above; this path does it here
   const contentWithoutBom = content.startsWith("\uFEFF") ? content.slice(1) : content
   return { blockText: null, body: contentWithoutBom }
+}
+
+/**
+ * The 0-based index of the line the body starts on, which is the number of
+ * line breaks before its first character. A closer with trailing text
+ * (`----`) holds that character, so the body starts on the closer line, as
+ * does an empty body after a closer with no final line break.
+ */
+export const findBodyStartLine = (content: string): number => {
+  const { body } = splitPropertiesBlock(content)
+
+  // The body is a suffix of the note, and splitIntoLines breaks lines at `\n`
+  // alone, so a BOM or a `\r` changes neither count: the lines above the body
+  // are the note's lines minus the body's
+  return splitIntoLines(content).length - splitIntoLines(body).length
 }
 
 /**
@@ -335,6 +350,20 @@ export const serializePropertiesBlock = (data: object): string => {
   // values are all undefined (it drops those keys), so there is no block to write
   if (dumpedYaml === "{}") return ""
   return `---\n${dumpedYaml}\n---\n`
+}
+
+/**
+ * The 0-based index of the line the body starts on in the note
+ * `stringifyNote` writes for `data`: the number of lines in the properties
+ * block it writes, 0 when there are none. It counts physical lines, even when
+ * reading the written note back would split it elsewhere: with no properties
+ * to write, a body that opens with `---` lines reads back as the block.
+ */
+export const findWrittenBodyStartLine = (data: object): number => {
+  // The block ends in a line break, so splitting it yields one empty element
+  // past its last line. With no properties the block is `""`, which yields
+  // only that element and so counts 0
+  return splitIntoLines(serializePropertiesBlock(data)).length - 1
 }
 
 /**

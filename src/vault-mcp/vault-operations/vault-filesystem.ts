@@ -22,6 +22,7 @@ import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import { withExclusiveFileLock, withFileLock } from "../../utils/file-write-lock.js"
 import { links } from "../obsidian-markdown/links.js"
 import {
+  findBodyStartLine,
   OverwriteBlockedError,
   parseNote,
   parseNoteForRewrite,
@@ -410,7 +411,12 @@ const readNoteSection = async (
   }
   const lines = splitIntoLines(parseNote(content).content)
   const headings = parseHeadings(lines)
-  const target = findHeading(headings, params.heading, params.headingLevel)
+  const target = findHeading({
+    headings,
+    text: params.heading,
+    level: params.headingLevel,
+    bodyStartLine: findBodyStartLine(content),
+  })
   logger.info("read note section", {
     path: params.path,
     heading: target.text,

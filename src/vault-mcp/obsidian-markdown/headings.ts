@@ -25,6 +25,11 @@ export type HeadingInfo = Readonly<{
  *  Empty headings (`##` alone on a line) are valid — group 2 is undefined. */
 const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
 
+/** Matches an ATX heading's optional closing sequence per CommonMark §4.2: one
+ *  or more `#` at the end of the text, after a space or tab or as the whole
+ *  text. `## Title ##` reads as `Title`, and `### ###` as an empty heading. */
+const CLOSING_HASHES_REGEX = /(?:^|[ \t]+)#+[ \t]*$/
+
 /** Matches setext heading underlines per CommonMark §4.3: 0-3 leading spaces,
  *  one or more `=` (H1) or `-` (H2) characters, optional trailing whitespace.
  *  A valid setext heading requires a non-blank text line immediately above.
@@ -36,6 +41,15 @@ const SETEXT_UNDERLINE_REGEX = /^ {0,3}(=+|-+)[ \t]*$/
 /** Matches block-level line openers (list items, blockquotes) that can't be
  *  setext heading content per CommonMark §4.3 — only paragraph text qualifies. */
 const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/
+
+/** Matches a thematic break per CommonMark §4.1: 0-3 leading spaces, then three
+ *  or more of one character from `-`, `*` and `_`, with optional spaces or tabs
+ *  between and after them. A break is never a setext heading's text. */
+const THEMATIC_BREAK_REGEX = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
+
+/** Whether a line is a thematic break (`***`, `---`, `_ _ _`), which can never
+ *  be a setext heading's text. */
+export const isThematicBreak = (line: string): boolean => THEMATIC_BREAK_REGEX.test(line)
 
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
@@ -133,8 +147,8 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // `let` carries fence, comment, and setext-candidate state across lines.
   let openFence: OpenFence = null
   let commentOpen = false
-  // The previous non-blank, non-heading, non-fence/comment content line — a
-  // candidate for setext heading text if the current line is an underline.
+  // The previous line when it is paragraph text — a candidate for setext
+  // heading text if the current line is an underline.
   let setextCandidate: { text: string; index: number } | null = null
 
   for (let i = 0; i < lines.length; i++) {
@@ -167,8 +181,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     if (matchedHashes) {
       const matchedText = atxMatch?.[2] ?? ""
       collectedHeadings.push({
-        // Strip trailing closing hashes (e.g. "## Title ##" → "Title")
-        text: matchedText.replace(/\s+#+\s*$/, "").trim(),
+        text: matchedText.replace(CLOSING_HASHES_REGEX, "").trim(),
         level: matchedHashes.length,
         startLine: i,
         bodyStartLine: i + 1,
@@ -177,8 +190,8 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       continue
     }
 
-    // Setext underline check — a setext heading is a non-blank content line
-    // followed by a `===` (H1) or `---` (H2) underline (CommonMark §4.3).
+    // Setext underline check — a setext heading is a paragraph line followed
+    // by a `===` (H1) or `---` (H2) underline (CommonMark §4.3).
     if (setextCandidate !== null) {
       const setextMatch = SETEXT_UNDERLINE_REGEX.exec(line)
       const underlineChars = setextMatch?.[1]
@@ -195,14 +208,11 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       }
     }
 
-    // Track setext candidate: non-blank content → candidate; blank → reset.
-    if (line.trim() === "") {
-      setextCandidate = null
-    } else {
-      setextCandidate = BLOCK_LEVEL_LINE_REGEX.test(line.trimStart())
-        ? null
-        : { text: line, index: i }
-    }
+    // A non-blank paragraph line can become a setext heading's text, and a
+    // blank line ends that chance.
+    const isParagraphLine =
+      line.trim() !== "" && !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart()) && !isThematicBreak(line)
+    setextCandidate = isParagraphLine ? { text: line, index: i } : null
   }
 
   // Phase 2: compute body ranges — each section's body ends where the next
@@ -251,12 +261,20 @@ export const linesBeforeFirstHeading = (
   return lines.slice(0, regionEndLine)
 }
 
-/** Case-sensitive heading lookup. Errors on 0 or 2+ matches. */
-export const findHeading = (
-  headings: readonly HeadingInfo[],
-  text: string,
-  level?: number,
-): HeadingInfo => {
+/** Case-sensitive heading lookup. Errors on 0 or 2+ matches. Headings are
+ *  parsed from a note's body, so the ambiguity error adds `bodyStartLine`,
+ *  the 0-based file line the body starts on, to name the file's own lines. */
+export const findHeading = ({
+  headings,
+  text,
+  level,
+  bodyStartLine,
+}: {
+  headings: readonly HeadingInfo[]
+  text: string
+  level?: number | undefined
+  bodyStartLine: number
+}): HeadingInfo => {
   if (!text.trim()) {
     throw new Error("heading cannot be empty")
   }
@@ -276,25 +294,22 @@ export const findHeading = (
   }
 
   if (matches.length > 1) {
-    const matchedHeadings = matches
-      .map(
-        (heading) => `${"#".repeat(heading.level)} ${heading.text} (line ${heading.startLine + 1})`,
-      )
-      .join(", ")
-    const firstMatch = matches[0]
-    const allSameLevel =
-      firstMatch !== undefined && matches.every((heading) => heading.level === firstMatch.level)
-    const hint = allSameLevel
-      ? "Rename one heading to make it unique, or target by text content instead."
-      : "Use heading_level to disambiguate."
+    const describeMatch = (heading: HeadingInfo): string => {
+      const fileLine = bodyStartLine + heading.startLine + 1
+      return `${"#".repeat(heading.level)} ${heading.text} (line ${fileLine})`
+    }
+    const matchedHeadings = matches.map(describeMatch).join(", ")
+
+    // The message states facts only; each tool's description gives the remedy
+    // that fits it, since a read and an edit recover differently.
     throw new Error(
-      `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${matchedHeadings}. ${hint}`,
+      `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${matchedHeadings}`,
     )
   }
 
   const result = matches[0]
 
-  if (result === undefined) {
+  if (!result) {
     throw new Error(`heading not found: "${searchText}"`)
   }
   return result

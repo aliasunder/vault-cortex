@@ -593,10 +593,15 @@ Second content.
         },
         logger,
       ),
-    ).rejects.toThrow(/ambiguous.*2 sections.*Rename one heading/)
+    ).rejects.toThrow(
+      // The lines count from the top of the file, past the three-line properties block
+      new Error(
+        'ambiguous heading: "Section" matches 2 sections: ## Section (line 5), ## Section (line 8)',
+      ),
+    )
   })
 
-  it("errors on cross-level ambiguity with heading_level hint", async () => {
+  it("names each matching heading's level on cross-level ambiguity", async () => {
     const content = `---
 title: CrossLevel
 ---
@@ -619,7 +624,11 @@ Sub-level.
         },
         logger,
       ),
-    ).rejects.toThrow(/ambiguous.*heading_level/)
+    ).rejects.toThrow(
+      new Error(
+        'ambiguous heading: "Overview" matches 2 sections: # Overview (line 5), ## Overview (line 8)',
+      ),
+    )
   })
 
   it("disambiguates with heading_level", async () => {

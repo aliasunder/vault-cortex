@@ -3224,6 +3224,21 @@ describe("readNoteSection", () => {
     ).rejects.toThrow('ambiguous heading: "Dup"')
   })
 
+  it("names file lines in the ambiguity error for a note with properties", async () => {
+    await writeFile(
+      join(vault, "amb-props.md"),
+      "---\na: 1\nb: 2\n---\n## Notes\nx\n## Notes\ny\n",
+      "utf8",
+    )
+    await expect(
+      readNoteSection({ vaultPath: vault, path: "amb-props.md", heading: "Notes" }, logger),
+    ).rejects.toThrow(
+      new Error(
+        'ambiguous heading: "Notes" matches 2 sections: ## Notes (line 5), ## Notes (line 7)',
+      ),
+    )
+  })
+
   it("throws note not found for a missing path", async () => {
     await expect(
       readNoteSection({ vaultPath: vault, path: "missing.md", heading: "Active" }, logger),

@@ -290,6 +290,30 @@ describe("parseHeadings", () => {
     expect(parseHeadings(["---", "body"])).toEqual([])
   })
 
+  // Obsidian's metadata cache finds no heading in these; a thematic break is
+  // never paragraph text, so the --- below it is a second break
+  it.each([
+    { label: "***", breakLine: "***" },
+    { label: "___", breakLine: "___" },
+    { label: "---", breakLine: "---" },
+    { label: "* * *", breakLine: "* * *" },
+  ])("does not read a $label thematic break over a --- line as a heading", ({ breakLine }) => {
+    expect(parseHeadings(["intro", "", breakLine, "---"])).toEqual([])
+  })
+
+  it("reads a heading made only of closing hashes as an empty heading, as Obsidian does", () => {
+    expect(parseHeadings(["### ###", "body"])).toEqual([
+      { text: "", level: 3, startLine: 0, bodyStartLine: 1, bodyEndLine: 2 },
+    ])
+  })
+
+  it("keeps a # that is part of the heading text", () => {
+    expect(parseHeadings(["## C#", "## Title #x"]).map((heading) => heading.text)).toEqual([
+      "C#",
+      "Title #x",
+    ])
+  })
+
   it("does not parse a setext underline with 4+ leading spaces", () => {
     expect(parseHeadings(["Title", "    ==="])).toEqual([])
   })
@@ -406,8 +430,9 @@ describe("parseHeadings", () => {
 })
 
 describe("linesBeforeFirstHeading", () => {
-  const regionOf = (lines: readonly string[]): readonly string[] =>
-    linesBeforeFirstHeading(lines, parseHeadings(lines))
+  const regionOf = (lines: readonly string[]): readonly string[] => {
+    return linesBeforeFirstHeading(lines, parseHeadings(lines))
+  }
 
   it("returns the lines above the first heading", () => {
     expect(regionOf(["Intro.", "", "## Section", "body"])).toEqual(["Intro.", ""])
@@ -438,8 +463,8 @@ describe("linesBeforeFirstHeading", () => {
   })
 
   it("stops before a trailing comment block when the note has no headings", () => {
-    // An empty Kanban board: no lanes yet, just its settings block. Running to
-    // EOF here would report the settings JSON as body content.
+    // An empty Kanban board has no lanes yet, only its settings block. Running
+    // to EOF here would report the settings JSON as body content.
     const lines = ["", "%% kanban:settings", "```json", "{}", "```", "%%", ""]
     expect(regionOf(lines)).toEqual([])
   })
@@ -479,9 +504,9 @@ describe("linesBeforeFirstHeading", () => {
   })
 
   it("finds no heading boundary in raw CRLF lines", () => {
-    // Documents the contract: callers normalize with splitIntoLines first.
-    // HEADING_REGEX uses `(.*)` where `.` excludes CR, so "## S\r" is not a
-    // heading and the whole body reads as leading content.
+    // Callers normalize with splitIntoLines first. HEADING_REGEX uses `(.*)`,
+    // where `.` excludes CR, so "## S\r" is no heading and the whole body
+    // reads as leading content.
     const lines = "intro\r\n## S\r\n".split("\n")
     expect(regionOf(lines)).toEqual(["intro\r", "## S\r", ""])
   })
@@ -491,39 +516,59 @@ describe("findHeading", () => {
   const headings = parseHeadings(["# Board", "## Active", "## Done", "### Active"])
 
   it("returns the single matching heading", () => {
-    expect(findHeading(headings, "Board").level).toBe(1)
+    expect(findHeading({ headings, text: "Board", bodyStartLine: 0 }).level).toBe(1)
   })
 
   it("disambiguates duplicate text by level", () => {
-    expect(findHeading(headings, "Active", 3).level).toBe(3)
+    expect(findHeading({ headings, text: "Active", level: 3, bodyStartLine: 0 }).level).toBe(3)
   })
 
   it("throws and lists available headings when none match", () => {
-    expect(() => findHeading(headings, "Missing")).toThrow(
-      'heading not found: "Missing". Available headings: # Board, ## Active, ## Done, ### Active',
+    expect(() => findHeading({ headings, text: "Missing", bodyStartLine: 0 })).toThrow(
+      new Error(
+        'heading not found: "Missing". Available headings: # Board, ## Active, ## Done, ### Active',
+      ),
     )
   })
 
   it("throws ambiguous when more than one heading matches", () => {
-    expect(() => findHeading(headings, "Active")).toThrow(
-      'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ### Active (line 4). Use heading_level to disambiguate.',
+    expect(() => findHeading({ headings, text: "Active", bodyStartLine: 0 })).toThrow(
+      new Error(
+        'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ### Active (line 4)',
+      ),
     )
   })
 
-  it("throws same-level ambiguous with the decoupled hint", () => {
+  it("names file lines in the ambiguity error when the body starts below a properties block", () => {
+    expect(() => findHeading({ headings, text: "Active", bodyStartLine: 3 })).toThrow(
+      new Error(
+        'ambiguous heading: "Active" matches 2 sections: ## Active (line 5), ### Active (line 7)',
+      ),
+    )
+  })
+
+  it("throws ambiguous for same-level matches, naming each one's line", () => {
     const sameLevelHeadings = parseHeadings(["# Board", "## Active", "## Done", "## Active"])
-    expect(() => findHeading(sameLevelHeadings, "Active")).toThrow(
-      'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ## Active (line 4). Rename one heading to make it unique, or target by text content instead.',
+    expect(() => {
+      findHeading({ headings: sameLevelHeadings, text: "Active", bodyStartLine: 0 })
+    }).toThrow(
+      new Error(
+        'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ## Active (line 4)',
+      ),
     )
   })
 
   it("throws when the heading text is empty or whitespace", () => {
-    expect(() => findHeading(headings, "   ")).toThrow("heading cannot be empty")
+    expect(() => findHeading({ headings, text: "   ", bodyStartLine: 0 })).toThrow(
+      new Error("heading cannot be empty"),
+    )
   })
 
   it("resolves a setext heading by text and level", () => {
     const mixedHeadings = parseHeadings(["# ATX", "Setext Title", "---"])
-    expect(findHeading(mixedHeadings, "Setext Title")).toEqual({
+    expect(
+      findHeading({ headings: mixedHeadings, text: "Setext Title", bodyStartLine: 0 }),
+    ).toEqual({
       text: "Setext Title",
       level: 2,
       startLine: 1,
