@@ -3,6 +3,8 @@ import { DateTime } from "luxon"
 import { stringify as stringifyYaml } from "yaml"
 import { describe, it, expect } from "vitest"
 import {
+  findBodyStartLine,
+  findWrittenBodyStartLine,
   parseNote,
   parseNoteForRewrite,
   splitPropertiesBlock,
@@ -132,10 +134,19 @@ describe("parseNote", () => {
     })
   })
 
-  it("parses an opener with trailing whitespace", () => {
-    expect(parseNote("---  \ntitle: x\n---\nbody\n")).toEqual({
-      data: { title: "x" },
-      content: "body\n",
+  // Obsidian starts no properties block on these openers and shows the lines as body
+  it.each([
+    { label: "trailing spaces", note: "---  \ntitle: x\n---\nbody\n" },
+    { label: "a trailing tab", note: "---\t\ntitle: x\n---\nbody\n" },
+    { label: "a trailing space before CRLF", note: "--- \r\ntitle: x\r\n---\r\nbody\r\n" },
+  ])("treats an opener with $label as body", ({ note }) => {
+    expect(parseNote(note)).toEqual({ data: {}, content: note })
+  })
+
+  it("treats a BOM before an opener with a trailing space as body, dropping the BOM", () => {
+    expect(parseNote(BOM + "--- \ntitle: x\n---\nbody\n")).toEqual({
+      data: {},
+      content: "--- \ntitle: x\n---\nbody\n",
     })
   })
 
@@ -460,6 +471,12 @@ describe("splitPropertiesBlock", () => {
       body: "--- start-multi-column: X\ntext\n--- end-multi-column\n",
     },
     {
+      label: "an opener with a trailing space, which is no block",
+      note: "--- \ntitle: x\n---\nbody\n",
+      blockText: null,
+      body: "--- \ntitle: x\n---\nbody\n",
+    },
+    {
       label: "a ---text first line, which is no block",
       note: "---text\ntitle: x\n---\nbody\n",
       blockText: null,
@@ -521,6 +538,37 @@ describe("splitPropertiesBlock", () => {
   })
 })
 
+// ── findBodyStartLine ────────────────────────────────────────────
+
+describe("findBodyStartLine", () => {
+  it.each([
+    { label: "a note with no block", note: "plain body\n", bodyStartLine: 0 },
+    { label: "an opener with no closer", note: "---\ntitle: x\nbody\n", bodyStartLine: 0 },
+    { label: "a whole-file ---", note: "---", bodyStartLine: 0 },
+    {
+      label: "a spaced opener, which starts no block",
+      note: "--- \na: 1\n---\nbody\n",
+      bodyStartLine: 0,
+    },
+    { label: "a closed block", note: "---\na: 1\n---\nbody\n", bodyStartLine: 3 },
+    { label: "a BOM before the block", note: `${BOM}---\na: 1\n---\nbody\n`, bodyStartLine: 3 },
+    { label: "CRLF line endings", note: "---\r\na: 1\r\n---\r\nbody\r\n", bodyStartLine: 3 },
+    { label: "blank lines after the closer", note: "---\na: 1\n---\n\n\nbody\n", bodyStartLine: 3 },
+    {
+      label: "a ---- closer, whose last dash is body",
+      note: "---\na: 1\n----\nbody\n",
+      bodyStartLine: 2,
+    },
+    { label: "a ---, closer", note: "---\na: 1\n---,\nbody\n", bodyStartLine: 2 },
+    { label: "a closer with a trailing space", note: "---\na: 1\n--- \nbody\n", bodyStartLine: 2 },
+    { label: "an empty body after a final line break", note: "---\na: 1\n---\n", bodyStartLine: 3 },
+    { label: "an empty body with no final line break", note: "---\na: 1\n---", bodyStartLine: 2 },
+    { label: "an empty block and no body", note: "---\n---", bodyStartLine: 1 },
+  ])("finds the body's first line in $label", ({ note, bodyStartLine }) => {
+    expect(findBodyStartLine(note)).toBe(bodyStartLine)
+  })
+})
+
 // ── serializePropertiesBlock ─────────────────────────────────────
 
 describe("serializePropertiesBlock", () => {
@@ -539,6 +587,24 @@ describe("serializePropertiesBlock", () => {
     },
   ])("serializes $label", ({ data, block }) => {
     expect(serializePropertiesBlock(data)).toBe(block)
+  })
+})
+
+// ── findWrittenBodyStartLine ─────────────────────────────────────
+
+describe("findWrittenBodyStartLine", () => {
+  it.each([
+    { label: "no properties", data: {}, bodyStartLine: 0 },
+    { label: "only undefined values", data: { title: undefined }, bodyStartLine: 0 },
+    { label: "one value", data: { a: 1 }, bodyStartLine: 3 },
+    { label: "a list", data: { tags: ["a", "b"] }, bodyStartLine: 5 },
+    { label: "nested values", data: { meta: { a: [1, { b: "c" }] } }, bodyStartLine: 6 },
+    { label: "a multi-line string", data: { text: "one\ntwo\nthree" }, bodyStartLine: 6 },
+    { label: "a value the serializer quotes", data: { title: "a: b" }, bodyStartLine: 3 },
+  ])("finds the written body's first line for $label", ({ data, bodyStartLine }) => {
+    expect(findWrittenBodyStartLine(data)).toBe(bodyStartLine)
+    // The count is the physical line stringifyNote writes the body on
+    expect(stringifyNote("sentinel\n", data).split("\n")[bodyStartLine]).toBe("sentinel")
   })
 })
 
@@ -651,6 +717,11 @@ describe("stringifyNote", () => {
     },
     { label: "a Multi Column opener", body: "--- start-multi-column: X\ntext\n" },
     { label: "a horizontal rule with no closer", body: "---\nno closer here\n" },
+    // A spaced opener starts no block, so the lines under it are body whatever they hold
+    { label: "a spaced opener over a list", body: "--- \n- a\n- b\n---\nbody\n" },
+    { label: "a spaced opener over a single value", body: "--- \nJust a paragraph.\n---\nbody\n" },
+    { label: "a spaced opener over a tagged value", body: "--- \na: !!str x\n---\nbody\n" },
+    { label: "a spaced opener over invalid YAML", body: "--- \ntitle: [unclosed\n---\nbody\n" },
   ])("writes an empty-data body that opens with $label verbatim", ({ body }) => {
     expect(stringifyNote(body, {})).toBe(body)
   })
