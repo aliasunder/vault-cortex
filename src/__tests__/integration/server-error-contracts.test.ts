@@ -3216,6 +3216,11 @@ describe("date filter values", () => {
 const INDEX_REMEDY =
   "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
 
+// Which layer reports a damaged tags column depends on who parses it:
+// - vault_list_tags reads tags through SQLite's json_each, which rejects '{'
+//   (not JSON) itself, so the error is a SqliteError;
+// - vault_recent_notes reads the column back in JavaScript, where '{}' parses
+//   but is not a string array, so the error is an IndexIntegrityError.
 describe("a damaged index row carries the index remedy", () => {
   /** A server of this block's own, so corrupting its index never reaches the
    *  shared server; the index file is opened from the test through a second

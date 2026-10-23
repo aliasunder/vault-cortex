@@ -619,9 +619,10 @@ created: 2026-01-01T00:00:00-05:00
   it("wraps the memory folder's mkdir failure with the folder's vault-relative path", async () => {
     // The folder is server configuration, so a file at its path is the vault
     // owner's to move; the raw EEXIST from mkdir would read as the caller's path
-    await rm(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "About Me"), "not a folder")
-    const warnSpy = vi.spyOn(logger, "warn")
+    const memoryFolder = join(vault, "About Me")
+    await rm(memoryFolder, { recursive: true })
+    await writeFile(memoryFolder, "not a folder")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
 
     await expect(
@@ -635,11 +636,57 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow(new Error('cannot create memory folder "About Me"'))
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "About Me"', {
+        cause: Object.assign(new Error(`EEXIST: file already exists, mkdir '${memoryFolder}'`), {
+          errno: -17,
+          code: "EEXIST",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      }),
+    )
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
       folder: "About Me",
-      error: expect.stringMatching(/^\[Error\]: EEXIST: file already exists, mkdir '/),
+      error: `[Error]: EEXIST: file already exists, mkdir '${memoryFolder}'`,
+    })
+  })
+
+  it("wraps the mkdir failure when a file sits where a parent of the memory folder belongs", async () => {
+    // mkdir reports ENOTDIR, not EEXIST, when the file is a parent of the
+    // folder it creates
+    const nestedStore = createMemoryStore({ memoryDir: "Meta/About Me" })
+    const memoryFolder = join(vault, "Meta", "About Me")
+    await writeFile(join(vault, "Meta"), "not a folder")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      nestedStore.updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "Meta/About Me"', {
+        cause: Object.assign(new Error(`ENOTDIR: not a directory, mkdir '${memoryFolder}'`), {
+          errno: -20,
+          code: "ENOTDIR",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "Meta/About Me",
+      error: `[Error]: ENOTDIR: not a directory, mkdir '${memoryFolder}'`,
     })
   })
 

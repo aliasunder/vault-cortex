@@ -3175,31 +3175,31 @@ describe("DISABLED_TOOLS", () => {
   // The rename remedy, and its gated vault_move_note name, now live in the
   // message the boundary appends (coded-error-remedy.test.ts pins both forms),
   // so the entry reads the same whether or not vault_move_note is served
-  it.each([{ disabledTools: "" }, { disabledTools: "vault_move_note" }])(
-    "the filesystem Errors entry names no tool with DISABLED_TOOLS=$disabledTools",
-    ({ disabledTools }) => {
-      const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
-      // One tool from each module that lists the shared entry
-      const filesystemEntries = [
-        TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-        TOOL_NAMES.VAULT_UPDATE_TASK,
-        TOOL_NAMES.VAULT_WRITE_NOTE,
-        TOOL_NAMES.VAULT_GET_DAILY_NOTE,
-      ].map((toolName) => {
-        return findDescriptionLine({
-          registeredCalls,
-          toolName,
-          linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
-        })
+  it.each([
+    { label: "while vault_move_note is served", disabledTools: "" },
+    { label: "when vault_move_note is disabled", disabledTools: "vault_move_note" },
+  ])("the filesystem Errors entry reads the same $label", ({ disabledTools }) => {
+    const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
+    // One tool from each module that lists the shared entry
+    const filesystemEntries = [
+      TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      TOOL_NAMES.VAULT_UPDATE_TASK,
+      TOOL_NAMES.VAULT_WRITE_NOTE,
+      TOOL_NAMES.VAULT_GET_DAILY_NOTE,
+    ].map((toolName) => {
+      return findDescriptionLine({
+        registeredCalls,
+        toolName,
+        linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
       })
-      expect(filesystemEntries).toEqual([
-        SHARED_FILESYSTEM_ENTRY,
-        SHARED_FILESYSTEM_ENTRY,
-        SHARED_FILESYSTEM_ENTRY,
-        SHARED_FILESYSTEM_ENTRY,
-      ])
-    },
-  )
+    })
+    expect(filesystemEntries).toEqual([
+      SHARED_FILESYSTEM_ENTRY,
+      SHARED_FILESYSTEM_ENTRY,
+      SHARED_FILESYSTEM_ENTRY,
+      SHARED_FILESYSTEM_ENTRY,
+    ])
+  })
 
   // The memory folder is protected from moves, so the memory tools say where
   // a shorter name is given

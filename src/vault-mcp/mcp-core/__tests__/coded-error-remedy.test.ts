@@ -45,6 +45,13 @@ describe("remedyForCodedError", () => {
         "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file.",
     },
     {
+      label: "a too-long name with no path on the error",
+      error: systemError({ code: "ENAMETOOLONG", syscall: "open" }),
+      isToolEnabled: everyToolServed,
+      remedy:
+        "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file.",
+    },
+    {
       label: "a folder that is a file, from mkdir (EEXIST)",
       error: systemError({ code: "EEXIST", syscall: "mkdir", path: "/vault/Projects/alpha.md" }),
       isToolEnabled: everyToolServed,
@@ -61,6 +68,18 @@ describe("remedyForCodedError", () => {
       error: systemError({ code: "ENOTDIR", syscall: "scandir", path: "/vault/Projects" }),
       isToolEnabled: everyToolServed,
       remedy: "The folder changed while it was being listed; retry.",
+    },
+    {
+      label: "a folder in the path that became a file between two steps (race, ENOTDIR)",
+      error: systemError({ code: "ENOTDIR", syscall: "rename", path: "/vault/Projects/a.md" }),
+      isToolEnabled: everyToolServed,
+      remedy: "The file or folder changed while the call ran; retry.",
+    },
+    {
+      label: "an EEXIST outside mkdir, which the exclusive save's callers did not catch (race)",
+      error: systemError({ code: "EEXIST", syscall: "link", path: "/vault/Projects/a.md" }),
+      isToolEnabled: everyToolServed,
+      remedy: "The file or folder changed while the call ran; retry.",
     },
     {
       label: "permission denied",
@@ -107,6 +126,24 @@ describe("remedyForCodedError", () => {
     {
       label: "too many open files",
       error: systemError({ code: "EMFILE", syscall: "open", path: "/vault/a.md" }),
+      isToolEnabled: everyToolServed,
+      remedy: "The server is busy; retry.",
+    },
+    {
+      label: "too many open files system-wide",
+      error: systemError({ code: "ENFILE", syscall: "open", path: "/vault/a.md" }),
+      isToolEnabled: everyToolServed,
+      remedy: "The server is busy; retry.",
+    },
+    {
+      label: "a resource temporarily unavailable",
+      error: systemError({ code: "EAGAIN", syscall: "read" }),
+      isToolEnabled: everyToolServed,
+      remedy: "The server is busy; retry.",
+    },
+    {
+      label: "a busy file",
+      error: systemError({ code: "EBUSY", syscall: "rename", path: "/vault/a.md" }),
       isToolEnabled: everyToolServed,
       remedy: "The server is busy; retry.",
     },
