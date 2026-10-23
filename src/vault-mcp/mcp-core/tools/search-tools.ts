@@ -294,7 +294,7 @@ Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
 Example: vault_recent_notes({ sort_by: "created", limit: 5 })
 
 When to use: Catching up on vault changes, finding recent work, or orienting after a break.
-Prefer vault_search for content-based discovery, and for notes created or modified within a date range (its created and modified filters). Prefer vault_search_by_folder for browsing a specific folder.
+Prefer vault_search for content-based discovery, including a text query limited to a date range (its created and modified filters). Prefer vault_search_by_folder for browsing a specific folder.
 
 Parameters:
 - sort_by + limit interact: "modified" uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
