@@ -8193,7 +8193,7 @@ describe("lines reported after a write rewrites the properties block", () => {
     )
   })
 
-  it("reports a deleted recurring task's line on the note as read and its spawn on the note as written", async () => {
+  it("reports a deleted recurring task's line below its spawn on the read offset, and the spawn's line in the written file", async () => {
     const { vault, result } = await updateTaskInNote(
       "---\ntags: [a, b]\n---\n## Active\n- [ ] A 🔁 every week 📅 2026-01-05 🏁 delete ^aa\n- [ ] B ^bb\n",
       { blockId: "aa", status: "done" },
@@ -8260,8 +8260,6 @@ describe("lines reported after a write rewrites the properties block", () => {
     )
   })
 
-  // ── Regression controls: these pass on the code before the fix too ──
-
   it("finds a parent by its line on the note as read and reports the sub-task on the note as written", async () => {
     const { vault, result } = await createTaskInNote(
       "---\ntags: [a, b]\n---\n## Active\n- [ ] P ^pp\n",
@@ -8280,6 +8278,8 @@ describe("lines reported after a write rewrites the properties block", () => {
       `${FLOW_LIST_AFTER_WRITE}## Active\n- [ ] P ^pp\n  - [ ] S ➕ ${today()} ^ss\n`,
     )
   })
+
+  // ── Regression controls: these pass on the code before the fix too ──
 
   it("names a duplicate block id's lines on the note as read", async () => {
     const vault = await createVault()
