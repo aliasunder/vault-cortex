@@ -18,16 +18,37 @@ const buildPayload = (overrides: Partial<JwtPayload> = {}): JwtPayload => ({
   ...overrides,
 })
 
+const encodeJsonSegment = (value: object): string => {
+  return Buffer.from(JSON.stringify(value)).toString("base64url")
+}
+
+/** Signs claims with HS256 under any header segment, so a test can vary
+ *  what the header says. */
+const signUnderHeader = ({
+  headerSegment,
+  claims,
+  secret,
+}: {
+  headerSegment: string
+  claims: object
+  secret: string
+}): string => {
+  const body = encodeJsonSegment(claims)
+  const sig = createHmac("sha256", secret)
+    .update(`${headerSegment}.${body}`)
+    .digest()
+    .toString("base64url")
+  return `${headerSegment}.${body}.${sig}`
+}
+
 /** Signs any claims object, including the malformed and audience-less
  *  ones `signJwt`'s payload type rejects. */
 const signClaims = (claims: object, secret: string): string => {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-  const body = Buffer.from(JSON.stringify(claims)).toString("base64url")
-  const sig = createHmac("sha256", secret)
-    .update(`${header}.${body}`)
-    .digest()
-    .toString("base64url")
-  return `${header}.${body}.${sig}`
+  return signUnderHeader({
+    headerSegment: encodeJsonSegment({ alg: "HS256", typ: "JWT" }),
+    claims,
+    secret,
+  })
 }
 
 /** Verifies a JWT against this file's deployment binding. */
@@ -315,6 +336,20 @@ describe("verifyJwt", () => {
     const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url")
     const body = Buffer.from(JSON.stringify(buildPayload())).toString("base64url")
     expect(verify(`${header}.${body}.`, SECRET)).toBeNull()
+  })
+
+  it.each([
+    { label: "names alg none", headerSegment: encodeJsonSegment({ alg: "none", typ: "JWT" }) },
+    { label: "names RS256", headerSegment: encodeJsonSegment({ alg: "RS256", typ: "JWT" }) },
+    { label: "names no algorithm", headerSegment: encodeJsonSegment({ typ: "JWT" }) },
+    { label: "is not JSON", headerSegment: Buffer.from("not-json").toString("base64url") },
+  ])("returns null for a correctly signed token whose header $label", ({ headerSegment }) => {
+    const payload = buildPayload()
+    const token = signUnderHeader({ headerSegment, claims: payload, secret: SECRET })
+
+    // The same claims under an HS256 header verify, so only the header check rejects it.
+    expect(verify(signClaims(payload, SECRET), SECRET)).toEqual(payload)
+    expect(verify(token, SECRET)).toBeNull()
   })
 
   it("returns null for a signature of correct length but wrong bytes", () => {

@@ -71,8 +71,23 @@ const isExpired = (claims: JwtPayload): boolean => {
   return claims.exp < Date.now() / 1000
 }
 
+/** null when the segment is not base64url-encoded JSON. */
+const decodeBase64urlJson = (segment: string): unknown => {
+  try {
+    return JSON.parse(Buffer.from(segment, "base64url").toString())
+  } catch {
+    return null
+  }
+}
+
+const isHs256Header = (header: unknown): boolean => {
+  if (typeof header !== "object" || header === null) return false
+  return "alg" in header && header.alg === "HS256"
+}
+
 /** The decoded payload of a token whose signature verifies under `secret`,
- *  with no claim checked yet; null when the signature or encoding is bad. */
+ *  with no claim checked yet; null when the header, signature or encoding
+ *  is bad. */
 const payloadWithVerifiedSignature = (token: string, secret: string): unknown => {
   // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
@@ -83,25 +98,23 @@ const payloadWithVerifiedSignature = (token: string, secret: string): unknown =>
 
   if (hasEmptySegment) return null
 
-  // The header's `alg` is never read: every signature is checked as HS256
-  // with the secret, so a token signed any other way fails, whatever its
-  // header claims.
+  // RFC 8725 §3.1: the header must name the algorithm the signature is
+  // checked with. https://www.rfc-editor.org/rfc/rfc8725#section-3.1
+  if (!isHs256Header(decodeBase64urlJson(header))) return null
+
   const expectedSignature = computeHmacSha256(`${header}.${payload}`, secret)
   const signature = Buffer.from(encodedSignature, "base64url")
 
   // Accept only the encoding signJwt emits:
   // - Node's decoder skips padding and stray characters, so a token with `=`
   //   appended would verify under a string a revocation list does not hold.
-  // - Neither side of `!==` depends on the secret, so it leaks no timing.
+  // - Both sides of `!==` come from the presented token, so its timing
+  //   reveals nothing about the expected signature.
   if (signature.toString("base64url") !== encodedSignature) return null
   if (signature.length !== expectedSignature.length) return null
   if (!timingSafeEqual(signature, expectedSignature)) return null
 
-  try {
-    return JSON.parse(Buffer.from(payload, "base64url").toString())
-  } catch {
-    return null
-  }
+  return decodeBase64urlJson(payload)
 }
 
 /** Checks the signature, then the deployment binding (`iss` and `aud` equal
