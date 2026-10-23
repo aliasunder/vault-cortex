@@ -720,7 +720,7 @@ sequenceDiagram
     Note over C,E: Subsequent MCP Requests (dual-validated)
     C->>AG: POST /mcp (Bearer JWT)
     AG->>L: Authorize request
-    L->>L: Verify JWT signature (HMAC)
+    L->>L: Verify JWT signature (HMAC), issuer and audience
     L-->>AG: isAuthorized: true
     AG->>E: Forward
     E->>E: requireBearerAuth (verify JWT again)
