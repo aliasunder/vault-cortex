@@ -634,10 +634,10 @@ OAuth/MCP spec) and never invoke the Lambda.
 For protected requests, the authorizer:
 
 - accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
-- checks the signature, issuer, and audience of deployment-bound JWTs
+- checks the signature, issuer, and audience of JWTs bound to this deployment
+  (see **JWT payload** below)
 - forwards a correctly bound expired JWT to Express for the **401** refresh challenge
-- forwards unexpired pre-binding JWTs without an audience claim to Express,
-  avoiding API Gateway's fixed **403** while those tokens remain valid
+- denies every other token with a **403**
 
 The Authorization header is the route's identity source, so a
 tokenless request gets an automatic **401** from API Gateway without invoking
@@ -655,8 +655,8 @@ and revocation. An expired token stops here with **401** and
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
 
-**Why both layers:** Lightsail port 8000 is publicly bound by default. If the
-API Gateway authorizer is misconfigured, or someone hits the public IP
+**Why both layers:** Lightsail port 8000 is open to the internet by default.
+If the API Gateway authorizer is misconfigured, or someone hits the public IP
 directly, Express still rejects. `/healthz` bypasses auth for docker-compose
 healthchecks.
 
@@ -721,7 +721,7 @@ sequenceDiagram
     Note over C,E: Subsequent MCP Requests (dual-validated)
     C->>AG: POST /mcp (Bearer JWT)
     AG->>L: Authorize request
-    L->>L: Verify JWT signature (HMAC)
+    L->>L: Verify JWT signature (HMAC), issuer and audience
     L-->>AG: isAuthorized: true
     AG->>E: Forward
     E->>E: requireBearerAuth (verify JWT again)
@@ -742,18 +742,12 @@ cryptographic or binding checks. The binding claims
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
 - `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
-  `/mcp`. `PUBLIC_URL` must be a bare origin; path prefixes are rejected at
-  startup.
+  `/mcp`. `PUBLIC_URL` must be a bare origin; path prefixes are rejected when
+  the MCP server starts.
 - Each verifier checks both claims against its own copy of `PUBLIC_URL` — the
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
   secret.
-- The Lambda passes a token that carries no `aud` at all — the shape minted
-  by releases before binding — so that Express can reject it with a 401, the
-  status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
-  them. Only tokens minted before an upgrade have this shape, so the path
-  goes quiet within their 24-hour lifetime. A token that names any other
-  audience is denied at the Lambda.
 - A client's `resource` parameter, when sent, must name one of the two
   identifiers the server's discovery documents advertise — the MCP endpoint
   or the server URL itself — compared in canonical form, so a trailing slash
@@ -871,7 +865,9 @@ OAuth session:
   immediately (without a rotation they live for 6 hours);
 - every stored refresh token becomes unreachable, because rows are keyed
   under the old token;
-- each client goes back through the consent page on its next request.
+- the Lambda authorizer answers each client's old token with a **403**,
+  which clients don't treat as a sign-in prompt, so each client goes back
+  through the consent page once you reconnect it.
 
 ### Optional hardening + customization
 
@@ -1394,7 +1390,7 @@ Any VPS with comparable specs works — the table above prices the Lightsail ref
 | Decision                                    | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Lightsail over ECS                          | $12–24 vs ~$50+. Single-user server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                                                    |
+| API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and per-route auth (OAuth endpoints and `/healthz` pass through, a Lambda authorizer validates every other route). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                               |
 | Obsidian Sync over git-based sync           | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Single image over a separate sync container | The two processes have shared fate through `/vault` — the MCP server without sync serves a stale vault; sync without the server serves nothing — so a single supervised container is the semantically honest packaging, not a convenience bundle. One image also means one repo, one CI, one version, and no Compose requirement for users (`docker run`/Podman/nerdctl all work). The `local` target has no sync process and stays single-process under tini.                                                                                                                                    |
 | OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both pass through independent Lambda and Express checks using the same HMAC key.                                                                                                                                                                                                                                                                                                  |

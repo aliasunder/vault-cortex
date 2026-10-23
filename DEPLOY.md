@@ -93,7 +93,7 @@ npm run deploy:dev
 
 That runs, in order:
 
-1. `npm run deploy` — provisions Lightsail VM, API Gateway, smart Lambda authorizer
+1. `npm run deploy` — provisions Lightsail VM, API Gateway, Lambda authorizer
 2. `npm run docker:publish` — builds (targeting linux/amd64) + pushes to GHCR
 3. `npm run lightsail:up` — ensures `/opt/vault-cortex` exists, waits for Docker (cloud-init), logs into GHCR on the instance, resolves `PUBLIC_URL` (explicit value, else `CUSTOM_DOMAIN`, else the gateway URL — the same rule the Lambda authorizer uses), SCPs `docker-compose.yml` + `.env` carrying that value, then `docker compose pull && up -d`
 
@@ -435,7 +435,7 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp> \
 
 ### Rotating `MCP_AUTH_TOKEN`
 
-Rotation ends every OAuth session — each connected client goes back through the consent page on its next request, and clients that use the token directly need the new value.
+Rotation ends every OAuth session. The gateway answers each connected client's old token with `403`, which clients don't treat as a sign-in prompt, so reconnect each client to send it back through the consent page. Clients that use the token directly need the new value.
 
 The token must stay in sync across four places: the SST secret (`npm run sst -- secret set McpAuthToken`), the GitHub repo secret, `~/.config/vault-cortex/.env` (which `npm run lightsail:up` copies to the instance), and the instance `.env`. CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure is:
 
@@ -808,7 +808,9 @@ curl https://mcp.example.com/healthz
 ## Troubleshooting
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Create `~/.config/vault-cortex/.env` (one-time setup step 2), then run `npm run deploy` once for your stage.
-- **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). Either the Lambda and Express disagree on `PUBLIC_URL` — the Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL), and Express reads the instance `.env`, which CI and `npm run lightsail:up` write with the same rule, so a disagreement means the instance `.env` was edited by hand or written by an older deploy; re-run the deploy (or `npm run lightsail:up`) so both derive the same value — or connected clients still hold tokens minted before audience binding (an upgrade that skipped the release that accepts them): each client recovers when its own token timer refreshes it, at most one access-token lifetime, or reconnect it now.
+- **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every OAuth token. MCP clients refresh a token after a 401, not a 403, so the 403 itself never triggers a refresh. To find the cause, send `MCP_AUTH_TOKEN` itself: `curl -H "Authorization: Bearer <your-MCP_AUTH_TOKEN>" <apiUrl>/mcp`.
+  - **`405` — the token works:** the Lambda and Express disagree on `PUBLIC_URL`. The Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL). Express reads the instance `.env`, which CI and `npm run lightsail:up` write by the same rule, so a mismatch means that file was edited by hand or written by an older deploy. Re-run the deploy, or `npm run lightsail:up`, so both derive the same value, then reconnect each client that still gets `403`: its token was issued for the other URL.
+  - **`401` or `403` — the token is rejected too:** the `McpAuthToken` secret and the instance `.env` hold different tokens. Give all four copies listed under [Rotating `MCP_AUTH_TOKEN`](#rotating-mcp_auth_token) the same value.
 - **`npm run deploy` errors with `SecretMissingError`** — set the secret first (one-time setup step 3).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.

@@ -43,18 +43,19 @@ vi.mock("../../logger.js", () => {
 
 const { handler } = await import("../authorizer.js")
 
-/** A gateway event for `/mcp` — the protected path, where the authorizer
- *  validates the Authorization header instead of passing the request
- *  through as it does for the OAuth paths. */
-const protectedRequest = (authorization: string): APIGatewayRequestAuthorizerEventV2 => {
+const requestTo = (path: string, authorization: string): APIGatewayRequestAuthorizerEventV2 => {
   return {
-    rawPath: "/mcp",
+    rawPath: path,
     headers: { authorization },
     requestContext: {
       requestId: "req-1",
       http: { sourceIp: "203.0.113.7" },
     },
   } as unknown as APIGatewayRequestAuthorizerEventV2
+}
+
+const protectedRequest = (authorization: string): APIGatewayRequestAuthorizerEventV2 => {
+  return requestTo("/mcp", authorization)
 }
 
 const accessToken = ({
@@ -80,45 +81,49 @@ const accessToken = ({
   )
 }
 
-/** An access token in the shape minted before tokens were bound to a
- *  server (literal issuer, no `aud`) — signed by hand because `signJwt`
- *  only accepts the bound shape. */
-const preBindingToken = ({
-  secret,
-  exp = DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-}: {
-  secret: string
-  exp?: number
-}): string => {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-  const body = Buffer.from(
-    JSON.stringify({
-      sub: "client-1",
-      scope: "vault",
-      exp,
-      iss: "vault-cortex",
-    }),
-  ).toString("base64url")
-  const sig = createHmac("sha256", secret)
-    .update(`${header}.${body}`)
-    .digest()
-    .toString("base64url")
-  return `${header}.${body}.${sig}`
-}
-
 describe("authorizer handler", () => {
   it("authorizes the static token", async () => {
+    recordedLogs.length = 0
     const result = await handler(protectedRequest(`Bearer ${SECRET}`))
     expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "static" },
+    })
+  })
+
+  it("authorizes the static token while PUBLIC_URL is empty", async () => {
+    // The static token carries no deployment binding, so a misconfigured
+    // PUBLIC_URL must not lock out the one credential that still works.
+    vi.stubEnv("PUBLIC_URL", "")
+    recordedLogs.length = 0
+    onTestFinished(() => {
+      vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
+    })
+    const result = await handler(protectedRequest(`Bearer ${SECRET}`))
+    expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "static" },
+    })
   })
 
   it("authorizes a JWT minted for this deployment", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://mcp.example.com/",
       aud: "https://mcp.example.com/mcp",
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: true })
+    // Pins the valid branch: the expired branch also authorizes.
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "jwt" },
+    })
   })
 
   it("forwards an expired JWT minted for this deployment so Express can challenge it", async () => {
@@ -141,6 +146,7 @@ describe("authorizer handler", () => {
 
   it("derives issuer from full URL and audience from origin when URL has a path", async () => {
     vi.stubEnv("PUBLIC_URL", "https://mcp.example.com/vault/")
+    recordedLogs.length = 0
     onTestFinished(() => {
       vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
     })
@@ -152,18 +158,29 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "jwt" },
+    })
   })
 
   it("denies a same-secret JWT minted for another deployment", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://mcp.example.com/",
       aud: "https://other.example/mcp",
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies an expired same-secret JWT minted for another deployment", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://mcp.example.com/",
       aud: "https://other.example/mcp",
@@ -171,9 +188,14 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies an expired JWT signed with another secret", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://mcp.example.com/",
       aud: "https://mcp.example.com/mcp",
@@ -182,45 +204,57 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
-  })
-
-  it("authorizes a pre-binding JWT with the jwt-unbound log method", async () => {
-    recordedLogs.length = 0
-    const result = await handler(protectedRequest(`Bearer ${preBindingToken({ secret: SECRET })}`))
-    expect(result).toEqual({ isAuthorized: true })
     expect(recordedLogs.at(-1)).toEqual({
-      level: "info",
-      message: "auth_success",
-      data: { method: "jwt-unbound" },
+      level: "warn",
+      message: "auth_failed: token invalid",
     })
   })
 
-  it("denies a pre-binding JWT signed with another secret", async () => {
-    const result = await handler(
-      protectedRequest(`Bearer ${preBindingToken({ secret: "not-the-lambda-secret" })}`),
-    )
-    expect(result).toEqual({ isAuthorized: false })
-  })
+  it("denies an unexpired same-secret JWT without an audience", async () => {
+    recordedLogs.length = 0
+    // This deployment's issuer and no `aud`, so the missing audience is the
+    // only thing wrong with the token. Signed by hand because `signJwt`
+    // only accepts the bound shape.
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
+    const body = Buffer.from(
+      JSON.stringify({
+        sub: "client-1",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "https://mcp.example.com/",
+      }),
+    ).toString("base64url")
+    const sig = createHmac("sha256", SECRET)
+      .update(`${header}.${body}`)
+      .digest()
+      .toString("base64url")
 
-  it("denies an expired pre-binding JWT", async () => {
-    const token = preBindingToken({
-      secret: SECRET,
-      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
-    })
-    const result = await handler(protectedRequest(`Bearer ${token}`))
+    const result = await handler(protectedRequest(`Bearer ${header}.${body}.${sig}`))
+
     expect(result).toEqual({ isAuthorized: false })
+    // Pins the deny to the token check, not one of the earlier guards.
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies a same-secret JWT from another issuer", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://other.example/",
       aud: "https://mcp.example.com/mcp",
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies an expired same-secret JWT from another issuer", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://other.example/",
       aud: "https://mcp.example.com/mcp",
@@ -228,11 +262,36 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
+  })
+
+  it.each([
+    { label: "an OAuth endpoint", path: "/token" },
+    { label: "a path under /oauth/", path: "/oauth/decide" },
+    { label: "a path that only starts with an OAuth endpoint's name", path: "/tokens" },
+  ])("checks the token on $label", async ({ path }) => {
+    recordedLogs.length = 0
+
+    const result = await handler(requestTo(path, "Bearer not-a-token"))
+
+    expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies a malformed Authorization header", async () => {
+    recordedLogs.length = 0
     const result = await handler(protectedRequest("Basic abc"))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: missing or malformed Authorization header",
+    })
   })
 
   it("denies when PUBLIC_URL is not a URL", async () => {
