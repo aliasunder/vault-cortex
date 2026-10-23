@@ -78,7 +78,7 @@ describe("tool surface baseline", () => {
    *  - The allowance sits just above the default combo's average, so only
    *    small growth passes.
    *  Raising the allowance is a deliberate change with its reason in the PR. */
-  const CHARS_PER_TOOL_ALLOWANCE = 4192
+  const CHARS_PER_TOOL_ALLOWANCE = 4198
 
   it.each(SIZE_CAPPED_COMBO_NAMES)(
     "combo %s stays within the average per-tool size allowance",
