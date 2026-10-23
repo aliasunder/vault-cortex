@@ -332,7 +332,7 @@ describe("verifyJwt", () => {
     expect(verify(token, SECRET)).toBeNull()
   })
 
-  it("returns null for an unsigned token whose header claims alg none", () => {
+  it("returns null for a token with an empty signature segment", () => {
     const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url")
     const body = Buffer.from(JSON.stringify(buildPayload())).toString("base64url")
     expect(verify(`${header}.${body}.`, SECRET)).toBeNull()

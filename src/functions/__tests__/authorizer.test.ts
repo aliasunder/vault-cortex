@@ -215,16 +215,16 @@ describe("authorizer handler", () => {
 
   it("denies an unexpired same-secret JWT without an audience", async () => {
     recordedLogs.length = 0
-    // The shape minted before tokens were bound to a server: a literal
-    // issuer and no `aud`. Signed by hand because `signJwt` only accepts
-    // the bound shape.
+    // This deployment's issuer and no `aud`, so the missing audience is the
+    // only thing wrong with the token. Signed by hand because `signJwt`
+    // only accepts the bound shape.
     const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
     const body = Buffer.from(
       JSON.stringify({
         sub: "client-1",
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: "https://mcp.example.com/",
       }),
     ).toString("base64url")
     const sig = createHmac("sha256", SECRET)
