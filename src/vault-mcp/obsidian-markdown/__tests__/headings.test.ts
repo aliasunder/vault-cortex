@@ -534,7 +534,7 @@ describe("findHeading", () => {
   it("throws ambiguous when more than one heading matches", () => {
     expect(() => findHeading({ headings, text: "Active", bodyStartLine: 0 })).toThrow(
       new Error(
-        'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ### Active (line 4). Use heading_level to disambiguate.',
+        'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ### Active (line 4)',
       ),
     )
   })
@@ -542,18 +542,18 @@ describe("findHeading", () => {
   it("names file lines in the ambiguity error when the body starts below a properties block", () => {
     expect(() => findHeading({ headings, text: "Active", bodyStartLine: 3 })).toThrow(
       new Error(
-        'ambiguous heading: "Active" matches 2 sections: ## Active (line 5), ### Active (line 7). Use heading_level to disambiguate.',
+        'ambiguous heading: "Active" matches 2 sections: ## Active (line 5), ### Active (line 7)',
       ),
     )
   })
 
-  it("throws same-level ambiguous with the decoupled hint", () => {
+  it("throws ambiguous for same-level matches, naming each one's line", () => {
     const sameLevelHeadings = parseHeadings(["# Board", "## Active", "## Done", "## Active"])
     expect(() => {
       findHeading({ headings: sameLevelHeadings, text: "Active", bodyStartLine: 0 })
     }).toThrow(
       new Error(
-        'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ## Active (line 4). Rename one heading to make it unique, or target by text content instead.',
+        'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ## Active (line 4)',
       ),
     )
   })

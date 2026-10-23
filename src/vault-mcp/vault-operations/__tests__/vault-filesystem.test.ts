@@ -3234,7 +3234,7 @@ describe("readNoteSection", () => {
       readNoteSection({ vaultPath: vault, path: "amb-props.md", heading: "Notes" }, logger),
     ).rejects.toThrow(
       new Error(
-        'ambiguous heading: "Notes" matches 2 sections: ## Notes (line 5), ## Notes (line 7). Rename one heading to make it unique, or target by text content instead.',
+        'ambiguous heading: "Notes" matches 2 sections: ## Notes (line 5), ## Notes (line 7)',
       ),
     )
   })

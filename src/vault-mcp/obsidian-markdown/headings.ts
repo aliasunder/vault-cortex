@@ -297,13 +297,11 @@ export const findHeading = ({
       return `${"#".repeat(heading.level)} ${heading.text} (line ${fileLine})`
     }
     const matchedHeadings = matches.map(describeMatch).join(", ")
-    const firstLevel = matches[0]?.level
-    const allSameLevel = matches.every((heading) => heading.level === firstLevel)
-    const hint = allSameLevel
-      ? "Rename one heading to make it unique, or target by text content instead."
-      : "Use heading_level to disambiguate."
+
+    // The message states facts only; each tool's description gives the remedy
+    // that fits it, since a read and an edit recover differently
     throw new Error(
-      `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${matchedHeadings}. ${hint}`,
+      `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${matchedHeadings}`,
     )
   }
 
