@@ -98,7 +98,7 @@
     "@modelcontextprotocol/sdk": "1.32.1",
     "@napi-rs/canvas": "1.0.11",
     "better-sqlite3": "13.0.3",
-    "chokidar": "5.0.0",
+    "chokidar": "6.0.0",
     "env-var": "7.5.0",
     "express": "5.3.0",
     "express-rate-limit": "8.7.1",
@@ -109,7 +109,7 @@
     "rrule": "2.8.1",
     "sharp": "0.35.5",
     "sqlite-vec": "0.1.9",
-    "unpdf": "1.8.1",
+    "unpdf": "1.9.1",
     "yaml": "2.9.1",
     "zod": "4.6.7"
   },
