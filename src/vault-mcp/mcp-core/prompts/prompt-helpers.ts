@@ -8,6 +8,8 @@ import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { truncateToCodePointLimit } from "../../../utils/truncate-to-code-point-limit.js"
+import { describeErrorRelativeTo } from "../../../utils/describe-error.js"
+import { appendCodedErrorRemedy } from "../coded-error-remedy.js"
 
 export type PromptRegistrationContext = ToolAvailability & {
   server: McpServer
@@ -43,6 +45,25 @@ export const formatNoteLine = (note: { path: string; title: string }): string =>
 export const textResult = (text: string): GetPromptResult => ({
   messages: [{ role: "user", content: { type: "text", text } }],
 })
+
+/** The error text a prompt's fallback message quotes in parentheses: the
+ *  message with a Node error's paths made vault-relative, then its remedy, if
+ *  any. A closing period is dropped, because the fallback's own sentence ends
+ *  with one after the parenthesis. */
+export const describeErrorForPromptFallback = (params: {
+  error: unknown
+  vaultPath: string
+  isToolEnabled: ToolAvailability["isToolEnabled"]
+}): string => {
+  const { error, vaultPath, isToolEnabled } = params
+  const errorText = appendCodedErrorRemedy({
+    message: describeErrorRelativeTo({ error, directory: vaultPath }),
+    error,
+    isToolEnabled,
+  })
+
+  return errorText.endsWith(".") ? errorText.slice(0, -1) : errorText
+}
 
 /** Whether capContent would cut `text`: more than `maxChars` characters,
  *  counted in code points. Always false without a cap. */

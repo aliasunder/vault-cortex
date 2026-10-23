@@ -88,7 +88,7 @@ src/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
     obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
     vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations
-    mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions
+    mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
       tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
     search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, chunker, file-watcher

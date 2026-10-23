@@ -10,6 +10,7 @@ import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
+import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 import { isTagsKey } from "../../obsidian-markdown/tags.js"
 import {
   OverwriteBlockedError,
@@ -142,15 +143,16 @@ type ToolHandlerResult = {
 
 /** The try/catch wrappers every tool handler runs inside, built per server
  *  from two inputs:
- *  - the enabled tool set, because the repair steps they add for a refused
- *    properties block name tools a server may not serve;
+ *  - the enabled tool set, because the remedies they add name tools a server
+ *    may not serve;
  *  - the vault path, which a Node error's text must not show. */
 type SafeHandlers = {
   /** Wraps a handler with try/catch. A throw is logged as `tool_error` and
    *  returned as an isError result that holds only text, so the error's
    *  cause and stack never reach the client. The text is:
    *  - `[ErrorName]: message`, with a Node error's paths made vault-relative;
-   *  - then how to fix it, for a properties-block refusal.
+   *  - then how to fix it, for a raw filesystem or index error or a
+   *    properties-block refusal.
    *
    *  The format callback produces the full content-block array — text, image,
    *  or mixed (the SDK union) — for tools whose results aren't a single text
@@ -233,29 +235,29 @@ const OPENING_BLOCK_REMEDY =
 export const OPENING_BLOCK_ERROR_ENTRY =
   '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties, around text that can\'t be kept as properties; the error says how to avoid it'
 
-/** The Errors entry of a tool that saves a note, for a file the server
- *  cannot read or write; the message is Node's, with the path made
- *  vault-relative.
- *  - One bullet names each remedy: the caller shortens a too-long name, and
- *    the vault's owner fixes permissions or the disk.
- *  - A save first writes a temp file named after the note plus
- *    ".<UUID>.tmp", 41 bytes longer (1 for the dot, 36 for the UUID, 4 for
- *    ".tmp"), so a note can read fine and still fail to save. A rename
- *    writes that temp file beside the new name too, which is why the bullet
- *    asks for a name at least 41 bytes shorter.
- *  - A write that fails after the file is open (a full disk) gets a Node
- *    message with no path, so the bullet says the file is usually named.
- *  - Every tool that saves a note can raise these errors, but each lists the
- *    bullet only when its own description is next revised, because
- *    tool-definition graders such as Glama's re-score every description
- *    whose text changes. */
-export const describeFilesystemErrorEntry = (
-  whenToolEnabledText: ToolRegistrationContext["whenToolEnabledText"],
-): string => {
-  const renameToolClause = whenToolEnabledText("vault_move_note", " with vault_move_note")
+/** The Errors entry of every tool that reads or writes a vault file, for a
+ *  raw filesystem error. The message is Node's with the path made
+ *  vault-relative, plus the remedy sentence the tool boundary appends
+ *  (coded-error-remedy.ts), so the entry names no remedy itself. */
+export const FILESYSTEM_ERROR_ENTRY =
+  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do'
 
-  return `- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but cannot be saved under its current name, so rename it at least 41 bytes shorter${renameToolClause}. Permissions or a full or read-only disk need the vault's owner`
-}
+/** The listing tools' form of the entry: one unreadable folder fails the whole
+ *  listing, and the caller can list around it. */
+export const LISTING_FILESYSTEM_ERROR_ENTRY =
+  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the folder it could not read, and what to do; until then, pass a folder outside it'
+
+/** The Errors entry of a tool that reads stored index rows back through the
+ *  parsers in search-helpers.ts: a SQLite engine failure or a row the server
+ *  cannot read, both with the remedy appended at the boundary. The entry
+ *  quotes the error names because SQLite's messages open with no code. */
+export const INDEX_ERROR_ENTRY =
+  '- "[SqliteError]: …" / "[IndexIntegrityError]: …" — the search index failed, not the call; the message says what to do'
+
+/** The entry for a tool whose index query reads no stored row back through
+ *  those parsers, so only the engine itself can fail. */
+export const INDEX_ENGINE_ERROR_ENTRY =
+  '- "[SqliteError]: …" — the search index failed, not the call; the message says what to do'
 
 /** The Errors entry of every tool that rewrites a note. A tool that rewrites
  *  the note only in one mode passes that mode as rewriteCondition
@@ -272,30 +274,30 @@ export const createSafeHandlers = (params: {
 }): SafeHandlers => {
   const { isToolEnabled, vaultPath } = params
 
-  /** The error's text with a Node error's paths made vault-relative, plus how
-   *  to fix a properties-block failure: repair steps for a block already in
-   *  the vault, or a way around `---` lines a write would leave at the top of
-   *  the note. */
-  const describeToolError = (error: unknown): string => {
-    const message = describeErrorRelativeTo({ error, directory: vaultPath })
-    // A move abort's properties-block message already ends with a period
-    // ("Nothing was written."), so the repair steps follow after a space
-    const separator = message.endsWith(".") ? " " : ". "
-
-    if (error instanceof UnkeepableOpeningBlockError) {
-      return `${message}${separator}${OPENING_BLOCK_REMEDY}`
-    }
+  /** How to fix an error, or undefined when its own text stands:
+   *  - a way around `---` lines a write would leave at the top of the note;
+   *  - the repair steps for a properties block already in the vault;
+   *  - the remedy for a raw filesystem or index error. The properties-block
+   *    errors carry no code, so at most one of these applies. */
+  const describeToolErrorRemedy = (error: unknown): string | undefined => {
+    if (error instanceof UnkeepableOpeningBlockError) return OPENING_BLOCK_REMEDY
     // OverwriteBlockedError extends UnsupportedPropertiesBlockError, so it is
     // checked first: the parent's repair steps copy body text out and back,
     // which an overwrite does not need. UnkeepableOpeningBlockError extends
     // Error directly, so its place in this order is free.
-    if (error instanceof OverwriteBlockedError) {
-      return `${message}${separator}${describeOverwriteRepair(isToolEnabled)}`
+    if (error instanceof OverwriteBlockedError) return describeOverwriteRepair(isToolEnabled)
+    if (error instanceof UnsupportedPropertiesBlockError) {
+      return describePropertiesBlockRepair({ kind: error.kind, isToolEnabled })
     }
-    if (!(error instanceof UnsupportedPropertiesBlockError)) return message
+    return remedyForCodedError({ error, isToolEnabled })
+  }
 
-    const repair = describePropertiesBlockRepair({ kind: error.kind, isToolEnabled })
-    return `${message}${separator}${repair}`
+  /** The error's text with a Node error's paths made vault-relative, then its
+   *  remedy, if any. */
+  const describeToolError = (error: unknown): string => {
+    const message = describeErrorRelativeTo({ error, directory: vaultPath })
+
+    return appendRemedy({ message, remedy: describeToolErrorRemedy(error) })
   }
 
   const safeHandlerContent: SafeHandlers["safeHandlerContent"] = async (logger, fn, format) => {

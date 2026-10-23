@@ -26,9 +26,12 @@ import {
   vaultFs,
   atomicWriteFile,
   atomicWriteFileExclusive,
+  isTempSavePath,
+  TEMP_SAVE_SUFFIX_BYTES,
   pruneEmptyParents,
   readTrashFileState,
   resolveSafePath,
+  tempSavePath,
   trashDomainLockKey,
 } from "../vault-filesystem.js"
 import { withFileLock } from "../../../utils/file-write-lock.js"
@@ -175,6 +178,35 @@ describe("atomicWriteFile", () => {
       path: expect.stringMatching(/occupied\..+\.tmp$/),
       error: "[Error]: EPERM: injected cleanup failure",
     })
+  })
+})
+
+describe("isTempSavePath", () => {
+  it("recognises the temp file a save writes beside its target", () => {
+    expect(isTempSavePath("/vault/Notes/a.md.123e4567-e89b-12d3-a456-426614174000.tmp")).toBe(true)
+  })
+
+  // The literal paths in this block pin the regex; this row pins it to the
+  // generator, so changing either one cannot silently leave a real temp-save
+  // failure with the generic remedy instead of the temp-save one.
+  it("recognises the path tempSavePath actually writes", () => {
+    expect(isTempSavePath(tempSavePath("/vault/Notes/a.md"))).toBe(true)
+  })
+
+  it.each([
+    { label: "the target itself", path: "/vault/Notes/a.md" },
+    { label: "a note whose own name ends in .tmp", path: "/vault/Notes/draft.tmp" },
+    {
+      label: "a UUID that is not followed by .tmp",
+      path: "/vault/a.md.123e4567-e89b-12d3-a456-426614174000",
+    },
+    { label: "a short hex run before .tmp", path: "/vault/a.md.123e4567.tmp" },
+  ])("rejects $label", ({ path }) => {
+    expect(isTempSavePath(path)).toBe(false)
+  })
+
+  it("adds 41 bytes to the target's name: a dot, a 36-byte UUID and .tmp", () => {
+    expect(TEMP_SAVE_SUFFIX_BYTES).toBe(41)
   })
 })
 

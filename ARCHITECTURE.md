@@ -1198,8 +1198,8 @@ Docker hardening, and durability seatbelts above.
   0-byte or partial write. The temp file is named after the note plus
   `.<UUID>.tmp`, 41 bytes longer, so a note whose name sits fewer than
   41 bytes under the filesystem's limit reads fine but cannot be saved; the
-  tools' filesystem-error entry asks for a name at least 41 bytes
-  shorter. On failure the temp file is removed, by a `catch` in
+  failed save's error carries a remedy (`coded-error-remedy.ts`) asking for
+  a name at least 41 bytes shorter. On failure the temp file is removed, by a `catch` in
   `atomicWriteFile` and by a `finally` in `atomicWriteFileExclusive`.
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with
@@ -1318,8 +1318,11 @@ Docker hardening, and durability seatbelts above.
 - **`safeHandler()`** (built per server by `createSafeHandlers` in
   `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
   return a structured `isError` response with the error's name and message,
-  plus how to fix a properties-block refusal — no stack traces. A buggy tool
-  never crashes the server.
+  plus one remedy sentence for a raw filesystem or search-index error
+  (`coded-error-remedy.ts`, keyed on the error's code, syscall and path) or
+  how to fix a properties-block refusal — no stack traces. A buggy tool
+  never crashes the server. The prompts' fallback messages carry the same
+  remedy sentence.
 - **Library errors**: an image sharp cannot decode, a password-protected
   PDF, a damaged PDF, and a PDF reader that fails to start (pdf.js or the
   canvas library failing to load, whose error quotes install paths) each

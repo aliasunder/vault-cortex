@@ -107,12 +107,14 @@ describe("safeHandlerContent", () => {
     expect(rootWarnSpy).not.toHaveBeenCalled()
   })
 
-  it("returns a filesystem error with its path vault-relative and logs it absolute", async () => {
+  it("returns a filesystem error with its path vault-relative and its remedy appended, and logs it absolute", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
     const failToOpenNote = async (): Promise<string> => {
       throw Object.assign(new Error("EACCES: permission denied, open '/srv/vault/Locked.md'"), {
         code: "EACCES",
+        syscall: "open",
+        path: "/srv/vault/Locked.md",
       })
     }
 
@@ -122,7 +124,12 @@ describe("safeHandlerContent", () => {
     ])
 
     expect(result).toEqual({
-      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.md'" }],
+      content: [
+        {
+          type: "text",
+          text: "[Error]: EACCES: permission denied, open 'Locked.md'. Ask the vault's owner to fix the file's or folder's permissions.",
+        },
+      ],
       isError: true,
     })
     expect(warnSpy).toHaveBeenCalledTimes(1)

@@ -616,6 +616,118 @@ created: 2026-01-01T00:00:00-05:00
     expect(linkStats.isSymbolicLink()).toBe(true)
   })
 
+  it("wraps the memory folder's mkdir failure with the folder's vault-relative path", async () => {
+    // The folder is server configuration, so a file at its path is the vault
+    // owner's to move; the raw EEXIST from mkdir would read as the caller's path
+    const memoryFolder = join(vault, "About Me")
+    await rm(memoryFolder, { recursive: true })
+    await writeFile(memoryFolder, "not a folder")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "About Me"', {
+        cause: Object.assign(new Error(`EEXIST: file already exists, mkdir '${memoryFolder}'`), {
+          errno: -17,
+          code: "EEXIST",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "About Me",
+      error: `[Error]: EEXIST: file already exists, mkdir '${memoryFolder}'`,
+    })
+  })
+
+  it("wraps the mkdir failure when a file sits where a parent of the memory folder belongs", async () => {
+    // mkdir reports ENOTDIR, not EEXIST, when the file is a parent of the
+    // folder it creates
+    const nestedStore = createMemoryStore({ memoryDir: "Meta/About Me" })
+    const memoryFolder = join(vault, "Meta", "About Me")
+    await writeFile(join(vault, "Meta"), "not a folder")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      nestedStore.updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "Meta/About Me"', {
+        cause: Object.assign(new Error(`ENOTDIR: not a directory, mkdir '${memoryFolder}'`), {
+          errno: -20,
+          code: "ENOTDIR",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "Meta/About Me",
+      error: `[Error]: ENOTDIR: not a directory, mkdir '${memoryFolder}'`,
+    })
+  })
+
+  it.skipIf(runsAsRoot)(
+    "lets a permission failure creating the memory folder through with its code",
+    async () => {
+      // Only a file at the folder's path is wrapped; a permission failure
+      // keeps Node's coded error so the tool boundary can name its remedy
+      const readOnlyVault = await mkdtemp(join(tmpdir(), "read-only-vault-"))
+      const memoryFolder = join(readOnlyVault, "About Me")
+      onTestFinished(() => rm(readOnlyVault, { recursive: true }))
+      await chmod(readOnlyVault, 0o500)
+      // Registered after the removal so that it runs first, which makes the
+      // vault writable again before it is removed.
+      onTestFinished(() => chmod(readOnlyVault, 0o700))
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+
+      await expect(
+        updateMemory(
+          {
+            vaultPath: readOnlyVault,
+            file: "Archive",
+            section: "Notes",
+            entry: "never written",
+            date: "2026-05-15",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        Object.assign(new Error(`EACCES: permission denied, mkdir '${memoryFolder}'`), {
+          errno: -13,
+          code: "EACCES",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      )
+      expect(warnSpy).not.toHaveBeenCalled()
+    },
+  )
+
   it("rejects a folder named like the memory file with a vault-relative message", async () => {
     await mkdir(join(vault, "About Me", "Archive.md"))
     await expect(

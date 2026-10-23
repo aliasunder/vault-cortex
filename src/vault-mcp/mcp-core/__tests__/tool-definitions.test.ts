@@ -1256,8 +1256,10 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     '- "concurrent write in progress" — another write to this note is in flight; retry',
     '- "note not found: …" — verify path with vault_list_notes',
   ]
-  const FILESYSTEM_ERROR_ENTRY =
-    '- "cannot delete …" (other than a protected path), "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the note stays put. A name too long for the filesystem needs a shorter path; otherwise ask the vault owner to fix the cause (e.g. permissions), then retry'
+  const DELETE_FAILURE_ENTRIES = [
+    '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry',
+    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do; the note stays put',
+  ]
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
     '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
 
@@ -1268,7 +1270,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
         '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry',
         '- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
-        FILESYSTEM_ERROR_ENTRY,
+        ...DELETE_FAILURE_ENTRIES,
         '- "cannot read trash config from .obsidian/app.json" — the file exists but can\'t be read or parsed; ask the vault owner to repair it, then retry',
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
@@ -1280,7 +1282,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
       [
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
-        FILESYSTEM_ERROR_ENTRY,
+        ...DELETE_FAILURE_ENTRIES,
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -3167,62 +3169,64 @@ describe("DISABLED_TOOLS", () => {
     expect(routingLine).toBe(`would be error-prone.\n${expectedLine}`)
   })
 
-  const FILESYSTEM_ENTRY_RENAME_REMEDY =
-    'a quoted name ending in ".tmp" means the note exists but cannot be saved under its current name, so rename it at least 41 bytes shorter'
+  const SHARED_FILESYSTEM_ENTRY =
+    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do'
 
+  // The rename remedy, and its gated vault_move_note name, now live in the
+  // message the boundary appends (coded-error-remedy.test.ts pins both forms),
+  // so the entry reads the same whether or not vault_move_note is served
   it.each([
-    {
-      label: "names vault_move_note while it is served",
-      disabledTools: "",
-      expectedRemedy: `${FILESYSTEM_ENTRY_RENAME_REMEDY} with vault_move_note.`,
-    },
-    {
-      label: "drops the tool name when vault_move_note is disabled",
-      disabledTools: "vault_move_note",
-      expectedRemedy: `${FILESYSTEM_ENTRY_RENAME_REMEDY}.`,
-    },
-  ])("the filesystem Errors entry's rename remedy $label", ({ disabledTools, expectedRemedy }) => {
+    { label: "while vault_move_note is served", disabledTools: "" },
+    { label: "when vault_move_note is disabled", disabledTools: "vault_move_note" },
+  ])("the filesystem Errors entry reads the same $label", ({ disabledTools }) => {
     const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
-    // One tool from each module that builds the entry: vault-crud-tools shares
-    // one const, task-tools builds it inline. The memory tools carry their own
-    // entry, pinned below.
-    const renameRemedies = [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_UPDATE_TASK].map(
-      (toolName) => {
-        return extractDescriptionSection({
-          registeredCalls,
-          toolName,
-          startMarker: 'a quoted name ending in ".tmp"',
-          endMarker: " Permissions or a full",
-        })
-      },
-    )
-    expect(renameRemedies).toEqual([expectedRemedy, expectedRemedy])
-  })
-
-  // The memory folder is protected, so the memory tools' entry never names
-  // vault_move_note, served or not
-  it.each([
-    {
-      toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
-      expectedEntry:
-        '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A quoted name ending in ".tmp" means the memory file\'s name is too long to save: for a new file, pass a name at least 41 bytes shorter; an existing file needs a name at least 41 bytes shorter, renamed in Obsidian. Permissions or a full or read-only disk need the vault\'s owner',
-    },
-    {
-      toolName: TOOL_NAMES.VAULT_DELETE_MEMORY,
-      expectedEntry:
-        '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A quoted name ending in ".tmp" means the memory file\'s name is too long to save; give it a name at least 41 bytes shorter, renamed in Obsidian. Permissions or a full or read-only disk need the vault\'s owner',
-    },
-  ])(
-    "$toolName's filesystem Errors entry sends a rename to Obsidian",
-    ({ toolName, expectedEntry }) => {
-      const filesystemEntry = findDescriptionLine({
-        registeredCalls: registerWithConfig({}),
+    // One tool from each module that lists the shared entry
+    const filesystemEntries = [
+      TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      TOOL_NAMES.VAULT_UPDATE_TASK,
+      TOOL_NAMES.VAULT_WRITE_NOTE,
+      TOOL_NAMES.VAULT_GET_DAILY_NOTE,
+    ].map((toolName) => {
+      return findDescriptionLine({
+        registeredCalls,
         toolName,
         linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
       })
-      expect(filesystemEntry).toBe(expectedEntry)
-    },
-  )
+    })
+    expect(filesystemEntries).toEqual([
+      SHARED_FILESYSTEM_ENTRY,
+      SHARED_FILESYSTEM_ENTRY,
+      SHARED_FILESYSTEM_ENTRY,
+      SHARED_FILESYSTEM_ENTRY,
+    ])
+  })
+
+  // The memory folder is protected from moves, so the memory tools say where
+  // a shorter name is given
+  it.each([
+    { toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY },
+    { toolName: TOOL_NAMES.VAULT_DELETE_MEMORY },
+  ])("$toolName's filesystem Errors entry sends a rename to Obsidian", ({ toolName }) => {
+    const filesystemEntry = findDescriptionLine({
+      registeredCalls: registerWithConfig({}),
+      toolName,
+      linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
+    })
+    expect(filesystemEntry).toBe(
+      `${SHARED_FILESYSTEM_ENTRY}; rename an existing memory file with a too-long name in Obsidian`,
+    )
+  })
+
+  it("vault_update_memory lists the memory folder's own failure with the owner's remedy", () => {
+    const folderEntry = findDescriptionLine({
+      registeredCalls: registerWithConfig({}),
+      toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
+      linePrefix: '- "cannot create memory folder',
+    })
+    expect(folderEntry).toBe(
+      '- "cannot create memory folder …" — a file sits where the memory folder belongs; ask the vault\'s owner to move it',
+    )
+  })
 
   const FENCED_BLOCK_WARNING =
     "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is ambiguous, and first_match: true would end the span at the opening fence"

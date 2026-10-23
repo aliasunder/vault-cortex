@@ -257,6 +257,8 @@ describe("memory-review error degradation", () => {
       listMemoryFiles: async () => {
         throw Object.assign(new Error(`EACCES: permission denied, scandir '${vault}/About Me'`), {
           code: "EACCES",
+          syscall: "scandir",
+          path: `${vault}/About Me`,
         })
       },
     }))
@@ -266,7 +268,7 @@ describe("memory-review error degradation", () => {
 
     const text = textOf(await handler({}, fakeExtra))
     expect(text).toBe(
-      "Could not load memory for review ([Error]: EACCES: permission denied, scandir 'About Me'). Try vault_list_memory_files or vault_get_memory to inspect the About Me/ layer directly.",
+      "Could not load memory for review ([Error]: EACCES: permission denied, scandir 'About Me'. Ask the vault's owner to fix the file's or folder's permissions). Try vault_list_memory_files or vault_get_memory to inspect the About Me/ layer directly.",
     )
   })
 

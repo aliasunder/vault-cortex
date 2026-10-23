@@ -169,6 +169,21 @@ export const pruneEmptyParents = async (
   return pruneFrom(start, 0)
 }
 
+/** The temp file a save writes beside its target: the target's path plus a
+ *  dot, a UUID and ".tmp", so a name near the filesystem's length limit can
+ *  read fine and still fail to save. */
+export const tempSavePath = (filePath: string): string => `${filePath}.${randomUUID()}.tmp`
+
+/** How many bytes tempSavePath adds to a target's name. */
+export const TEMP_SAVE_SUFFIX_BYTES = Buffer.byteLength(tempSavePath(""), "utf8")
+
+/** Matches the suffix tempSavePath appends, at the end of a path. It matches that
+ *  shape, not only paths a save wrote, so a note named the same way counts too. */
+const TEMP_SAVE_SUFFIX_REGEX =
+  /\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
+
+export const isTempSavePath = (path: string): boolean => TEMP_SAVE_SUFFIX_REGEX.test(path)
+
 /**
  * Stages content to a unique temp file, then renames over the target.
  * `rename` is atomic on the same filesystem, so the target is never
@@ -183,7 +198,7 @@ export const atomicWriteFile = async (
   params: { filePath: string; content: string },
   logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
+  const tmpPath = tempSavePath(params.filePath)
   try {
     await writeFile(tmpPath, params.content, "utf8")
     await rename(tmpPath, params.filePath)
@@ -229,7 +244,7 @@ export const atomicWriteFileExclusive = async (
   },
   logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
+  const tmpPath = tempSavePath(params.filePath)
   const hardLinksSupported = params.hardLinksSupported ?? true
   try {
     await writeFile(tmpPath, params.content, "utf8")

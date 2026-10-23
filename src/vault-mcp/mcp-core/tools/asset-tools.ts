@@ -7,7 +7,11 @@ import type { AssetReadResult } from "../../vault-operations/asset-operations.js
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { describeTextWindow } from "./tool-helpers.js"
+import {
+  describeTextWindow,
+  FILESYSTEM_ERROR_ENTRY,
+  LISTING_FILESYSTEM_ERROR_ENTRY,
+} from "./tool-helpers.js"
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
@@ -108,7 +112,7 @@ When to use: whenever a note references a file you need to actually see or read 
 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md; read notes with vault_read_note
-- "file not found" / "ENAMETOOLONG: …" — no file exists at that path (a folder is not a file), or the path (or a name in it) is longer than the filesystem allows; discover valid paths via vault_list_files
+- "file not found" — no file exists at that path (a folder is not a file); discover valid paths via vault_list_files
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it (hidden files are not readable)
 - "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's owner can raise
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
@@ -121,7 +125,7 @@ Errors:
 - "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; replace or re-export the file
 - "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead. If that read also finds no text, this tool can't read the PDF
 - "image cannot be fitted" — the image could not be compressed under the image output budget; ask for a smaller export
-- "EACCES: …" or another filesystem error code — the file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
+${FILESYSTEM_ERROR_ENTRY}
 - "file changed while reading" — the file was written while it was read (for example by Sync); retry the read
 - "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the vault's owner to restart the server
 - "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
@@ -229,7 +233,7 @@ Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a d
 Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
-- "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it. For ENAMETOOLONG, shorten folder.
+${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).
 

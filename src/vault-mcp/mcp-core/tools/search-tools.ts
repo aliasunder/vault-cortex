@@ -5,7 +5,13 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { createStrictInputObject, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
+import {
+  createStrictInputObject,
+  formatNoteMetadata,
+  dateFilterSchema,
+  INDEX_ENGINE_ERROR_ENTRY,
+  INDEX_ERROR_ENTRY,
+} from "./tool-helpers.js"
 
 export const registerSearchTools = ({
   registerTool,
@@ -71,7 +77,8 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}
 - "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
 - "… is not a calendar date" — a created/modified bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
-- "tag must not be empty …" — a tags entry is only "#"; pass the tag name`
+- "tag must not be empty …" — a tags entry is only "#"; pass the tag name
+${INDEX_ERROR_ENTRY}`
 
   registerTool(
     TOOL_NAMES.VAULT_SEARCH,
@@ -210,6 +217,7 @@ Errors:
 - An unknown tag or no matches returns an empty array, not an error.
 - "project/" matches neither "project" nor "project/a"; drop the "/".
 - "tag must not be empty …" — tag is "#" alone; pass the tag name.
+${INDEX_ERROR_ENTRY}
 
 Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag Obsidian accepts, in the note's letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
@@ -263,6 +271,7 @@ Prefer vault_search_by_tag once you know which tag to query — it supports hier
 
 Errors:
 - A vault with no tagged notes returns an empty array, not an error.
+${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { tag, count }; tag omits the "#" prefix.`,
       inputSchema: {},
@@ -302,6 +311,7 @@ Parameters:
 
 Errors:
 - An empty vault returns an empty array, not an error.
+${INDEX_ERROR_ENTRY}
 
 Returns: JSON array of note metadata (path, title, tags, related, folder (top-level folder), type, created, modified, bytes, leading_callout, additional_properties), newest first. The created field is null when the property is missing or not an ISO date; bytes is on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {
@@ -356,6 +366,7 @@ Behavior: Results can lag a file change by a few seconds: a note written moments
 
 Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
+${INDEX_ERROR_ENTRY}
 
 Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title, tags, related, folder (top-level folder), type, created (frontmatter; null when missing), modified (file time), bytes (on-disk size), plus, when present, leading_callout (the note's opening callout, { type, title, body }) and additional_properties (other frontmatter keys).`,
       inputSchema: {
@@ -412,6 +423,7 @@ Behavior:
 
 Errors:
 - An empty vault or folder returns an empty array, not an error.
+${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending, then by key.`,
       inputSchema: {
@@ -459,6 +471,7 @@ Behavior:
 
 Errors:
 - An unknown key or empty folder returns an empty array, not an error.
+${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { value, count } sorted by count descending, then by value in binary text order ("10" before "2").`,
       inputSchema: {
@@ -512,6 +525,7 @@ Parameters:
 
 Errors:
 - An unknown key or unmatched value returns an empty array, not an error.
+${INDEX_ERROR_ENTRY}
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.
 - leading_callout appears only when the note has a leading callout.
@@ -573,7 +587,8 @@ Returns: JSON with path (the queried note or canvas), backlinks (array of { path
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
-- A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links, ${backlinksEmptyResultRemedy}.`,
+- A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links, ${backlinksEmptyResultRemedy}.
+${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
         path: z
           .string()
@@ -621,7 +636,8 @@ Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, b
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
-- A path that does not exist, a note or canvas in a dot-prefixed folder, or one created or moved in the last few seconds returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.`,
+- A path that does not exist, a note or canvas in a dot-prefixed folder, or one created or moved in the last few seconds returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.
+${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
         path: z
           .string()
@@ -697,6 +713,7 @@ Parameters:
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
 - "too many excluded folders" — pass a shorter exclude_folders list, then retry.
+${INDEX_ERROR_ENTRY}
 
 Returns: JSON array of note metadata (path, title, tags, related, folder (top-level folder), type, created, modified, bytes, leading_callout, additional_properties), sorted by most recently modified. The bytes field is the on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {

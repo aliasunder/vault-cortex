@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { chmod, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import Database from "better-sqlite3"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -697,7 +698,19 @@ describe("path is not a file", () => {
 
 // ── Filesystem errors ────────────────────────────────────────
 
-describe("filesystem errors name the path vault-relative", () => {
+// The remedy sentences the server appends to a raw filesystem error, owned
+// by the test so a change to them fails here
+const PERMISSIONS_REMEDY = "Ask the vault's owner to fix the file's or folder's permissions."
+const FOLDER_IS_FILE_REMEDY =
+  "A folder in the path is an existing file; choose a path whose folders are folders."
+const PATH_TOO_LONG_REMEDY =
+  "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
+const TEMP_SAVE_REMEDY =
+  "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note with vault_move_note)."
+const LINK_LOOP_REMEDY =
+  "The path goes through a symbolic-link loop; ask the vault's owner to fix the link."
+
+describe("filesystem errors name the path vault-relative and carry their remedy", () => {
   const plantFileWithMode = async (params: { filePath: string; mode: number }): Promise<void> => {
     const fullPath = join(serverVaultPath, params.filePath)
     await writeFile(fullPath, "line one\n- [ ] a task\n")
@@ -736,7 +749,12 @@ describe("filesystem errors name the path vault-relative", () => {
 
     const result = await callTool({ client, name, args: { path: "Locked.md", ...args } })
     expect(result).toEqual({
-      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.md'" }],
+      content: [
+        {
+          type: "text",
+          text: `[Error]: EACCES: permission denied, open 'Locked.md'. ${PERMISSIONS_REMEDY}`,
+        },
+      ],
       isError: true,
     })
   })
@@ -752,7 +770,12 @@ describe("filesystem errors name the path vault-relative", () => {
         args: { path: "Locked.png" },
       })
       expect(result).toEqual({
-        content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.png'" }],
+        content: [
+          {
+            type: "text",
+            text: `[Error]: EACCES: permission denied, open 'Locked.png'. ${PERMISSIONS_REMEDY}`,
+          },
+        ],
         isError: true,
       })
     },
@@ -772,7 +795,7 @@ describe("filesystem errors name the path vault-relative", () => {
         content: [
           {
             type: "text",
-            text: "[Error]: EACCES: permission denied, open 'Daily Notes/2026-03-01.md'",
+            text: `[Error]: EACCES: permission denied, open 'Daily Notes/2026-03-01.md'. ${PERMISSIONS_REMEDY}`,
           },
         ],
         isError: true,
@@ -799,7 +822,7 @@ describe("filesystem errors name the path vault-relative", () => {
           // The temp file's name ends in a random UUID
           text: expect.stringMatching(
             new RegExp(
-              `^\\[Error\\]: ENAMETOOLONG: name too long, open '${RegExp.escape(nameTooLongForTempFile)}\\.[0-9a-f-]{36}\\.tmp'$`,
+              `^\\[Error\\]: ENAMETOOLONG: name too long, open '${RegExp.escape(nameTooLongForTempFile)}\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(TEMP_SAVE_REMEDY)}$`,
             ),
           ),
         },
@@ -838,7 +861,7 @@ describe("filesystem errors name the path vault-relative", () => {
             // The temp file's name ends in a random UUID
             text: expect.stringMatching(
               new RegExp(
-                `^\\[Error\\]: ENAMETOOLONG: name too long, open 'About Me/${fileTooLongForTempFile}\\.md\\.[0-9a-f-]{36}\\.tmp'$`,
+                `^\\[Error\\]: ENAMETOOLONG: name too long, open 'About Me/${fileTooLongForTempFile}\\.md\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(TEMP_SAVE_REMEDY)}$`,
               ),
             ),
           },
@@ -865,7 +888,9 @@ describe("filesystem errors name the path vault-relative", () => {
             type: "text",
             // The temp file's name ends in a random UUID
             text: expect.stringMatching(
-              /^\[Error\]: EACCES: permission denied, open 'Sealed\/new\.md\.[0-9a-f-]{36}\.tmp'$/,
+              new RegExp(
+                `^\\[Error\\]: EACCES: permission denied, open 'Sealed/new\\.md\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(PERMISSIONS_REMEDY)}$`,
+              ),
             ),
           },
         ],
@@ -882,7 +907,10 @@ describe("filesystem errors name the path vault-relative", () => {
     })
     expect(result).toEqual({
       content: [
-        { type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'" },
+        {
+          type: "text",
+          text: `[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'. ${FOLDER_IS_FILE_REMEDY}`,
+        },
       ],
       isError: true,
     })
@@ -899,7 +927,10 @@ describe("filesystem errors name the path vault-relative", () => {
     })
     expect(result).toEqual({
       content: [
-        { type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'" },
+        {
+          type: "text",
+          text: `[Error]: EEXIST: file already exists, mkdir 'Projects/alpha.md'. ${FOLDER_IS_FILE_REMEDY}`,
+        },
       ],
       isError: true,
     })
@@ -922,8 +953,10 @@ describe("filesystem errors name the path vault-relative", () => {
       name: "vault_update_memory",
       args: { file: "Preferences", section: "Notes (newest first)", entry: "refused" },
     })
+    // The folder is server configuration, so the store wraps the raw mkdir
+    // error instead of letting the boundary tell the caller to choose a path
     expect(result).toEqual({
-      content: [{ type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'About Me'" }],
+      content: [{ type: "text", text: '[Error]: cannot create memory folder "About Me"' }],
       isError: true,
     })
   })
@@ -941,7 +974,10 @@ describe("filesystem errors name the path vault-relative", () => {
     const result = await callTool({ client, name, args: { path: longNoteName, ...args } })
     expect(result).toEqual({
       content: [
-        { type: "text", text: `[Error]: ENAMETOOLONG: name too long, open '${longNoteName}'` },
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, open '${longNoteName}'. ${PATH_TOO_LONG_REMEDY}`,
+        },
       ],
       isError: true,
     })
@@ -953,12 +989,17 @@ describe("filesystem errors name the path vault-relative", () => {
     const result = await callTool({ client, name: "vault_read_file", args: { path: longFileName } })
     expect(result).toEqual({
       content: [
-        { type: "text", text: `[Error]: ENAMETOOLONG: name too long, stat '${longFileName}'` },
+        {
+          type: "text",
+          text: `[Error]: ENAMETOOLONG: name too long, stat '${longFileName}'. ${PATH_TOO_LONG_REMEDY}`,
+        },
       ],
       isError: true,
     })
   })
 
+  // A coded TypeError about the arguments is not a filesystem error, so no
+  // remedy is appended: the message already says what to fix
   it("vault_patch_note on a path holding a NUL character", async () => {
     const result = await callTool({
       client,
@@ -986,7 +1027,7 @@ describe("filesystem errors name the path vault-relative", () => {
       content: [
         {
           type: "text",
-          text: "[Error]: ELOOP: too many symbolic links encountered, open 'Loop.md'",
+          text: `[Error]: ELOOP: too many symbolic links encountered, open 'Loop.md'. ${LINK_LOOP_REMEDY}`,
         },
       ],
       isError: true,
@@ -1001,7 +1042,10 @@ describe("filesystem errors name the path vault-relative", () => {
       const result = await callTool({ client, name, args: {} })
       expect(result).toEqual({
         content: [
-          { type: "text", text: "[Error]: EACCES: permission denied, scandir 'Sealed Folder'" },
+          {
+            type: "text",
+            text: `[Error]: EACCES: permission denied, scandir 'Sealed Folder'. ${PERMISSIONS_REMEDY}`,
+          },
         ],
         isError: true,
       })
@@ -1018,7 +1062,12 @@ describe("filesystem errors name the path vault-relative", () => {
       args: { old_path: "Source.md", new_path: "Reports/Summary.md" },
     })
     expect(result).toEqual({
-      content: [{ type: "text", text: "[Error]: EEXIST: file already exists, mkdir 'Reports'" }],
+      content: [
+        {
+          type: "text",
+          text: `[Error]: EEXIST: file already exists, mkdir 'Reports'. ${FOLDER_IS_FILE_REMEDY}`,
+        },
+      ],
       isError: true,
     })
   })
@@ -3160,4 +3209,71 @@ describe("date filter values", () => {
       isError: true,
     })
   })
+})
+
+// ── Damaged index rows ───────────────────────────────────────
+
+const INDEX_REMEDY =
+  "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
+
+// Which layer reports a damaged tags column depends on who parses it:
+// - vault_list_tags reads tags through SQLite's json_each, which rejects '{'
+//   (not JSON) itself, so the error is a SqliteError;
+// - vault_recent_notes reads the column back in JavaScript, where '{}' parses
+//   but is not a string array, so the error is an IndexIntegrityError.
+describe("a damaged index row carries the index remedy", () => {
+  /** A server of this block's own, so corrupting its index never reaches the
+   *  shared server; the index file is opened from the test through a second
+   *  connection, the way an outside process would damage it. */
+  const startServerWithOpenIndex = async (): Promise<{
+    ownClient: Client
+    index: InstanceType<typeof Database>
+  }> => {
+    const port = await freePort()
+    const server = await startServer(port)
+    const ownClient = await createTestClient(port)
+    const index = new Database(join(server.dataDir, "search.db"))
+    index.pragma("busy_timeout = 5000")
+    onTestFinished(async () => {
+      index.close()
+      await ownClient.close()
+      await server.cleanup()
+    })
+    return { ownClient, index }
+  }
+
+  it("vault_list_tags on a tags column that is not JSON returns the SQLite error with the remedy", async () => {
+    const { ownClient, index } = await startServerWithOpenIndex()
+    // The same call works before the row is damaged, so the failure below
+    // comes from the damage and not from the call
+    const before = await callTool({ client: ownClient, name: "vault_list_tags", args: {} })
+    expect(before.isError).toBeUndefined()
+
+    index.prepare("UPDATE notes SET tags = '{' WHERE path = ?").run("Orphan Note.md")
+
+    const result = await callTool({ client: ownClient, name: "vault_list_tags", args: {} })
+    expect(result).toEqual({
+      content: [{ type: "text", text: `[SqliteError]: malformed JSON. ${INDEX_REMEDY}` }],
+      isError: true,
+    })
+  }, 30_000)
+
+  it("vault_recent_notes on a tags column of the wrong shape returns the integrity error with the remedy", async () => {
+    const { ownClient, index } = await startServerWithOpenIndex()
+    const before = await callTool({ client: ownClient, name: "vault_recent_notes", args: {} })
+    expect(before.isError).toBeUndefined()
+
+    index.prepare("UPDATE notes SET tags = '{}' WHERE path = ?").run("Orphan Note.md")
+
+    const result = await callTool({ client: ownClient, name: "vault_recent_notes", args: {} })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[IndexIntegrityError]: expected string[] from JSON column, got: {}. ${INDEX_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  }, 30_000)
 })

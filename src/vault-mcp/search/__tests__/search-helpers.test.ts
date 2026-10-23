@@ -20,6 +20,7 @@ import {
   normalizeTagQuery,
   tagMatchesQuery,
   nestedTagLikePattern,
+  IndexIntegrityError,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
 import { parseNote, UnsupportedPropertiesBlockError } from "../../obsidian-markdown/frontmatter.js"
@@ -251,27 +252,40 @@ describe("rowToMetadata", () => {
     expect(metadata.leading_callout).toBeNull()
   })
 
-  it("throws when tags column contains a non-array value", () => {
+  it("throws IndexIntegrityError when tags column contains a non-array value", () => {
     expect(() => rowToMetadata(makeNoteRow({ tags: '"not-an-array"' }))).toThrow(
-      "expected string[] from JSON column",
+      new IndexIntegrityError('expected string[] from JSON column, got: "not-an-array"'),
     )
   })
 
-  it("throws when tags column contains an array with non-string elements", () => {
+  it("throws IndexIntegrityError when tags column contains an array with non-string elements", () => {
     expect(() => rowToMetadata(makeNoteRow({ tags: JSON.stringify(["ok", 123]) }))).toThrow(
-      "expected string[] from JSON column",
+      new IndexIntegrityError('expected string[] from JSON column, got: ["ok",123]'),
     )
   })
 
-  it("throws when properties column contains a non-object value", () => {
+  it("throws IndexIntegrityError, with the parse error as its cause, when tags column is not JSON", () => {
+    // JSON.parse's message text is the engine's, so only the cause's class is pinned
+    expect(() => rowToMetadata(makeNoteRow({ tags: "{" }))).toThrow(
+      new IndexIntegrityError("JSON column is not JSON: {", { cause: expect.any(SyntaxError) }),
+    )
+  })
+
+  it("throws IndexIntegrityError when properties column contains a non-object value", () => {
     expect(() => rowToMetadata(makeNoteRow({ properties: '"string"' }))).toThrow(
-      "expected object from JSON column",
+      new IndexIntegrityError('expected object from JSON column, got: "string"'),
     )
   })
 
-  it("throws when leading_callout column has missing fields", () => {
+  it("throws IndexIntegrityError when leading_callout column has missing fields", () => {
     expect(() => rowToMetadata(makeNoteRow({ leading_callout: '{"type":"info"}' }))).toThrow(
-      "expected LeadingCallout from JSON column",
+      new IndexIntegrityError('expected LeadingCallout from JSON column, got: {"type":"info"}'),
+    )
+  })
+
+  it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
+    expect(() => rowToMetadata(makeNoteRow({ mtime: NaN }))).toThrow(
+      new IndexIntegrityError("invalid mtime: NaN"),
     )
   })
 })
@@ -342,15 +356,15 @@ describe("rowToTaskEntry", () => {
     expect("note_path" in entry).toBe(false)
   })
 
-  it("throws when depends_on column contains a non-array value", () => {
+  it("throws IndexIntegrityError when depends_on column contains a non-array value", () => {
     expect(() => rowToTaskEntry(makeTaskRow({ depends_on: '"not-an-array"' }))).toThrow(
-      "expected string[] from JSON column",
+      new IndexIntegrityError('expected string[] from JSON column, got: "not-an-array"'),
     )
   })
 
-  it("throws when tags column contains a non-array value", () => {
+  it("throws IndexIntegrityError when tags column contains a non-array value", () => {
     expect(() => rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' }))).toThrow(
-      "expected string[] from JSON column",
+      new IndexIntegrityError('expected string[] from JSON column, got: "not-an-array"'),
     )
   })
 })
@@ -414,7 +428,7 @@ describe("noteRowToSearchResult", () => {
     expect("created" in result).toBe(false)
   })
 
-  it("throws when tags column contains invalid data", () => {
+  it("throws IndexIntegrityError when tags column contains invalid data", () => {
     expect(() =>
       noteRowToSearchResult({
         row: makeNoteRow({ tags: "42" }),
@@ -422,10 +436,10 @@ describe("noteRowToSearchResult", () => {
         score: 0.5,
         includeLeadingCallout: false,
       }),
-    ).toThrow("expected string[] from JSON column")
+    ).toThrow(new IndexIntegrityError("expected string[] from JSON column, got: 42"))
   })
 
-  it("throws when leading_callout column contains invalid data", () => {
+  it("throws IndexIntegrityError when leading_callout column contains invalid data", () => {
     expect(() =>
       noteRowToSearchResult({
         row: makeNoteRow({
@@ -439,7 +453,22 @@ describe("noteRowToSearchResult", () => {
         score: 0.5,
         includeLeadingCallout: true,
       }),
-    ).toThrow("expected LeadingCallout from JSON column")
+    ).toThrow(
+      new IndexIntegrityError(
+        'expected LeadingCallout from JSON column, got: {"type":"note","title":"Invalid","body":42}',
+      ),
+    )
+  })
+
+  it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
+    expect(() =>
+      noteRowToSearchResult({
+        row: makeNoteRow({ mtime: NaN }),
+        snippet: "text",
+        score: 0.5,
+        includeLeadingCallout: false,
+      }),
+    ).toThrow(new IndexIntegrityError("invalid mtime: NaN"))
   })
 })
 
@@ -498,6 +527,22 @@ describe("fileContentRowToSearchResult", () => {
       modified: mtimeToIso(1700000000000),
       bytes: 512,
     })
+  })
+
+  it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
+    expect(() =>
+      fileContentRowToSearchResult(
+        {
+          path: "Diagrams/architecture.canvas",
+          title: "architecture",
+          folder: "Diagrams",
+          mtime: NaN,
+          bytes: 2048,
+          snippet: "Architecture overview",
+        },
+        0.85,
+      ),
+    ).toThrow(new IndexIntegrityError("invalid mtime: NaN"))
   })
 })
 
@@ -914,13 +959,13 @@ describe("dayToEpochMsRange", () => {
 
   it("throws on a malformed date instead of returning NaN bounds", () => {
     expect(() => dayToEpochMsRange("bad")).toThrow(
-      'invalid date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      new Error('invalid date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).'),
     )
   })
 
   it("throws on a calendar-invalid date", () => {
     expect(() => dayToEpochMsRange("2026-02-31")).toThrow(
-      'invalid date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      new Error('invalid date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).'),
     )
   })
 
@@ -928,7 +973,7 @@ describe("dayToEpochMsRange", () => {
     // fromISO would accept this and silently compute a 10:30-to-10:30 window;
     // the strict yyyy-MM-dd parse rejects it instead
     expect(() => dayToEpochMsRange("2026-07-03T10:30:00")).toThrow(
-      'invalid date: "2026-07-03T10:30:00". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      new Error('invalid date: "2026-07-03T10:30:00". Use YYYY-MM-DD (e.g. 2026-07-03).'),
     )
   })
 })
@@ -977,7 +1022,7 @@ describe("escapeLikeWildcards", () => {
   })
 })
 
-// ── stripTrailingSlashes ──────────────────────────────────────
+// ── Folder paths ──────────────────────────────────────────────
 
 describe("pathIsInFolder", () => {
   it("matches a path directly inside the folder", () => {

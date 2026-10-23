@@ -5,7 +5,8 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   dateFilterSchema,
-  describeFilesystemErrorEntry,
+  FILESYSTEM_ERROR_ENTRY,
+  INDEX_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
   OPENING_BLOCK_ERROR_ENTRY,
 } from "./tool-helpers.js"
@@ -49,6 +50,7 @@ Errors:
 - "path must end in .md" — add the ".md" extension
 - "tag must not be empty …" — tag is "#" alone; pass the tag name
 - No matches returns { total: 0, tasks: [] }, not an error
+${INDEX_ERROR_ENTRY}
 
 Returns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist; done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
       inputSchema: {
@@ -246,21 +248,17 @@ Errors: (messages use camelCase names, e.g. blockId for block_id)
 - "cannot place at position P under "X" — the heading appears N times" — integer position on a note with duplicate heading names; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task, or the line is inside a fenced code block or %% %% comment; re-read the parent's block_id or line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}
 - "parent task ambiguous" — more than one task line ends in that ^id (the message lists their line numbers); pass parent_line instead
-- "checkbox "[c]" is a NON_TASK status" — the parent's checkbox character (c) is typed NON_TASK in the Tasks plugin's status settings, so it is not a task; the user must change its type there, then restart the server
-- "no checkbox symbol for status ..." — the Tasks plugin's status settings have no symbol for todo, and the default [ ] character has another type; the user must add a todo symbol there, then restart the server
-- "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
-- "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
-- "blockId ... already exists in this note" — pick a block_id not yet used in the note
-- "blockId ... contains invalid characters" — block_id must match [a-zA-Z0-9-]+
+- "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the parent's checkbox character (c) is typed NON_TASK so it is not a task, or todo has no symbol and the default [ ] character has another type; the user must change that character's type or add a todo symbol there, then restart the server
+- "parentBlockId and parentLine are mutually exclusive" / "parent and heading are mutually exclusive" — drop one
+- "blockId ... already exists in this note" / "blockId ... contains invalid characters" — block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "blockId is required" — pass block_id
 - "blockId is not allowed on a sub-task on a Kanban board" / "subtask ... ends in a block ID" — drop the block_id, or the trailing ^id from the checklist item
-- "description is empty" / "subtasks cannot contain an empty item" — whitespace-only description or checklist item; pass visible text
-- "description must be a single line" / "subtasks items must be a single line" — remove the line breaks
+- "description is empty" / "subtasks cannot contain an empty item" / "description must be a single line" / "subtasks items must be a single line" — pass visible text on a single line
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; use a rule such as "every week" or "every 2 weeks when done"
-- "invalid date" — a date param fails calendar validation; pass a real YYYY-MM-DD date
+- "invalid date: …" — a date param isn't in YYYY-MM-DD form or names a day that doesn't exist; pass a real YYYY-MM-DD date
 - "concurrent write in progress" — another write to this note is in flight; retry
-${describeFilesystemErrorEntry(whenToolEnabledText)}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -493,31 +491,24 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
-- "blockId ... not found" — no task line in the note ends with ^block_id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
-- "blockId ... is inside a fenced code block or comment" — the only lines ending in that ^id sit inside a fenced code block or %% %% comment, which hold no tasks; check the id, or target by line
-- "blockId ... matches N task lines" — more than one task line ends in the id (the message lists their line numbers); target the intended task by line. To repair on a regular note, give all but one line a new id with assign_block_id. On a Kanban board, where the plugin copied a sub-task's id onto its card, remove the id from the sub-task's line (assign_block_id: null, by line). The card's line still ends in the copied id, so then assign it the card's own id (the id existing links to the card use) or a new one
-- "no task at line N" — line doesn't contain a task checkbox; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by block_id
-- "line N is inside a fenced code block or comment" — the line is inside a fenced code block or %% %% comment; target a line outside the fence
-- "checkbox "[c]" is a NON_TASK status" — the task's checkbox character (c) is typed NON_TASK in the Tasks plugin's status settings, so it is not a task; the user must change its type there, then restart the server
-- "no checkbox symbol for status ..." — the Tasks plugin's status settings have no symbol for the status the message names, and its default character has another type; the user must add one there, then restart the server
+- "blockId ... not found" / "blockId ... is inside a fenced code block or comment" — no task line outside a fenced code block or %% %% comment ends with that ^id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
+- "blockId ... matches N task lines" — more than one task line ends in the id (the message lists their line numbers); target the intended task by line. To repair on a regular note, give all but one line a new id with assign_block_id. On a Kanban board, where the plugin copied a sub-task's id onto its card, remove the id from the sub-task's line (assign_block_id: null, by line), then assign the card the id its existing links use, or a new one
+- "no task at line N" / "line N is inside a fenced code block or comment" — the line holds no task checkbox, or sits inside a fenced code block or %% %% comment; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by block_id
+- "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the targeted task's checkbox character (c) is typed NON_TASK so it is not a task, or the status the message names has no symbol and its default character has another type; the user must change that character's type or add a symbol for that status there, then restart the server
 - "at least one mutation" — no change params provided; pass at least one field to change
-- "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); move its parent instead
-- "cannot reposition a sub-task" — explicit position on a sub-task (sub-tasks move with their parent); reposition the parent instead
+- "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); sub-tasks move with their parent, so move or reposition the parent instead
 - "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading; pass heading to move it into a section
-- "cannot reorder within "X" — the heading appears N times" — same-lane reorder on a card whose heading name is duplicated in the note; rename one section to make it unique
-- "cannot place at position P under "X" — the heading appears N times" — cross-lane move with an integer position to a heading name that appears more than once; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
+- "cannot reorder within "X" — the heading appears N times" / "cannot place at position P under "X" — the heading appears N times" — the heading name is duplicated in the note: the task's own heading for a reorder in place, the one in heading for a move; for a cross-lane move use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 - "heading "X" not found; available: ..." — target heading doesn't exist; the error lists the note's headings
-- "multiple done lanes detected" — status "done" on a Kanban board with more than one lane holding a **Complete** line; pass heading to pick the lane
-- "no done lane detected" — status "done" on a Kanban board with no **Complete** line and no "Done" heading; pass heading explicitly
+- "multiple done lanes detected" / "no done lane detected" — status "done" on a Kanban board with more than one lane holding a **Complete** line, or with none and no "Done" heading; pass heading to pick the lane
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "assignBlockId is not allowed" / "description ends in a block ID" / "subtask ... ends in a block ID" — a new ^id on an indented line of a Kanban board; leave the line without an id and target it by line, and drop any trailing ^id from the text
 - "invalid date: …" — a date param isn't in YYYY-MM-DD form or names a day that doesn't exist; pass a real YYYY-MM-DD date
-- "description cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only description or checklist item; pass visible text
-- "description must be a single line" / "addSubtasks items must be a single line" — remove the line breaks
+- "description cannot be empty" / "addSubtasks cannot contain an empty item" / "description must be a single line" / "addSubtasks items must be a single line" — pass visible text on a single line
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; use a rule such as "every week" or "every 2 weeks when done"
 - "concurrent write in progress" — another write to this note is in flight; retry
-${describeFilesystemErrorEntry(whenToolEnabledText)}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
