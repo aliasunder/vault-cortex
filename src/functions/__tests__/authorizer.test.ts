@@ -54,9 +54,6 @@ const requestTo = (path: string, authorization: string): APIGatewayRequestAuthor
   } as unknown as APIGatewayRequestAuthorizerEventV2
 }
 
-/** A gateway event for `/mcp` — the protected path, where the authorizer
- *  validates the Authorization header instead of passing the request
- *  through as it does for the OAuth paths. */
 const protectedRequest = (authorization: string): APIGatewayRequestAuthorizerEventV2 => {
   return requestTo("/mcp", authorization)
 }
