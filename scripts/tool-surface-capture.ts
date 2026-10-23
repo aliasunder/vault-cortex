@@ -193,6 +193,32 @@ export const measureToolListChars = (tools: readonly Tool[]): number => {
   return toolTotals.reduce((sum, toolChars) => sum + toolChars, 0)
 }
 
+/** A description line that opens the next section after `Errors:`, such as
+ *  `Returns:` or `Obsidian syntax:`: a capitalized label of up to 31
+ *  characters followed by a colon. Bullet lines start with `- `, so they never
+ *  match. */
+const SECTION_LABEL_LINE = /^[A-Z][A-Za-z ]{1,30}:/
+
+/** Measures a tool description's `Errors:` section in UTF-16 code units: the
+ *  `Errors:` line and every line after it up to the next section label, plus
+ *  one per line for its line break. A tool with no description or no `Errors:`
+ *  line measures zero. */
+export const measureErrorsSectionChars = (tool: Tool): number => {
+  if (!tool.description) return 0
+
+  const lines = tool.description.split("\n")
+  const errorsStart = lines.findIndex((line) => line.startsWith("Errors:"))
+
+  if (errorsStart === -1) return 0
+
+  const linesAfterErrors = lines.slice(errorsStart + 1)
+  const nextSectionOffset = linesAfterErrors.findIndex((line) => SECTION_LABEL_LINE.test(line))
+  const errorsEnd = nextSectionOffset === -1 ? lines.length : errorsStart + 1 + nextSectionOffset
+  const errorsLines = lines.slice(errorsStart, errorsEnd)
+
+  return errorsLines.reduce((sum, line) => sum + line.length + 1, 0)
+}
+
 /** The combos the size cap in `tool-surface-snapshot.test.ts` checks, which
  *  hold the two largest tool lists:
  *  - default registers every tool.

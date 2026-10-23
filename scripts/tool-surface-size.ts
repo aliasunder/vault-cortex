@@ -16,9 +16,16 @@ import {
   SIZE_CAPPED_COMBO_NAMES,
   SURFACE_COMBOS,
   captureToolSurface,
+  measureErrorsSectionChars,
   measureToolDefinitionChars,
   measureToolListChars,
 } from "./tool-surface-capture.js"
+
+/** A share as a percentage with one decimal, the precision the per-tool
+ *  `Errors:` targets are stated in. */
+const formatPercent = (part: number, whole: number): string => {
+  return whole === 0 ? "0.0%" : `${((100 * part) / whole).toFixed(1)}%`
+}
 
 const comboCaptures = await Promise.all(
   SURFACE_COMBOS.map(async (combo) => ({ combo, capture: await captureToolSurface(combo) })),
@@ -42,11 +49,30 @@ for (const comboName of SIZE_CAPPED_COMBO_NAMES) {
   }
 
   const toolRows = capture.tools
-    .map((tool) => ({ name: tool.name, ...measureToolDefinitionChars(tool) }))
+    .map((tool) => ({
+      name: tool.name,
+      ...measureToolDefinitionChars(tool),
+      errorsChars: measureErrorsSectionChars(tool),
+    }))
     .toSorted((first, second) => second.totalChars - first.totalChars)
 
-  console.log(`\ntool (${comboName} combo)\tdescription chars\tschema chars\ttotal chars`)
+  console.log(
+    `\ntool (${comboName} combo)\tdescription chars\tschema chars\ttotal chars\terrors chars\terrors % of description\terrors % of definition`,
+  )
   for (const row of toolRows) {
-    console.log(`${row.name}\t${row.descriptionChars}\t${row.inputSchemaChars}\t${row.totalChars}`)
+    const descriptionShare = formatPercent(row.errorsChars, row.descriptionChars)
+    const definitionShare = formatPercent(row.errorsChars, row.totalChars)
+    console.log(
+      `${row.name}\t${row.descriptionChars}\t${row.inputSchemaChars}\t${row.totalChars}\t${row.errorsChars}\t${descriptionShare}\t${definitionShare}`,
+    )
   }
+
+  // The Errors sections' share of the whole list, the measure the
+  // error-prose work is judged by
+  const errorsTotal = toolRows.reduce((sum, row) => sum + row.errorsChars, 0)
+  const descriptionTotal = toolRows.reduce((sum, row) => sum + row.descriptionChars, 0)
+  const definitionTotal = toolRows.reduce((sum, row) => sum + row.totalChars, 0)
+  console.log(
+    `errors total (${comboName} combo)\t${errorsTotal}\t${formatPercent(errorsTotal, descriptionTotal)} of descriptions\t${formatPercent(errorsTotal, definitionTotal)} of definitions`,
+  )
 }
