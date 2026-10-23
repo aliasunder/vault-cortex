@@ -46,9 +46,11 @@ const describeSystemErrorRemedy = (
       if (error.syscall === "scandir") {
         return "The folder changed while it was being listed; retry."
       }
-      // Reads treat ENOTDIR as no file (utils/fs.ts), and both callers of
-      // atomicWriteFileExclusive catch its EEXIST, so any other one means a
-      // folder in the path changed between two steps of the call
+      // Any other ENOTDIR or EEXIST means a folder in the path changed between
+      // two steps of the call:
+      // - reads treat ENOTDIR as no file (utils/fs.ts);
+      // - both exclusive creates catch their EEXIST: note-mover.ts around
+      //   atomicWriteFileExclusive, and claimTrashTarget.
       return CHANGED_DURING_CALL_REMEDY
     }
     case "EACCES":

@@ -31,21 +31,32 @@ const COMPOUND_JOINER_RUN_REGEX = new RegExp(`${COMPOUND_JOINER_CHARACTER}+`, "g
  *  quotes, lone operators) into token separators so it never reaches FTS5. */
 const ASCII_PUNCTUATION_REGEX = /[!-/:-@[-^`{-~]/g
 
+/** Matches control characters (Unicode category Cc). FTS5 rejects most ASCII
+ *  ones, NUL even inside a quoted phrase; the unicode61 tokenizer splits
+ *  indexed text at all of them, just as at a space. */
+const CONTROL_CHARACTER_REGEX = /\p{Cc}/gu
+
+/** Matches a double-quoted phrase, capturing the text between the quotes. */
+const QUOTED_PHRASE_REGEX = /"([^"]+)"/g
+
 /** Shared tokenizer behind both sanitizers. Quoted phrases are preserved
  *  for exact-phrase matching. Punctuated compound terms (vault-cortex,
  *  mcpservers.org, deploy/local) are converted to quoted phrases for
  *  adjacent-token matching — the unicode61 tokenizer splits the indexed text
  *  at the same punctuation, so the phrase matches the original term exactly.
  *  Remaining unquoted terms are left bare to preserve porter stemming. FTS5
- *  metacharacters, stray punctuation, and reserved words are stripped, so
- *  literal text can never produce an FTS5 syntax error. */
+ *  metacharacters, stray punctuation, control characters, and reserved words
+ *  are stripped, so literal text can never produce an FTS5 syntax error. */
 const sanitizedFtsParts = (raw: string): string[] => {
   const phrases: string[] = []
+
+  // Control characters go first, so none survives inside a quoted phrase
+  const controlFreeQuery = raw.replace(CONTROL_CHARACTER_REGEX, " ")
 
   // Extract "quoted phrases", strip FTS5 metacharacters inside them,
   // and collect into phrases[]. Other punctuation inside quotes is left
   // alone — the unicode61 tokenizer splits it correctly in phrase queries.
-  const remaining = raw.replace(/"([^"]+)"/g, (_, phrase: string) => {
+  const remaining = controlFreeQuery.replace(QUOTED_PHRASE_REGEX, (_, phrase: string) => {
     const cleaned = phrase.replace(/[*^():]/g, "").trim()
 
     if (cleaned.length > 0) phrases.push(`"${cleaned}"`)

@@ -168,6 +168,16 @@ describe("sanitizeFtsQuery", () => {
       input: '"mcpservers.org"',
       expected: '"mcpservers.org"',
     },
+    {
+      name: "control characters become word breaks",
+      input: `alpha${String.fromCharCode(0x01)}beta${String.fromCharCode(0x7f)}`,
+      expected: "alpha beta",
+    },
+    {
+      name: "NUL inside a quoted phrase becomes a space",
+      input: `"alpha${String.fromCharCode(0x00)}beta"`,
+      expected: '"alpha beta"',
+    },
   ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
