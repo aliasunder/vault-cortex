@@ -1,7 +1,11 @@
 /** Surgical note editing — heading-targeted patches, find-and-replace, and
  *  anchor-targeted line spans (delete, replace, insert). */
 
-import { parseNoteForRewrite, stringifyNote } from "../obsidian-markdown/frontmatter.js"
+import {
+  findBodyStartLine,
+  parseNoteForRewrite,
+  stringifyNote,
+} from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
@@ -127,6 +131,8 @@ const readNoteForPatch = async (
   fullPath: string
   data: Record<string, unknown>
   lines: string[]
+  /** The 0-based file line `lines` starts on, so messages can name file lines. */
+  bodyStartLine: number
   /** Raw on-disk file bytes — used for before/after size logging. */
   beforeBytes: number
 }> => {
@@ -145,6 +151,7 @@ const readNoteForPatch = async (
     // so body matching and the empty-line handling after an edit stay
     // consistent, and the note is rewritten as LF.
     lines: splitIntoLines(parsed.content),
+    bodyStartLine: findBodyStartLine(fileContent),
     beforeBytes: Buffer.byteLength(fileContent, "utf8"),
   }
 }
@@ -403,7 +410,10 @@ const patchNote = async (
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
+    const { fullPath, data, lines, bodyStartLine, beforeBytes } = await readNoteForPatch(
+      params.vaultPath,
+      path,
+    )
     // The control-character check allows `\r`, so content may hold `\r\n`
     // breaks; splitIntoLines turns them into the LF lines the body uses.
     const contentLines = splitIntoLines(content)
@@ -446,7 +456,7 @@ const patchNote = async (
 
     // Section-level operation
     const headings = parseHeadings(lines)
-    const target = findHeading(headings, heading, headingLevel)
+    const target = findHeading({ headings, text: heading, level: headingLevel, bodyStartLine })
     const targetDesc = `${"#".repeat(target.level)} ${target.text}`
 
     // Heading-targeted ops keep the matched heading, so a content that begins

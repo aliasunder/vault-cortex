@@ -25,6 +25,10 @@ export type HeadingInfo = Readonly<{
  *  Empty headings (`##` alone on a line) are valid — group 2 is undefined. */
 const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
 
+/** Matches an ATX heading's optional closing sequence at the end of its text:
+ *  whitespace, then one or more `#`, as in `## Title ##`. */
+const CLOSING_HASHES_REGEX = /\s+#+\s*$/
+
 /** Matches setext heading underlines per CommonMark §4.3: 0-3 leading spaces,
  *  one or more `=` (H1) or `-` (H2) characters, optional trailing whitespace.
  *  A valid setext heading requires a non-blank text line immediately above.
@@ -167,8 +171,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     if (matchedHashes) {
       const matchedText = atxMatch?.[2] ?? ""
       collectedHeadings.push({
-        // Strip trailing closing hashes (e.g. "## Title ##" → "Title")
-        text: matchedText.replace(/\s+#+\s*$/, "").trim(),
+        text: matchedText.replace(CLOSING_HASHES_REGEX, "").trim(),
         level: matchedHashes.length,
         startLine: i,
         bodyStartLine: i + 1,
@@ -195,7 +198,8 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       }
     }
 
-    // Track setext candidate: non-blank content → candidate; blank → reset.
+    // A non-blank paragraph line can become a setext heading's text, and a
+    // blank line ends that chance.
     if (line.trim() === "") {
       setextCandidate = null
     } else {
@@ -251,12 +255,20 @@ export const linesBeforeFirstHeading = (
   return lines.slice(0, regionEndLine)
 }
 
-/** Case-sensitive heading lookup. Errors on 0 or 2+ matches. */
-export const findHeading = (
-  headings: readonly HeadingInfo[],
-  text: string,
-  level?: number,
-): HeadingInfo => {
+/** Case-sensitive heading lookup. Errors on 0 or 2+ matches. Headings are
+ *  parsed from a note's body, so the ambiguity error adds `bodyStartLine`,
+ *  the 0-based file line the body starts on, to name the file's own lines. */
+export const findHeading = ({
+  headings,
+  text,
+  level,
+  bodyStartLine,
+}: {
+  headings: readonly HeadingInfo[]
+  text: string
+  level?: number | undefined
+  bodyStartLine: number
+}): HeadingInfo => {
   if (!text.trim()) {
     throw new Error("heading cannot be empty")
   }
@@ -276,14 +288,13 @@ export const findHeading = (
   }
 
   if (matches.length > 1) {
-    const matchedHeadings = matches
-      .map(
-        (heading) => `${"#".repeat(heading.level)} ${heading.text} (line ${heading.startLine + 1})`,
-      )
-      .join(", ")
-    const firstMatch = matches[0]
-    const allSameLevel =
-      firstMatch !== undefined && matches.every((heading) => heading.level === firstMatch.level)
+    const describeMatch = (heading: HeadingInfo): string => {
+      const fileLine = bodyStartLine + heading.startLine + 1
+      return `${"#".repeat(heading.level)} ${heading.text} (line ${fileLine})`
+    }
+    const matchedHeadings = matches.map(describeMatch).join(", ")
+    const firstLevel = matches[0]?.level
+    const allSameLevel = matches.every((heading) => heading.level === firstLevel)
     const hint = allSameLevel
       ? "Rename one heading to make it unique, or target by text content instead."
       : "Use heading_level to disambiguate."
@@ -294,7 +305,7 @@ export const findHeading = (
 
   const result = matches[0]
 
-  if (result === undefined) {
+  if (!result) {
     throw new Error(`heading not found: "${searchText}"`)
   }
   return result

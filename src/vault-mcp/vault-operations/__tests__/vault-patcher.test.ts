@@ -593,7 +593,12 @@ Second content.
         },
         logger,
       ),
-    ).rejects.toThrow(/ambiguous.*2 sections.*Rename one heading/)
+    ).rejects.toThrow(
+      // The lines count from the top of the file, past the three-line properties block
+      new Error(
+        'ambiguous heading: "Section" matches 2 sections: ## Section (line 5), ## Section (line 8). Rename one heading to make it unique, or target by text content instead.',
+      ),
+    )
   })
 
   it("errors on cross-level ambiguity with heading_level hint", async () => {
