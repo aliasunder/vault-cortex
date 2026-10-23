@@ -172,12 +172,13 @@ export const pruneEmptyParents = async (
 /** The temp file a save writes beside its target: the target's path plus a
  *  dot, a UUID and ".tmp", so a name near the filesystem's length limit can
  *  read fine and still fail to save. */
-const tempSavePath = (filePath: string): string => `${filePath}.${randomUUID()}.tmp`
+export const tempSavePath = (filePath: string): string => `${filePath}.${randomUUID()}.tmp`
 
 /** How many bytes tempSavePath adds to a target's name. */
 export const TEMP_SAVE_SUFFIX_BYTES = Buffer.byteLength(tempSavePath(""), "utf8")
 
-/** Matches the suffix tempSavePath appends, at the end of a path. */
+/** Matches the suffix tempSavePath appends, at the end of a path. It matches that
+ *  shape, not only paths a save wrote, so a note named the same way counts too. */
 const TEMP_SAVE_SUFFIX_REGEX =
   /\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
 

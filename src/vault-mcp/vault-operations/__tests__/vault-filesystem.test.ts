@@ -31,6 +31,7 @@ import {
   pruneEmptyParents,
   readTrashFileState,
   resolveSafePath,
+  tempSavePath,
   trashDomainLockKey,
 } from "../vault-filesystem.js"
 import { withFileLock } from "../../../utils/file-write-lock.js"
@@ -183,6 +184,13 @@ describe("atomicWriteFile", () => {
 describe("isTempSavePath", () => {
   it("recognises the temp file a save writes beside its target", () => {
     expect(isTempSavePath("/vault/Notes/a.md.123e4567-e89b-12d3-a456-426614174000.tmp")).toBe(true)
+  })
+
+  // The literal paths in this block pin the regex; this row pins it to the
+  // generator, so changing either one cannot silently leave a real temp-save
+  // failure with the generic remedy instead of the temp-save one.
+  it("recognises the path tempSavePath actually writes", () => {
+    expect(isTempSavePath(tempSavePath("/vault/Notes/a.md"))).toBe(true)
   })
 
   it.each([

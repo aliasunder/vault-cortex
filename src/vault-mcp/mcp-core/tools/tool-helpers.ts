@@ -10,7 +10,7 @@ import type { LineWindow } from "../../obsidian-markdown/lines.js"
 import type { ToolName } from "../tool-registry.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
-import { remedyForCodedError } from "../coded-error-remedy.js"
+import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 import { isTagsKey } from "../../obsidian-markdown/tags.js"
 import {
   OverwriteBlockedError,
@@ -296,14 +296,8 @@ export const createSafeHandlers = (params: {
    *  remedy, if any. */
   const describeToolError = (error: unknown): string => {
     const message = describeErrorRelativeTo({ error, directory: vaultPath })
-    const remedy = describeToolErrorRemedy(error)
 
-    if (!remedy) return message
-
-    // A move abort's properties-block message already ends with a period
-    // ("Nothing was written."), so the remedy follows after a space
-    const separator = message.endsWith(".") ? " " : ". "
-    return `${message}${separator}${remedy}`
+    return appendRemedy({ message, remedy: describeToolErrorRemedy(error) })
   }
 
   const safeHandlerContent: SafeHandlers["safeHandlerContent"] = async (logger, fn, format) => {

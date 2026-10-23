@@ -100,18 +100,22 @@ export const remedyForCodedError = (params: {
   return describeSystemErrorRemedy(error, isToolEnabled)
 }
 
+/** A message followed by its remedy, or the message alone when there is none.
+ *  A message that already ends with a period gets the remedy after a space (a
+ *  move abort's properties-block message ends with "Nothing was written.");
+ *  Node's messages end with a quoted path, so they get ". ". Every client text
+ *  that carries a remedy joins it here, so the two cannot disagree. */
+export const appendRemedy = (params: { message: string; remedy: string | undefined }): string => {
+  if (!params.remedy) return params.message
+
+  const separator = params.message.endsWith(".") ? " " : ". "
+  return `${params.message}${separator}${params.remedy}`
+}
+
 /** The client text for an error: its message followed by the remedy when the
- *  error has one. A message that already ends with a period gets the remedy
- *  after a space; Node's messages end with a quoted path, so they get ". ". */
+ *  error has one. */
 export const appendCodedErrorRemedy = (params: {
   message: string
   error: unknown
   isToolEnabled: (name: ToolName) => boolean
-}): string => {
-  const remedy = remedyForCodedError(params)
-
-  if (!remedy) return params.message
-
-  const separator = params.message.endsWith(".") ? " " : ". "
-  return `${params.message}${separator}${remedy}`
-}
+}): string => appendRemedy({ message: params.message, remedy: remedyForCodedError(params) })
