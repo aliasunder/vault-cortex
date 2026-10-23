@@ -2307,6 +2307,14 @@ describe("searchByFolder", () => {
     const results = index.searchByFolder({ folder: "About Me", limit: 1 }, logger)
     expect(results.map((note) => note.path)).toEqual(["About Me/sub/deep.md"])
   })
+
+  it("reports each note's top-level folder, not its parent folder", () => {
+    const results = index.searchByFolder({ folder: "About Me" }, logger)
+    expect(results.map(({ path, folder }) => ({ path, folder }))).toEqual([
+      { path: "About Me/sub/deep.md", folder: "About Me" },
+      { path: "About Me/Principles.md", folder: "About Me" },
+    ])
+  })
 })
 
 describe("listAllTags", () => {
@@ -3186,6 +3194,22 @@ describe("property keys containing JSON path syntax", () => {
 
     expect(asNumber.map((result) => result.path)).toEqual(["Projects/rated.md"])
     expect(asString.map((result) => result.path)).toEqual([])
+  })
+
+  it("fullTextSearch's properties filter matches a key and text value only in their exact letter case", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "exact.md", frontmatter: "status: active" },
+      { filePath: "key-case.md", frontmatter: "Status: active" },
+      { filePath: "value-case.md", frontmatter: "status: Active" },
+    ])
+
+    const results = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { status: "active" } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["exact.md"])
   })
 
   it.each([
@@ -4915,6 +4939,21 @@ describe("findOrphans", () => {
 
   it("ignores ASCII letter case in excludeFolders", () => {
     const orphans = index.findOrphans({ excludeFolders: ["projects"] }, logger)
+    expect(orphans.map((orphan) => orphan.path)).toEqual(["Daily Notes/2026-05-13.md", "hub.md"])
+  })
+
+  it("counts links from notes in an excluded folder as incoming links", () => {
+    index.upsertNote(
+      {
+        filePath: "Templates/project.md",
+        rawContent: "# Template\n\nSee [[Projects/orphan]].\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+    const orphans = index.findOrphans({ excludeFolders: ["Templates"] }, logger)
+    // The template is left out as excluded, and its link still connects
+    // Projects/orphan.md, so neither appears
     expect(orphans.map((orphan) => orphan.path)).toEqual(["Daily Notes/2026-05-13.md", "hub.md"])
   })
 

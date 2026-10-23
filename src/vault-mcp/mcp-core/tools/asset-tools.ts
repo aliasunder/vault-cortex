@@ -224,14 +224,16 @@ Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
 When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.
 
-Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
+Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing. Hidden (dot-prefixed) files and folders, .obsidian/ among them, never appear.
 
 Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
 - "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it. For ENAMETOOLONG, shorten folder.
 
-Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers; one over 100 KiB must be read in windows with vault_read_file's start_line and limit. vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base; other listed types are not readable.`,
+Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).
+
+Reading listed files: vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base; other listed types are not readable. The bytes value is the on-disk size, not the delivery cost. An image comes back shrunk to fit when needed, so a large listed image is still cheap to read. A text format returns verbatim, and one over 100 KiB must be read in windows with vault_read_file's start_line and limit.`,
       inputSchema: {
         folder: z
           .string()

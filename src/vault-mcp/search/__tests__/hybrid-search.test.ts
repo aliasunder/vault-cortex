@@ -157,6 +157,49 @@ the Lightsail budget estimates for next quarter.
     })
   })
 
+  // Sanitizing drops every term of a query made only of operators, so only
+  // the vector leg, which embeds the raw query, can match it
+  describe("a query of operators only", () => {
+    const createEmbeddedIndex = async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+      const sourceVersion = hybridIndex.upsertNote(
+        { filePath: "a.md", rawContent: NOTE_A, fileStat: testStat(1000) },
+        logger,
+      )
+      await hybridIndex.embedNote({ sourceVersion, notePath: "a.md", rawContent: NOTE_A }, logger)
+      return { mockEmbedder, hybridIndex }
+    }
+
+    it("is matched by meaning when the query embeds", async () => {
+      const { hybridIndex } = await createEmbeddedIndex()
+
+      const { results, search_mode } = await hybridIndex.hybridSearch(
+        { query: "AND OR NOT" },
+        logger,
+      )
+
+      expect({ paths: results.map((result) => result.path), search_mode }).toEqual({
+        paths: ["a.md"],
+        search_mode: "hybrid",
+      })
+    })
+
+    it("finds nothing when the query embedding fails", async () => {
+      const { mockEmbedder, hybridIndex } = await createEmbeddedIndex()
+      mockEmbedder.embedText.mockRejectedValue(new Error("model unavailable"))
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+
+      const searchResult = await hybridIndex.hybridSearch({ query: "AND OR NOT" }, logger)
+
+      expect(searchResult).toEqual({ results: [], search_mode: "fts", reranked: false })
+      expect(warnSpy).toHaveBeenCalledWith("query embedding failed", {
+        error: "[Error]: model unavailable",
+      })
+    })
+  })
+
   describe("hybrid ranking", () => {
     it("boosts results that appear in both FTS and vector search", async () => {
       const mockEmbedder = createHybridMockEmbedder()

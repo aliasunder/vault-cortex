@@ -74,16 +74,16 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
-      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large. Returns empty string when no memory files exist yet.
+      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: that file's content, frontmatter stripped. With file+section: just that H2 section's entries. No args: every file's content, frontmatter stripped, joined by --- lines — can be large. Returns empty string when no memory files exist yet.
 
-With file+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when new entries go at the top, the default). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
+With file+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when new entries go at the top, their default position). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
 
 Example: vault_get_memory({ file: "Principles" }) — the whole file
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
 Example: vault_get_memory({ file: "Opinions", section: "Code patterns", on_or_after: "2026-09-01" })
 Example: vault_get_memory({ file: "Opinions", on_or_after: "2026-09-01" }) — every section's entries since the date
 
-When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names. Use on_or_after when you need entries from a known date forward (e.g. reconciliation boundaries).
+When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names. Use on_or_after when you need entries from a known date forward.
 Prefer vault_read_note for reading non-memory notes.
 
 Errors:
@@ -226,23 +226,23 @@ When to use: Answering "what does my memory say about X?" or "how has my view on
 Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names`
-  const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range — so raise limit or narrow the query for the complete set. file is applied before limit, so limit keeps the most relevant matches from that file.`
+  const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file.`
 
   // The recall description leads with its matching mode — hybrid semantic
   // matching is the tool's core promise, so keyword-only deployments
   // (EMBEDDING_ENABLED=false) get an honest variant with a synonym-requery
   // workaround instead of an overclaim.
   const memoryRecallDescription = config.embeddingEnabled
-    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every relevant dated entry sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.
+    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.
 
 ${recallUsageSections}
 
-${recallReturnsLead} search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the cross-encoder relevance cut was applied.`
-    : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
+${recallReturnsLead} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker's relevance cut was applied.`
+    : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
 
 ${recallUsageSections}
 
-${recallReturnsLead} search_mode is always "fts" and reranked always false in keyword-only mode.`
+${recallReturnsLead} In keyword-only mode search_mode is always "fts" and reranked always false.`
 
   registerTool(
     TOOL_NAMES.VAULT_MEMORY_RECALL,

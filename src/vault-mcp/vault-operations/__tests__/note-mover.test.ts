@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
-import { rm, writeFile, mkdir, readFile, stat, rename } from "node:fs/promises"
+import { rm, writeFile, mkdir, readFile, stat, rename, unlink } from "node:fs/promises"
 import { mkdtempSync } from "node:fs"
 import { basename, join, dirname } from "node:path"
 import { tmpdir } from "node:os"
@@ -1813,6 +1813,41 @@ describe("moveNote — guards", () => {
     // Both copies exist, which is why a plain re-run would fail on the destination.
     expect(await readNote("Foo.md")).toBe("content\n")
     expect(await readNote("Bar.md")).toBe("content\n")
+  })
+
+  it("tells the caller to delete the original when deleting it fails in an ordinary move", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+
+    const oldFullPath = join(vault, "Foo.md")
+    vi.mocked(unlink).mockImplementation(async (path) => {
+      if (path === oldFullPath) {
+        throw new Error("EACCES: permission denied")
+      }
+      const actualFsPromises =
+        await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      return actualFsPromises.unlink(path)
+    })
+    onTestFinished(() => vi.mocked(unlink).mockRestore())
+
+    await expect(
+      moveNote({ oldPath: "Foo.md", newPath: "Bar.md", backlinkSources: ["Hub.md"] }),
+    ).rejects.toThrow(
+      new Error(
+        'move incomplete: "Bar.md" written but could not delete "Foo.md". Delete "Foo.md" manually to finish.',
+      ),
+    )
+    // Every write landed before the delete, so only the original copy is left over.
+    expect({
+      original: await readNote("Foo.md"),
+      moved: await readNote("Bar.md"),
+      backlinkSource: await readNote("Hub.md"),
+    }).toEqual({
+      original: "content\n",
+      moved: "content\n",
+      backlinkSource: "Links [[Bar]].\n",
+    })
   })
 
   it("throws when a path does not end in .md", async () => {

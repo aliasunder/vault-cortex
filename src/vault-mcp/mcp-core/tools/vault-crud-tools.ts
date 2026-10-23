@@ -1213,7 +1213,7 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
-Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md" }) — move to another folder, updating links and the note's own relative links.
+Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md" }) — move to another folder.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
@@ -1232,8 +1232,8 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them.
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources; retry the move.
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
-- An ordinary move that fails partway (rare: a permission or disk error) — no data is lost, and the error names what failed and the resulting state. If a backlink write failed: new_path exists and old_path is intact, so delete the partial new_path, then re-run the move. If the final delete failed: both paths exist, so delete old_path to finish.
-- A case-only rename that fails partway — if the rename failed: nothing was written. If a later link write failed: the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
+- "move incomplete: …" — an ordinary move failed partway (rare: a permission or disk error); no data is lost, and the error names what failed and the resulting state. If a backlink write failed: new_path exists and old_path is intact, so delete the partial new_path, then re-run the move. If the final delete failed: both paths exist, so delete old_path to finish.
+- A case-only rename that fails partway — "move aborted: could not rename to …" means nothing was written; retry the move, and if it fails again ask the vault's owner to fix the folder's permissions. "move incomplete: …" means the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
 - "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
 - "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
 - "ENAMETOOLONG: …", "EEXIST: …", "ENOTDIR: …", "EACCES: …" or another filesystem error code — the message names the failing path; nothing was written. EEXIST or ENOTDIR from mkdir means a folder in new_path is an existing file. A name too long needs a shorter path (the one the message names); a folder that is a file needs a different new_path; permissions or a full or read-only disk need the vault's owner.

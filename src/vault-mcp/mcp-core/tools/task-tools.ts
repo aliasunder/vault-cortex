@@ -465,7 +465,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
-      description: `Update a task's status, priority, description, dates, dependencies, block_id, checklist items, or heading placement in one call. Any combination of these can change together — every field passed is written in a single edit.
+      description: `Update a task's status, priority, description, dates, recurrence, completion action, dependencies, block_id, checklist items, heading, or position within a lane, in any combination; every field passed is written in a single edit.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring
@@ -475,18 +475,18 @@ Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_
 Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-task" }) — add a block_id to a task that lacks one
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Active", position: 3 }) — move to the 3rd position in a lane
 
-When to use: Any change to an existing task — completing, starting, re-prioritizing, editing text, setting or clearing dates, adding checklist items, assigning block_ids, moving between headings, or reordering within a lane.${whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks first to get identification fields (path + block_id or line).")}${whenToolEnabledText("vault_create_task", " For creating a new task, use vault_create_task instead.")}
+When to use: Any change to an existing task.${whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks first to get identification fields (path + block_id or line).")}${whenToolEnabledText("vault_create_task", " For creating a new task, use vault_create_task instead.")}
 
 Parameters:
 - Exactly one of block_id or line is required to identify the task. A Kanban sub-task this server created has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line: each save by the Kanban plugin rewrites the board${whenToolEnabledText("vault_list_tasks", ". The listing lags each save by a few seconds, so wait that long after a write before re-reading")}.
 - At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
 - status side effects:
   Kanban: "done" moves the card and everything nested under it to the done lane (the lane holding a **Complete** line, else the heading "Done", exact case), leaving nested checkboxes as they are; a sub-task stays under its parent.
-  Recurring (🔁), on "done" only: spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes directly below instead, and the nested lines then belong to the spawn. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line, except on an indented line of a Kanban board. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
+  Recurring (🔁), on "done" only: spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes on the line directly below the task instead, so the task's nested lines then sit under the spawn. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line, except on an indented line of a Kanban board. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
   Delete (🏁 delete / [onCompletion:: delete]), on "done": removes the task line and its children instead of moving to done. With 🔁 + 🏁, the next occurrence is still created, and the completed task is removed. Result carries on_completion_applied: "delete".
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the next occurrence. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
-- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, an unmoved task stays put. Ignored when the task is deleted on completion. Not valid on sub-tasks.
+- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, an unmoved task stays put. Ignored when the task is deleted on completion.
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}
@@ -495,7 +495,7 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
 - "blockId ... not found" — no task line in the note ends with ^block_id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
 - "blockId ... is inside a fenced code block or comment" — the only lines ending in that ^id sit inside a fenced code block or %% %% comment, which hold no tasks; check the id, or target by line
-- "blockId ... matches N task lines" — more than one task line ends in the id (the message lists their line numbers); target the intended task by line. To repair on a regular note, give all but one line a new id with assign_block_id. On a Kanban board, where the plugin copied a sub-task's id onto its card, remove the id from the sub-task's line (assign_block_id: null, by line). The card's line still ends in the copied id, so then assign it the card's own id (the id in links to the card) or a new one
+- "blockId ... matches N task lines" — more than one task line ends in the id (the message lists their line numbers); target the intended task by line. To repair on a regular note, give all but one line a new id with assign_block_id. On a Kanban board, where the plugin copied a sub-task's id onto its card, remove the id from the sub-task's line (assign_block_id: null, by line). The card's line still ends in the copied id, so then assign it the card's own id (the id existing links to the card use) or a new one
 - "no task at line N" — line doesn't contain a task checkbox; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by block_id
 - "line N is inside a fenced code block or comment" — the line is inside a fenced code block or %% %% comment; target a line outside the fence
 - "checkbox "[c]" is a NON_TASK status" — the task's checkbox character (c) is typed NON_TASK in the Tasks plugin's status settings, so it is not a task; the user must change its type there, then restart the server
@@ -525,10 +525,10 @@ Obsidian syntax: When description or add_subtasks text ends in a signifier the p
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied }.
 - line is the task's final 1-based line number in the file; after an on_completion delete, the line the task occupied before removal.
-- description is the current text. block_id and heading reflect the task after the update; block_id is omitted when the task has none, heading when the task sits above the first heading.
+- description is the current text, and block_id and heading reflect the task after the update; block_id is omitted when the task has none, heading when the task sits above the first heading.
 - subtasks lists each checklist item add_subtasks wrote as { line, description } (omitted when none were added); checklist items are written without a block_id, so line is the handle for a follow-up update.
-- next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has. It carries no block_id, so line is its handle.
-- changes lists every field applied as "field: before → after", with "(none)" for an absent value. add_subtasks appears as "subtasks", its two sides checklist-item counts, and a spawn adds "next_occurrence: (none) → line N".
+- next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has.
+- changes lists every field applied as "field: before → after", with "(none)" for an absent value. An add_subtasks change appears as "subtasks", its two sides checklist-item counts, and a spawn adds "next_occurrence: (none) → line N".
 - advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted (see Obsidian syntax above), a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text, or a finite rule with no occurrences left).
 - on_completion_applied is "delete", present only when the effective on_completion was delete (already on the task or set in the same call) and the task was transitioned to done.`,
       inputSchema: {
@@ -557,7 +557,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
           .describe(
-            'Target status. "done" adds the ✅ date and "cancelled" the ❌ date, when the Tasks plugin\'s settings stamp them; leaving either status removes its date.',
+            'Target status. "done" adds the ✅ date and "cancelled" the ❌ date, when the Tasks plugin\'s settings stamp them; moving a task out of either status removes its date.',
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])

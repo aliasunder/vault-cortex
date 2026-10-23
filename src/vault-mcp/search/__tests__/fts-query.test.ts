@@ -49,6 +49,11 @@ describe("sanitizeFtsQuery", () => {
       expected: '""',
     },
     {
+      name: "reserved words dropped in any letter case",
+      input: "meeting and notes Or fence near Not",
+      expected: "meeting notes fence",
+    },
+    {
       name: "empty string: empty result",
       input: "",
       expected: '""',

@@ -1164,14 +1164,14 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
     resultFields:
       "results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes",
     kindSentence:
-      'kind is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").',
+      'The kind field is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").',
   }
   const NOTE_ONLY_WORDING = {
     searchedScope: "search across vault notes",
     filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
     resultFields:
       "results array (path, title, snippet, score, tags, folder, type, kind, created, modified, bytes",
-    kindSentence: 'kind is always "note".',
+    kindSentence: 'The kind field is always "note".',
   }
 
   it.each([
@@ -1209,7 +1209,10 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
       searchedScope: searchSection({ startMarker: "search across ", endMarker: ", ranked by" }),
       filtersLeadIn: searchSection({ startMarker: "Filters — ", endMarker: "\n- folder:" }),
       resultFields: searchSection({ startMarker: "results array (", endMarker: "), total" }),
-      kindSentence: searchSection({ startMarker: "kind is ", endMarker: " created is omitted" }),
+      kindSentence: searchSection({
+        startMarker: "The kind field is ",
+        endMarker: " The created field is omitted",
+      }),
     }).toEqual(expectedWording)
   })
 })
@@ -1332,20 +1335,40 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
     return description
   }
 
+  const openerAndReturnsLines = (
+    description: string,
+  ): { opener: string | undefined; returns: string | undefined } => {
+    const descriptionLines = description.split("\n")
+
+    return {
+      opener: descriptionLines[0],
+      returns: descriptionLines.find((line) => line.startsWith("Returns:")),
+    }
+  }
+
+  // Both variants share this lead; only the Returns line's closing sentence differs
+  const RECALL_RETURNS_LEAD =
+    "Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file."
+
   it("describes hybrid recall when EMBEDDING_ENABLED=true", () => {
     const description = findRecallDescription(registerWithConfig({}))
-    expect(description).toContain("hybrid (keyword + semantic)")
-    expect(description).toContain("oldest-first")
-    expect(description).toContain("recall over precision")
-    expect(description).toContain("truncated")
+
+    expect(openerAndReturnsLines(description)).toEqual({
+      opener:
+        'Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.',
+      returns: `${RECALL_RETURNS_LEAD} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker's relevance cut was applied.`,
+    })
   })
 
   it("describes keyword-only recall when EMBEDDING_ENABLED=false", () => {
     const description = findRecallDescription(registerWithConfig({ EMBEDDING_ENABLED: "false" }))
-    expect(description).toContain("keyword retrieval")
-    expect(description).toContain("re-query with synonyms")
+
+    expect(openerAndReturnsLines(description)).toEqual({
+      opener:
+        'Recall memory entries about a topic — entry-granular keyword retrieval across ALL About Me/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.',
+      returns: `${RECALL_RETURNS_LEAD} In keyword-only mode search_mode is always "fts" and reranked always false.`,
+    })
     expect(description).not.toContain("hybrid")
-    expect(description).toContain('search_mode is always "fts"')
   })
 })
 
@@ -1954,7 +1977,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it (vault_get_daily_note\'s path starts with the daily notes folder whenever the defaults exclude one). Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. When the daily notes folder is the vault root or blank, the default list holds no daily folder.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. The defaults\' daily notes folder is the one vault_get_daily_note\'s path starts with; when it is the vault root or blank, the defaults hold no daily folder.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -1973,7 +1996,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n\nErrors:")[0]
     expect(parametersSection).toBe(
       [
-        '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.',
+        '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
         "- limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.",
       ].join("\n"),
     )
@@ -1990,7 +2013,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
     )
   })
 })
@@ -2896,15 +2919,15 @@ describe("DISABLED_TOOLS", () => {
         linePrefix: "- exclude_folders replaces the defaults",
       })
     }
-    const ENTRY_START =
-      "- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it"
-    const ENTRY_END =
-      '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. When the daily notes folder is the vault root or blank, the default list holds no daily folder.'
+    const ENTRY_LEAD =
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_START} (vault_get_daily_note's path starts with the daily notes folder whenever the defaults exclude one)${ENTRY_END}`,
+      `${ENTRY_LEAD} The defaults' daily notes folder is the one vault_get_daily_note's path starts with; when it is the vault root or blank, the defaults hold no daily folder.`,
     )
-    expect(excludeFoldersEntry("vault_get_daily_note")).toBe(`${ENTRY_START}${ENTRY_END}`)
+    expect(excludeFoldersEntry("vault_get_daily_note")).toBe(
+      `${ENTRY_LEAD} When the vault's daily notes folder is the vault root or blank, the defaults hold no daily folder.`,
+    )
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
@@ -2947,8 +2970,14 @@ describe("DISABLED_TOOLS", () => {
     )
     const description = recallCall?.[1].description
 
-    expect(description).toContain(
-      "text is the raw entry markdown (wikilinks intact, continuation lines included). total counts all matched entries",
+    expect(
+      findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_MEMORY_RECALL,
+        linePrefix: "Returns:",
+      }),
+    ).toBe(
+      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker\'s relevance cut was applied.',
     )
     expect(description).not.toContain("feed directly into")
   })
