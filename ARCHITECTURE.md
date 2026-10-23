@@ -1318,7 +1318,9 @@ Docker hardening, and durability seatbelts above.
 - **`safeHandler()`** (built per server by `createSafeHandlers` in
   `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
   return a structured `isError` response with the error's name and message,
-  plus how to fix a properties-block refusal — no stack traces. A buggy tool
+  plus one remedy sentence for a raw filesystem or search-index error
+  (`coded-error-remedy.ts`, keyed on the error's code, syscall and path) or
+  how to fix a properties-block refusal — no stack traces. A buggy tool
   never crashes the server.
 - **Library errors**: an image sharp cannot decode, a password-protected
   PDF, a damaged PDF, and a PDF reader that fails to start (pdf.js or the

@@ -5,7 +5,8 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   dateFilterSchema,
-  describeFilesystemErrorEntry,
+  FILESYSTEM_ERROR_ENTRY,
+  INDEX_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
   OPENING_BLOCK_ERROR_ENTRY,
 } from "./tool-helpers.js"
@@ -49,6 +50,7 @@ Errors:
 - "path must end in .md" — add the ".md" extension
 - "tag must not be empty …" — tag is "#" alone; pass the tag name
 - No matches returns { total: 0, tasks: [] }, not an error
+${INDEX_ERROR_ENTRY}
 
 Returns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist; done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
       inputSchema: {
@@ -260,7 +262,7 @@ Errors: (messages use camelCase names, e.g. blockId for block_id)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; use a rule such as "every week" or "every 2 weeks when done"
 - "invalid date" — a date param fails calendar validation; pass a real YYYY-MM-DD date
 - "concurrent write in progress" — another write to this note is in flight; retry
-${describeFilesystemErrorEntry(whenToolEnabledText)}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -517,7 +519,7 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; use a rule such as "every week" or "every 2 weeks when done"
 - "concurrent write in progress" — another write to this note is in flight; retry
-${describeFilesystemErrorEntry(whenToolEnabledText)}
+${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 

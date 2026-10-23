@@ -4,6 +4,7 @@ import { z } from "zod"
 import { getDailyNote } from "../../vault-operations/daily-notes.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { FILESYSTEM_ERROR_ENTRY } from "./tool-helpers.js"
 
 export const registerDailyNoteTools = ({
   registerTool,
@@ -33,7 +34,7 @@ Errors:
 - "… is not a calendar date" — the date has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 - "daily note format contains unsupported token(s): ..." — the configured format uses tokens the server cannot reproduce (ordinals like Do/Mo, dd, d, e, k/kk, w, Q, Z/ZZ, or the L-family localized formats); change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported alternative
 - "path traversal blocked" / "hidden path blocked" / "absolute path blocked" — the configured daily notes folder or format leads outside the vault or into a hidden folder; change it in Obsidian, or set DAILY_NOTES_FOLDER and DAILY_NOTES_FORMAT
-- "EACCES: …" or another filesystem error code — the daily note's file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
+${FILESYSTEM_ERROR_ENTRY}
 
 Returns: JSON with path (string — resolved vault-relative path), content (string|null — full note body, or null when the note doesn't exist), and exists (boolean).${isToolEnabled("vault_write_note") ? " When exists is false, create the note with vault_write_note using the returned path." : ""}`,
       inputSchema: {

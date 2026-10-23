@@ -234,29 +234,20 @@ const OPENING_BLOCK_REMEDY =
 export const OPENING_BLOCK_ERROR_ENTRY =
   '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties, around text that can\'t be kept as properties; the error says how to avoid it'
 
-/** The Errors entry of a tool that saves a note, for a file the server
- *  cannot read or write; the message is Node's, with the path made
- *  vault-relative.
- *  - One bullet names each remedy: the caller shortens a too-long name, and
- *    the vault's owner fixes permissions or the disk.
- *  - A save first writes a temp file named after the note plus
- *    ".<UUID>.tmp", 41 bytes longer (1 for the dot, 36 for the UUID, 4 for
- *    ".tmp"), so a note can read fine and still fail to save. A rename
- *    writes that temp file beside the new name too, which is why the bullet
- *    asks for a name at least 41 bytes shorter.
- *  - A write that fails after the file is open (a full disk) gets a Node
- *    message with no path, so the bullet says the file is usually named.
- *  - Every tool that saves a note can raise these errors, but each lists the
- *    bullet only when its own description is next revised, because
- *    tool-definition graders such as Glama's re-score every description
- *    whose text changes. */
-export const describeFilesystemErrorEntry = (
-  whenToolEnabledText: ToolRegistrationContext["whenToolEnabledText"],
-): string => {
-  const renameToolClause = whenToolEnabledText("vault_move_note", " with vault_move_note")
+/** The Errors entry of every tool that reads or writes a vault file, for a
+ *  raw filesystem error. The message is Node's with the path made
+ *  vault-relative, plus the remedy sentence the tool boundary appends
+ *  (coded-error-remedy.ts), so the entry names no remedy itself. A write that
+ *  fails after the file is open (a full disk) carries no path, hence "when
+ *  it has one". */
+export const FILESYSTEM_ERROR_ENTRY =
+  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the file when it has one, and who fixes it'
 
-  return `- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A name too long for the filesystem needs a shorter one: a quoted name ending in ".tmp" means the note exists but cannot be saved under its current name, so rename it at least 41 bytes shorter${renameToolClause}. Permissions or a full or read-only disk need the vault's owner`
-}
+/** The Errors entry of every tool that reads the search index: a SQLite
+ *  engine failure or a stored row the server cannot read back, both with the
+ *  remedy appended at the boundary. */
+export const INDEX_ERROR_ENTRY =
+  '- "[SqliteError]: …" / "[IndexIntegrityError]: …" — the search index failed, not the call; the message says what to do'
 
 /** The Errors entry of every tool that rewrites a note. A tool that rewrites
  *  the note only in one mode passes that mode as rewriteCondition

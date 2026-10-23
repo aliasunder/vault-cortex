@@ -4,19 +4,21 @@ import { z } from "zod"
 import { createMemoryStore } from "../../vault-operations/memory-store.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { createStrictInputObject } from "./tool-helpers.js"
+import {
+  createStrictInputObject,
+  FILESYSTEM_ERROR_ENTRY,
+  INDEX_ERROR_ENTRY,
+} from "./tool-helpers.js"
 
-/** The memory tools' filesystem-error entries. Their remedy for a name too
- *  long to save differs from the shared entry's: the memory folder is
- *  protected, so vault_move_note cannot rename a memory file, and
- *  vault_update_memory can hit the error while creating the file, when no
- *  file exists to rename. */
-const MEMORY_FILESYSTEM_ERROR_ENTRY_LEAD =
-  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the cause and usually the file. A quoted name ending in ".tmp" means the memory file\'s name is too long to save'
-const MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL =
-  "Permissions or a full or read-only disk need the vault's owner"
-const UPDATE_MEMORY_FILESYSTEM_ERROR_ENTRY = `${MEMORY_FILESYSTEM_ERROR_ENTRY_LEAD}: for a new file, pass a name at least 41 bytes shorter; an existing file needs a name at least 41 bytes shorter, renamed in Obsidian. ${MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL}`
-const DELETE_MEMORY_FILESYSTEM_ERROR_ENTRY = `${MEMORY_FILESYSTEM_ERROR_ENTRY_LEAD}; give it a name at least 41 bytes shorter, renamed in Obsidian. ${MEMORY_FILESYSTEM_ERROR_ENTRY_TAIL}`
+/** The memory tools' filesystem-error entry: the shared one plus where a
+ *  shorter name is given, because the memory folder is protected from moves
+ *  and the message's rename remedy cannot be followed with a tool. */
+const MEMORY_FILESYSTEM_ERROR_ENTRY = `${FILESYSTEM_ERROR_ENTRY}; a shorter name for an existing memory file is given in Obsidian`
+
+/** The memory store wraps the folder's mkdir failure, since the folder is
+ *  server configuration and a file at its path is the vault owner's to move. */
+const MEMORY_FOLDER_ERROR_ENTRY =
+  '- "cannot create memory folder …" — a file sits where the memory folder belongs; ask the vault\'s owner to move it'
 
 /** The memory store wraps a failed read without the Node error's code, so the
  *  filesystem-error entry's code names never match this message. */
@@ -225,7 +227,8 @@ When to use: Answering "what does my memory say about X?" or "how has my view on
 
 Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
-- An unknown file returns empty results — call vault_list_memory_files to discover valid names`
+- An unknown file returns empty results — call vault_list_memory_files to discover valid names
+${INDEX_ERROR_ENTRY}`
   const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file.`
 
   // The recall description leads with its matching mode — hybrid semantic
@@ -326,7 +329,8 @@ Errors:
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — use a bare file name: no folder or slash, and no leading dot.
 - "section not created: … is nearly identical to existing section …" — the name differs from an existing heading only by an HTML-entity slip, a typo, or spacing; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section. Names differing only in digits (e.g. "2025" vs "2026") count as different.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
-${UPDATE_MEMORY_FILESYSTEM_ERROR_ENTRY}
+${MEMORY_FILESYSTEM_ERROR_ENTRY}
+${MEMORY_FOLDER_ERROR_ENTRY}
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
@@ -432,7 +436,7 @@ Errors:
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section. Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
-${DELETE_MEMORY_FILESYSTEM_ERROR_ENTRY}
+${MEMORY_FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 

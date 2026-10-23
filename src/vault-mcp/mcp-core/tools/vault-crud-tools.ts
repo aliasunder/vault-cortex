@@ -14,7 +14,8 @@ import { pageTextByLines } from "../../obsidian-markdown/lines.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
-  describeFilesystemErrorEntry,
+  FILESYSTEM_ERROR_ENTRY,
+  INDEX_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
   describeTextWindow,
   OPENING_BLOCK_ERROR_ENTRY,
@@ -74,7 +75,7 @@ export const registerVaultCrudTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  const filesystemErrorEntry = describeFilesystemErrorEntry(whenToolEnabledText)
+  const filesystemErrorEntry = FILESYSTEM_ERROR_ENTRY
 
   registerTool(
     TOOL_NAMES.VAULT_READ_NOTE,
@@ -95,7 +96,7 @@ Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_li
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included.
 
 Errors:
-- "note not found" / "ENAMETOOLONG: …" — no note exists at this path, or the path (or a name in it) is longer than the filesystem allows; verify it with vault_list_notes
+- "note not found" — no note exists at this path; verify it with vault_list_notes
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
@@ -106,7 +107,7 @@ Errors:
 - 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_read_file", "; read other files (images, .canvas, data files) with vault_read_file")}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "properties block is not valid YAML …" — properties_only, outline and heading need readable YAML, while a full read returns the note as it is; the error says how to repair it
-- "EACCES: …" or another filesystem error code — the note's file can't be read (permissions, a symbolic link loop); ask the vault's owner to fix it
+${filesystemErrorEntry}
 
 Returns: Raw markdown string (default); JSON object of properties, {} when the note has none (properties_only); JSON outline object, shaped as the outline parameter describes (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)"). Unpaged full reads return the file's exact bytes; heading sections and paged reads use LF line endings.
 
@@ -324,7 +325,7 @@ Behavior: Paths come back sorted by vault-relative path in code-unit order (uppe
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
-- "EACCES: …" or another filesystem error code — a folder in the listing can't be read; the message names it. Its permissions need the vault's owner; until then, pass a folder outside it. For ENAMETOOLONG, shorten folder.
+${filesystemErrorEntry}; until then, pass a folder outside the one it names.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
@@ -398,6 +399,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
+${filesystemErrorEntry}
 ${describePropertiesBlockErrorEntry("with overwrite: true")}
 - "the note would open with a properties block the server cannot keep …" — the note would get no properties (none passed or kept from an overwritten note, or every key set to null), and the body opens with --- lines around text that is invalid YAML, a list, a single value, or a YAML tag, which would become its properties block; pass at least one property, or start the body without --- lines
 
@@ -1102,7 +1104,8 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
-- "cannot delete …" (other than a protected path), "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the note stays put. A name too long for the filesystem needs a shorter path; otherwise ask the vault owner to fix the cause (e.g. permissions), then retry${deleteNoteText.trashConfigErrorEntry}
+- "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry
+${filesystemErrorEntry}; the note stays put${deleteNoteText.trashConfigErrorEntry}
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 
 Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when any were.`,
@@ -1242,7 +1245,8 @@ Errors:
 - A case-only rename that fails partway — "move aborted: could not rename to …" means nothing was written; retry the move, and if it fails again ask the vault's owner to fix the folder's permissions. "move incomplete: …" means the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
 - "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
 - "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
-- "ENAMETOOLONG: …", "EEXIST: …", "ENOTDIR: …", "EACCES: …" or another filesystem error code — the message names the failing path; nothing was written. EEXIST or ENOTDIR from mkdir means a folder in new_path is an existing file. A name too long needs a shorter path (the one the message names); a folder that is a file needs a different new_path; permissions or a full or read-only disk need the vault's owner.
+${filesystemErrorEntry}; nothing was written.
+${INDEX_ERROR_ENTRY}
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.
 
@@ -1343,6 +1347,7 @@ Errors:
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${filesystemErrorEntry}
 ${describePropertiesBlockErrorEntry("without replace: true")}
 ${OPENING_BLOCK_ERROR_ENTRY}
 

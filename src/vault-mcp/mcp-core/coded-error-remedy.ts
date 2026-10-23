@@ -16,8 +16,9 @@ const INDEX_REMEDY =
 // (an ERR_* TypeError on the arguments) is the caller's to read as it is
 type SystemError = NodeJS.ErrnoException & { syscall: string; dest?: string }
 
-const isSystemError = (error: NodeJS.ErrnoException): error is SystemError =>
-  typeof error.syscall === "string"
+const isSystemError = (error: NodeJS.ErrnoException): error is SystemError => {
+  return typeof error.syscall === "string"
+}
 
 const describeTempSaveRemedy = (isToolEnabled: (name: ToolName) => boolean): string => {
   const renameToolClause = isToolEnabled("vault_move_note") ? ", with vault_move_note" : ""
