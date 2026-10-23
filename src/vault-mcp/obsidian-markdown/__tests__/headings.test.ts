@@ -290,6 +290,30 @@ describe("parseHeadings", () => {
     expect(parseHeadings(["---", "body"])).toEqual([])
   })
 
+  // Obsidian's metadata cache finds no heading in these; a thematic break is
+  // never paragraph text, so the --- below it is a second break
+  it.each([
+    { label: "***", breakLine: "***" },
+    { label: "___", breakLine: "___" },
+    { label: "---", breakLine: "---" },
+    { label: "* * *", breakLine: "* * *" },
+  ])("does not read a $label thematic break over a --- line as a heading", ({ breakLine }) => {
+    expect(parseHeadings(["intro", "", breakLine, "---"])).toEqual([])
+  })
+
+  it("reads a heading made only of closing hashes as an empty heading, as Obsidian does", () => {
+    expect(parseHeadings(["### ###", "body"])).toEqual([
+      { text: "", level: 3, startLine: 0, bodyStartLine: 1, bodyEndLine: 2 },
+    ])
+  })
+
+  it("keeps a # that is part of the heading text", () => {
+    expect(parseHeadings(["## C#", "## Title #x"]).map((heading) => heading.text)).toEqual([
+      "C#",
+      "Title #x",
+    ])
+  })
+
   it("does not parse a setext underline with 4+ leading spaces", () => {
     expect(parseHeadings(["Title", "    ==="])).toEqual([])
   })

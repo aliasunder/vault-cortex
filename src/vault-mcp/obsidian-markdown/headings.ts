@@ -25,9 +25,10 @@ export type HeadingInfo = Readonly<{
  *  Empty headings (`##` alone on a line) are valid — group 2 is undefined. */
 const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
 
-/** Matches an ATX heading's optional closing sequence at the end of its text:
- *  whitespace, then one or more `#`, as in `## Title ##`. */
-const CLOSING_HASHES_REGEX = /\s+#+\s*$/
+/** Matches an ATX heading's optional closing sequence per CommonMark §4.2: one
+ *  or more `#` at the end of the text, after a space or tab or as the whole
+ *  text. `## Title ##` reads as `Title`, and `### ###` as an empty heading. */
+const CLOSING_HASHES_REGEX = /(?:^|[ \t]+)#+[ \t]*$/
 
 /** Matches setext heading underlines per CommonMark §4.3: 0-3 leading spaces,
  *  one or more `=` (H1) or `-` (H2) characters, optional trailing whitespace.
@@ -40,6 +41,11 @@ const SETEXT_UNDERLINE_REGEX = /^ {0,3}(=+|-+)[ \t]*$/
 /** Matches block-level line openers (list items, blockquotes) that can't be
  *  setext heading content per CommonMark §4.3 — only paragraph text qualifies. */
 const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/
+
+/** Matches a thematic break per CommonMark §4.1: 0-3 leading spaces, then three
+ *  or more of one character from `-`, `*` and `_`, with optional spaces or tabs
+ *  between and after them. A break is never a setext heading's text. */
+const THEMATIC_BREAK_REGEX = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/
 
 /**
  * Finds the line index where a trailing Obsidian comment block begins, so the
@@ -200,13 +206,11 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
 
     // A non-blank paragraph line can become a setext heading's text, and a
     // blank line ends that chance.
-    if (line.trim() === "") {
-      setextCandidate = null
-    } else {
-      setextCandidate = BLOCK_LEVEL_LINE_REGEX.test(line.trimStart())
-        ? null
-        : { text: line, index: i }
-    }
+    const isParagraphLine =
+      line.trim() !== "" &&
+      !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart()) &&
+      !THEMATIC_BREAK_REGEX.test(line)
+    setextCandidate = isParagraphLine ? { text: line, index: i } : null
   }
 
   // Phase 2: compute body ranges — each section's body ends where the next
