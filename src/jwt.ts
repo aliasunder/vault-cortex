@@ -63,10 +63,9 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
   return true
 }
 
-// - `exp` is Unix seconds, and `now` keeps its milliseconds, so a token
-//   counts as expired from the first millisecond of its `exp` second.
-// - Native Date, not Luxon: this module is bundled into the Lambda
-//   authorizer and stays dependency-free.
+// exp is Unix seconds. Native Date here, not Luxon: this module is bundled
+// into the Lambda authorizer and stays dependency-free — a single epoch read
+// doesn't justify the bundle weight.
 const isExpired = (claims: JwtPayload): boolean => {
   // eslint-disable-next-line no-restricted-syntax
   return claims.exp < Date.now() / 1000
@@ -74,7 +73,7 @@ const isExpired = (claims: JwtPayload): boolean => {
 
 /** The decoded payload of a token whose signature verifies under `secret`,
  *  with no claim checked yet; null when the signature or encoding is bad. */
-const decodeVerifiedPayload = (token: string, secret: string): unknown => {
+const payloadWithVerifiedSignature = (token: string, secret: string): unknown => {
   // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
 
@@ -101,13 +100,13 @@ const decodeVerifiedPayload = (token: string, secret: string): unknown => {
 
 /** Checks the signature, then the deployment binding (`iss` and `aud` equal
  *  the expected values), and only then reports expiry. */
-export const verifyJwtReportingExpiry = ({
+export const getDeploymentJwtVerification = ({
   token,
   secret,
   expectedIssuer,
   expectedAudience,
 }: VerifyJwtOptions): DeploymentJwtVerification => {
-  const decoded = decodeVerifiedPayload(token, secret)
+  const decoded = payloadWithVerifiedSignature(token, secret)
 
   if (!isJwtPayload(decoded)) return { status: "invalid" }
   if (decoded.iss !== expectedIssuer) return { status: "invalid" }
@@ -119,7 +118,7 @@ export const verifyJwtReportingExpiry = ({
 /** The payload of a correctly signed and bound JWT; null when the token is
  *  invalid or expired. */
 export const verifyJwt = (options: VerifyJwtOptions): JwtPayload | null => {
-  const verification = verifyJwtReportingExpiry(options)
+  const verification = getDeploymentJwtVerification(options)
 
   if (verification.status !== "valid") return null
   return verification.payload

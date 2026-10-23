@@ -31,7 +31,7 @@ import env from "env-var"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
-import { verifyJwtReportingExpiry } from "../jwt.js"
+import { getDeploymentJwtVerification } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
 /** Mirrors the open routes in sst.config.ts; a route added there goes here too. */
@@ -111,7 +111,7 @@ export const handler = async (
   // Verifying against this deployment's own URL is what makes a JWT
   // minted for another deployment fail even when the two share a secret.
   const { issuer: expectedIssuer, audience: expectedAudience } = tokenBindingForServer(serverUrl)
-  const deploymentJwtVerification = verifyJwtReportingExpiry({
+  const deploymentJwtVerification = getDeploymentJwtVerification({
     token,
     secret,
     expectedIssuer,

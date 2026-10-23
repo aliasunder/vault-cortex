@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { createHmac } from "node:crypto"
 import { DateTime } from "luxon"
-import { verifyJwtReportingExpiry, signJwt, verifyJwt } from "../jwt.js"
+import { getDeploymentJwtVerification, signJwt, verifyJwt } from "../jwt.js"
 import type { JwtPayload } from "../jwt.js"
 
 const SECRET = "test-secret"
@@ -46,7 +46,7 @@ const getBoundJwtVerification = ({
   token: string
   secret?: string
 }) => {
-  return verifyJwtReportingExpiry({
+  return getDeploymentJwtVerification({
     token,
     secret,
     expectedIssuer: ISSUER,
@@ -84,7 +84,7 @@ describe("signJwt", () => {
   })
 })
 
-describe("verifyJwtReportingExpiry", () => {
+describe("getDeploymentJwtVerification", () => {
   it("classifies a correctly bound future token as valid", () => {
     const payload = buildPayload()
     expect(getBoundJwtVerification({ token: signJwt(payload, SECRET) })).toEqual({
