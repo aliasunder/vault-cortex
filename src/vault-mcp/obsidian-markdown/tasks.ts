@@ -771,12 +771,14 @@ const replaceCheckboxChar = ({
   newChar: string
 }): string => taskLine.replace(/\[.\]/u, `[${newChar}]`)
 
-/** Removes the LAST occurrence of a field regex from a metadata tail.
- *  Description text ending in a parseable signifier lands at the front of
- *  the tail, and the real field sits to its right (fields are appended
- *  after existing content) — a first-occurrence strip would delete the
- *  description text and keep the stale field. The double space a removal
- *  leaves collapses to one, and the result is trimmed. */
+/** Removes the LAST occurrence of a field regex from a metadata tail:
+ *  - The last, because description text ending in a parseable signifier
+ *    lands at the front of the tail and the real field sits to its right
+ *    (fields are appended after existing content), so a first-occurrence
+ *    strip would delete the description text and keep the stale field.
+ *  - After a removal the tail is trimmed, and every run of spaces in it
+ *    collapses to one, not only the gap the removal left. With no match the
+ *    tail comes back unchanged. */
 const removeLastMetadataMatch = (metadata: string, regex: RegExp): string => {
   // A fresh global twin per call — the shared constants stay non-global so
   // .exec call sites never carry a lastIndex.
