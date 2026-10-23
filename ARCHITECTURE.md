@@ -865,7 +865,9 @@ OAuth session:
   immediately (without a rotation they live for 6 hours);
 - every stored refresh token becomes unreachable, because rows are keyed
   under the old token;
-- each client goes back through the consent page on its next request.
+- the Lambda authorizer answers each client's old token with a **403**,
+  which clients don't treat as a sign-in prompt, so each client goes back
+  through the consent page once you reconnect it.
 
 ### Optional hardening + customization
 
