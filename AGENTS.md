@@ -14,8 +14,9 @@ the init chain registers the initial Sync device under the `DEVICE_NAME` env
 var, or the container hostname when unset. Both
 processes run as UID 1000 (PUID/PGID-adjustable). Production runs the
 `:remote` image on Lightsail as a single Compose service, fronted by API
-Gateway: OAuth endpoints pass straight through, and every other route
-goes through a Lambda authorizer that validates the static token or JWT.
+Gateway: OAuth endpoints and `/healthz` pass straight through, and every
+other route goes through a Lambda authorizer that validates the static
+token or JWT.
 IaC via SST v4.
 
 The server provides vault CRUD, hybrid search (FTS5 keyword and sqlite-vec

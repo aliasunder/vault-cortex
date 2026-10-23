@@ -2,7 +2,7 @@
  * Lambda authorizer for API Gateway HTTP API (payload format 2.0).
  *
  * Attached only to protected routes (see sst.config.ts) — the OAuth
- * discovery endpoints are separate unauthenticated routes that never
+ * endpoints and /healthz are separate unauthenticated routes that never
  * invoke this Lambda. Validates the bearer token as defense in depth
  * with Express: accepts the static McpAuthToken and JWT access tokens
  * signed with it and bound to this deployment, expired ones included,
@@ -15,7 +15,7 @@
  * APIs cannot customize, which clients treat as a broken server).
  * The identity source only requires the header to be present, so a
  * malformed Authorization header (e.g. "Basic …") still reaches this
- * Lambda, and parseBearer denies it.
+ * Lambda, which denies it when parseBearer finds no bearer token.
  *
  * Key facts:
  *   - API Gateway HTTP API v2 LOWERCASES all header names.
