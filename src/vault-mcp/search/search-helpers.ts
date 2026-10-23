@@ -4,12 +4,6 @@ import { posix } from "node:path"
 import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import {
-  parseNote,
-  splitPropertiesBlock,
-  UnsupportedPropertiesBlockError,
-  type ParsedNote,
-} from "../obsidian-markdown/frontmatter.js"
 import { foldAsciiCase } from "../obsidian-markdown/links.js"
 import { isRecord } from "../../utils/is-record.js"
 import type {
@@ -82,34 +76,6 @@ export const NESTED_TAG_PREDICATE = "fold_tag(value) || '/' LIKE ? ESCAPE '\\'"
  *  LIKE wildcards escaped, then `/%`. Throws like normalizeTagQuery. */
 export const nestedTagLikePattern = (input: string): string => {
   return `${escapeLikeWildcards(normalizeTagQuery(input))}/%`
-}
-
-// ── Note parsing for the index ─────────────────────────────────
-
-/**
- * Parses a note as the index reads it.
- * - A properties block (the frontmatter) that the YAML parser cannot read is
- *   dropped, as Obsidian's metadata cache drops it: the note reads as its body
- *   with no properties, so its text, tasks and links stay indexed.
- * - `unreadableBlockError` carries the parser's refusal for the caller to log,
- *   or null when the block was read.
- */
-export const parseNoteForIndex = (
-  rawContent: string,
-): ParsedNote & { unreadableBlockError: UnsupportedPropertiesBlockError | null } => {
-  try {
-    const { data, content } = parseNote(rawContent)
-    return { data, content, unreadableBlockError: null }
-  } catch (error) {
-    // parseNote throws this error only for YAML the parser cannot read (kind
-    // `invalid-yaml`); the list, single-value and tag kinds come from parseNoteForRewrite
-    if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
-
-    // parseNote split the note at these same boundaries before it read the
-    // block, so the body starts after the block's closing `---` line
-    const { body } = splitPropertiesBlock(rawContent)
-    return { data: {}, content: body, unreadableBlockError: error }
-  }
 }
 
 // ── Stored row integrity ───────────────────────────────────────

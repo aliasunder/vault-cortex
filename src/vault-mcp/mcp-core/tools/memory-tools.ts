@@ -31,17 +31,6 @@ const MEMORY_FOLDER_ERROR_ENTRY =
 const MEMORY_FILE_READ_ERROR_ENTRY =
   "- \"cannot read memory file …\" — the file can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise its permissions need the vault's owner"
 
-/** Errors entries for a memory file whose properties block the server
- *  refuses. Reads refuse only YAML they cannot read. Writes also refuse a
- *  block a rewrite would lose, and a result that would open the file with
- *  `---` lines. The error names the file and says how to fix it. */
-const MEMORY_BLOCK_READ_ERROR_ENTRY =
-  '- "memory file …: properties block is not valid YAML …" — the error names the file and says how to repair it'
-const MEMORY_BLOCK_WRITE_ERROR_ENTRY =
-  "- \"memory file …: properties block …\" — the file's properties block can't be read, or a rewrite would lose it; the error says how to repair it"
-const MEMORY_OPENING_BLOCK_ERROR_ENTRY =
-  '- "memory file …: the note would open with a properties block …" — the write would leave --- lines at the top of a file with no properties, around text that can\'t be kept as properties; the error says how to avoid it'
-
 export const registerMemoryTools = ({
   registerTool,
   safeHandler,
@@ -101,7 +90,6 @@ Errors:
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 - "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise ask the vault's owner to check the folder
-${MEMORY_BLOCK_READ_ERROR_ENTRY}; without file, one such file fails the whole read
 
 Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact). An empty match returns { entries: [], total: 0, on_or_after }.`,
       inputSchema: {
@@ -203,7 +191,6 @@ Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by f
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
 - "cannot list memory folder …" — a file sits where the memory folder belongs, or its permissions need the vault's owner
-${MEMORY_BLOCK_READ_ERROR_ENTRY}; one such file fails the whole listing
 
 Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); bytes is the on-disk file size; headings lists H1 and H2 headings in order, with entry_count on H2s; leading_callout is the top-of-file callout ({ type, title, body }; by convention a "Scope of this file" block describing what belongs in the file), or null; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter). The server does not enforce either policy.`,
       inputSchema: {},
@@ -328,7 +315,6 @@ Parameters:
 Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.
 
 Errors:
-- "refusing memory write: … would shrink content" — safety guard: the write would leave the file at under half its size, which happens when the file holds content a rewrite cannot keep (for example long YAML comments in its properties). A retry returns the same refusal until a manual edit removes that content; inspect the file with vault_read_note to find it.
 - "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
 - "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
@@ -339,8 +325,6 @@ ${MEMORY_FILE_READ_ERROR_ENTRY}
 ${MEMORY_FILE_IS_FOLDER_ERROR_ENTRY}
 ${MEMORY_FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_FOLDER_ERROR_ENTRY}
-${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
-${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a note to fill in the placeholder scope callout when the file is new; an exact duplicate returns "Entry already exists in ${config.memoryDir}/<file>.md → ## <section> — nothing was written."`,
       inputSchema: {
@@ -445,8 +429,6 @@ Errors:
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
 ${MEMORY_FILESYSTEM_ERROR_ENTRY}
-${MEMORY_BLOCK_WRITE_ERROR_ENTRY}
-${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: "Deleted entry from ${config.memoryDir}/<file>.md → ## <section>".`,
       inputSchema: {

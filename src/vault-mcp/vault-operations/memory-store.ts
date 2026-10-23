@@ -4,11 +4,11 @@ import { readFile, readdir, mkdir, access } from "node:fs/promises"
 import { constants, type Dirent } from "node:fs"
 import { join, basename, dirname, resolve } from "node:path"
 import {
-  parseNote,
-  parseNoteForRewrite,
+  joinNoteKeepingBlock,
+  parseNoteSkippingUnreadableBlock,
+  splitNoteKeepingBlock,
   stringifyNote,
   UnkeepableOpeningBlockError,
-  UnsupportedPropertiesBlockError,
 } from "../obsidian-markdown/frontmatter.js"
 import type { ParsedNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
@@ -417,40 +417,35 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
-  /** Parses a memory file's content with parseNote (`read`) or
-   *  parseNoteForRewrite (`rewrite`). A properties-block refusal is rethrown
-   *  naming the file, because a caller asking by bare name, or listing every
-   *  file, cannot otherwise tell which file to repair. */
-  const parseMemoryFileContent = (params: {
-    content: string
-    filename: string
-    rule: "read" | "rewrite"
-  }): ParsedNote => {
-    try {
-      return params.rule === "rewrite"
-        ? parseNoteForRewrite(params.content)
-        : parseNote(params.content)
-    } catch (error) {
-      if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
+  /** Reads a memory file's properties for its listing. A block that is not
+   *  valid YAML reads as no properties, as Obsidian reads it, so one broken
+   *  file does not hide the others; the refusal is logged with the file. */
+  const readMemoryFileProperties = (
+    params: { content: string; filename: string },
+    logger: Logger,
+  ): ParsedNote => {
+    const { data, content, unreadableBlockError } = parseNoteSkippingUnreadableBlock(params.content)
 
-      throw new UnsupportedPropertiesBlockError({
-        message: `memory file "${memoryDir}/${params.filename}": ${error.message}`,
-        kind: error.kind,
-        cause: error,
+    if (unreadableBlockError) {
+      logger.warn("memory file properties block unreadable", {
+        file: params.filename,
+        error: describeError(unreadableBlockError),
       })
     }
+    return { data, content }
   }
 
-  /** Serializes a memory file with stringifyNote. Its refusal of a file that
-   *  would open with `---` lines is rethrown naming the file, for the same
-   *  reason parseMemoryFileContent names it. */
+  /** Writes a memory file's edited body under its original properties block.
+   *  The refusal of a file that would open with `---` lines is rethrown naming
+   *  the file, because a caller asking by bare name cannot otherwise tell which
+   *  file it was. */
   const stringifyMemoryFile = (params: {
+    rawBlock: string
     body: string
-    data: object
     filename: string
   }): string => {
     try {
-      return stringifyNote(params.body, params.data)
+      return joinNoteKeepingBlock({ rawBlock: params.rawBlock, body: params.body })
     } catch (error) {
       if (!(error instanceof UnkeepableOpeningBlockError)) throw error
 
@@ -737,7 +732,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         concurrency: memoryReadConcurrency,
         mapper: async (filename) => {
           const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
-          return parseMemoryFileContent({ content: raw, filename, rule: "read" }).content.trim()
+          return splitNoteKeepingBlock(raw).body.trim()
         },
       })
       logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
@@ -745,18 +740,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-    const parsed = parseMemoryFileContent({
-      content: raw,
-      filename: `${params.file}.md`,
-      rule: "read",
-    })
+    const fileBody = splitNoteKeepingBlock(raw).body
 
     if (!params.section) {
       logger.info("get memory", { mode: "file", file: params.file })
-      return parsed.content.trim()
+      return fileBody.trim()
     }
 
-    const lines = splitIntoLines(parsed.content)
+    const lines = splitIntoLines(fileBody)
     const match = resolveSection({ lines, section: params.section, file: params.file })
 
     // Extract only the lines between this heading and the next
@@ -785,12 +776,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-    const parsed = parseMemoryFileContent({
-      content: raw,
-      filename: `${params.file}.md`,
-      rule: "read",
-    })
-    const lines = splitIntoLines(parsed.content)
+    const lines = splitIntoLines(splitNoteKeepingBlock(raw).body)
 
     // parseMemoryEntries returns every H2 entry in document order, each
     // carrying its verbatim section heading — so an omitted section is every
@@ -922,12 +908,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "created-file"
       }
 
-      const parsed = parseMemoryFileContent({
-        content: existingContent,
-        filename: `${params.file}.md`,
-        rule: "rewrite",
-      })
-      const contentLines = splitIntoLines(parsed.content)
+      const { rawBlock, body } = splitNoteKeepingBlock(existingContent)
+      const contentLines = splitIntoLines(body)
       const sections = parseSections(contentLines)
       const match = findSection(sections, params.section, 2)
 
@@ -951,7 +933,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const newContent = appendedLines.join("\n")
         const serialized = stringifyMemoryFile({
           body: newContent,
-          data: parsed.data,
+          rawBlock,
           filename: `${params.file}.md`,
         })
         const beforeBytes = Buffer.byteLength(existingContent, "utf8")
@@ -1017,7 +999,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const newContent = updatedLines.join("\n")
       const serialized = stringifyMemoryFile({
         body: newContent,
-        data: parsed.data,
+        rawBlock,
         filename: `${params.file}.md`,
       })
       const beforeBytes = Buffer.byteLength(existingContent, "utf8")
@@ -1052,7 +1034,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       concurrency: memoryReadConcurrency,
       mapper: async (filename) => {
         const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
-        const parsed = parseMemoryFileContent({ content: raw, filename, rule: "read" })
+        const parsed = readMemoryFileProperties({ content: raw, filename }, logger)
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
         const lines = splitIntoLines(parsed.content)
@@ -1119,12 +1101,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // read-modify-write can't be interleaved and lose a write.
     return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
       const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-      const parsed = parseMemoryFileContent({
-        content: raw,
-        filename: `${params.file}.md`,
-        rule: "rewrite",
-      })
-      const lines = splitIntoLines(parsed.content)
+      const { rawBlock, body } = splitNoteKeepingBlock(raw)
+      const lines = splitIntoLines(body)
       const match = resolveSection({ lines, section: params.section, file: params.file })
 
       // Find the target bullet among genuine (non-fenced) entry lines.
@@ -1176,7 +1154,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const newContent = updatedLines.join("\n")
       const serialized = stringifyMemoryFile({
         body: newContent,
-        data: parsed.data,
+        rawBlock,
         filename: `${params.file}.md`,
       })
       const beforeBytes = Buffer.byteLength(raw, "utf8")

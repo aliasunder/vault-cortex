@@ -32,8 +32,8 @@ import {
   buildFtsMetadataText,
   escapeLikeWildcards,
   foldTag,
-  parseNoteForIndex,
 } from "./search-helpers.js"
+import { parseNoteSkippingUnreadableBlock } from "../obsidian-markdown/frontmatter.js"
 import * as queries from "./search-queries.js"
 import { hybridSearch } from "./hybrid-search.js"
 
@@ -1488,7 +1488,7 @@ export const createSearchIndex = (
       data: frontmatter,
       content: noteBody,
       unreadableBlockError,
-    } = parseNoteForIndex(rawContent)
+    } = parseNoteSkippingUnreadableBlock(rawContent)
 
     // Only tags follow Obsidian's Tags view rules (any letter case for the
     // key, the tag-name test); related keeps every scalar value
@@ -1711,7 +1711,7 @@ export const createSearchIndex = (
 
     // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
     // error is ignored because upsertNote already logged it
-    const { data: frontmatter, content: noteBody } = parseNoteForIndex(rawContent)
+    const { data: frontmatter, content: noteBody } = parseNoteSkippingUnreadableBlock(rawContent)
     const noteTitle = isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
@@ -2300,7 +2300,7 @@ export const createSearchIndex = (
     // Notes whose Pass 1 index write throws are skipped with a warning instead
     // of aborting the rebuild — one note must never prevent the server from
     // starting. An unreadable properties block is not such a failure,
-    // because parseNoteForIndex reads the body without it.
+    // because parseNoteSkippingUnreadableBlock reads the body without it.
     const skippedNotePaths = new Set<string>()
 
     const notesForEmbedding: Array<{
@@ -2396,7 +2396,7 @@ export const createSearchIndex = (
             db.transaction(() => {
               // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
               // warned about an unreadable block for this note
-              const parsed = parseNoteForIndex(note.content)
+              const parsed = parseNoteSkippingUnreadableBlock(note.content)
               for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
                 const resolved = links.resolve({
                   target: rawTarget,

@@ -1,12 +1,15 @@
 import matter from "gray-matter"
 import { DateTime } from "luxon"
-import { stringify as stringifyYaml } from "yaml"
-import { describe, it, expect } from "vitest"
+import { parseDocument, stringify as stringifyYaml } from "yaml"
+import { describe, it, expect, vi } from "vitest"
 import {
   findBodyStartLine,
   findWrittenBodyStartLine,
+  joinNoteKeepingBlock,
   parseNote,
   parseNoteForRewrite,
+  parseNoteSkippingUnreadableBlock,
+  splitNoteKeepingBlock,
   splitPropertiesBlock,
   serializePropertiesBlock,
   stringifyNote,
@@ -17,6 +20,10 @@ import {
 
 /** Written as a code point so no invisible literal hides in the source. */
 const BOM = String.fromCharCode(0xfeff)
+
+// Spied, not replaced, so one test can make the YAML parser fail in a way that
+// is not an unreadable block
+vi.mock("yaml", { spy: true })
 
 /**
  * Multi Column Markdown template — a `--- <text>` first line that
@@ -724,6 +731,250 @@ describe("stringifyNote", () => {
     { label: "a spaced opener over invalid YAML", body: "--- \ntitle: [unclosed\n---\nbody\n" },
   ])("writes an empty-data body that opens with $label verbatim", ({ body }) => {
     expect(stringifyNote(body, {})).toBe(body)
+  })
+})
+
+// ── parseNoteSkippingUnreadableBlock ─────────────────────────────
+
+describe("parseNoteSkippingUnreadableBlock", () => {
+  it("reads a note whose block is readable with its properties and body", () => {
+    expect(
+      parseNoteSkippingUnreadableBlock("---\ntitle: Plan\ntags: [plan]\n---\nBody line\n"),
+    ).toEqual({
+      data: { title: "Plan", tags: ["plan"] },
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
+  it("drops a block that is not valid YAML and reads the body with no properties", () => {
+    const parsed = parseNoteSkippingUnreadableBlock(
+      "---\ntitle: Meeting: Q3 plan\n---\nBody line\n",
+    )
+
+    expect(parsed).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: expect.any(UnsupportedPropertiesBlockError),
+    })
+    expect({
+      kind: parsed.unreadableBlockError?.kind,
+      message: parsed.unreadableBlockError?.message,
+    }).toEqual({
+      kind: "invalid-yaml",
+      message:
+        "properties block is not valid YAML at line 2, column 8: Nested mappings are not allowed in compact mappings",
+    })
+  })
+
+  it("rethrows a parser failure that is not an unreadable block", () => {
+    const parserFailure = new Error("unexpected parser failure")
+    vi.mocked(parseDocument).mockImplementationOnce(() => {
+      throw parserFailure
+    })
+
+    expect(() => parseNoteSkippingUnreadableBlock("---\ntitle: Plan\n---\nBody line\n")).toThrow(
+      parserFailure,
+    )
+  })
+
+  it("reads a list block as no properties without reporting it", () => {
+    expect(parseNoteSkippingUnreadableBlock("---\n- a\n- b\n---\nBody line\n")).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
+  it("reads a note without a block as its whole content", () => {
+    expect(parseNoteSkippingUnreadableBlock("Body line\n")).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+})
+
+// ── splitNoteKeepingBlock / joinNoteKeepingBlock ─────────────────
+
+describe("splitNoteKeepingBlock", () => {
+  it("returns the block as written, comments and flow style included, and the body after it", () => {
+    const note = "---\n# keep me\ntags: [a, b]   # inline\ntitle: 'Quoted'\n---\nbody\n"
+
+    expect(splitNoteKeepingBlock(note)).toEqual({
+      rawBlock: "---\n# keep me\ntags: [a, b]   # inline\ntitle: 'Quoted'\n---\n",
+      body: "body\n",
+    })
+  })
+
+  it("splits a block that is not valid YAML without reading it", () => {
+    expect(splitNoteKeepingBlock("---\ntitle: [unclosed\n---\nbody\n")).toEqual({
+      rawBlock: "---\ntitle: [unclosed\n---\n",
+      body: "body\n",
+    })
+  })
+
+  it("writes the block's CRLF and lone CR line breaks as LF and leaves the body's as they are", () => {
+    expect(splitNoteKeepingBlock("---\r\na: 1\r\n---\r\nbody\r\n")).toEqual({
+      rawBlock: "---\na: 1\n---\n",
+      body: "body\r\n",
+    })
+    expect(splitNoteKeepingBlock("---\r\na: 1\r\n---\r")).toEqual({
+      rawBlock: "---\na: 1\n---\n",
+      body: "",
+    })
+  })
+
+  it("drops a leading BOM", () => {
+    expect(splitNoteKeepingBlock(`${BOM}---\na: 1\n---\nbody\n`)).toEqual({
+      rawBlock: "---\na: 1\n---\n",
+      body: "body\n",
+    })
+    expect(splitNoteKeepingBlock(`${BOM}body\n`)).toEqual({ rawBlock: "", body: "body\n" })
+  })
+
+  it("returns no block for a note without one", () => {
+    expect(splitNoteKeepingBlock("body\n")).toEqual({ rawBlock: "", body: "body\n" })
+  })
+
+  it("leaves a loose closer's trailing text in the body, as every read splits it", () => {
+    expect(splitNoteKeepingBlock("---\na: 1\n--- suffix\nbody")).toEqual({
+      rawBlock: "---\na: 1\n---",
+      body: " suffix\nbody",
+    })
+  })
+})
+
+describe("joinNoteKeepingBlock", () => {
+  // Each case splits a note, replaces its body, and joins the two again
+  it.each([
+    {
+      label: "a commented block",
+      note: "---\n# keep me\ntags: [a, b]   # inline\n---\nold\n",
+      body: "new\n",
+      expected: "---\n# keep me\ntags: [a, b]   # inline\n---\nnew\n",
+    },
+    {
+      label: "a block that is not valid YAML",
+      note: "---\ntitle: [unclosed\n---\nold\n",
+      body: "new\n",
+      expected: "---\ntitle: [unclosed\n---\nnew\n",
+    },
+    {
+      label: "a list block",
+      note: "---\n- a\n- b\n---\nold\n",
+      body: "new\n",
+      expected: "---\n- a\n- b\n---\nnew\n",
+    },
+    {
+      label: "a value with an explicit tag",
+      note: "---\ncreated: !!timestamp 2026-01-01\n---\nold\n",
+      body: "new\n",
+      expected: "---\ncreated: !!timestamp 2026-01-01\n---\nnew\n",
+    },
+    {
+      label: "a comment-only block",
+      note: "---\n# keep\n---\nold\n",
+      body: "new\n",
+      expected: "---\n# keep\n---\nnew\n",
+    },
+    {
+      label: "a null-only block",
+      note: "---\ndue:\n---\nold\n",
+      body: "new\n",
+      expected: "---\ndue:\n---\nnew\n",
+    },
+    {
+      label: "an empty block",
+      note: "---\n---\nold\n",
+      body: "new\n",
+      expected: "---\n---\nnew\n",
+    },
+    {
+      label: "a CRLF note",
+      note: "---\r\na: 1\r\n---\r\nold\r\n",
+      body: "new\n",
+      expected: "---\na: 1\n---\nnew\n",
+    },
+    {
+      label: "a closer at the end of the note",
+      note: "---\na: 1\n---",
+      body: "NEW",
+      expected: "---\na: 1\n---\nNEW\n",
+    },
+    {
+      label: "a lone CR after a closer at the end of the note",
+      note: "---\r\na: 1\r\n---\r",
+      body: "NEW",
+      expected: "---\na: 1\n---\nNEW\n",
+    },
+    {
+      label: "a closer with text after its dashes",
+      note: "---\na: 1\n--- suffix\nold",
+      body: "NEW\n suffix\nold",
+      expected: "---\na: 1\n---\nNEW\n suffix\nold\n",
+    },
+    {
+      label: "a ---- closer",
+      note: "---\na: 1\n----\nold",
+      body: "NEW\n-\nold",
+      expected: "---\na: 1\n---\nNEW\n-\nold\n",
+    },
+    {
+      label: "a ---, closer",
+      note: "---\na: 1\n---,\nold",
+      body: "NEW\n,\nold",
+      expected: "---\na: 1\n---\nNEW\n,\nold\n",
+    },
+    {
+      label: "an empty body",
+      note: "---\na: 1\n---\nold\n",
+      body: "",
+      expected: "---\na: 1\n---\n\n",
+    },
+    {
+      label: "a body without a final line break",
+      note: "---\na: 1\n---\nold",
+      body: "new",
+      expected: "---\na: 1\n---\nnew\n",
+    },
+    {
+      label: "a note without a block",
+      note: "old",
+      body: "new",
+      expected: "new\n",
+    },
+  ])("keeps $label and ends the note with a line break", ({ note, body, expected }) => {
+    const { rawBlock } = splitNoteKeepingBlock(note)
+
+    expect(joinNoteKeepingBlock({ rawBlock, body })).toBe(expected)
+  })
+
+  it("writes the same note as stringifyNote when the block is already in its serialized form", () => {
+    const note = "---\ntitle: Plan\ntags:\n  - a\n  - b\n---\nbody\n"
+    const { rawBlock, body } = splitNoteKeepingBlock(note)
+    const { data, content } = parseNoteForRewrite(note)
+
+    expect(joinNoteKeepingBlock({ rawBlock, body: `${body}more\n` })).toBe(
+      stringifyNote(`${content}more\n`, data),
+    )
+  })
+
+  it("refuses a note without a block whose new body would open with a block the server cannot keep", () => {
+    const thrown = catchThrown(() => {
+      return joinNoteKeepingBlock({ rawBlock: "", body: "---\n\nSome text\n\n---\nbody\n" })
+    })
+
+    expect(describeOutputRefusal(thrown)).toEqual({
+      message: `the note would open with a properties block the server cannot keep: ${SINGLE_VALUE_MESSAGE}`,
+      causeIsBlockRefusal: true,
+    })
+  })
+
+  it("writes a body that opens with --- lines below a kept block without refusing", () => {
+    expect(
+      joinNoteKeepingBlock({ rawBlock: "---\na: 1\n---\n", body: "---\ntitle: [unclosed\n---\n" }),
+    ).toBe("---\na: 1\n---\n---\ntitle: [unclosed\n---\n")
   })
 })
 

@@ -27,6 +27,7 @@ import {
   parseNote,
   parseNoteForRewrite,
   replacePropertiesBlock,
+  splitPropertiesBlock,
   stringifyNote,
   mergeFrontmatter,
   UnsupportedPropertiesBlockError,
@@ -359,7 +360,8 @@ const readNoteOutline = async (
     throw new Error(`note not found: "${params.path}"`)
   }
 
-  const lines = splitIntoLines(parseNote(content).content)
+  // The outline returns no properties, so the block is split off without being read
+  const lines = splitIntoLines(splitPropertiesBlock(content).body)
   const headings = parseHeadings(lines)
   const calloutSpan = parseLeadingCalloutSpan(lines)
 
@@ -424,7 +426,8 @@ const readNoteSection = async (
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
-  const lines = splitIntoLines(parseNote(content).content)
+  // A section read returns no properties, so the block is split off without being read
+  const lines = splitIntoLines(splitPropertiesBlock(content).body)
   const headings = parseHeadings(lines)
   const target = findHeading({
     headings,

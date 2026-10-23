@@ -281,14 +281,13 @@ describe("registerTools", () => {
     expect(description).toContain("yields no next occurrence")
   })
 
-  it.each([TOOL_NAMES.VAULT_UPDATE_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])(
-    "%s description documents the shrink-guard error",
-    (name) => {
-      const [, config] = requireCall(name)
-      expect(config.description).toContain("Errors:")
-      expect(config.description).toContain("refusing memory write")
-    },
-  )
+  // Deleting an entry is the only memory write that can shrink a file; an
+  // append only adds lines, so vault_update_memory never reaches the guard
+  it("vault_delete_memory description documents the shrink-guard error", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
+    expect(config.description).toContain("Errors:")
+    expect(config.description).toContain("refusing memory write")
+  })
 
   it("vault_update_memory description documents the duplicate no-op contract", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
@@ -3640,29 +3639,29 @@ describe("DISABLED_TOOLS", () => {
       label: "names both property editors while they are served",
       disabledTools: "",
       expectedLine:
-        "in block style — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
+        "LF line breaks — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
       expectedLine:
-        "in block style — properties must be edited via vault_write_note's properties parameter.",
+        "LF line breaks — properties must be edited via vault_write_note's properties parameter.",
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine: "in block style — properties must be edited via vault_update_properties.",
+      expectedLine: "LF line breaks — properties must be edited via vault_update_properties.",
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: "in block style.",
+      expectedLine: "LF line breaks.",
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
     const propertyEditLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-      startMarker: "in block style",
+      startMarker: "LF line breaks",
       endMarker: "\n\nExample:",
     })
     expect(propertyEditLine).toBe(expectedLine)

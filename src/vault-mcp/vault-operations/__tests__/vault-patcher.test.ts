@@ -3,10 +3,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
-import {
-  UnkeepableOpeningBlockError,
-  UnsupportedPropertiesBlockError,
-} from "../../obsidian-markdown/frontmatter.js"
+import { UnkeepableOpeningBlockError } from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const {
@@ -715,8 +712,12 @@ describe("patchNote — file-level operations", () => {
       },
       logger,
     )
-    const updated = await readTestNote("note.md")
-    expect(updated).toContain("tags:\n  - test\n---\n> [!note] Important")
+    expect(await readTestNote("note.md")).toBe(
+      NOTE_WITH_SECTIONS.replace(
+        "---\n\n# Main Title",
+        "---\n> [!note] Important\n> Read this first.\n\n# Main Title",
+      ),
+    )
   })
 
   it("file-level append lands after a trailing comment block", async () => {
@@ -1873,29 +1874,29 @@ describe("frontmatter preservation", () => {
       heading: op === "append" || op === "prepend" ? undefined : "Active",
       includeChildren: op === "replace" ? true : undefined,
     })),
-  )("$name preserves frontmatter and modifies body", async ({ op, heading, includeChildren }) => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
-    await patchNote(
-      {
-        vaultPath: vault,
-        path: "note.md",
-        operation: op,
-        content: `marker-${op}`,
-        heading,
-        includeChildren,
-      },
-      logger,
-    )
-    const updated = await readTestNote("note.md")
-    // Frontmatter preserved
-    expect(updated).toContain("title: Test Note")
-    expect(updated).toContain("tags:")
-    expect(updated).toContain("- test")
-    // Body was actually modified
-    expect(updated).toContain(`marker-${op}`)
-    // Frontmatter is still at the top (starts with ---)
-    expect(updated.startsWith("---\n")).toBe(true)
-  })
+  )(
+    "$name keeps the properties block as written and modifies body",
+    async ({ op, heading, includeChildren }) => {
+      await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+      await patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: op,
+          content: `marker-${op}`,
+          heading,
+          includeChildren,
+        },
+        logger,
+      )
+      const updated = await readTestNote("note.md")
+      const writtenBlock = "---\ntitle: Test Note\ntags: [test]\n---\n"
+
+      expect(updated.slice(0, writtenBlock.length)).toBe(writtenBlock)
+      // Body was actually modified
+      expect(updated).toContain(`marker-${op}`)
+    },
+  )
 
   it("handles file with no frontmatter", async () => {
     await writeTestNote("no-fm.md", NOTE_NO_FRONTMATTER)
@@ -2002,19 +2003,7 @@ Body text.
       },
       logger,
     )
-    const updated = await readTestNote("complex.md")
-    expect(updated).toContain("title: Complex")
-    expect(updated).toContain("number: 42")
-    expect(updated).toContain("key: value")
-    // Verify list-type frontmatter values preserved
-    expect(updated).toContain("- a")
-    expect(updated).toContain("- b")
-    expect(updated).toContain("- c")
-    expect(updated).toContain("- one")
-    expect(updated).toContain("- two")
-    // Verify body was replaced
-    expect(updated).toContain("New body.")
-    expect(updated).not.toContain("Body text.")
+    expect(await readTestNote("complex.md")).toBe(content.replace("Body text.", "New body."))
   })
 })
 
@@ -2082,7 +2071,7 @@ describe("patchNote errors", () => {
   })
 })
 
-describe("patchNote — properties block a rewrite would lose", () => {
+describe("body edits keep the properties block as written", () => {
   /** Awaits a call that must reject and returns what it rejected with. */
   const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
     try {
@@ -2093,47 +2082,77 @@ describe("patchNote — properties block a rewrite would lose", () => {
     throw new Error("expected the call to reject, but it resolved")
   }
 
-  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
-  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
-    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
-    return { kind: thrown.kind, message: thrown.message }
-  }
+  const BLOCKS = [
+    { label: "a commented block", block: "---\n# keep me\ntitle: 'Quoted'   # inline\n---\n" },
+    { label: "a flow-style block", block: "---\ntags: [a, b]\n---\n" },
+    { label: "a block that is not valid YAML", block: "---\ntitle: [unclosed\n---\n" },
+    { label: "a list block", block: "---\n- a\n- b\n---\n" },
+    { label: "an explicitly tagged block", block: "---\nstatus: !done\n---\n" },
+  ]
 
-  it.each([
+  // Each edit runs on a body of "old line\nkeep line\n" and leaves the body shown
+  const EDITS = [
     {
-      label: "a list block",
-      content: "---\n- a\n- b\n---\nbody\n",
-      refusal: {
-        kind: "not-key-value",
-        message:
-          "properties block holds a list, not key-value pairs, so rewriting the note would delete it",
+      tool: "patchNote",
+      edit: (path: string) => {
+        return patchNote({ vaultPath: vault, path, operation: "prepend", content: "added" }, logger)
       },
+      editedBody: "added\nold line\nkeep line\n",
     },
     {
-      label: "an explicitly tagged block",
-      content: "---\nstatus: !done\n---\nbody\n",
-      refusal: {
-        kind: "explicit-tag",
-        message: "properties block uses the YAML tag !done, which rewriting the note would drop",
-      },
-    },
-  ])(
-    "append refuses $label and leaves the note unchanged",
-    async ({ content, refusal: expectedRefusal }) => {
-      await writeTestNote("kept.md", content)
-      expect(await readTestNote("kept.md")).toBe(content)
-
-      const refusal = await captureRejection(
-        patchNote(
-          { vaultPath: vault, path: "kept.md", operation: "append", content: "added" },
+      tool: "replaceInNote",
+      edit: (path: string) => {
+        return replaceInNote(
+          { vaultPath: vault, path, oldText: "old line", newText: "new line" },
           logger,
-        ),
-      )
-
-      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
-      expect(await readTestNote("kept.md")).toBe(content)
+        )
+      },
+      editedBody: "new line\nkeep line\n",
     },
-  )
+    {
+      tool: "deleteSpan",
+      edit: (path: string) =>
+        deleteSpan({ vaultPath: vault, path, startAnchor: "old line" }, logger),
+      editedBody: "keep line\n",
+    },
+    {
+      tool: "replaceSpan",
+      edit: (path: string) => {
+        return replaceSpan(
+          { vaultPath: vault, path, startAnchor: "old line", content: "new line" },
+          logger,
+        )
+      },
+      editedBody: "new line\nkeep line\n",
+    },
+    {
+      tool: "insertAtAnchor",
+      edit: (path: string) => {
+        return insertAtAnchor(
+          { vaultPath: vault, path, anchor: "old line", position: "after", content: "added" },
+          logger,
+        )
+      },
+      editedBody: "old line\nadded\nkeep line\n",
+    },
+  ]
+
+  const CASES = EDITS.flatMap((edit) => {
+    return BLOCKS.map((block) => ({
+      label: `${edit.tool} on ${block.label}`,
+      edit: edit.edit,
+      editedBody: edit.editedBody,
+      block: block.block,
+    }))
+  })
+
+  it.each(CASES)("$label edits the body and writes the block back unchanged", async (testCase) => {
+    await writeTestNote("kept.md", `${testCase.block}old line\nkeep line\n`)
+
+    await testCase.edit("kept.md")
+
+    expect(await readTestNote("kept.md")).toBe(`${testCase.block}${testCase.editedBody}`)
+  })
 
   it("refuses a prepend that would open a note with no properties with --- lines it cannot keep", async () => {
     const original = "Intro\n"
@@ -2195,11 +2214,10 @@ describe("patchNote — duplicate-heading guard", () => {
       },
       logger,
     )
-    // Exact whole-file result — frontmatter is normalized to block style on write.
+    // Exact whole-file result — the properties block is written back as it was.
     expect(await readTestNote("note.md")).toBe(`---
 title: Test Note
-tags:
-  - test
+tags: [test]
 ---
 
 # Main Title
@@ -2234,11 +2252,10 @@ body
       },
       logger,
     )
-    // Exact whole-file result — frontmatter is normalized to block style on write.
+    // Exact whole-file result — the properties block is written back as it was.
     expect(await readTestNote("note.md")).toBe(`---
 title: Test Note
-tags:
-  - test
+tags: [test]
 ---
 
 # Main Title
@@ -5133,7 +5150,7 @@ describe("Windows line breaks (CRLF)", () => {
     })
   })
 
-  it("edits a CRLF note whose last property is a list of quoted links, keeping its properties", async () => {
+  it("edits a CRLF note whose last property is a list of quoted links, keeping its properties as written with LF line breaks", async () => {
     await writeTestNote(
       "related.md",
       '---\r\ntitle: "C"\r\nrelated:\r\n  - "[[Note]]"\r\n---\r\nA\r\n',
@@ -5144,7 +5161,7 @@ describe("Windows line breaks (CRLF)", () => {
     )
 
     expect(await readTestNote("related.md")).toBe(
-      '---\ntitle: C\nrelated:\n  - "[[Note]]"\n---\nA\n\nZ\n',
+      '---\ntitle: "C"\nrelated:\n  - "[[Note]]"\n---\nA\n\nZ\n',
     )
   })
 })
