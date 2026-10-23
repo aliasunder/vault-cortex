@@ -60,7 +60,8 @@ describe("remedyForCodedError", () => {
       label: "a too-long name on the note itself",
       error: systemError({ code: "ENAMETOOLONG", syscall: "open", path: "/vault/Notes/a.md" }),
       isToolEnabled: everyToolServed,
-      remedy: "The path is too long for the filesystem; use a shorter one.",
+      remedy:
+        "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file.",
     },
     {
       label: "a folder that is a file, from mkdir (EEXIST)",
@@ -141,6 +142,12 @@ describe("remedyForCodedError", () => {
       remedy: "The file or folder changed while the call ran; retry.",
     },
     {
+      label: "a system error with a code the table does not know",
+      error: systemError({ code: "EXDEV", syscall: "rename", path: "/vault/a.md" }),
+      isToolEnabled: everyToolServed,
+      remedy: "Report the error to the vault's owner.",
+    },
+    {
       label: "a SQLite engine error",
       error: Object.assign(new Error("malformed JSON"), {
         name: "SqliteError",
@@ -166,10 +173,6 @@ describe("remedyForCodedError", () => {
         new TypeError("The argument 'path' must be a string without null bytes"),
         { code: "ERR_INVALID_ARG_VALUE" },
       ),
-    },
-    {
-      label: "a system error with a code the table does not know",
-      error: systemError({ code: "EXDEV", syscall: "rename", path: "/vault/a.md" }),
     },
     {
       label: "an error with no code",

@@ -7,13 +7,18 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   createStrictInputObject,
   FILESYSTEM_ERROR_ENTRY,
-  INDEX_ERROR_ENTRY,
+  INDEX_ENGINE_ERROR_ENTRY,
 } from "./tool-helpers.js"
 
-/** The memory tools' filesystem-error entry: the shared one plus where a
- *  shorter name is given, because the memory folder is protected from moves
- *  and the message's rename remedy cannot be followed with a tool. */
-const MEMORY_FILESYSTEM_ERROR_ENTRY = `${FILESYSTEM_ERROR_ENTRY}; a shorter name for an existing memory file is given in Obsidian`
+/** The memory tools' filesystem-error entry: the shared one plus where an
+ *  existing file gets a shorter name, because the message's rename remedy
+ *  names vault_move_note and the memory folder is protected from moves. */
+const MEMORY_FILESYSTEM_ERROR_ENTRY = `${FILESYSTEM_ERROR_ENTRY}; an existing memory file with a too-long name is renamed in Obsidian, since the memory folder is protected from moves`
+
+/** The memory store names a folder standing where the file would go, since a
+ *  folder in the memory folder is the vault owner's. */
+const MEMORY_FILE_IS_FOLDER_ERROR_ENTRY =
+  '- "cannot write memory file …: that path is not a file" — a folder already has this name; choose another file name'
 
 /** The memory store wraps the folder's mkdir failure, since the folder is
  *  server configuration and a file at its path is the vault owner's to move. */
@@ -228,7 +233,7 @@ When to use: Answering "what does my memory say about X?" or "how has my view on
 Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names
-${INDEX_ERROR_ENTRY}`
+${INDEX_ENGINE_ERROR_ENTRY}`
   const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file.`
 
   // The recall description leads with its matching mode — hybrid semantic
@@ -329,6 +334,7 @@ Errors:
 - "memory file must not start with a dot" / "memory file must be a bare name without path separators" — use a bare file name: no folder or slash, and no leading dot.
 - "section not created: … is nearly identical to existing section …" — the name differs from an existing heading only by an HTML-entity slip, a typo, or spacing; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section. Names differing only in digits (e.g. "2025" vs "2026") count as different.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
+${MEMORY_FILE_IS_FOLDER_ERROR_ENTRY}
 ${MEMORY_FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_FOLDER_ERROR_ENTRY}
 ${MEMORY_BLOCK_WRITE_ERROR_ENTRY}

@@ -9,6 +9,7 @@ import {
   createStrictInputObject,
   formatNoteMetadata,
   dateFilterSchema,
+  INDEX_ENGINE_ERROR_ENTRY,
   INDEX_ERROR_ENTRY,
 } from "./tool-helpers.js"
 
@@ -270,7 +271,7 @@ Prefer vault_search_by_tag once you know which tag to query — it supports hier
 
 Errors:
 - A vault with no tagged notes returns an empty array, not an error.
-${INDEX_ERROR_ENTRY}
+${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { tag, count }; tag omits the "#" prefix.`,
       inputSchema: {},
@@ -422,7 +423,7 @@ Behavior:
 
 Errors:
 - An empty vault or folder returns an empty array, not an error.
-${INDEX_ERROR_ENTRY}
+${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending, then by key.`,
       inputSchema: {
@@ -470,7 +471,7 @@ Behavior:
 
 Errors:
 - An unknown key or empty folder returns an empty array, not an error.
-${INDEX_ERROR_ENTRY}
+${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { value, count } sorted by count descending, then by value in binary text order ("10" before "2").`,
       inputSchema: {
@@ -587,7 +588,7 @@ Returns: JSON with path (the queried note or canvas), backlinks (array of { path
 Errors:
 - "path must end in …" — add the .md or .canvas extension
 - A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links, ${backlinksEmptyResultRemedy}.
-${INDEX_ERROR_ENTRY}`,
+${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
         path: z
           .string()
@@ -636,7 +637,7 @@ Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, b
 Errors:
 - "path must end in …" — add the .md or .canvas extension
 - A path that does not exist, a note or canvas in a dot-prefixed folder, or one created or moved in the last few seconds returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.
-${INDEX_ERROR_ENTRY}`,
+${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
         path: z
           .string()

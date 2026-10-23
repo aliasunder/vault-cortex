@@ -15,7 +15,8 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   FILESYSTEM_ERROR_ENTRY,
-  INDEX_ERROR_ENTRY,
+  INDEX_ENGINE_ERROR_ENTRY,
+  LISTING_FILESYSTEM_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
   describeTextWindow,
   OPENING_BLOCK_ERROR_ENTRY,
@@ -325,7 +326,7 @@ Behavior: Paths come back sorted by vault-relative path in code-unit order (uppe
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
-${filesystemErrorEntry}; until then, pass a folder outside the one it names.
+${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
@@ -1246,7 +1247,7 @@ Errors:
 - "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
 - "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
 ${filesystemErrorEntry}; nothing was written.
-${INDEX_ERROR_ENTRY}
+${INDEX_ENGINE_ERROR_ENTRY}; nothing was written.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.
 

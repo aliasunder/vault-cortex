@@ -7,7 +7,11 @@ import type { AssetReadResult } from "../../vault-operations/asset-operations.js
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { describeTextWindow, FILESYSTEM_ERROR_ENTRY } from "./tool-helpers.js"
+import {
+  describeTextWindow,
+  FILESYSTEM_ERROR_ENTRY,
+  LISTING_FILESYSTEM_ERROR_ENTRY,
+} from "./tool-helpers.js"
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
@@ -229,7 +233,7 @@ Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a d
 Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
-${FILESYSTEM_ERROR_ENTRY}; until then, pass a folder outside the one it names.
+${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).
 

@@ -35,7 +35,7 @@ const describeSystemErrorRemedy = (
       const failedPaths = [error.path, error.dest].filter((path) => path !== undefined)
 
       if (failedPaths.some(isTempSavePath)) return describeTempSaveRemedy(isToolEnabled)
-      return "The path is too long for the filesystem; use a shorter one."
+      return "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
     }
     case "ENOTDIR":
     case "EEXIST": {
@@ -69,13 +69,15 @@ const describeSystemErrorRemedy = (
     case "ENOENT":
     case "EISDIR":
       return "The file or folder changed while the call ran; retry."
+    // A code outside the table (EXDEV, ESTALE) comes from the host's disks or
+    // mounts, which only the owner can change
     default:
-      return undefined
+      return "Report the error to the vault's owner."
   }
 }
 
-/** The remedy sentence for a raw coded error, or undefined for an error the
- *  table does not know (its own text stands). */
+/** The remedy sentence for a raw coded error, or undefined for a coded error
+ *  that is not a filesystem or index failure (its own text stands). */
 export const remedyForCodedError = (params: {
   error: unknown
   isToolEnabled: (name: ToolName) => boolean

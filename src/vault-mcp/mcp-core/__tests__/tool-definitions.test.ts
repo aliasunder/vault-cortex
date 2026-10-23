@@ -1258,7 +1258,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
   ]
   const DELETE_FAILURE_ENTRIES = [
     '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry',
-    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the file when it has one, and who fixes it; the note stays put',
+    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do; the note stays put',
   ]
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
     '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
@@ -3170,7 +3170,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const SHARED_FILESYSTEM_ENTRY =
-    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the file when it has one, and who fixes it'
+    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do'
 
   // The rename remedy, and its gated vault_move_note name, now live in the
   // message the boundary appends (coded-error-remedy.test.ts pins both forms),
@@ -3213,7 +3213,7 @@ describe("DISABLED_TOOLS", () => {
       linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
     })
     expect(filesystemEntry).toBe(
-      `${SHARED_FILESYSTEM_ENTRY}; a shorter name for an existing memory file is given in Obsidian`,
+      `${SHARED_FILESYSTEM_ENTRY}; an existing memory file with a too-long name is renamed in Obsidian, since the memory folder is protected from moves`,
     )
   })
 

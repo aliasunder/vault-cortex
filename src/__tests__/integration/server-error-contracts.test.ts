@@ -703,7 +703,8 @@ describe("path is not a file", () => {
 const PERMISSIONS_REMEDY = "Ask the vault's owner to fix the file's or folder's permissions."
 const FOLDER_IS_FILE_REMEDY =
   "A folder in the path is an existing file; choose a path whose folders are folders."
-const PATH_TOO_LONG_REMEDY = "The path is too long for the filesystem; use a shorter one."
+const PATH_TOO_LONG_REMEDY =
+  "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
 const TEMP_SAVE_REMEDY =
   "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note, with vault_move_note)."
 const LINK_LOOP_REMEDY =

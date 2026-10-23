@@ -237,17 +237,25 @@ export const OPENING_BLOCK_ERROR_ENTRY =
 /** The Errors entry of every tool that reads or writes a vault file, for a
  *  raw filesystem error. The message is Node's with the path made
  *  vault-relative, plus the remedy sentence the tool boundary appends
- *  (coded-error-remedy.ts), so the entry names no remedy itself. A write that
- *  fails after the file is open (a full disk) carries no path, hence "when
- *  it has one". */
+ *  (coded-error-remedy.ts), so the entry names no remedy itself. */
 export const FILESYSTEM_ERROR_ENTRY =
-  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the file when it has one, and who fixes it'
+  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do'
 
-/** The Errors entry of every tool that reads the search index: a SQLite
- *  engine failure or a stored row the server cannot read back, both with the
- *  remedy appended at the boundary. */
+/** The listing tools' form of the entry: one unreadable folder fails the whole
+ *  listing, and the caller can list around it. */
+export const LISTING_FILESYSTEM_ERROR_ENTRY =
+  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the folder it could not read, and what to do; until then, pass a folder outside it'
+
+/** The Errors entry of a tool that reads stored index rows back through the
+ *  parsers in search-helpers.ts: a SQLite engine failure or a row the server
+ *  cannot read, both with the remedy appended at the boundary. */
 export const INDEX_ERROR_ENTRY =
   '- "[SqliteError]: …" / "[IndexIntegrityError]: …" — the search index failed, not the call; the message says what to do'
+
+/** The entry for a tool whose index query returns columns as they are, so
+ *  only the engine itself can fail. */
+export const INDEX_ENGINE_ERROR_ENTRY =
+  '- "[SqliteError]: …" — the search index failed, not the call; the message says what to do'
 
 /** The Errors entry of every tool that rewrites a note. A tool that rewrites
  *  the note only in one mode passes that mode as rewriteCondition
