@@ -86,17 +86,47 @@ const accessToken = ({
 
 describe("authorizer handler", () => {
   it("authorizes the static token", async () => {
+    recordedLogs.length = 0
     const result = await handler(protectedRequest(`Bearer ${SECRET}`))
     expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "static" },
+    })
+  })
+
+  it("authorizes the static token while PUBLIC_URL is empty", async () => {
+    // The static token carries no deployment binding, so a misconfigured
+    // PUBLIC_URL must not lock out the one credential that still works.
+    vi.stubEnv("PUBLIC_URL", "")
+    recordedLogs.length = 0
+    onTestFinished(() => {
+      vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
+    })
+    const result = await handler(protectedRequest(`Bearer ${SECRET}`))
+    expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "static" },
+    })
   })
 
   it("authorizes a JWT minted for this deployment", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://mcp.example.com/",
       aud: "https://mcp.example.com/mcp",
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: true })
+    // Pins the valid branch: the expired branch also authorizes.
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "jwt" },
+    })
   })
 
   it("forwards an expired JWT minted for this deployment so Express can challenge it", async () => {
@@ -119,6 +149,7 @@ describe("authorizer handler", () => {
 
   it("derives issuer from full URL and audience from origin when URL has a path", async () => {
     vi.stubEnv("PUBLIC_URL", "https://mcp.example.com/vault/")
+    recordedLogs.length = 0
     onTestFinished(() => {
       vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
     })
@@ -130,18 +161,29 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "jwt" },
+    })
   })
 
   it("denies a same-secret JWT minted for another deployment", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://mcp.example.com/",
       aud: "https://other.example/mcp",
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies an expired same-secret JWT minted for another deployment", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://mcp.example.com/",
       aud: "https://other.example/mcp",
@@ -149,9 +191,14 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies an expired JWT signed with another secret", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://mcp.example.com/",
       aud: "https://mcp.example.com/mcp",
@@ -160,6 +207,10 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies an unexpired same-secret JWT without an audience", async () => {
@@ -192,15 +243,21 @@ describe("authorizer handler", () => {
   })
 
   it("denies a same-secret JWT from another issuer", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://other.example/",
       aud: "https://mcp.example.com/mcp",
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it("denies an expired same-secret JWT from another issuer", async () => {
+    recordedLogs.length = 0
     const token = accessToken({
       iss: "https://other.example/",
       aud: "https://mcp.example.com/mcp",
@@ -208,6 +265,10 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: token invalid",
+    })
   })
 
   it.each([
@@ -218,10 +279,13 @@ describe("authorizer handler", () => {
     expect(result).toEqual({ isAuthorized: true })
   })
 
+  // sst.config.ts routes every one of these paths to the protected catch-all.
   it.each([
-    { label: "an open path's name", path: "/tokens" },
-    { label: "another open path's name", path: "/healthz-extra" },
-  ])("checks the token on a path that only starts with $label", async ({ path }) => {
+    { label: "a path that only starts with an open path's name", path: "/tokens" },
+    { label: "a path that only starts with another open path's name", path: "/healthz-extra" },
+    { label: "a path below an open path", path: "/register/client-1" },
+    { label: "a path that only starts with an open folder's name", path: "/oauth-admin" },
+  ])("checks the token on $label", async ({ path }) => {
     recordedLogs.length = 0
 
     const result = await handler(requestTo(path, "Bearer not-a-token"))
@@ -234,8 +298,13 @@ describe("authorizer handler", () => {
   })
 
   it("denies a malformed Authorization header", async () => {
+    recordedLogs.length = 0
     const result = await handler(protectedRequest("Basic abc"))
     expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "warn",
+      message: "auth_failed: missing or malformed Authorization header",
+    })
   })
 
   it("denies when PUBLIC_URL is not a URL", async () => {

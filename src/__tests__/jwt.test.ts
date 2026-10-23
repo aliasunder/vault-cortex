@@ -218,31 +218,35 @@ describe("verifyJwt", () => {
   })
 
   it("returns null for a payload missing required fields", () => {
-    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-    const body = Buffer.from(JSON.stringify({ foo: "bar" })).toString("base64url")
-    const sig = createHmac("sha256", SECRET)
-      .update(`${header}.${body}`)
-      .digest()
-      .toString("base64url")
-    expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
+    const token = signClaims({ foo: "bar" }, SECRET)
+    expect(verify(token, SECRET)).toBeNull()
+  })
+
+  it("returns null for a payload without sub", () => {
+    const token = signClaims(
+      {
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: ISSUER,
+        aud: AUDIENCE,
+      },
+      SECRET,
+    )
+    expect(verify(token, SECRET)).toBeNull()
   })
 
   it("returns null when exp is a string instead of number", () => {
-    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-    const body = Buffer.from(
-      JSON.stringify({
+    const token = signClaims(
+      {
         sub: "x",
         scope: "vault",
         exp: "not-a-number",
         iss: ISSUER,
         aud: AUDIENCE,
-      }),
-    ).toString("base64url")
-    const sig = createHmac("sha256", SECRET)
-      .update(`${header}.${body}`)
-      .digest()
-      .toString("base64url")
-    expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
+      },
+      SECRET,
+    )
+    expect(verify(token, SECRET)).toBeNull()
   })
 
   it("returns null when the issuer differs from the expected issuer", () => {
@@ -264,20 +268,16 @@ describe("verifyJwt", () => {
   })
 
   it("returns null for a payload without an audience", () => {
-    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-    const body = Buffer.from(
-      JSON.stringify({
+    const token = signClaims(
+      {
         sub: "x",
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
         iss: ISSUER,
-      }),
-    ).toString("base64url")
-    const sig = createHmac("sha256", SECRET)
-      .update(`${header}.${body}`)
-      .digest()
-      .toString("base64url")
-    expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
+      },
+      SECRET,
+    )
+    expect(verify(token, SECRET)).toBeNull()
   })
 
   it("accepts a token without iat", () => {
@@ -309,6 +309,12 @@ describe("verifyJwt", () => {
       SECRET,
     )
     expect(verify(token, SECRET)).toBeNull()
+  })
+
+  it("returns null for an unsigned token whose header claims alg none", () => {
+    const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url")
+    const body = Buffer.from(JSON.stringify(buildPayload())).toString("base64url")
+    expect(verify(`${header}.${body}.`, SECRET)).toBeNull()
   })
 
   it("returns null for a signature of correct length but wrong bytes", () => {
