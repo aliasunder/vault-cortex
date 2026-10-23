@@ -9,21 +9,20 @@ import { TEMP_SAVE_SUFFIX_BYTES, isTempSavePath } from "../vault-operations/vaul
 import type { ToolName } from "./tool-registry.js"
 
 const INDEX_REMEDY =
-  "The server's search index could not be read; the call was not at fault. Retry once, then report a repeat to the server's owner."
+  "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
 
 const CHANGED_DURING_CALL_REMEDY = "The file or folder changed while the call ran; retry."
 
-// A Node system error names its syscall and the path it failed on, plus a
-// second path (`dest`) for rename and link. A coded error without a syscall
-// (an ERR_* TypeError on the arguments) gets no remedy
-type SystemError = NodeJS.ErrnoException & { syscall: string; dest?: string }
+// A Node system error names its syscall and the path it failed on. A coded
+// error without a syscall (an ERR_* TypeError on the arguments) gets no remedy
+type SystemError = NodeJS.ErrnoException & { syscall: string }
 
 const isSystemError = (error: NodeJS.ErrnoException): error is SystemError => {
   return typeof error.syscall === "string"
 }
 
 const describeTempSaveRemedy = (isToolEnabled: (name: ToolName) => boolean): string => {
-  const renameToolClause = isToolEnabled("vault_move_note") ? ", with vault_move_note" : ""
+  const renameToolClause = isToolEnabled("vault_move_note") ? " with vault_move_note" : ""
 
   return `The name leaves no room for the temporary file a save writes beside it; save it under a name at least ${TEMP_SAVE_SUFFIX_BYTES} bytes shorter (rename an existing note${renameToolClause}).`
 }
@@ -33,10 +32,10 @@ const describeSystemErrorRemedy = (
   isToolEnabled: (name: ToolName) => boolean,
 ): string => {
   switch (error.code) {
+    // The temp file is always the failing path: a save writes it first, and
+    // the rename or link that follows targets the shorter final name
     case "ENAMETOOLONG": {
-      const failedPaths = [error.path, error.dest].filter((path) => path !== undefined)
-
-      if (failedPaths.some(isTempSavePath)) return describeTempSaveRemedy(isToolEnabled)
+      if (error.path && isTempSavePath(error.path)) return describeTempSaveRemedy(isToolEnabled)
       return "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
     }
     case "ENOTDIR":

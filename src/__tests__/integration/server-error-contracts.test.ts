@@ -706,7 +706,7 @@ const FOLDER_IS_FILE_REMEDY =
 const PATH_TOO_LONG_REMEDY =
   "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
 const TEMP_SAVE_REMEDY =
-  "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note, with vault_move_note)."
+  "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note with vault_move_note)."
 const LINK_LOOP_REMEDY =
   "The path goes through a symbolic-link loop; ask the vault's owner to fix the link."
 
@@ -3214,7 +3214,7 @@ describe("date filter values", () => {
 // ── Damaged index rows ───────────────────────────────────────
 
 const INDEX_REMEDY =
-  "The server's search index could not be read; the call was not at fault. Retry once, then report a repeat to the server's owner."
+  "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
 
 describe("a damaged index row carries the index remedy", () => {
   /** A server of this block's own, so corrupting its index never reaches the

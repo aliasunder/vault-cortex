@@ -11,22 +11,15 @@ const systemError = (fields: {
   code: string
   syscall: string
   path?: string
-  dest?: string
 }): NodeJS.ErrnoException => {
-  const quotedPaths = [fields.path, fields.dest]
-    .filter((path) => path !== undefined)
-    .map((path) => `'${path}'`)
-    .join(" -> ")
-  return Object.assign(
-    new Error(`${fields.code}: failed, ${fields.syscall} ${quotedPaths}`),
-    fields,
-  )
+  const quotedPath = fields.path ? ` '${fields.path}'` : ""
+  return Object.assign(new Error(`${fields.code}: failed, ${fields.syscall}${quotedPath}`), fields)
 }
 
 const TEMP_SAVE_PATH = "/vault/Notes/a.md.123e4567-e89b-12d3-a456-426614174000.tmp"
 
 const INDEX_REMEDY =
-  "The server's search index could not be read; the call was not at fault. Retry once, then report a repeat to the server's owner."
+  "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
 
 describe("remedyForCodedError", () => {
   it.each([
@@ -35,23 +28,11 @@ describe("remedyForCodedError", () => {
       error: systemError({ code: "ENAMETOOLONG", syscall: "open", path: TEMP_SAVE_PATH }),
       isToolEnabled: everyToolServed,
       remedy:
-        "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note, with vault_move_note).",
+        "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note with vault_move_note).",
     },
     {
       label: "a too-long name on the save's temp file, rename tool not served",
       error: systemError({ code: "ENAMETOOLONG", syscall: "open", path: TEMP_SAVE_PATH }),
-      isToolEnabled: noToolServed,
-      remedy:
-        "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note).",
-    },
-    {
-      label: "a too-long name on a rename whose destination is the temp file",
-      error: systemError({
-        code: "ENAMETOOLONG",
-        syscall: "rename",
-        path: "/vault/Notes/a.md",
-        dest: TEMP_SAVE_PATH,
-      }),
       isToolEnabled: noToolServed,
       remedy:
         "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note).",
