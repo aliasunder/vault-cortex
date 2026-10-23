@@ -3213,7 +3213,7 @@ describe("DISABLED_TOOLS", () => {
       linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
     })
     expect(filesystemEntry).toBe(
-      `${SHARED_FILESYSTEM_ENTRY}; an existing memory file with a too-long name is renamed in Obsidian, since the memory folder is protected from moves`,
+      `${SHARED_FILESYSTEM_ENTRY}; rename an existing memory file with a too-long name in Obsidian`,
     )
   })
 

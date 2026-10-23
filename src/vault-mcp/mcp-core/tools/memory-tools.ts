@@ -12,8 +12,9 @@ import {
 
 /** The memory tools' filesystem-error entry: the shared one plus where an
  *  existing file gets a shorter name, because the message's rename remedy
- *  names vault_move_note and the memory folder is protected from moves. */
-const MEMORY_FILESYSTEM_ERROR_ENTRY = `${FILESYSTEM_ERROR_ENTRY}; an existing memory file with a too-long name is renamed in Obsidian, since the memory folder is protected from moves`
+ *  names vault_move_note and the memory folder is protected from moves by
+ *  default. */
+const MEMORY_FILESYSTEM_ERROR_ENTRY = `${FILESYSTEM_ERROR_ENTRY}; rename an existing memory file with a too-long name in Obsidian`
 
 /** The memory store names a folder standing where the file would go, since a
  *  folder in the memory folder is the vault owner's. */
