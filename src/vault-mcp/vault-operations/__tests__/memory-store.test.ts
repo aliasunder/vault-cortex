@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { parseNote } from "../../obsidian-markdown/frontmatter.js"
+import { parseNote, UnkeepableOpeningBlockError } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 import { runsAsRoot } from "../../../__tests__/runs-as-root.js"
@@ -3401,4 +3401,58 @@ describe("memory file with a properties block the server cannot read or keep", (
       `${STACKED_BLOCK_PREFIX}# Broken\n\n## Notes (newest first)\n`,
     )
   })
+
+  // Each file has no properties block as written, but its opening lines would
+  // become one once saved: the save drops one of two BOMs, or one of two CRs
+  const OPENS_A_BLOCK_WHEN_SAVED_CASES = [
+    { label: "two leading BOMs", prefix: "\uFEFF\uFEFF---\ntitle: [unclosed\n---\n" },
+    { label: "a first line of --- and two CRs", prefix: "---\r\r\ntitle: [unclosed\n---\n" },
+  ]
+
+  const OPENS_A_BLOCK_MESSAGE =
+    'memory file "About Me/Broken.md": the note would open with a properties block the server cannot keep: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]'
+
+  it.each(OPENS_A_BLOCK_WHEN_SAVED_CASES)(
+    "updateMemory refuses a file with $label and leaves it unchanged",
+    async ({ prefix }) => {
+      const content = buildMemoryFile(prefix)
+      await plantBrokenFile(content)
+
+      await expect(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Broken",
+            section: "Notes (newest first)",
+            entry: "new entry",
+            date: "2026-05-06",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new UnkeepableOpeningBlockError(OPENS_A_BLOCK_MESSAGE))
+      expect(await readBrokenFile()).toBe(content)
+    },
+  )
+
+  it.each(OPENS_A_BLOCK_WHEN_SAVED_CASES)(
+    "deleteMemory refuses a file with $label and leaves it unchanged",
+    async ({ prefix }) => {
+      const content = buildMemoryFile(prefix)
+      await plantBrokenFile(content)
+
+      await expect(
+        deleteMemory(
+          {
+            vaultPath: vault,
+            file: "Broken",
+            section: "Notes (newest first)",
+            date: "2026-05-05",
+            entry: "kept entry",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new UnkeepableOpeningBlockError(OPENS_A_BLOCK_MESSAGE))
+      expect(await readBrokenFile()).toBe(content)
+    },
+  )
 })

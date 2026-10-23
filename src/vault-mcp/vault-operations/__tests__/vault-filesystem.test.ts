@@ -2974,9 +2974,13 @@ describe("readNoteOutline", () => {
       "utf8",
     )
     // The properties read refuses this block, so the outline below skips it
-    await expect(
+    const propertiesRefusal = await captureRejection(
       readNoteProperties({ vaultPath: vault, path: "broken-block.md" }, logger),
-    ).rejects.toMatchObject({ kind: "invalid-yaml", message: UNCLOSED_FLOW_MESSAGE })
+    )
+    expect(describeRefusal(propertiesRefusal)).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
 
     expect(await readNoteOutline({ vaultPath: vault, path: "broken-block.md" }, logger)).toEqual({
       ...(await getExpectedFileMetadata("broken-block.md")),
@@ -3326,9 +3330,13 @@ describe("readNoteSection", () => {
       "utf8",
     )
     // The properties read refuses this block, so the section read below skips it
-    await expect(
+    const propertiesRefusal = await captureRejection(
       readNoteProperties({ vaultPath: vault, path: "broken-block.md" }, logger),
-    ).rejects.toMatchObject({ kind: "invalid-yaml", message: UNCLOSED_FLOW_MESSAGE })
+    )
+    expect(describeRefusal(propertiesRefusal)).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
 
     const section = await readNoteSection(
       { vaultPath: vault, path: "broken-block.md", heading: "Plan" },

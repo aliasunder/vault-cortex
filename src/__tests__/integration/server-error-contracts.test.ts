@@ -1087,6 +1087,19 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
   })
 
   it.skipIf(runsAsRoot)(
+    "vault_list_memory_files fails the whole listing on a memory file it cannot open",
+    async () => {
+      await plantFileWithMode({ filePath: "About Me/Locked.md", mode: 0o000 })
+
+      const result = await callTool({ client, name: "vault_list_memory_files", args: {} })
+      expect(result).toEqual({
+        content: [{ type: "text", text: '[Error]: cannot read memory file "About Me/Locked.md"' }],
+        isError: true,
+      })
+    },
+  )
+
+  it.skipIf(runsAsRoot)(
     "vault_get_memory on a memory folder it cannot open names the folder",
     async () => {
       const memoryFolder = join(serverVaultPath, "About Me")
@@ -1364,6 +1377,31 @@ describe("unreadable properties blocks", () => {
 
     expect(result.isError).toBe(true)
     expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(await readFile(fullPath, "utf8")).toBe(original)
+  })
+
+  // The file has no properties block as written; the save drops one of its
+  // two BOMs, so its opening lines would become a block the server cannot keep
+  it("refuses a vault_update_memory write that would open the file with a properties block", async () => {
+    const original =
+      "\uFEFF\uFEFF---\ntitle: [unclosed\n---\n## Notes (newest first)\n- **2026-05-05**: kept entry\n"
+    const fullPath = await plantNote("About Me/Two BOMs.md", original)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: {
+        file: "Two BOMs",
+        section: "Notes (newest first)",
+        entry: "new entry",
+        options: { date: "2026-05-06" },
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textContent(result)).toBe(
+      `[Error]: memory file "About Me/Two BOMs.md": the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    )
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 

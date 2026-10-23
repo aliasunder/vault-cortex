@@ -31,6 +31,12 @@ const MEMORY_FOLDER_ERROR_ENTRY =
 const MEMORY_FILE_READ_ERROR_ENTRY =
   "- \"cannot read memory file …\" — the file can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise its permissions need the vault's owner"
 
+/** A memory write keeps the file's properties block, so it refuses only a
+ *  file with no block whose opening lines would become one once saved: two
+ *  leading BOMs (the save drops one) or a first line of `---` and two CRs. */
+const MEMORY_OPENING_BLOCK_ERROR_ENTRY =
+  "- \"memory file …: the note would open with a properties block …\" — saving would turn the file's opening lines into a properties block the server can't keep; the error says how to avoid it"
+
 export const registerMemoryTools = ({
   registerTool,
   safeHandler,
@@ -191,6 +197,7 @@ Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by f
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
 - "cannot list memory folder …" — a file sits where the memory folder belongs, or its permissions need the vault's owner
+- "cannot read memory file …" — one listed file can't be read, which fails the whole listing; retry once, then ask the vault's owner to check that file
 
 Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); bytes is the on-disk file size; headings lists H1 and H2 headings in order, with entry_count on H2s; leading_callout is the top-of-file callout ({ type, title, body }; by convention a "Scope of this file" block describing what belongs in the file), or null; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter). The server does not enforce either policy.`,
       inputSchema: {},
@@ -325,6 +332,7 @@ ${MEMORY_FILE_READ_ERROR_ENTRY}
 ${MEMORY_FILE_IS_FOLDER_ERROR_ENTRY}
 ${MEMORY_FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_FOLDER_ERROR_ENTRY}
+${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a note to fill in the placeholder scope callout when the file is new; an exact duplicate returns "Entry already exists in ${config.memoryDir}/<file>.md → ## <section> — nothing was written."`,
       inputSchema: {
@@ -429,6 +437,7 @@ Errors:
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
 ${MEMORY_FILESYSTEM_ERROR_ENTRY}
+${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: "Deleted entry from ${config.memoryDir}/<file>.md → ## <section>".`,
       inputSchema: {
