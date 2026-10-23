@@ -202,6 +202,7 @@ Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by f
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
+- "cannot list memory folder …" — a file sits where the memory folder belongs, or its permissions need the vault's owner
 ${MEMORY_BLOCK_READ_ERROR_ENTRY}; one such file fails the whole listing
 
 Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); bytes is the on-disk file size; headings lists H1 and H2 headings in order, with entry_count on H2s; leading_callout is the top-of-file callout ({ type, title, body }; by convention a "Scope of this file" block describing what belongs in the file), or null; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter). The server does not enforce either policy.`,
