@@ -1445,35 +1445,35 @@ describe("task line mutations", () => {
     })
   })
 
-  // ── getTaskIndent ──────────────────────────────────────────────
+  // ── getStructuralIndent ──────────────────────────────────────────────
 
-  describe("getTaskIndent", () => {
+  describe("getStructuralIndent", () => {
     it("returns 0 for a top-level task", () => {
-      expect(tasks.getTaskIndent("- [ ] Top level")).toBe(0)
+      expect(tasks.getStructuralIndent("- [ ] Top level")).toBe(0)
     })
 
     it("returns 2 for a 2-space indented sub-task", () => {
-      expect(tasks.getTaskIndent("  - [ ] Sub-task")).toBe(2)
+      expect(tasks.getStructuralIndent("  - [ ] Sub-task")).toBe(2)
     })
 
     it("returns 4 for a 4-space indented sub-task", () => {
-      expect(tasks.getTaskIndent("    - [ ] Deep sub-task")).toBe(4)
+      expect(tasks.getStructuralIndent("    - [ ] Deep sub-task")).toBe(4)
     })
 
     it("returns tab width for tab-indented sub-task", () => {
-      expect(tasks.getTaskIndent("\t- [ ] Tab sub-task")).toBe(1)
+      expect(tasks.getStructuralIndent("\t- [ ] Tab sub-task")).toBe(1)
     })
 
     it("strips blockquote markers before measuring", () => {
-      expect(tasks.getTaskIndent("> - [ ] Blockquoted top")).toBe(0)
+      expect(tasks.getStructuralIndent("> - [ ] Blockquoted top")).toBe(0)
     })
 
     it("strips nested blockquote markers", () => {
-      expect(tasks.getTaskIndent("> > - [ ] Nested blockquote")).toBe(0)
+      expect(tasks.getStructuralIndent("> > - [ ] Nested blockquote")).toBe(0)
     })
 
     it("measures indent after blockquote markers", () => {
-      expect(tasks.getTaskIndent(">   - [ ] Indented in blockquote")).toBe(2)
+      expect(tasks.getStructuralIndent(">   - [ ] Indented in blockquote")).toBe(2)
     })
   })
 

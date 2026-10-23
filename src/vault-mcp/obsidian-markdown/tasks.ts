@@ -17,11 +17,12 @@
  *  formats; new fields are written in the format specified by TaskFormatConfig
  *  (auto-detected from the Tasks plugin settings, overridable per call).
  *
- *  Like links.ts, the raw grammar regexes stay module-private behind the
- *  `tasks` namespace: one is `/g` (shared `lastIndex` footgun) and the
- *  `$`-anchored field regexes are only meaningful inside the stripping loop.
- *  BLOCK_LINK_RE is the one exported regex: it is non-global and reads a
- *  whole line's trailing block id, so it is safe to use outside the loop. */
+ *  Like the `links` namespace in links.ts, the raw grammar regexes stay
+ *  module-private behind the `tasks` namespace: HASHTAG_RE is `/g` (shared
+ *  `lastIndex` footgun) and the `$`-anchored field regexes are only
+ *  meaningful inside the stripping loop. BLOCK_LINK_RE is the one exported
+ *  regex: it is non-global and reads a whole line's trailing block id, so it
+ *  is safe to use outside the loop. */
 
 import { DateTime } from "luxon"
 import { advanceComment, advanceFence, type OpenFence, splitIntoLines } from "./lines.js"
@@ -99,12 +100,12 @@ export type ParsedTask = Readonly<{
  *  `1.` / `1)`), one or more spaces, and `[c]` with exactly one status
  *  character. Captures: [1] status character, [2] everything after the
  *  checkbox. Anchored and non-global — safe for .exec(). */
-const TASK_LINE_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\] *(.*)$/u
+const TASK_LINE_RE = /^[\s>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\] *(.*)$/u
 
 /** Matches any list item — the same prefix and marker grammar as
  *  TASK_LINE_RE without the checkbox. A non-task item at a task's indent
  *  ends that task's list, so it must close the task's sub-task scope too. */
-const LIST_ITEM_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) /u
+const LIST_ITEM_RE = /^[\s>]*(?:[-*+]|[0-9]+[.)]) /u
 
 /** Matches a trailing block link ` ^block-id` at the very end of the line.
  *  Captures the ID without the caret (group 1). The plugin strips this before
@@ -151,8 +152,9 @@ const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/
 // fields are matched and removed from the end of the line until none are left.
 //
 // Dataview regexes mirror toInlineFieldRegex(): the `key:: value` pair wrapped
-// in matching `[...]` or `(...)` (lookaheads reject mismatched pairs), with an
-// optional trailing comma, anchored to line end.
+// in matching `[...]` or `(...)`, with an optional trailing comma, anchored to
+// line end. Each opener's lookahead requires its own closer before the line
+// ends, so a mismatched pair such as `[due:: 2026-01-01)` does not match.
 
 /** The allowed characters in a single 🆔 / `id::` task ID. */
 const TASK_ID = /[a-zA-Z0-9_-]+/
@@ -273,8 +275,7 @@ const PRIORITY_BY_WORD: Readonly<Record<string, TaskPriority>> = {
 // ── Status mapping ──────────────────────────────────────────────
 
 /** The Tasks plugin's built-in statuses — what the registry holds when the
- *  plugin config is absent. Classifies every char the way statusForChar
- *  does without a registry. */
+ *  plugin config is absent. */
 export const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
   [" ", "todo"],
   ["x", "done"],
@@ -283,22 +284,14 @@ export const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> 
   ["-", "cancelled"],
 ])
 
-/** Maps a checkbox character to a status classification. With a registry
- *  (from the Tasks plugin config), the registry lookup wins and unknown
- *  chars fall back to "todo". Without a registry, the four built-in chars
- *  are hardcoded — backward compat for callers that don't have a config. */
+/** Maps a checkbox character to a status classification through the registry
+ *  (from the Tasks plugin config), or the built-in statuses for a caller
+ *  without one. A char the registry does not list is "todo". */
 const statusForChar = (
   statusChar: string,
   statusRegistry?: ReadonlyMap<string, StatusClassification>,
 ): StatusClassification => {
-  if (statusRegistry) {
-    return statusRegistry.get(statusChar) ?? "todo"
-  }
-
-  if (statusChar === "x" || statusChar === "X") return "done"
-  if (statusChar === "-") return "cancelled"
-  if (statusChar === "/") return "in_progress"
-  return "todo"
+  return (statusRegistry ?? DEFAULT_STATUS_REGISTRY).get(statusChar) ?? "todo"
 }
 
 // ── Metadata parsing ────────────────────────────────────────────
@@ -338,11 +331,27 @@ const capturedGroup = (match: RegExpExecArray, index: number): string => {
   return value
 }
 
+/** Looks a captured priority up in its table. The priority regexes capture
+ *  only the table's keys, so a miss means a regex and its table disagree. */
+const capturedPriority = (
+  captured: string,
+  priorityTable: Readonly<Record<string, TaskPriority>>,
+): TaskPriority => {
+  const priority = priorityTable[captured]
+
+  if (!priority) {
+    throw new Error(`no priority level for the captured "${captured}"`)
+  }
+  return priority
+}
+
 /** Strips metadata fields off the end of a task body, mirroring the plugin's
- *  deserialize(): each pass tries every field regex (all `$`-anchored) and
- *  removes what matches; the loop repeats until a pass matches nothing. Tags
- *  interleaved with signifiers are stripped too, then re-appended, so they
- *  stay part of the description without blocking fields to their left. */
+ *  deserialize():
+ *  - each pass tries every field regex (all `$`-anchored) and removes what
+ *    matches; the loop repeats until a pass matches nothing;
+ *  - a field written twice keeps its leftmost value, the one stripped last;
+ *  - tags interleaved with signifiers are stripped too, then re-appended, so
+ *    they stay part of the description without blocking fields to their left. */
 const parseTaskMetadata = (taskBody: string): TaskMetadata => {
   // The stripping loop is inherently sequential — every match shortens the
   // line and later passes depend on it — so mutable locals thread the parser
@@ -384,10 +393,10 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     matchedThisPass = false
 
     extractField(EMOJI_PRIORITY_RE, (match) => {
-      priority = PRIORITY_BY_EMOJI[capturedGroup(match, 1)] ?? priority
+      priority = capturedPriority(capturedGroup(match, 1), PRIORITY_BY_EMOJI)
     })
     extractField(DATAVIEW_PRIORITY_RE, (match) => {
-      priority = PRIORITY_BY_WORD[capturedGroup(match, 1)] ?? priority
+      priority = capturedPriority(capturedGroup(match, 1), PRIORITY_BY_WORD)
     })
 
     for (const field of DATE_FIELDS) {
@@ -471,9 +480,11 @@ const splitIdSequence = (idSequence: string): string[] =>
 /** Collects every inline #tag in a description, deduplicated and stored bare
  *  (no "#") to match the notes table tag format used by vault_list_tags and
  *  vault_search_by_tag. */
-const extractInlineTags = (description: string): string[] => [
-  ...new Set([...description.matchAll(HASHTAG_RE)].map((match) => match[0].trim().slice(1))),
-]
+const extractInlineTags = (description: string): string[] => {
+  const hashtagMatches = [...description.matchAll(HASHTAG_RE)]
+  const bareTags = hashtagMatches.map((match) => match[0].trim().slice(1))
+  return [...new Set(bareTags)]
+}
 
 // ── Note scanning ───────────────────────────────────────────────
 
@@ -558,7 +569,7 @@ const scanBodyLinesForTasks = ({
       // sibling, so tasks nested under it belong to it, not to the earlier
       // task — drop the entries it closes. It is never a parent itself.
       if (LIST_ITEM_RE.test(lineText)) {
-        indentStack = ancestorsOf(indentStack, getTaskIndent(lineText))
+        indentStack = ancestorsOf(indentStack, getStructuralIndent(lineText))
       }
       continue
     }
@@ -572,7 +583,7 @@ const scanBodyLinesForTasks = ({
     // After this guard, resolvedStatus is narrowed to TaskStatus
     // (StatusClassification is TaskStatus | "non_task").
     if (resolvedStatus === "non_task") {
-      indentStack = ancestorsOf(indentStack, getTaskIndent(lineText))
+      indentStack = ancestorsOf(indentStack, getStructuralIndent(lineText))
       continue
     }
 
@@ -583,7 +594,7 @@ const scanBodyLinesForTasks = ({
 
     const nearestHeading = headings.findLast((heading) => heading.startLine < lineIndex)
 
-    const taskIndent = getTaskIndent(lineText)
+    const taskIndent = getStructuralIndent(lineText)
     const ancestors = ancestorsOf(indentStack, taskIndent)
     const parentEntry = ancestors.at(-1)
     const depth = ancestors.length
@@ -606,8 +617,8 @@ const scanBodyLinesForTasks = ({
   return extractedTasks
 }
 
-/** Extracts the tasks in a whole note, skipping its properties block with the
- *  rule every read uses, so reported line numbers are the file's own. */
+/** Extracts the tasks in a whole note, skipping its properties block where
+ *  splitPropertiesBlock ends it, so reported line numbers are the file's own. */
 const extractTasks = (
   rawContent: string,
   statusRegistry?: ReadonlyMap<string, StatusClassification>,
@@ -664,8 +675,9 @@ const charForStatus = (
       if (classification === status) return char
     }
     // The registry has no char for this status. The hardcoded fallback is
-    // safe only if the registry reads it back as the same status — an absent
-    // char defaults to "todo" in statusForChar, so only "todo" is safe untyped.
+    // safe only if the registry reads it back as the same status. A char the
+    // registry does not list reads back as "todo", so such a fallback is safe
+    // for "todo" alone.
     const fallback = CHAR_FOR_STATUS[status]
     const fallbackReadBack = statusRegistry.get(fallback) ?? "todo"
 
@@ -746,8 +758,9 @@ const FIRST_METADATA_SIGNIFIER_RE =
 /** Returns true when a line is a checkbox task line. */
 const isTaskLine = (line: string): boolean => TASK_LINE_RE.test(line)
 
-/** Replaces the checkbox character in a task line, e.g. `[/]` → `[x]`.
- *  Returns the line unchanged if it's not a task line. */
+/** Replaces the checkbox character in a task line, e.g. `[/]` → `[x]`. It
+ *  rewrites the first `[c]` on the line, which on a task line is always the
+ *  checkbox, since no `[` can come before it. */
 const replaceCheckboxChar = ({
   taskLine,
   newChar,
@@ -760,7 +773,8 @@ const replaceCheckboxChar = ({
  *  Description text ending in a parseable signifier lands at the front of
  *  the tail, and the real field sits to its right (fields are appended
  *  after existing content) — a first-occurrence strip would delete the
- *  description text and keep the stale field. */
+ *  description text and keep the stale field. The double space a removal
+ *  leaves collapses to one, and the result is trimmed. */
 const removeLastMetadataMatch = (metadata: string, regex: RegExp): string => {
   // A fresh global twin per call — the shared constants stay non-global so
   // .exec call sites never carry a lastIndex.
@@ -828,6 +842,8 @@ const formatDependsOn = (dependsOn: readonly string[], format: "emoji" | "datavi
 /** The six date-field keys in the Tasks plugin's canonical ordering. */
 type DateFieldKey = "created" | "start" | "scheduled" | "due" | "done" | "cancelled"
 
+/** The write side of the date fields, in line order. DATE_FIELDS holds the
+ *  read side: its `$`-anchored regexes, in the plugin's extraction order. */
 const DATE_FIELD_INFO: ReadonlyArray<{
   key: DateFieldKey
   emoji: string
@@ -1071,7 +1087,7 @@ type TaskLineParts = {
 
 /** Same prefix grammar as TASK_LINE_RE, captured up to and including the
  *  checkbox — the two must stay in sync on what counts as the prefix. */
-const TASK_PREFIX_RE = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/u
+const TASK_PREFIX_RE = /^([\s>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/u
 
 /** Splits a task line at the parser's description/metadata boundary.
  *  Returns null when the line is not a task line. */
@@ -1464,13 +1480,6 @@ const hashtagTokenPattern = (escapedTag: string): RegExp => {
   return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`)
 }
 
-/** The 12 RegExp metacharacters that need backslash-escaping. */
-const REGEX_SPECIAL_CHARS_RE = /[.*+?^${}()|[\]\\]/g
-
-const escapeRegExp = (text: string): string => {
-  return text.replace(REGEX_SPECIAL_CHARS_RE, "\\$&")
-}
-
 /** Extracts trailing hashtags from a string by repeated right-to-left
  *  stripping — the same loop shape as parseTaskMetadata's tag pass. */
 const extractTrailingTags = (text: string): readonly string[] => {
@@ -1512,7 +1521,7 @@ const deduplicateDescriptionTags = (
   let dedupedMetadata = parts.metadata
   const deduplicatedTags: string[] = []
   for (const tag of descriptionTrailingTags) {
-    const tagPattern = hashtagTokenPattern(escapeRegExp(tag))
+    const tagPattern = hashtagTokenPattern(RegExp.escape(tag))
 
     if (tagPattern.test(dedupedMetadata)) {
       dedupedMetadata = dedupedMetadata.replace(tagPattern, "").trim()
@@ -1569,7 +1578,7 @@ const stripBlockLink = (taskLine: string): string => {
 /** Extracts the structural indent of a line — leading whitespace after
  *  stripping blockquote `>` markers. A top-level task returns 0; an
  *  indented sub-task returns the whitespace count before its list marker. */
-const getTaskIndent = (line: string): number => {
+const getStructuralIndent = (line: string): number => {
   // Strip leading blockquote markers: each `> ` (one `>` + one optional
   // space) is a blockquote level. Only the marker's own space is consumed;
   // additional spaces are structural indent that must be measured.
@@ -1897,7 +1906,7 @@ export const tasks = {
   diffTaskRoundTrip,
   assignBlockId,
   removeBlockId,
-  getTaskIndent,
+  getStructuralIndent,
   buildTaskLine,
   buildNextOccurrenceLine,
   formatDateField,
