@@ -105,7 +105,7 @@ Errors:
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
 - 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_read_file", "; read other files (images, .canvas, data files) with vault_read_file")}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "properties block is not valid YAML …" — only properties_only needs readable YAML; a full read, outline and heading still work; the error says how to repair it
+- "properties block is not valid YAML …" — a full read, outline and heading still work; the error says how to repair it
 ${FILESYSTEM_ERROR_ENTRY}
 
 Returns: Raw markdown string (default); JSON object of properties, {} when the note has none (properties_only); JSON outline object, shaped as the outline parameter describes (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)"). Unpaged full reads return the file's exact bytes; heading sections and paged reads use LF line endings.
