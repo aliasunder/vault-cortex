@@ -14,8 +14,9 @@ the init chain registers the initial Sync device under the `DEVICE_NAME` env
 var, or the container hostname when unset. Both
 processes run as UID 1000 (PUID/PGID-adjustable). Production runs the
 `:remote` image on Lightsail as a single Compose service, fronted by API
-Gateway with a Lambda authorizer (path-aware: OAuth endpoints pass
-through, /mcp validates static token or JWT). IaC via SST v4.
+Gateway: OAuth endpoints pass straight through, and every other route
+goes through a Lambda authorizer that validates the static token or JWT.
+IaC via SST v4.
 
 The server provides vault CRUD, hybrid search (FTS5 keyword and sqlite-vec
 vector results fused by Reciprocal Rank Fusion, then reranked by a
@@ -79,7 +80,7 @@ src/
   auth.ts # Auth helpers shared by the Lambda authorizer and vault-mcp/
   jwt.ts # Minimal HS256 JWT sign and verify for the Lambda authorizer and the OAuth server
   utils/ # Generic helpers with no domain logic (admission rules under Module layering)
-  functions/authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
+  functions/authorizer.ts # Lambda: validates the static token or a JWT on every protected route
   __tests__/integration/ # Server tests over real HTTP through the SDK Client; files listed under "Integration tests — when to add"
   __tests__/docker/ # :remote image boot tests (npm run test:remote-boot): docker-harness, and fixtures/ob, a stub of the obsidian-headless CLI
   vault-mcp/

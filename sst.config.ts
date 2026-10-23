@@ -422,8 +422,7 @@ export default $config({
     // (MCP/OAuth spec). Express owns their logic — DCR, consent, token
     // validation, and 5 req/min rate limiting. API Gateway always picks
     // the most specific matching route, so these win over the protected
-    // catch-alls below regardless of declaration order. The authorizer's
-    // OPEN_PATHS and OPEN_PATH_PREFIXES mirror this list; change both.
+    // catch-alls below regardless of declaration order.
     for (const path of ["/authorize", "/token", "/register", "/revoke", "/healthz"]) {
       api.routeUrl(`ANY ${path}`, target(path), {
         transform: originAccessHeaders,

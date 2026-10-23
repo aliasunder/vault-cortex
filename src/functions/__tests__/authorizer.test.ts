@@ -272,19 +272,9 @@ describe("authorizer handler", () => {
   })
 
   it.each([
-    { label: "an open path", path: "/token" },
-    { label: "a path under an open folder", path: "/oauth/decide" },
-  ])("authorizes $label without checking the token", async ({ path }) => {
-    const result = await handler(requestTo(path, "Bearer not-a-token"))
-    expect(result).toEqual({ isAuthorized: true })
-  })
-
-  // sst.config.ts routes every one of these paths to the protected catch-all.
-  it.each([
-    { label: "a path that only starts with an open path's name", path: "/tokens" },
-    { label: "a path that only starts with another open path's name", path: "/healthz-extra" },
-    { label: "a path below an open path", path: "/register/client-1" },
-    { label: "a path that only starts with an open folder's name", path: "/oauth-admin" },
+    { label: "an OAuth endpoint", path: "/token" },
+    { label: "a path under /oauth/", path: "/oauth/decide" },
+    { label: "a path that only starts with an OAuth endpoint's name", path: "/tokens" },
   ])("checks the token on $label", async ({ path }) => {
     recordedLogs.length = 0
 

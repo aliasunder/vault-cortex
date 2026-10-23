@@ -13,12 +13,9 @@
  * 401 BEFORE invoking this Lambda — that 401 is what lets MCP clients
  * enter the OAuth connect flow (a Lambda deny is a fixed 403 that HTTP
  * APIs cannot customize, which clients treat as a broken server).
- * The open-path branch below is therefore dead code in the current
- * wiring (open routes never invoke this Lambda). The parse-failure
- * branch stays reachable: the identity source only requires the header
- * to be present, so a malformed Authorization header (e.g. "Basic …")
- * still reaches parseBearer and is denied there. Both are kept as
- * defense in depth in case the wiring ever changes.
+ * The identity source only requires the header to be present, so a
+ * malformed Authorization header (e.g. "Basic …") still reaches this
+ * Lambda, and parseBearer denies it.
  *
  * Key facts:
  *   - API Gateway HTTP API v2 LOWERCASES all header names.
@@ -34,16 +31,6 @@ import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { getDeploymentJwtVerification } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
-// Both lists mirror the open routes in sst.config.ts. Keep them in step: a
-// path listed here but protected there is open to any request that carries
-// an Authorization header.
-const OPEN_PATHS = ["/authorize", "/token", "/register", "/revoke", "/healthz"]
-const OPEN_PATH_PREFIXES = ["/.well-known/", "/oauth/"]
-
-const isOpenPath = (path: string): boolean => {
-  return OPEN_PATHS.includes(path) || OPEN_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
-}
-
 export const handler = async (
   event: APIGatewayRequestAuthorizerEventV2,
 ): Promise<{ isAuthorized: boolean }> => {
@@ -51,10 +38,6 @@ export const handler = async (
   const requestId = event.requestContext?.requestId
   const sourceIp = event.requestContext?.http?.sourceIp
   const logger = rootLogger.child({ requestId, sourceIp, path })
-
-  if (isOpenPath(path)) {
-    return { isAuthorized: true }
-  }
 
   const token = parseBearer(event.headers?.authorization)
 
