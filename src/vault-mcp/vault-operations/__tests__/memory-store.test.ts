@@ -643,6 +643,44 @@ created: 2026-01-01T00:00:00-05:00
     })
   })
 
+  it.skipIf(runsAsRoot)(
+    "lets a permission failure creating the memory folder through with its code",
+    async () => {
+      // Only a file at the folder's path is wrapped; a permission failure
+      // keeps Node's coded error so the tool boundary can name its remedy
+      const readOnlyVault = await mkdtemp(join(tmpdir(), "read-only-vault-"))
+      const memoryFolder = join(readOnlyVault, "About Me")
+      onTestFinished(() => rm(readOnlyVault, { recursive: true }))
+      await chmod(readOnlyVault, 0o500)
+      // Registered after the removal so that it runs first, which makes the
+      // vault writable again before it is removed.
+      onTestFinished(() => chmod(readOnlyVault, 0o700))
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+
+      await expect(
+        updateMemory(
+          {
+            vaultPath: readOnlyVault,
+            file: "Archive",
+            section: "Notes",
+            entry: "never written",
+            date: "2026-05-15",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        Object.assign(new Error(`EACCES: permission denied, mkdir '${memoryFolder}'`), {
+          errno: -13,
+          code: "EACCES",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      )
+      expect(warnSpy).not.toHaveBeenCalled()
+    },
+  )
+
   it("rejects a folder named like the memory file with a vault-relative message", async () => {
     await mkdir(join(vault, "About Me", "Archive.md"))
     await expect(

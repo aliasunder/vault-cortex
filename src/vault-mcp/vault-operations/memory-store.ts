@@ -885,7 +885,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           await mkdir(dirname(filePath), { recursive: true })
         } catch (error) {
           // The folder is server configuration (MEMORY_DIR), so a file sitting
-          // at its path is the vault owner's to move, not the caller's
+          // at its path is the vault owner's to move, not the caller's. Other
+          // failures keep their code, so the tool boundary appends its remedy
+          const fileAtFolderPath =
+            isErrnoException(error, "EEXIST") || isErrnoException(error, "ENOTDIR")
+
+          if (!fileAtFolderPath) throw error
+
           logger.warn("cannot create memory folder", {
             folder: memoryDir,
             error: describeError(error),
