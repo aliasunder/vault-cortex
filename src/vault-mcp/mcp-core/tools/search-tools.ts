@@ -11,6 +11,7 @@ export const registerSearchTools = ({
   registerTool,
   safeHandler,
   formatEnabledToolList,
+  isToolEnabled,
   whenToolEnabledText,
   search,
   vaultPath,
@@ -89,7 +90,7 @@ ${searchAlternativesLine}
 
 ${searchErrorsSection}
 
-Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("hybrid" when vector embeddings contributed, "fts" when only keyword matching ran), and reranked (true when cross-encoder reranking refined the ordering). A higher score is more relevant. ${searchResultDetailsText}`
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("hybrid" when vector embeddings contributed, "fts" when only keyword matching ran), and reranked (true when reranking refined the ordering). A higher score is more relevant. ${searchResultDetailsText}`
         : `Full-text search across ${searchedContentText}, ranked by relevance. ${searchSyntaxText}
 
 ${searchFiltersSection}
@@ -293,7 +294,7 @@ Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
 Example: vault_recent_notes({ sort_by: "created", limit: 5 })
 
 When to use: Catching up on vault changes, finding recent work, or orienting after a break.
-Prefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.
+Prefer vault_search for content-based discovery, and for notes created or modified within a date range (its created and modified filters). Prefer vault_search_by_folder for browsing a specific folder.
 
 Parameters:
 - sort_by + limit interact: "modified" uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
@@ -302,7 +303,7 @@ Parameters:
 Errors:
 - An empty vault returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout, additional_properties), sorted descending by chosen timestamp. The created field is null when the property is missing or not an ISO date; bytes is on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout, additional_properties), newest first. The created field is null when the property is missing or not an ISO date; bytes is on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
@@ -672,7 +673,9 @@ Errors:
       }
     : {
         folders: `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`,
-        dailyFolderLine: ` The defaults' daily notes folder is the vault's own setting${whenToolEnabledText("vault_get_daily_note", ", the one vault_get_daily_note's path starts with")}; when it is the vault root or blank, the defaults hold no daily folder.`,
+        dailyFolderLine: isToolEnabled("vault_get_daily_note")
+          ? " The defaults' daily notes folder is the one vault_get_daily_note's path starts with; when it is the vault root or blank, the defaults hold no daily folder."
+          : " When the vault's daily notes folder is the vault root or blank, the defaults hold no daily folder.",
       }
 
   registerTool(
@@ -688,7 +691,7 @@ When to use: Vault maintenance — surfacing notes to integrate into the graph.$
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
-- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.${orphanDefaultsText.dailyFolderLine}
+- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.${orphanDefaultsText.dailyFolderLine}
 - limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:

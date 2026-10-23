@@ -465,7 +465,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
-      description: `Update a task's status, priority, description, dates, dependencies, block_id, checklist items, or heading placement in one call. Any combination of these can change together — every field passed is written in a single edit.
+      description: `Update a task's status, priority, description, dates, recurrence, completion action, dependencies, block_id, checklist items, heading, or position within a lane, in any combination; every field passed is written in a single edit.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring
@@ -486,7 +486,7 @@ Parameters:
   Delete (🏁 delete / [onCompletion:: delete]), on "done": removes the task line and its children instead of moving to done. With 🔁 + 🏁, the next occurrence is still created, and the completed task is removed. Result carries on_completion_applied: "delete".
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the next occurrence. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
-- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, an unmoved task stays put. Ignored when the task is deleted on completion. Not valid on sub-tasks.
+- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, an unmoved task stays put. Ignored when the task is deleted on completion.
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}

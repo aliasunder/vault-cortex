@@ -74,7 +74,7 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
-      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: that file's content, frontmatter stripped. With file+section: just that H2 section's entries. No args: every file's content concatenated — can be large. Returns empty string when no memory files exist yet.
+      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: that file's content, frontmatter stripped. With file+section: just that H2 section's entries. No args: every file's content, frontmatter stripped, joined by --- lines — can be large. Returns empty string when no memory files exist yet.
 
 With file+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when new entries go at the top, the default). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
 
@@ -237,7 +237,7 @@ Errors:
 
 ${recallUsageSections}
 
-${recallReturnsLead} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the cross-encoder relevance cut was applied.`
+${recallReturnsLead} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when a relevance cut was applied.`
     : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
 
 ${recallUsageSections}
