@@ -30,7 +30,7 @@ import env from "env-var"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
-import { getDeploymentJwtVerification, verifyLegacyJwt } from "../jwt.js"
+import { getDeploymentJwtVerification } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
 const OPEN_PATH_PREFIXES = [
@@ -118,15 +118,6 @@ export const handler = async (
   // clients to refresh. Every other JWT check still runs at both layers.
   if (deploymentJwtVerification.status === "expired") {
     logger.info("auth_success", { method: "jwt-expired" })
-    return { isAuthorized: true }
-  }
-
-  // Forward valid pre-binding tokens to Express for a 401 refresh challenge.
-  // A Lambda 403 would strand the client. These tokens expire within 24 hours.
-  const legacyJwt = verifyLegacyJwt({ token, secret })
-
-  if (legacyJwt) {
-    logger.info("auth_success", { method: "jwt-unbound" })
     return { isAuthorized: true }
   }
 

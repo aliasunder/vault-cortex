@@ -10,13 +10,10 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto"
 
-type JwtBaseClaims = {
+export type JwtPayload = {
   sub: string
   scope: string
   exp: number
-}
-
-export type JwtPayload = JwtBaseClaims & {
   /** The authorization server's issuer URL, as advertised in its metadata. */
   iss: string
   /** The RFC 8707 resource identifier the token was minted for. */
@@ -40,11 +37,6 @@ type DeploymentJwtVerification =
   | { status: "expired"; payload: JwtPayload }
   | { status: "invalid" }
 
-type VerifyLegacyJwtOptions = {
-  token: string
-  secret: string
-}
-
 const b64url = (buf: Buffer): string => buf.toString("base64url")
 
 const b64urlEncode = (obj: object): string => b64url(Buffer.from(JSON.stringify(obj)))
@@ -59,16 +51,11 @@ export const signJwt = (payload: JwtPayload, secret: string): string => {
   return `${body}.${hmac(body, secret)}`
 }
 
-const isJwtBaseClaims = (value: unknown): value is JwtBaseClaims => {
+const isJwtPayload = (value: unknown): value is JwtPayload => {
   if (typeof value !== "object" || value === null) return false
   if (!("sub" in value) || typeof value.sub !== "string") return false
   if (!("scope" in value) || typeof value.scope !== "string") return false
   if (!("exp" in value) || typeof value.exp !== "number") return false
-  return true
-}
-
-const isJwtPayload = (value: unknown): value is JwtPayload => {
-  if (!isJwtBaseClaims(value)) return false
   if (!("iss" in value) || typeof value.iss !== "string") return false
   if (!("aud" in value) || typeof value.aud !== "string") return false
   if ("iat" in value && typeof value.iat !== "number") return false
@@ -78,7 +65,7 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
 // exp is Unix seconds. Native Date here, not Luxon: this module is bundled
 // into the Lambda authorizer and stays dependency-free — a single epoch read
 // doesn't justify the bundle weight.
-const isExpired = (claims: JwtBaseClaims): boolean => {
+const isExpired = (claims: JwtPayload): boolean => {
   // eslint-disable-next-line no-restricted-syntax
   return claims.exp < Date.now() / 1000
 }
@@ -131,17 +118,4 @@ export const verifyJwt = (options: VerifyJwtOptions): JwtPayload | null => {
 
   if (verification.status !== "valid") return null
   return verification.payload
-}
-
-/** Verifies a legacy JWT minted before issuer and audience binding was added. */
-export const verifyLegacyJwt = ({
-  token,
-  secret,
-}: VerifyLegacyJwtOptions): JwtBaseClaims | null => {
-  const decoded = payloadWithVerifiedSignature(token, secret)
-
-  if (!isJwtBaseClaims(decoded)) return null
-  if ("aud" in decoded) return null
-  if (isExpired(decoded)) return null
-  return decoded
 }

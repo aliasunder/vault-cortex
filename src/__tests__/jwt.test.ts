@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { createHmac } from "node:crypto"
 import { DateTime } from "luxon"
-import { getDeploymentJwtVerification, signJwt, verifyJwt, verifyLegacyJwt } from "../jwt.js"
+import { getDeploymentJwtVerification, signJwt, verifyJwt } from "../jwt.js"
 import type { JwtPayload } from "../jwt.js"
 
 const SECRET = "test-secret"
@@ -18,8 +18,8 @@ const buildPayload = (overrides: Partial<JwtPayload> = {}): JwtPayload => ({
   ...overrides,
 })
 
-/** Signs any claims object — `signJwt` only accepts the bound payload shape,
- *  and the pre-binding tokens under test are missing `aud`. */
+/** Signs any claims object, including the malformed and audience-less
+ *  ones `signJwt`'s payload type rejects. */
 const signClaims = (claims: object, secret: string): string => {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
   const body = Buffer.from(JSON.stringify(claims)).toString("base64url")
@@ -29,15 +29,6 @@ const signClaims = (claims: object, secret: string): string => {
     .toString("base64url")
   return `${header}.${body}.${sig}`
 }
-
-/** The legacy access-token shape minted before issuer and audience binding:
- *  a literal issuer name and no audience. */
-const legacyClaims = (exp = DateTime.now().plus({ hours: 1 })) => ({
-  sub: "test-client",
-  scope: "vault",
-  exp: exp.toUnixInteger(),
-  iss: "vault-cortex",
-})
 
 /** Verifies a JWT against this file's deployment binding. */
 const verify = (token: string, secret: string): JwtPayload | null =>
@@ -331,36 +322,5 @@ describe("verifyJwt", () => {
     }
     flipped[0] = firstByte ^ 0xff
     expect(verify(`${header}.${body}.${flipped.toString("base64url")}`, SECRET)).toBeNull()
-  })
-})
-
-describe("verifyLegacyJwt", () => {
-  it("returns the claims of a pre-binding token (no aud)", () => {
-    const claims = legacyClaims()
-    const token = signClaims(claims, SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toEqual(claims)
-  })
-
-  it("returns null for a token that carries an aud, even this server's", () => {
-    // A token with an audience is a bound token and belongs to verifyJwt;
-    // accepting it here would let a foreign audience through unchecked.
-    const token = signJwt(buildPayload(), SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toBeNull()
-  })
-
-  it("returns null for a pre-binding token signed with a different secret", () => {
-    const token = signClaims(legacyClaims(), OTHER_SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toBeNull()
-  })
-
-  it("returns null for an expired pre-binding token", () => {
-    const expired = legacyClaims(DateTime.now().minus({ minutes: 1 }))
-    const token = signClaims(expired, SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toBeNull()
-  })
-
-  it("returns null for a payload missing the base claims", () => {
-    const token = signClaims({ iss: "vault-cortex" }, SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toBeNull()
   })
 })

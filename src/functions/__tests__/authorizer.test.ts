@@ -80,32 +80,6 @@ const accessToken = ({
   )
 }
 
-/** An access token in the shape minted before tokens were bound to a
- *  server (literal issuer, no `aud`) — signed by hand because `signJwt`
- *  only accepts the bound shape. */
-const preBindingToken = ({
-  secret,
-  exp = DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-}: {
-  secret: string
-  exp?: number
-}): string => {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-  const body = Buffer.from(
-    JSON.stringify({
-      sub: "client-1",
-      scope: "vault",
-      exp,
-      iss: "vault-cortex",
-    }),
-  ).toString("base64url")
-  const sig = createHmac("sha256", secret)
-    .update(`${header}.${body}`)
-    .digest()
-    .toString("base64url")
-  return `${header}.${body}.${sig}`
-}
-
 describe("authorizer handler", () => {
   it("authorizes the static token", async () => {
     const result = await handler(protectedRequest(`Bearer ${SECRET}`))
@@ -184,31 +158,33 @@ describe("authorizer handler", () => {
     expect(result).toEqual({ isAuthorized: false })
   })
 
-  it("authorizes a pre-binding JWT with the jwt-unbound log method", async () => {
+  it("denies an unexpired same-secret JWT without an audience", async () => {
     recordedLogs.length = 0
-    const result = await handler(protectedRequest(`Bearer ${preBindingToken({ secret: SECRET })}`))
-    expect(result).toEqual({ isAuthorized: true })
+    // The shape minted before tokens were bound to a server: a literal
+    // issuer and no `aud`. Signed by hand because `signJwt` only accepts
+    // the bound shape.
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
+    const body = Buffer.from(
+      JSON.stringify({
+        sub: "client-1",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "vault-cortex",
+      }),
+    ).toString("base64url")
+    const sig = createHmac("sha256", SECRET)
+      .update(`${header}.${body}`)
+      .digest()
+      .toString("base64url")
+
+    const result = await handler(protectedRequest(`Bearer ${header}.${body}.${sig}`))
+
+    expect(result).toEqual({ isAuthorized: false })
+    // Pins the deny to the token check, not one of the earlier guards.
     expect(recordedLogs.at(-1)).toEqual({
-      level: "info",
-      message: "auth_success",
-      data: { method: "jwt-unbound" },
+      level: "warn",
+      message: "auth_failed: token invalid",
     })
-  })
-
-  it("denies a pre-binding JWT signed with another secret", async () => {
-    const result = await handler(
-      protectedRequest(`Bearer ${preBindingToken({ secret: "not-the-lambda-secret" })}`),
-    )
-    expect(result).toEqual({ isAuthorized: false })
-  })
-
-  it("denies an expired pre-binding JWT", async () => {
-    const token = preBindingToken({
-      secret: SECRET,
-      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
-    })
-    const result = await handler(protectedRequest(`Bearer ${token}`))
-    expect(result).toEqual({ isAuthorized: false })
   })
 
   it("denies a same-secret JWT from another issuer", async () => {

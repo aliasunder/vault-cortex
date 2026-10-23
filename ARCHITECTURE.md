@@ -636,8 +636,8 @@ For protected requests, the authorizer:
 - accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
 - checks the signature, issuer, and audience of deployment-bound JWTs
 - forwards a correctly bound expired JWT to Express for the **401** refresh challenge
-- forwards unexpired pre-binding JWTs without an audience claim to Express,
-  avoiding API Gateway's fixed **403** while those tokens remain valid
+- denies every other token with a **403**, including a JWT that carries no
+  audience claim
 
 The Authorization header is the route's identity source, so a
 tokenless request gets an automatic **401** from API Gateway without invoking
@@ -748,12 +748,6 @@ cryptographic or binding checks. The binding claims
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
   secret.
-- The Lambda passes a token that carries no `aud` at all — the shape minted
-  by releases before binding — so that Express can reject it with a 401, the
-  status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
-  them. Only tokens minted before an upgrade have this shape, so the path
-  goes quiet within their 24-hour lifetime. A token that names any other
-  audience is denied at the Lambda.
 - A client's `resource` parameter, when sent, must name one of the two
   identifiers the server's discovery documents advertise — the MCP endpoint
   or the server URL itself — compared in canonical form, so a trailing slash
