@@ -71,7 +71,7 @@ const isExpired = (claims: JwtPayload): boolean => {
   return claims.exp < Date.now() / 1000
 }
 
-/** null when the segment is not base64url-encoded JSON. */
+/** null when the segment does not decode to JSON. */
 const decodeBase64urlJson = (segment: string): unknown => {
   try {
     return JSON.parse(Buffer.from(segment, "base64url").toString())
