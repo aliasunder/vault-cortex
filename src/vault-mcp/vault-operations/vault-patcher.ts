@@ -542,12 +542,14 @@ const replaceInNote = async (
   assertNoControlCharacters(newText, "new_text")
 
   // The body is matched with LF line breaks (readNoteForPatch splits it with
-  // splitIntoLines), so the caller's `\r\n` breaks become `\n` too:
+  // splitIntoLines), so old_text's `\r\n` breaks become `\n` too:
   // - text copied from a raw read of a CRLF note then matches;
   // - replaceAll never empties a non-empty string, unlike splitIntoLines, which
   //   would turn old_text "\r" into "", a search text that matches at offset 0.
   const searchText = oldText.replaceAll("\r\n", "\n")
-  const replacementText = newText.replaceAll("\r\n", "\n")
+  // new_text is split the way the other edit tools split their content, so the
+  // `\r` before each of its line breaks, and a `\r` it ends with, are dropped
+  const replacementText = splitIntoLines(newText).join("\n")
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
@@ -568,14 +570,14 @@ const replaceInNote = async (
       ? body.split(searchText)
       : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + searchText.length)]
     const count = bodyParts.length - 1
-    // The body and the replacement already use LF breaks, and splitIntoLines
-    // would also drop a `\r` that new_text puts just before a line break
+    // The body and the replacement already use LF line breaks
     const updatedLines = bodyParts.join(replacementText).split("\n")
 
     // A deletion stacks the empty lines from both sides of each match into one
     // run, so that run is shrunk back. A replacement keeps new text between
-    // them, and its line breaks are written where the caller put them.
-    const isDeletion = replacementText === ""
+    // them, and its line breaks are written where the caller put them. A
+    // new_text of "\r" splits to "" but is not a deletion the caller asked for.
+    const isDeletion = newText === ""
     const writtenLines = isDeletion
       ? collapseEmptyLineRunsAtEdits({
           lines: updatedLines,
