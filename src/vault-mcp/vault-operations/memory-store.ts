@@ -165,11 +165,11 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
   let scanFence: OpenFence = null
   let scanCommentOpen = false
 
-  // Fence and comment detection are mutually exclusive: fence state is
-  // skipped inside comments, and comment state is skipped inside fences.
+  // - Fence and comment detection are mutually exclusive: fence state is
+  //   skipped inside comments, and comment state is skipped inside fences.
+  // - Empty lines advance the state too, because an empty line ends a fence
+  //   opened inside a blockquote, and parseMemoryEntries reads them the same way.
   for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
-    if (!bodyLine) continue
-
     const fenceResult: ReturnType<typeof advanceFence> | null = scanCommentOpen
       ? null
       : advanceFence(bodyLine, scanFence)

@@ -2234,6 +2234,35 @@ describe("listMemoryFiles", () => {
     expect(emptySection?.entry_count).toBe(0)
   })
 
+  it("counts the entries getMemoryEntries reads when an empty line ends a fence inside a blockquote", async () => {
+    // The empty line ends the quoted fence, so `> %%` opens a comment that
+    // hides the second bullet
+    await writeFile(
+      join(vault, "About Me/Quoted.md"),
+      [
+        "# Quoted",
+        "",
+        "## Notes (newest first)",
+        "- **2026-01-03**: before the quote",
+        "> ```",
+        "",
+        "> %%",
+        "- **2026-01-01**: inside the comment",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const entries = await getMemoryEntries({ vaultPath: vault, file: "Quoted" }, logger)
+
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-01-03"])
+    expect(outlines.find((outline) => outline.file === "Quoted")?.headings).toEqual([
+      { level: 1, text: "Quoted" },
+      { level: 2, text: "Notes (newest first)", entry_count: 1 },
+    ])
+  })
+
   it("identifies H1 and H2 headings correctly", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")

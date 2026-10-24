@@ -176,9 +176,9 @@ The three anchor tools share one resolution rule: a short, case-sensitive substr
 Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
 
 - **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties. Reads that return no properties (`vault_read_note`'s `outline` and `heading` modes and `vault_get_memory`) split the block off without parsing it, and `vault_list_memory_files` lists a file whose block is not valid YAML under its file name, with a warning in the server log.
-- **Body edits** write the block back as written, with LF line breaks, and never parse it: the five body-edit tools, both memory writes, and a move that changes links only in note bodies.
+- **Body edits** write the block back as written, with LF line breaks, so they accept any block: the five body-edit tools, both memory writes, and a move that changes links only in note bodies.
 - **Rewrites** of the properties refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. They are `vault_update_properties` merges, `vault_write_note` overwrites, the task tools (which write the note back from its parsed properties), and a move that must change a link inside the block. A move reads a block that is not valid YAML as no properties, as Obsidian does, so it rewrites that note's body links and leaves the links inside the block as they were.
-- **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit to a note without a properties block that removes the text above such lines (deleting a heading that sits above them), or a call that removes every property.
+- **Results** are checked unless the write keeps the block as written: a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit to a note without a properties block that removes the text above such lines (deleting a heading that sits above them), or a call that removes every property.
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
   - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
   - For a `vault_write_note` overwrite of such a note, which replaces the body anyway, the steps skip the prose: replace the block, then run the overwrite again. These steps need only `vault_read_note` and `vault_update_properties`; if either is not served, it points at Obsidian.
@@ -1220,9 +1220,9 @@ Docker hardening, and durability seatbelts above.
   `trash-sweeper.ts` share one serializing key for the whole `.trash/`
   domain.
 - **Properties-block guard** (`frontmatter.ts`): every rewrite refuses a
-  note whose properties block it cannot keep, and every write's result is
-  checked before it reaches disk, so no write silently drops a block's
-  properties.
+  note whose properties block it cannot keep, and every other write either
+  keeps the block as written or checks its result before it reaches disk,
+  so no write silently drops a block's properties.
   [Vault read/write](#vault-readwrite) gives the full rules and the
   repair path.
 - **Trash handling** (`moveNoteToTrash` in `vault-filesystem.ts`,
