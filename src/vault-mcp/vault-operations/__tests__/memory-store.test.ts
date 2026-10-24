@@ -1796,16 +1796,10 @@ describe("deleteMemory", () => {
       },
       logger,
     )
-    const result = await getMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-      },
-      logger,
+
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      PRINCIPLES_MD.replace("- **2026-05-05**: Least-privilege for AI agents\n", ""),
     )
-    expect(result).not.toContain("Least-privilege")
-    expect(result).toContain("Secrets invisible")
   })
 
   it("resolves a section addressed by its short name (no suffix)", async () => {
@@ -1819,16 +1813,10 @@ describe("deleteMemory", () => {
       },
       logger,
     )
-    const result = await getMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-      },
-      logger,
+
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      PRINCIPLES_MD.replace("- **2026-05-06**: Secrets invisible at every layer\n", ""),
     )
-    expect(result).not.toContain("Secrets invisible")
-    expect(result).toContain("Least-privilege for AI agents")
   })
 
   it("throws on no matching entry", async () => {
@@ -1930,15 +1918,10 @@ title: Dupe
       },
       logger,
     )
-    const result = await getMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-      },
-      logger,
+
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      PRINCIPLES_MD.replace("- **2026-05-06**: Secrets invisible at every layer\n", ""),
     )
-    expect(result).not.toContain("Secrets invisible")
   })
 
   it("throws on non-existent file", async () => {
