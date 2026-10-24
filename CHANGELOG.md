@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.55.3] — 2026-10-24
+
+### Bug Fixes
+
+- **tools:** Keep a note's properties block when an edit does not change it (#707)
+
+### Maintenance
+
+- **deps:** Bump fast-uri from 3.1.8 to 3.1.9 (#709)
+
 ## [0.55.2] — 2026-10-24
 
 ### Features
