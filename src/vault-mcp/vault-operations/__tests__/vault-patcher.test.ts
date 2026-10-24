@@ -1955,6 +1955,7 @@ describe("body edits keep the properties block as written", () => {
     { label: "a flow-style block", block: "---\ntags: [a, b]\n---\n" },
     { label: "a block that is not valid YAML", block: "---\ntitle: [unclosed\n---\n" },
     { label: "a list block", block: "---\n- a\n- b\n---\n" },
+    { label: "a single-value block", block: "---\nJust a paragraph.\n---\n" },
     { label: "an explicitly tagged block", block: "---\nstatus: !done\n---\n" },
   ]
 

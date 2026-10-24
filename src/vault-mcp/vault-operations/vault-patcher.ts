@@ -162,11 +162,10 @@ const readNoteForPatch = async (
 /** Writes the edited body back under the note's original properties block
  *  (atomically). Returns the serialized byte length for size logging. */
 const writePatchedNote = async (
-  fullPath: string,
-  textBeforeBody: string,
-  lines: readonly string[],
+  params: { fullPath: string; textBeforeBody: string; lines: readonly string[] },
   logger: Logger,
 ): Promise<number> => {
+  const { fullPath, textBeforeBody, lines } = params
   const serialized = joinNoteKeepingBlock({ textBeforeBody, body: lines.join("\n") })
   await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
   return Buffer.byteLength(serialized, "utf8")
@@ -444,7 +443,10 @@ const patchNote = async (
 
       const updatedLines =
         operation === "append" ? [...lines, ...contentLines] : [...contentLines, ...lines]
-      const afterBytes = await writePatchedNote(fullPath, textBeforeBody, updatedLines, logger)
+      const afterBytes = await writePatchedNote(
+        { fullPath, textBeforeBody, lines: updatedLines },
+        logger,
+      )
       logger.info("patched note", {
         path,
         operation,
@@ -507,7 +509,10 @@ const patchNote = async (
 
     const updatedLines = applySectionOperation(lines, contentLines, target, operation)
 
-    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, updatedLines, logger)
+    const afterBytes = await writePatchedNote(
+      { fullPath, textBeforeBody, lines: updatedLines },
+      logger,
+    )
     logger.info("patched note", {
       path,
       operation,
@@ -584,7 +589,10 @@ const replaceInNote = async (
         })
       : updatedLines
 
-    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, writtenLines, logger)
+    const afterBytes = await writePatchedNote(
+      { fullPath, textBeforeBody, lines: writtenLines },
+      logger,
+    )
     logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
     return {
       message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
@@ -651,7 +659,10 @@ const deleteSpan = async (
         },
       ],
     })
-    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, writtenLines, logger)
+    const afterBytes = await writePatchedNote(
+      { fullPath, textBeforeBody, lines: writtenLines },
+      logger,
+    )
 
     logger.info("deleted span", {
       path,
@@ -733,7 +744,10 @@ const replaceSpan = async (
         },
       ],
     })
-    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, writtenLines, logger)
+    const afterBytes = await writePatchedNote(
+      { fullPath, textBeforeBody, lines: writtenLines },
+      logger,
+    )
 
     logger.info("replaced span", {
       path,
@@ -797,7 +811,10 @@ const insertAtAnchor = async (
     // No empty-line collapse, unlike the span edits: no text is removed, so no
     // two runs of the note's empty lines end up touching, and the content's
     // own empty lines are written as given.
-    const afterBytes = await writePatchedNote(fullPath, textBeforeBody, updatedLines, logger)
+    const afterBytes = await writePatchedNote(
+      { fullPath, textBeforeBody, lines: updatedLines },
+      logger,
+    )
 
     logger.info("inserted at anchor", {
       path,
