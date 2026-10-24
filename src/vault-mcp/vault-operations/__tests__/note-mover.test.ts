@@ -2159,6 +2159,33 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
     }).toEqual(fixtures)
   })
 
+  it("aborts as a rewrite failure when the moved note has no block but would open with one once saved", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    // The move one folder deeper must rewrite the relative image link, and the
+    // save drops one of the two BOMs, as in the backlink-source case above
+    const twoBoms = String.fromCharCode(0xfeff).repeat(2)
+    const fixtures = {
+      "assets/photo.png": "img",
+      "Notes/Two BOMs.md": `${twoBoms}---\ntitle: [unclosed\n---\n![[../assets/photo.png]]\n`,
+    }
+    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
+
+    const refusal = await captureRejection(
+      moveNote({ oldPath: "Notes/Two BOMs.md", newPath: "Notes/Sub/Two BOMs.md" }),
+    )
+
+    expect({
+      isOpeningBlockRefusal: refusal instanceof UnkeepableOpeningBlockError,
+      message: refusal instanceof Error ? refusal.message : null,
+    }).toEqual({
+      isOpeningBlockRefusal: true,
+      message:
+        'move aborted: could not rewrite "Notes/Two BOMs.md": the note would open with a properties block the server cannot keep: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]. Nothing was written.',
+    })
+    expect(await noteExists("Notes/Sub/Two BOMs.md")).toBe(false)
+    expect(await readNote("Notes/Two BOMs.md")).toBe(fixtures["Notes/Two BOMs.md"])
+  })
+
   it("aborts when a property link must change in a block that also holds an explicitly tagged value", async () => {
     const { writeFixture, moveNote, noteExists, readNote } = setupVault()
     const fixtures = {
