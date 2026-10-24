@@ -308,8 +308,9 @@ const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
  *
  * Only YAML the parser cannot read throws (`UnsupportedPropertiesBlockError`,
  * kind `invalid-yaml`). A list or a single value reads as no properties
- * (`{}`), and a tagged value reads as the parser resolves its tag. Writes
- * use `parseNoteForRewrite`, which also refuses the blocks a rewrite would lose.
+ * (`{}`), and a tagged value reads as the parser resolves its tag. Rewrites
+ * of the properties use `parseNoteForRewrite`, which also refuses the blocks
+ * a rewrite would lose; edits that keep the block use `splitNoteKeepingBlock`.
  */
 export const parseNote = (content: string): ParsedNote => {
   const { blockText, body } = splitPropertiesBlock(content)

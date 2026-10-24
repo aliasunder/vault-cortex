@@ -1720,6 +1720,32 @@ describe("deleteMemory", () => {
     )
   })
 
+  // A ### subsection after an entry is the section's own content, as the entry
+  // reader treats it, so deleting the entry leaves the subsection in place
+  it.each([
+    {
+      label: "the last entry before a ### subsection",
+      before: "# T\n\n## S (newest first)\n- **2026-01-01**: one\n\n### Sub\nkeep me\n",
+      after: "# T\n\n## S (newest first)\n\n### Sub\nkeep me\n",
+    },
+    {
+      label: "an entry followed by a ### subsection and a later entry",
+      before:
+        "# T\n\n## S (newest first)\n- **2026-01-02**: two\n- **2026-01-01**: one\n\n### Sub\nkeep me\n- **2025-12-31**: older\n",
+      after:
+        "# T\n\n## S (newest first)\n- **2026-01-02**: two\n\n### Sub\nkeep me\n- **2025-12-31**: older\n",
+    },
+  ])("deleting $label keeps the subsection", async ({ before, after }) => {
+    await writeFile(join(vault, "About Me/Sectioned.md"), before, "utf8")
+
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-01", entry: "one" },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(after)
+  })
+
   it("deletes an exact matching entry", async () => {
     await deleteMemory(
       {

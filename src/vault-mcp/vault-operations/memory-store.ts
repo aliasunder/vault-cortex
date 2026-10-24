@@ -443,7 +443,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
    *  block. The refusal of a file that would open with `---` lines is
    *  rethrown naming the file, because a caller asking by bare name cannot
    *  otherwise tell which file it was. */
-  const stringifyMemoryFile = (params: {
+  const joinMemoryFile = (params: {
     textBeforeBody: string
     body: string
     filename: string
@@ -940,7 +940,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const newSection = headingWithNewestFirstSuffix(params.section)
         const appendedLines = [...contentLines, `## ${newSection}`, bullet]
         const newContent = appendedLines.join("\n")
-        const serialized = stringifyMemoryFile({
+        const serialized = joinMemoryFile({
           body: newContent,
           textBeforeBody,
           filename: `${params.file}.md`,
@@ -1009,7 +1009,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       ]
 
       const newContent = updatedLines.join("\n")
-      const serialized = stringifyMemoryFile({
+      const serialized = joinMemoryFile({
         body: newContent,
         textBeforeBody,
         filename: `${params.file}.md`,
@@ -1146,13 +1146,19 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       if (matchOffset === undefined) {
         throw new Error("expected at least one matching offset")
       }
-      // Find the end of this entry's span: the next entry's offset, or the
-      // section's end when this is the last entry.
+      // Find the end of this entry's span: the next entry, or the section's
+      // end when this is the last entry. A deeper heading (### and below)
+      // before that ends it too, as parseMemoryEntries ends an entry there, so
+      // the subsection it opens is not deleted with the entry.
       const matchIndex = match.bodyStartLine + matchOffset
       const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
       const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
-      const rawSpanEnd =
+      const nextEntryLine =
         nextEntryOffset !== undefined ? match.bodyStartLine + nextEntryOffset : match.bodyEndLine
+      const nextSubheading = parseHeadings(lines).find(
+        (heading) => heading.startLine > matchIndex && heading.startLine < nextEntryLine,
+      )
+      const rawSpanEnd = nextSubheading?.startLine ?? nextEntryLine
 
       // Trim trailing blank lines from the span — they separate sections
       // or entries visually and don't belong to the deleted entry.
@@ -1164,7 +1170,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(trimmedSpanEnd)]
 
       const newContent = updatedLines.join("\n")
-      const serialized = stringifyMemoryFile({
+      const serialized = joinMemoryFile({
         body: newContent,
         textBeforeBody,
         filename: `${params.file}.md`,

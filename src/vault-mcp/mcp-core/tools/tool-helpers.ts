@@ -259,8 +259,8 @@ export const INDEX_ERROR_ENTRY =
 export const INDEX_ENGINE_ERROR_ENTRY =
   '- "[SqliteError]: …" — the search index failed, not the call; the message says what to do'
 
-/** The Errors entry of every tool that rewrites a note. A tool that rewrites
- *  the note only in one mode passes that mode as rewriteCondition
+/** The Errors entry of every tool that rewrites a note's properties block. A
+ *  tool that rewrites it only in one mode passes that mode as rewriteCondition
  *  (`"with overwrite: true"`), and the entry opens with it. The error itself
  *  carries the repair steps, so the entry points at them and names no tool. */
 export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): string => {
