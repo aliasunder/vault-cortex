@@ -428,7 +428,9 @@ const rewriteFrontmatterValue = (value: unknown, rewriteLink: RewriteLink): Fron
  *  - A block that is not valid YAML reads as no properties, as Obsidian's
  *    metadata cache reads it, so its links stay as they are and it goes back
  *    as written.
- *  - A link inside the block changes: the block is rewritten from its values. */
+ *  - A link inside the block changes: the block is rewritten from its values.
+ *  In every case the block gets LF line breaks and the body keeps its own, so
+ *  a CRLF note comes back with mixed line endings. */
 const rewriteNoteContent = (
   rawContent: string,
   rewriteLink: RewriteLink,

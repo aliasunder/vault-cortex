@@ -429,11 +429,18 @@ export const stringifyNote = (body: string, data: object): string => {
 }
 
 /**
+ * Matches a CRLF that follows no other CR. The YAML parser reads a CR before a
+ * CRLF as text (`a: x\r\r\n` holds `x\r`), and writing that CRLF as LF would
+ * turn the CR and the LF into a new CRLF line break.
+ */
+const CRLF_NOT_AFTER_CR = /(?<!\r)\r\n/g
+
+/**
  * Splits a note for an edit that leaves its properties unchanged, without
  * parsing the YAML, so a block the server cannot read or keep still splits.
  * - `textBeforeBody`: the opener, the block and the closer as the note holds
- *   them, with line breaks made LF; `""` when the note has no properties
- *   block. A leading BOM is dropped, as on every split.
+ *   them, with line breaks made LF except a CRLF after another CR; `""` when
+ *   the note has no properties block. A leading BOM is dropped, as on every split.
  * - `body`: the body `splitPropertiesBlock` finds, the boundary every read uses.
  */
 export const splitNoteKeepingBlock = (
@@ -447,7 +454,7 @@ export const splitNoteKeepingBlock = (
   const blockAsWritten = contentWithoutBom.slice(0, contentWithoutBom.length - body.length)
 
   // A CR inside a line stays, because the YAML parser reads it as text, not a line break
-  const blockWithCrlfAsLf = blockAsWritten.replaceAll("\r\n", "\n")
+  const blockWithCrlfAsLf = blockAsWritten.replace(CRLF_NOT_AFTER_CR, "\n")
 
   // splitPropertiesBlock starts the body after a lone CR that follows the
   // closer (`---\r`), reading that CR as the closer's line break

@@ -5142,6 +5142,18 @@ describe("Windows line breaks (CRLF)", () => {
       expect(await readTestNote("note.md")).toBe(`${blockWithCr}new\n`)
     })
 
+    // The YAML parser reads `a: x\r\r\n` as the value `x\r`. Writing that CRLF as
+    // LF would pair the CR with the LF as a new CRLF, so the value would lose its CR
+    it("keeps a carriage return before a CRLF inside a properties line, so the properties do not change", async () => {
+      await writeTestNote("note.md", "---\r\na: x\r\r\nb: 2\r\n---\r\nold\r\n")
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "old", newText: "new" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\na: x\r\r\nb: 2\n---\nnew\n")
+    })
+
     it("deleteSpan keeps a lone carriage return in the note's own text while converting its CRLF line breaks", async () => {
       await writeTestNote(
         "note.md",
