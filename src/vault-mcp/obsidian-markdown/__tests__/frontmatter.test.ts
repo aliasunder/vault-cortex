@@ -856,7 +856,16 @@ describe("splitNoteKeepingBlock", () => {
     })
   })
 
-  it("writes the block's CRLF and lone CR line breaks as LF and leaves the body's as they are", () => {
+  // The repo's YAML parser reads a CR inside a line as text, so turning it into
+  // a line break could turn a comment's text into a property
+  it("keeps a CR inside a block line as written", () => {
+    expect(splitNoteKeepingBlock("---\n# scope\rnote: kept\r\na: 1\n---\nbody\n")).toEqual({
+      textBeforeBody: "---\n# scope\rnote: kept\na: 1\n---\n",
+      body: "body\n",
+    })
+  })
+
+  it("writes the block's CRLF line breaks, and a CR ending its closer at the note's end, as LF and leaves the body's as they are", () => {
     expect(splitNoteKeepingBlock("---\r\na: 1\r\n---\r\nbody\r\n")).toEqual({
       textBeforeBody: "---\na: 1\n---\n",
       body: "body\r\n",

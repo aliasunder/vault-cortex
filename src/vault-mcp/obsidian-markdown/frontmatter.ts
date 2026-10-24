@@ -428,9 +428,6 @@ export const stringifyNote = (body: string, data: object): string => {
   return serialized
 }
 
-/** Matches a CRLF or a lone CR line break, both of which an edit writes as LF. */
-const CR_LINE_BREAK = /\r\n?/g
-
 /**
  * Splits a note for an edit that leaves its properties unchanged, without
  * parsing the YAML, so a block the server cannot read or keep still splits.
@@ -449,7 +446,15 @@ export const splitNoteKeepingBlock = (
   // so the text before it is the block exactly as the note holds it
   const blockAsWritten = contentWithoutBom.slice(0, contentWithoutBom.length - body.length)
 
-  return { textBeforeBody: blockAsWritten.replace(CR_LINE_BREAK, "\n"), body }
+  // Line breaks become LF the way splitIntoLines makes the body's: each CRLF,
+  // and the CR that ends a closer line at the end of the note. A CR inside a
+  // line stays, because the YAML parser reads it as text, not a line break.
+  const crlfConverted = blockAsWritten.replaceAll("\r\n", "\n")
+  const textBeforeBody = crlfConverted.endsWith("\r")
+    ? `${crlfConverted.slice(0, -1)}\n`
+    : crlfConverted
+
+  return { textBeforeBody, body }
 }
 
 /**

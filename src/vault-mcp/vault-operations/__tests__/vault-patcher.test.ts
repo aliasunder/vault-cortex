@@ -5129,6 +5129,19 @@ describe("Windows line breaks (CRLF)", () => {
       )
     })
 
+    // The YAML parser reads `# scope\rnote: kept` as one comment line, so the
+    // block holds only `a`; an LF there would add a `note` property
+    it("keeps a carriage return inside a properties line as written, so the properties do not change", async () => {
+      const blockWithCr = "---\n# scope\rnote: kept\na: 1\n---\n"
+      await writeTestNote("note.md", `${blockWithCr}old\n`)
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "old", newText: "new" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(`${blockWithCr}new\n`)
+    })
+
     it("deleteSpan keeps a lone carriage return in the note's own text while converting its CRLF line breaks", async () => {
       await writeTestNote(
         "note.md",
