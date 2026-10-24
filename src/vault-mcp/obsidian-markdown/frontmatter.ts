@@ -446,13 +446,14 @@ export const splitNoteKeepingBlock = (
   // so the text before it is the block exactly as the note holds it
   const blockAsWritten = contentWithoutBom.slice(0, contentWithoutBom.length - body.length)
 
-  // Line breaks become LF the way splitIntoLines makes the body's: each CRLF,
-  // and the CR that ends a closer line at the end of the note. A CR inside a
-  // line stays, because the YAML parser reads it as text, not a line break.
-  const crlfConverted = blockAsWritten.replaceAll("\r\n", "\n")
-  const textBeforeBody = crlfConverted.endsWith("\r")
-    ? `${crlfConverted.slice(0, -1)}\n`
-    : crlfConverted
+  // A CR inside a line stays, because the YAML parser reads it as text, not a line break
+  const blockWithCrlfAsLf = blockAsWritten.replaceAll("\r\n", "\n")
+
+  // splitPropertiesBlock starts the body after a lone CR that follows the
+  // closer (`---\r`), reading that CR as the closer's line break
+  const textBeforeBody = blockWithCrlfAsLf.endsWith("\r")
+    ? `${blockWithCrlfAsLf.slice(0, -1)}\n`
+    : blockWithCrlfAsLf
 
   return { textBeforeBody, body }
 }
