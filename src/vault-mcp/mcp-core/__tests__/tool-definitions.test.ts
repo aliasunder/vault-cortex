@@ -3641,29 +3641,30 @@ describe("DISABLED_TOOLS", () => {
       label: "names both property editors while they are served",
       disabledTools: "",
       expectedLine:
-        "saved as LF — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
+        "Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. CRLF line breaks are saved as LF.",
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
       expectedLine:
-        "saved as LF — properties must be edited via vault_write_note's properties parameter.",
+        "Properties are kept as written — edit them via vault_write_note's properties parameter. CRLF line breaks are saved as LF.",
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine: "saved as LF — properties must be edited via vault_update_properties.",
+      expectedLine:
+        "Properties are kept as written — edit them via vault_update_properties. CRLF line breaks are saved as LF.",
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: "saved as LF.",
+      expectedLine: "Properties are kept as written. CRLF line breaks are saved as LF.",
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
     const propertyEditLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-      startMarker: "saved as LF",
+      startMarker: "Properties are kept as written",
       endMarker: "\n\nExample:",
     })
     expect(propertyEditLine).toBe(expectedLine)

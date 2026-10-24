@@ -640,15 +640,13 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     whenToolEnabledText("vault_write_note", "vault_write_note's properties parameter"),
   ].filter(Boolean)
   const propertyEditClause =
-    servedPropertyEditors.length > 0
-      ? ` — properties must be edited via ${servedPropertyEditors.join(" or ")}`
-      : ""
+    servedPropertyEditors.length > 0 ? ` — edit them via ${servedPropertyEditors.join(" or ")}` : ""
 
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace exact text in a markdown note's body. Properties are kept as written, and CRLF line breaks are saved as LF${propertyEditClause}.
+      description: `Find and replace exact text in a markdown note's body. Properties are kept as written${propertyEditClause}. CRLF line breaks are saved as LF.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" })
