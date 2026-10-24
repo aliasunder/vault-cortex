@@ -166,8 +166,8 @@ Returns: for images, an image content block plus a one-line metadata text block;
       reqLogger.info("tool_call", { path, raw, startLine: start_line, limit })
       return safeHandlerContent(
         reqLogger,
-        () =>
-          assetOperations.readAssetContent(
+        () => {
+          return assetOperations.readAssetContent(
             {
               vaultPath,
               path,
@@ -179,7 +179,8 @@ Returns: for images, an image content block plus a one-line metadata text block;
               maxPdfRenderPages: config.maxPdfRenderPages,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           switch (result.kind) {
             case "image":

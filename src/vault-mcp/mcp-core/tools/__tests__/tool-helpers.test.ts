@@ -12,6 +12,7 @@ import {
   createStrictInputObject,
   describeTextWindow,
   formatNoteMetadata,
+  toolInputErrorResult,
 } from "../tool-helpers.js"
 
 const VAULT_PATH = "/srv/vault"
@@ -198,6 +199,35 @@ describe("safeHandlerContent", () => {
     expect(warnSpy).toHaveBeenCalledWith("tool_error", {
       error: `[Error]: ${INVALID_YAML_MESSAGE}`,
     })
+  })
+})
+
+describe("toolInputErrorResult", () => {
+  it("returns the message as given in an isError result, without the [Name]: prefix a thrown error gets", () => {
+    const requestLogger = logger.child({ requestId: "request-1" })
+    vi.spyOn(requestLogger, "warn").mockImplementation(() => {})
+
+    expect(
+      toolInputErrorResult({ message: "on_or_after requires a file", logger: requestLogger }),
+    ).toEqual({
+      content: [{ type: "text", text: "on_or_after requires a file" }],
+      isError: true,
+    })
+  })
+
+  it("logs the message as tool_error on the caller's logger", () => {
+    const requestLogger = logger.child({ requestId: "request-1" })
+    const requestWarnSpy = vi.spyOn(requestLogger, "warn").mockImplementation(() => {})
+    const rootWarnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => rootWarnSpy.mockRestore())
+
+    toolInputErrorResult({ message: "on_or_after requires a file", logger: requestLogger })
+
+    expect(requestWarnSpy).toHaveBeenCalledTimes(1)
+    expect(requestWarnSpy).toHaveBeenCalledWith("tool_error", {
+      error: "on_or_after requires a file",
+    })
+    expect(rootWarnSpy).not.toHaveBeenCalled()
   })
 })
 

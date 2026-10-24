@@ -20,6 +20,7 @@ import {
   describePropertiesBlockErrorEntry,
   describeTextWindow,
   OPENING_BLOCK_ERROR_ENTRY,
+  toolInputErrorResult,
 } from "./tool-helpers.js"
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
@@ -89,7 +90,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }) // disambiguate when several "Done" headings exist
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 }) // first 20 lines of an oversized section
 
-When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties. For an oversized note or section, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
+When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. Use properties_only: true when you only need properties. For an oversized note or section, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
 Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_list_tasks", " For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's Markdown.")}${whenToolEnabledText("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabledText("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included.
@@ -105,7 +106,7 @@ Errors:
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
 - 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_read_file", "; read other files (images, .canvas, data files) with vault_read_file")}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "properties block is not valid YAML …" — properties_only, outline and heading need readable YAML, while a full read returns the note as it is; the error says how to repair it
+- "properties block is not valid YAML …" — a full read, outline and heading still work; the error says how to repair it
 ${FILESYSTEM_ERROR_ENTRY}
 
 Returns: Raw markdown string (default); JSON object of properties, {} when the note has none (properties_only); JSON outline object, shaped as the outline parameter describes (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)"). Unpaged full reads return the file's exact bytes; heading sections and paged reads use LF line endings.
@@ -176,15 +177,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
         limit,
       })
 
-      const returnError = (
-        message: string,
-      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
-        reqLogger.warn("tool_error", { error: message })
-        return {
-          content: [{ type: "text" as const, text: message }],
-          isError: true as const,
-        }
-      }
+      const returnError = (message: string) => toolInputErrorResult({ message, logger: reqLogger })
 
       // The read modes select different content; allowing more than one would
       // make the result ambiguous, so reject the combination up front. The
@@ -261,21 +254,23 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
         if (isPagedRead) {
           return safeHandlerContent(
             reqLogger,
-            () =>
-              vaultFs.readNoteSection(
+            () => {
+              return vaultFs.readNoteSection(
                 { vaultPath, path, heading, headingLevel: heading_level },
                 reqLogger,
-              ),
+              )
+            },
             (text) => formatPagedRead({ text, mode: "section" }),
           )
         }
         return safeHandler(
           reqLogger,
-          () =>
-            vaultFs.readNoteSection(
+          () => {
+            return vaultFs.readNoteSection(
               { vaultPath, path, heading, headingLevel: heading_level },
               reqLogger,
-            ),
+            )
+          },
           (text) => {
             reqLogger.info("tool_result", { mode: "section" })
             return text
@@ -508,7 +503,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
-      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Properties are preserved, but saving may rewrite their YAML in block style.
+      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Properties are kept as written, and CRLF line breaks are saved as LF.
 
 Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })
@@ -542,7 +537,6 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
 ${FILESYSTEM_ERROR_ENTRY}
-${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
 Obsidian syntax: Content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block. Inserting heading-level content (## New Section) changes the note's structure — future heading-targeted ops may resolve differently.
@@ -601,8 +595,8 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.patchNote(
+        () => {
+          return vaultPatcher.patchNote(
             {
               vaultPath,
               path,
@@ -613,7 +607,8 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
               includeChildren: include_children,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             outcome: "patched",
@@ -645,15 +640,13 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     whenToolEnabledText("vault_write_note", "vault_write_note's properties parameter"),
   ].filter(Boolean)
   const propertyEditClause =
-    servedPropertyEditors.length > 0
-      ? ` — properties must be edited via ${servedPropertyEditors.join(" or ")}`
-      : ""
+    servedPropertyEditors.length > 0 ? ` — edit them via ${servedPropertyEditors.join(" or ")}` : ""
 
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace exact text in a markdown note's body. Properties are preserved, but saving may rewrite their YAML in block style${propertyEditClause}.
+      description: `Find and replace exact text in a markdown note's body. Properties are kept as written${propertyEditClause}. CRLF line breaks are saved as LF.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" })
@@ -674,7 +667,6 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
 ${FILESYSTEM_ERROR_ENTRY}
-${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
 Obsidian syntax: new_text is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in replacement text.
@@ -710,8 +702,8 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.replaceInNote(
+        () => {
+          return vaultPatcher.replaceInNote(
             {
               vaultPath,
               path,
@@ -720,7 +712,8 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
               replaceAllOccurrences: replace_all_occurrences,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             outcome: "replaced",
@@ -761,7 +754,7 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
-      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Properties are preserved, but saving may rewrite their YAML in block style.
+      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Properties are kept as written, and CRLF line breaks are saved as LF.
 
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
@@ -781,7 +774,6 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 ${FILESYSTEM_ERROR_ENTRY}
-${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed lines joined by line breaks, cut at 80 characters with "…".`,
@@ -826,8 +818,8 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.deleteSpan(
+        () => {
+          return vaultPatcher.deleteSpan(
             {
               vaultPath,
               path,
@@ -836,7 +828,8 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
               firstMatch: first_match,
             },
             reqLogger,
-          ),
+          )
+        },
         (confirmation) => {
           reqLogger.info("tool_result", { outcome: "span_deleted" })
           return confirmation
@@ -860,7 +853,7 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
       title: "Replace Span",
-      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Properties are preserved, but saving may rewrite their YAML in block style.
+      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Properties are kept as written, and CRLF line breaks are saved as LF.
 
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
@@ -880,7 +873,6 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
 ${FILESYSTEM_ERROR_ENTRY}
-${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
 Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block.
@@ -933,8 +925,8 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.replaceSpan(
+        () => {
+          return vaultPatcher.replaceSpan(
             {
               vaultPath,
               path,
@@ -944,7 +936,8 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
               firstMatch: first_match,
             },
             reqLogger,
-          ),
+          )
+        },
         (confirmation) => {
           reqLogger.info("tool_result", { outcome: "span_replaced" })
           return confirmation
@@ -968,7 +961,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are preserved, but saving may rewrite their YAML in block style.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are kept as written, and CRLF line breaks are saved as LF.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
@@ -987,7 +980,6 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
 ${FILESYSTEM_ERROR_ENTRY}
-${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
 Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block.
@@ -1033,8 +1025,8 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.insertAtAnchor(
+        () => {
+          return vaultPatcher.insertAtAnchor(
             {
               vaultPath,
               path,
@@ -1044,7 +1036,8 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
               firstMatch: first_match,
             },
             reqLogger,
-          ),
+          )
+        },
         (confirmation) => {
           reqLogger.info("tool_result", { outcome: "inserted_at_anchor" })
           return confirmation
@@ -1242,7 +1235,7 @@ Errors:
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
 - "move incomplete: …" — an ordinary move failed partway (rare: a permission or disk error); no data is lost, and the error names what failed and the resulting state. If a backlink write failed: new_path exists and old_path is intact, so delete the partial new_path, then re-run the move. If the final delete failed: both paths exist, so delete old_path to finish.
 - A case-only rename that fails partway — "move aborted: could not rename to …" means nothing was written; retry the move, and if it fails again ask the vault's owner to fix the folder's permissions. "move incomplete: …" means the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
-- "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read or has a properties block the move cannot keep; nothing was written; fix that note (for a properties block, the error says how), then retry.
+- "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read, or a link in its properties block must change and the server cannot rewrite that block; nothing was written; fix that note (for a properties block, the error says how), then retry.
 - "move aborted: could not write to …" — new_path could not be created; nothing was written. A name fewer than 41 bytes under the filesystem's length limit fails here; retry with one at least 41 bytes shorter. If that fails, the folder or disk can't be written; ask the vault's owner to fix it.
 ${FILESYSTEM_ERROR_ENTRY}; nothing was written.
 ${INDEX_ENGINE_ERROR_ENTRY}; nothing was written.

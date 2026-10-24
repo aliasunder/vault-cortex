@@ -144,12 +144,16 @@ mechanism-level detail.
 - Atomic writes: temp-then-rename — readers never see partial content
 - Per-file mutex: three modes (serializing, fail-fast, multi-file)
   prevent concurrent writes from corrupting each other
-- Properties-block guard: every rewrite refuses a note whose properties
-  block it cannot keep (invalid YAML, a list, a single value, or a value
-  with an explicit YAML tag), and every write's result is checked before
-  it reaches disk, so no write silently drops a block's properties.
-  `vault_update_properties` with `replace: true` repairs a refused block.
-  YAML comments in a block are not kept by any rewrite
+- Properties-block guard: an edit to a note's body writes its properties
+  block back as written, comments included. Every rewrite of the
+  properties refuses a block it cannot keep (invalid YAML, a block that is
+  a list or a single value instead of key-value properties, or a value with
+  an explicit YAML tag such as `!!str`), and a write is refused when it
+  would leave `---` lines at the top of a note that the server cannot keep
+  as properties, so no write silently drops a block's properties.
+  `vault_update_properties` with `replace: true` replaces a refused block
+  with the properties it is given. A rewrite of the properties does not
+  keep YAML comments
 - First-sync gate (remote image): the init chain runs Obsidian Sync to
   completion before the server starts, so in two-way sync memory bootstrap
   can never race an incoming sync (`pull-only` and `mirror-remote` never

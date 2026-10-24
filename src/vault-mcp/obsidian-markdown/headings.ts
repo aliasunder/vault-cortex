@@ -262,18 +262,18 @@ export const linesBeforeFirstHeading = (
 }
 
 /** Case-sensitive heading lookup. Errors on 0 or 2+ matches. Headings are
- *  parsed from a note's body, so the ambiguity error adds `bodyStartLine`,
+ *  parsed from a note's body, so the ambiguity error adds `bodyStartFileLine`,
  *  the 0-based file line the body starts on, to name the file's own lines. */
 export const findHeading = ({
   headings,
   text,
   level,
-  bodyStartLine,
+  bodyStartFileLine,
 }: {
   headings: readonly HeadingInfo[]
   text: string
   level?: number | undefined
-  bodyStartLine: number
+  bodyStartFileLine: number
 }): HeadingInfo => {
   if (!text.trim()) {
     throw new Error("heading cannot be empty")
@@ -295,7 +295,7 @@ export const findHeading = ({
 
   if (matches.length > 1) {
     const describeMatch = (heading: HeadingInfo): string => {
-      const fileLine = bodyStartLine + heading.startLine + 1
+      const fileLine = bodyStartFileLine + heading.startLine + 1
       return `${"#".repeat(heading.level)} ${heading.text} (line ${fileLine})`
     }
     const matchedHeadings = matches.map(describeMatch).join(", ")

@@ -281,14 +281,13 @@ describe("registerTools", () => {
     expect(description).toContain("yields no next occurrence")
   })
 
-  it.each([TOOL_NAMES.VAULT_UPDATE_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])(
-    "%s description documents the shrink-guard error",
-    (name) => {
-      const [, config] = requireCall(name)
-      expect(config.description).toContain("Errors:")
-      expect(config.description).toContain("refusing memory write")
-    },
-  )
+  // Deleting an entry is the only memory write that can shrink a file; an
+  // append only adds lines, so vault_update_memory never reaches the guard
+  it("vault_delete_memory description documents the shrink-guard error", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
+    expect(config.description).toContain("Errors:")
+    expect(config.description).toContain("refusing memory write")
+  })
 
   it("vault_update_memory description documents the duplicate no-op contract", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
@@ -1724,8 +1723,10 @@ describe("vault_search_by_tag handler", () => {
     const decoyNote = { filePath: "Other/newest.md", tag: "other", mtimeMs: 3000 }
     // Inserted in path order: inserting newest first would let the index's row
     // order stand in for the modified-time sort these tests check.
-    const notesInPathOrder = [...projectNotes, nestedTagNote, decoyNote].toSorted((noteA, noteB) =>
-      noteA.filePath.localeCompare(noteB.filePath),
+    const notesInPathOrder = [...projectNotes, nestedTagNote, decoyNote].toSorted(
+      (noteA, noteB) => {
+        return noteA.filePath.localeCompare(noteB.filePath)
+      },
     )
 
     for (const { filePath, tag, mtimeMs } of notesInPathOrder) {
@@ -3640,29 +3641,30 @@ describe("DISABLED_TOOLS", () => {
       label: "names both property editors while they are served",
       disabledTools: "",
       expectedLine:
-        "in block style — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
+        "Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. CRLF line breaks are saved as LF.",
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
       expectedLine:
-        "in block style — properties must be edited via vault_write_note's properties parameter.",
+        "Properties are kept as written — edit them via vault_write_note's properties parameter. CRLF line breaks are saved as LF.",
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine: "in block style — properties must be edited via vault_update_properties.",
+      expectedLine:
+        "Properties are kept as written — edit them via vault_update_properties. CRLF line breaks are saved as LF.",
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: "in block style.",
+      expectedLine: "Properties are kept as written. CRLF line breaks are saved as LF.",
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
     const propertyEditLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-      startMarker: "in block style",
+      startMarker: "Properties are kept as written",
       endMarker: "\n\nExample:",
     })
     expect(propertyEditLine).toBe(expectedLine)

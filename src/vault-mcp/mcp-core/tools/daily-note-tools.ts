@@ -55,8 +55,8 @@ Returns: JSON with path (string — resolved vault-relative path), content (stri
       reqLogger.info("tool_call", { date })
       return safeHandler(
         reqLogger,
-        () =>
-          getDailyNote(
+        () => {
+          return getDailyNote(
             {
               vaultPath,
               date,
@@ -69,7 +69,8 @@ Returns: JSON with path (string — resolved vault-relative path), content (stri
               },
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             exists: result.exists,

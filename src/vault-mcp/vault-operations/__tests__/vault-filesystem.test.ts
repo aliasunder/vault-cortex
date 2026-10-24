@@ -2967,6 +2967,30 @@ describe("readNoteOutline", () => {
     })
   })
 
+  it("outlines a note whose properties block is not valid YAML the way it outlines its body alone", async () => {
+    await writeFile(
+      join(vault, "broken-block.md"),
+      "---\ntitle: [unclosed\n---\nIntro\n\n## Plan\nStep one\n",
+      "utf8",
+    )
+    // The properties read refuses this block, so the outline below skips it
+    const propertiesRefusal = await captureRejection(
+      readNoteProperties({ vaultPath: vault, path: "broken-block.md" }, logger),
+    )
+    expect(describeRefusal(propertiesRefusal)).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
+
+    expect(await readNoteOutline({ vaultPath: vault, path: "broken-block.md" }, logger)).toEqual({
+      ...(await getExpectedFileMetadata("broken-block.md")),
+      leading_content: "Intro",
+      headings: [
+        { level: 2, text: "Plan", bytes: Buffer.byteLength("## Plan\nStep one\n", "utf8") },
+      ],
+    })
+  })
+
   it("returns the whole body as leading_content for a note with no headings", async () => {
     await writeFile(join(vault, "flat.md"), "just prose, no headings\n", "utf8")
     expect(await readNoteOutline({ vaultPath: vault, path: "flat.md" }, logger)).toEqual({
@@ -3294,6 +3318,28 @@ describe("readNoteSection", () => {
 
     const section = await readNoteSection(
       { vaultPath: vault, path: "list-block.md", heading: "Plan" },
+      logger,
+    )
+    expect(section).toBe("## Plan\nStep one\n")
+  })
+
+  it("reads a section of a note whose properties block is not valid YAML", async () => {
+    await writeFile(
+      join(vault, "broken-block.md"),
+      "---\ntitle: [unclosed\n---\n## Plan\nStep one\n\n## Later\nStep two\n",
+      "utf8",
+    )
+    // The properties read refuses this block, so the section read below skips it
+    const propertiesRefusal = await captureRejection(
+      readNoteProperties({ vaultPath: vault, path: "broken-block.md" }, logger),
+    )
+    expect(describeRefusal(propertiesRefusal)).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
+
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "broken-block.md", heading: "Plan" },
       logger,
     )
     expect(section).toBe("## Plan\nStep one\n")

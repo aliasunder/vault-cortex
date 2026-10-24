@@ -259,13 +259,26 @@ export const INDEX_ERROR_ENTRY =
 export const INDEX_ENGINE_ERROR_ENTRY =
   '- "[SqliteError]: …" — the search index failed, not the call; the message says what to do'
 
-/** The Errors entry of every tool that rewrites a note. A tool that rewrites
- *  the note only in one mode passes that mode as rewriteCondition
+/** The Errors entry of a tool that rewrites a note's properties block. A
+ *  tool that rewrites it only in one mode passes that mode as rewriteCondition
  *  (`"with overwrite: true"`), and the entry opens with it. The error itself
  *  carries the repair steps, so the entry points at them and names no tool. */
 export const describePropertiesBlockErrorEntry = (rewriteCondition?: string): string => {
   const conditionClause = rewriteCondition ? `${rewriteCondition}, ` : ""
   return `- "properties block …" — ${conditionClause}the note's properties block can't be read, or a rewrite would lose it; the error says how to repair it`
+}
+
+/** A handler's refusal of its own arguments, before any data-layer call. The
+ *  message names the fix, so it goes out with no remedy appended. */
+export const toolInputErrorResult = (params: {
+  message: string
+  logger: Logger
+}): { content: Array<{ type: "text"; text: string }>; isError: true } => {
+  params.logger.warn("tool_error", { error: params.message })
+  return {
+    content: [{ type: "text" as const, text: params.message }],
+    isError: true as const,
+  }
 }
 
 export const createSafeHandlers = (params: {

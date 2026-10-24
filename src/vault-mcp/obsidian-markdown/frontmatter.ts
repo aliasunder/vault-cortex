@@ -28,8 +28,9 @@ export class UnsupportedPropertiesBlockError extends Error {
 
 /**
  * An overwrite refused because the note's existing properties block cannot
- * be read or kept. The overwrite replaces the body anyway, so its repair is
- * a block replace and a second try. The not-key-value repair, which moves
+ * be read or kept. Its own class lets the tool layer pick the overwrite's
+ * repair steps: the overwrite replaces the body anyway, so the repair is a
+ * block replace and a second try. The not-key-value repair, which moves
  * the block's text into the body, does not apply.
  */
 export class OverwriteBlockedError extends UnsupportedPropertiesBlockError {}
@@ -72,6 +73,10 @@ const SPLIT_ONLY_OPTIONS = {
   engines: { yaml: { parse: (): Record<string, unknown> => ({}) } },
 }
 
+const stripLeadingBom = (content: string): string => {
+  return content.startsWith("\uFEFF") ? content.slice(1) : content
+}
+
 /**
  * Splits a note into its raw properties block and the body after it,
  * without parsing the YAML. A properties block exists only when the first
@@ -110,15 +115,15 @@ export const splitPropertiesBlock = (
   }
 
   // gray-matter strips the BOM on the path above; this path does it here
-  const contentWithoutBom = content.startsWith("\uFEFF") ? content.slice(1) : content
-  return { blockText: null, body: contentWithoutBom }
+  return { blockText: null, body: stripLeadingBom(content) }
 }
 
 /**
  * The 0-based index of the line the body starts on, which is the number of
- * line breaks before its first character. A closer with trailing text
- * (`----`) holds that character, so the body starts on the closer line, as
- * does an empty body after a closer with no final line break.
+ * line breaks before its first character. After a closer with trailing text
+ * (`----`), the rest of the closer line is the start of the body, so the body
+ * starts on the closer line, as does an empty body after a closer with no
+ * final line break.
  */
 export const findBodyStartLine = (content: string): number => {
   const { body } = splitPropertiesBlock(content)
@@ -245,7 +250,8 @@ const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
   const [firstError] = document.errors
 
   if (firstError) {
-    const { line, col } = lineCounter.linePos(firstError.pos[0])
+    const [errorStartOffset] = firstError.pos
+    const { line, col } = lineCounter.linePos(errorStartOffset)
     return unreadableReading({
       message: `properties block is not valid YAML at line ${line}, column ${col}: ${firstError.message}`,
       cause: firstError,
@@ -302,8 +308,9 @@ const readPropertiesBlock = (blockText: string): PropertiesBlockReading => {
  *
  * Only YAML the parser cannot read throws (`UnsupportedPropertiesBlockError`,
  * kind `invalid-yaml`). A list or a single value reads as no properties
- * (`{}`), and a tagged value reads as the parser resolves its tag. Writes
- * use `parseNoteForRewrite`, which also refuses the blocks a rewrite would lose.
+ * (`{}`), and a tagged value reads as the parser resolves its tag. Rewrites
+ * of the properties use `parseNoteForRewrite`, which also refuses the blocks
+ * a rewrite would lose; edits that keep the block use `splitNoteKeepingBlock`.
  */
 export const parseNote = (content: string): ParsedNote => {
   const { blockText, body } = splitPropertiesBlock(content)
@@ -336,6 +343,28 @@ export const parseNoteForRewrite = (content: string): ParsedNote => {
 }
 
 /**
+ * Parses a note the way Obsidian's metadata cache reads it.
+ * - A properties block the YAML parser cannot read is dropped: the note reads
+ *   as its body with no properties, so its text, tasks and links stay usable.
+ * - `unreadableBlockError` carries the parser's refusal for the caller to log,
+ *   or null when the block was read.
+ */
+export const parseNoteSkippingUnreadableBlock = (
+  rawContent: string,
+): ParsedNote & { unreadableBlockError: UnsupportedPropertiesBlockError | null } => {
+  const { blockText, body } = splitPropertiesBlock(rawContent)
+
+  if (blockText === null) return { data: {}, content: body, unreadableBlockError: null }
+
+  const reading = readPropertiesBlock(blockText)
+
+  if (reading.status === "unreadable") {
+    return { data: {}, content: body, unreadableBlockError: reading.error }
+  }
+  return { data: reading.data, content: body, unreadableBlockError: null }
+}
+
+/**
  * Serializes properties as a frontmatter block, `""` when there are none.
  * It writes gray-matter's format, trimmed YAML between `---` lines.
  *
@@ -355,9 +384,9 @@ export const serializePropertiesBlock = (data: object): string => {
 /**
  * The 0-based index of the line the body starts on in the note
  * `stringifyNote` writes for `data`: the number of lines in the properties
- * block it writes, 0 when there are none. It counts physical lines, even when
- * reading the written note back would split it elsewhere: with no properties
- * to write, a body that opens with `---` lines reads back as the block.
+ * block it writes, 0 when there are none. It counts physical lines: with no
+ * properties to write it returns 0, even for a body that opens with `---`
+ * lines, which reading the written note back would split off as the block.
  */
 export const findWrittenBodyStartLine = (data: object): number => {
   // The block ends in a line break, so splitting it yields one empty element
@@ -397,6 +426,60 @@ export const stringifyNote = (body: string, data: object): string => {
 
   assertOpeningBlockIsKeepable(serialized)
   return serialized
+}
+
+/**
+ * Splits a note for an edit that leaves its properties unchanged, without
+ * parsing the YAML, so a block the server cannot read or keep still splits.
+ * - `textBeforeBody`: the opener, the block and the closer as the note holds
+ *   them, with line breaks made LF; `""` when the note has no properties
+ *   block. A leading BOM is dropped, as on every split.
+ * - `body`: the body `splitPropertiesBlock` finds, the boundary every read uses.
+ */
+export const splitNoteKeepingBlock = (
+  content: string,
+): { textBeforeBody: string; body: string } => {
+  const { body } = splitPropertiesBlock(content)
+  const contentWithoutBom = stripLeadingBom(content)
+
+  // The body is a suffix of the note (findBodyStartLine relies on the same),
+  // so the text before it is the block exactly as the note holds it
+  const blockAsWritten = contentWithoutBom.slice(0, contentWithoutBom.length - body.length)
+
+  // Line breaks become LF the way splitIntoLines makes the body's: each CRLF,
+  // and the CR that ends a closer line at the end of the note. A CR inside a
+  // line stays, because the YAML parser reads it as text, not a line break.
+  const crlfConverted = blockAsWritten.replaceAll("\r\n", "\n")
+  const textBeforeBody = crlfConverted.endsWith("\r")
+    ? `${crlfConverted.slice(0, -1)}\n`
+    : crlfConverted
+
+  return { textBeforeBody, body }
+}
+
+/**
+ * Joins the text from `splitNoteKeepingBlock` with an edited body, ending the
+ * note with a line break as `stringifyNote` does. A note with no properties
+ * block is refused when its body would open with a block the server cannot keep.
+ */
+export const joinNoteKeepingBlock = (params: { textBeforeBody: string; body: string }): string => {
+  const { textBeforeBody, body } = params
+  const bodyWithTrailingNewline = body.endsWith("\n") ? body : `${body}\n`
+
+  // A kept block was already in the note and the edit leaves it unchanged, so
+  // only a note without one can gain a new opening block from its body
+  if (!textBeforeBody) {
+    assertOpeningBlockIsKeepable(bodyWithTrailingNewline)
+    return bodyWithTrailingNewline
+  }
+
+  // A line break goes before the body when the text ends without one, so the body
+  // never joins the closer line. The text ends that way in two cases:
+  // - a closer at the end of the note;
+  // - a closer with text past its `---` (`----`): that text is body text, as
+  //   Obsidian reads it, and it moves to its own line.
+  const separator = textBeforeBody.endsWith("\n") ? "" : "\n"
+  return `${textBeforeBody}${separator}${bodyWithTrailingNewline}`
 }
 
 /**

@@ -23,8 +23,10 @@ import type { Stats } from "node:fs"
 import { readFile, mkdir, rename, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
 import {
-  parseNote,
+  joinNoteKeepingBlock,
   parseNoteForRewrite,
+  parseNoteSkippingUnreadableBlock,
+  splitNoteKeepingBlock,
   stringifyNote,
   UnkeepableOpeningBlockError,
   UnsupportedPropertiesBlockError,
@@ -180,7 +182,6 @@ const rewriteTarget = (
     allPaths: context.allNotePaths,
     sourcePath: context.oldSourcePath,
   })
-  const targetKind: TargetKind = resolvedNoteBefore ? "note" : "asset"
   const resolvedBefore =
     resolvedNoteBefore ??
     links.resolveAsset({
@@ -190,6 +191,8 @@ const rewriteTarget = (
     })
 
   if (resolvedBefore === null) return null
+
+  const targetKind: TargetKind = resolvedNoteBefore ? "note" : "asset"
 
   // Follow the moved note to its new location; every other target (an
   // unmoved note, or an asset — assets never move) keeps its resolved path,
@@ -420,12 +423,17 @@ const rewriteFrontmatterValue = (value: unknown, rewriteLink: RewriteLink): Fron
 // ── Whole-note rewriting ────────────────────────────────────────
 
 /** Rewrites all links (body + frontmatter) in a note's raw content. Returns the
- *  serialized note only when something changed, so callers can skip no-op writes. */
+ *  serialized note only when something changed, so callers can skip no-op writes.
+ *  - No link inside the properties block changes: the block goes back as written.
+ *  - A block that is not valid YAML reads as no properties, as Obsidian's
+ *    metadata cache reads it, so its links stay as they are and it goes back
+ *    as written.
+ *  - A link inside the block changes: the block is rewritten from its values. */
 const rewriteNoteContent = (
   rawContent: string,
   rewriteLink: RewriteLink,
 ): { content: string; linksRewritten: number } | null => {
-  const parsed = parseNote(rawContent)
+  const parsed = parseNoteSkippingUnreadableBlock(rawContent)
   const frontmatter: Record<string, unknown> = parsed.data
 
   const bodyResult = rewriteBody(parsed.content, rewriteLink)
@@ -434,10 +442,18 @@ const rewriteNoteContent = (
 
   if (linksRewritten === 0) return null
 
-  // Called only for the error it throws. parseNote above accepts a properties
-  // block that is a YAML list, a single value, or a value with an explicit
-  // tag, but stringifyNote below would drop or change that block. A note with
-  // no link to change returned earlier and moves byte-for-byte, block and all.
+  if (frontmatterResult.linksRewritten === 0) {
+    const { textBeforeBody } = splitNoteKeepingBlock(rawContent)
+    return {
+      content: joinNoteKeepingBlock({ textBeforeBody, body: bodyResult.body }),
+      linksRewritten,
+    }
+  }
+
+  // Called only for the error it throws. A link inside the block changed, so
+  // the block reads as key-value properties: an unreadable, list or
+  // single-value block reads as none, and the function returned above.
+  // stringifyNote below would still drop an explicit YAML tag on any value.
   parseNoteForRewrite(rawContent)
 
   const rewrittenData = frontmatterResult.value
@@ -478,10 +494,9 @@ const rewriteCanvasContent = (params: {
 
 /** The error a move aborts with when a note it must rewrite cannot be
  *  planned. The message says which step failed:
- *  - "could not read": unreadable YAML, or any failure that is not a
- *    properties-block refusal.
- *  - "could not rewrite": a block the rewrite would lose, or a rewrite that
- *    would leave `---` lines at the top of the note.
+ *  - "could not read": any failure that is not a properties-block refusal.
+ *  - "could not rewrite": a link inside a block the rewrite would lose, or a
+ *    rewrite that would leave `---` lines at the top of the note.
  *
  *  A properties-block refusal keeps its class (and kind), so the tool
  *  boundary still adds how to fix it. */
@@ -494,10 +509,12 @@ const buildMoveAbortError = (params: { subject: string; error: unknown }): Error
       { cause: error },
     )
   }
+  // The message names the rewrite: a refusal here always comes from rewriting
+  // a link inside a readable block, because an unreadable block reads as no
+  // properties and never refuses
   if (error instanceof UnsupportedPropertiesBlockError) {
-    const failedStep = error.kind === "invalid-yaml" ? "read" : "rewrite"
     return new UnsupportedPropertiesBlockError({
-      message: `move aborted: could not ${failedStep} ${subject}: ${error.message}. Nothing was written.`,
+      message: `move aborted: could not rewrite ${subject}: ${error.message}. Nothing was written.`,
       kind: error.kind,
       cause: error,
     })
@@ -584,7 +601,9 @@ const extractLinkTargets = (params: { path: string; content: string }): string[]
     return [...noteCardPaths, ...cardLinkTargets]
   }
 
-  const parsed = parseNote(params.content)
+  // A note whose block is not valid YAML still links from its body, as the
+  // index and Obsidian's metadata cache read it
+  const parsed = parseNoteSkippingUnreadableBlock(params.content)
   const frontmatter: Record<string, unknown> = parsed.data
   return links.extractAll(parsed.content, frontmatter)
 }
@@ -1054,6 +1073,8 @@ const moveNote = async (
         }
 
         // Mutable so a mid-commit failure can report how far the writes got.
+        // Other writes may still be in flight when one fails, so the count it
+        // reports is a lower bound.
         let sourcesWritten = 0
         await mapWithConcurrency({
           items: plannedRewrites,
@@ -1126,7 +1147,6 @@ const moveNote = async (
           to: newPath,
           linksUpdated,
           sourcesUpdated: plannedRewrites.length,
-          sourcesFailed: 0,
           prunedFolderCount,
         })
 
