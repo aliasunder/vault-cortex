@@ -236,7 +236,7 @@ type LineBreakRun = Readonly<{ start: number; end: number }>
 /** Edit points for a `replaceInNote` deletion. `bodyParts` is the body split at
  *  every removed match, so `bodyParts.join(removedText)` is the original body.
  *  - Every line break is a single `\n`: the body comes from splitIntoLines, and
- *    replaceInNote converts the caller's `\r\n` before matching.
+ *    replaceInNote converts old_text's `\r\n` breaks before matching.
  *  - Only a match whose removal leaves an empty line where it sat gets an edit
  *    point; any other removal is written exactly as asked.
  *  - Each gap counts the empty lines between the match's text and the nearest
@@ -547,8 +547,9 @@ const replaceInNote = async (
   // - replaceAll never empties a non-empty string, unlike splitIntoLines, which
   //   would turn old_text "\r" into "", a search text that matches at offset 0.
   const searchText = oldText.replaceAll("\r\n", "\n")
-  // new_text is split the way the other edit tools split their content, so the
-  // `\r` before each of its line breaks, and a `\r` it ends with, are dropped
+  // new_text is split the way patchNote, replaceSpan and insertAtAnchor split
+  // their content, so the `\r` before each of its line breaks, and a `\r` it
+  // ends with, are dropped
   const replacementText = splitIntoLines(newText).join("\n")
 
   const lockPath = resolveSafePath(params.vaultPath, path)
