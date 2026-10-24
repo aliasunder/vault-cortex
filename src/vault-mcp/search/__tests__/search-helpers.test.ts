@@ -39,6 +39,27 @@ describe("isString", () => {
   })
 })
 
+/** The class, message and cause class a call throws. Vitest's
+ *  `toThrow(errorInstance)` compares only the message, so a plain `Error`
+ *  would pass it. */
+const describeThrow = (
+  call: () => unknown,
+): { isIndexIntegrityError: boolean; message: string; causeName: string | undefined } => {
+  try {
+    call()
+  } catch (error) {
+    if (!(error instanceof Error)) throw error
+
+    const causeName = error.cause instanceof Error ? error.cause.name : undefined
+    return {
+      isIndexIntegrityError: error instanceof IndexIntegrityError,
+      message: error.message,
+      causeName,
+    }
+  }
+  throw new Error("expected the call to throw")
+}
+
 // ── coerceToArray ─────────────────────────────────────────────
 
 describe("coerceToArray", () => {
@@ -197,40 +218,52 @@ describe("rowToMetadata", () => {
   })
 
   it("throws IndexIntegrityError when tags column contains a non-array value", () => {
-    expect(() => rowToMetadata(makeNoteRow({ tags: '"not-an-array"' }))).toThrow(
-      new IndexIntegrityError('expected string[] from JSON column, got: "not-an-array"'),
-    )
+    expect(describeThrow(() => rowToMetadata(makeNoteRow({ tags: '"not-an-array"' })))).toEqual({
+      isIndexIntegrityError: true,
+      message: 'expected string[] from JSON column, got: "not-an-array"',
+    })
   })
 
   it("throws IndexIntegrityError when tags column contains an array with non-string elements", () => {
-    expect(() => rowToMetadata(makeNoteRow({ tags: JSON.stringify(["ok", 123]) }))).toThrow(
-      new IndexIntegrityError('expected string[] from JSON column, got: ["ok",123]'),
-    )
+    expect(
+      describeThrow(() => rowToMetadata(makeNoteRow({ tags: JSON.stringify(["ok", 123]) }))),
+    ).toEqual({
+      isIndexIntegrityError: true,
+      message: 'expected string[] from JSON column, got: ["ok",123]',
+    })
   })
 
   it("throws IndexIntegrityError, with the parse error as its cause, when tags column is not JSON", () => {
     // JSON.parse's message text is the engine's, so only the cause's class is pinned
-    expect(() => rowToMetadata(makeNoteRow({ tags: "{" }))).toThrow(
-      new IndexIntegrityError("JSON column is not JSON: {", { cause: expect.any(SyntaxError) }),
-    )
+    expect(describeThrow(() => rowToMetadata(makeNoteRow({ tags: "{" })))).toEqual({
+      isIndexIntegrityError: true,
+      message: "JSON column is not JSON: {",
+      causeName: "SyntaxError",
+    })
   })
 
   it("throws IndexIntegrityError when properties column contains a non-object value", () => {
-    expect(() => rowToMetadata(makeNoteRow({ properties: '"string"' }))).toThrow(
-      new IndexIntegrityError('expected object from JSON column, got: "string"'),
-    )
+    expect(describeThrow(() => rowToMetadata(makeNoteRow({ properties: '"string"' })))).toEqual({
+      isIndexIntegrityError: true,
+      message: 'expected object from JSON column, got: "string"',
+    })
   })
 
   it("throws IndexIntegrityError when leading_callout column has missing fields", () => {
-    expect(() => rowToMetadata(makeNoteRow({ leading_callout: '{"type":"info"}' }))).toThrow(
-      new IndexIntegrityError('expected LeadingCallout from JSON column, got: {"type":"info"}'),
-    )
+    expect(
+      describeThrow(() => rowToMetadata(makeNoteRow({ leading_callout: '{"type":"info"}' }))),
+    ).toEqual({
+      isIndexIntegrityError: true,
+      message: 'expected LeadingCallout from JSON column, got: {"type":"info"}',
+    })
   })
 
   it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
-    expect(() => rowToMetadata(makeNoteRow({ mtime: NaN }))).toThrow(
-      new IndexIntegrityError("invalid mtime: NaN"),
-    )
+    expect(describeThrow(() => rowToMetadata(makeNoteRow({ mtime: NaN })))).toEqual({
+      isIndexIntegrityError: true,
+      message: "invalid mtime: NaN",
+      causeName: "Error",
+    })
   })
 })
 
@@ -301,15 +334,19 @@ describe("rowToTaskEntry", () => {
   })
 
   it("throws IndexIntegrityError when depends_on column contains a non-array value", () => {
-    expect(() => rowToTaskEntry(makeTaskRow({ depends_on: '"not-an-array"' }))).toThrow(
-      new IndexIntegrityError('expected string[] from JSON column, got: "not-an-array"'),
-    )
+    expect(
+      describeThrow(() => rowToTaskEntry(makeTaskRow({ depends_on: '"not-an-array"' }))),
+    ).toEqual({
+      isIndexIntegrityError: true,
+      message: 'expected string[] from JSON column, got: "not-an-array"',
+    })
   })
 
   it("throws IndexIntegrityError when tags column contains a non-array value", () => {
-    expect(() => rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' }))).toThrow(
-      new IndexIntegrityError('expected string[] from JSON column, got: "not-an-array"'),
-    )
+    expect(describeThrow(() => rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' })))).toEqual({
+      isIndexIntegrityError: true,
+      message: 'expected string[] from JSON column, got: "not-an-array"',
+    })
   })
 })
 
@@ -373,46 +410,55 @@ describe("noteRowToSearchResult", () => {
   })
 
   it("throws IndexIntegrityError when tags column contains invalid data", () => {
-    expect(() =>
-      noteRowToSearchResult({
-        row: makeNoteRow({ tags: "42" }),
-        snippet: "text",
-        score: 0.5,
-        includeLeadingCallout: false,
-      }),
-    ).toThrow(new IndexIntegrityError("expected string[] from JSON column, got: 42"))
+    expect(
+      describeThrow(() =>
+        noteRowToSearchResult({
+          row: makeNoteRow({ tags: "42" }),
+          snippet: "text",
+          score: 0.5,
+          includeLeadingCallout: false,
+        }),
+      ),
+    ).toEqual({
+      isIndexIntegrityError: true,
+      message: "expected string[] from JSON column, got: 42",
+    })
   })
 
   it("throws IndexIntegrityError when leading_callout column contains invalid data", () => {
-    expect(() =>
-      noteRowToSearchResult({
-        row: makeNoteRow({
-          leading_callout: JSON.stringify({
-            type: "note",
-            title: "Invalid",
-            body: 42,
+    expect(
+      describeThrow(() =>
+        noteRowToSearchResult({
+          row: makeNoteRow({
+            leading_callout: JSON.stringify({
+              type: "note",
+              title: "Invalid",
+              body: 42,
+            }),
           }),
+          snippet: "text",
+          score: 0.5,
+          includeLeadingCallout: true,
         }),
-        snippet: "text",
-        score: 0.5,
-        includeLeadingCallout: true,
-      }),
-    ).toThrow(
-      new IndexIntegrityError(
-        'expected LeadingCallout from JSON column, got: {"type":"note","title":"Invalid","body":42}',
       ),
-    )
+    ).toEqual({
+      isIndexIntegrityError: true,
+      message:
+        'expected LeadingCallout from JSON column, got: {"type":"note","title":"Invalid","body":42}',
+    })
   })
 
   it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
-    expect(() =>
-      noteRowToSearchResult({
-        row: makeNoteRow({ mtime: NaN }),
-        snippet: "text",
-        score: 0.5,
-        includeLeadingCallout: false,
-      }),
-    ).toThrow(new IndexIntegrityError("invalid mtime: NaN"))
+    expect(
+      describeThrow(() =>
+        noteRowToSearchResult({
+          row: makeNoteRow({ mtime: NaN }),
+          snippet: "text",
+          score: 0.5,
+          includeLeadingCallout: false,
+        }),
+      ),
+    ).toEqual({ isIndexIntegrityError: true, message: "invalid mtime: NaN", causeName: "Error" })
   })
 })
 
@@ -474,19 +520,21 @@ describe("fileContentRowToSearchResult", () => {
   })
 
   it("throws IndexIntegrityError when the stored mtime cannot be formatted", () => {
-    expect(() =>
-      fileContentRowToSearchResult(
-        {
-          path: "Diagrams/architecture.canvas",
-          title: "architecture",
-          folder: "Diagrams",
-          mtime: NaN,
-          bytes: 2048,
-          snippet: "Architecture overview",
-        },
-        0.85,
+    expect(
+      describeThrow(() =>
+        fileContentRowToSearchResult(
+          {
+            path: "Diagrams/architecture.canvas",
+            title: "architecture",
+            folder: "Diagrams",
+            mtime: NaN,
+            bytes: 2048,
+            snippet: "Architecture overview",
+          },
+          0.85,
+        ),
       ),
-    ).toThrow(new IndexIntegrityError("invalid mtime: NaN"))
+    ).toEqual({ isIndexIntegrityError: true, message: "invalid mtime: NaN", causeName: "Error" })
   })
 })
 
