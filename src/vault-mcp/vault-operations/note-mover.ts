@@ -451,9 +451,9 @@ const rewriteNoteContent = (
   }
 
   // Called only for the error it throws. A link inside the block changed, so
-  // the block reads as key-value properties (an unreadable, list or
-  // single-value block reads as none and returned above); stringifyNote below
-  // would still drop an explicit YAML tag on any of its values.
+  // the block reads as key-value properties: an unreadable, list or
+  // single-value block reads as none, and the function returned above.
+  // stringifyNote below would still drop an explicit YAML tag on any value.
   parseNoteForRewrite(rawContent)
 
   const rewrittenData = frontmatterResult.value

@@ -1146,6 +1146,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       if (matchOffset === undefined) {
         throw new Error("expected at least one matching offset")
       }
+
       // Find the end of this entry's span: the next entry, or the section's
       // end when this is the last entry. A deeper heading (### and below)
       // before that ends it too, as parseMemoryEntries ends an entry there, so
@@ -1153,12 +1154,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const matchIndex = match.bodyStartLine + matchOffset
       const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
       const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
-      const nextEntryLine =
+      const nextEntryOrSectionEnd =
         nextEntryOffset !== undefined ? match.bodyStartLine + nextEntryOffset : match.bodyEndLine
       const nextSubheading = parseHeadings(lines).find(
-        (heading) => heading.startLine > matchIndex && heading.startLine < nextEntryLine,
+        (heading) => heading.startLine > matchIndex && heading.startLine < nextEntryOrSectionEnd,
       )
-      const rawSpanEnd = nextSubheading?.startLine ?? nextEntryLine
+      const rawSpanEnd = nextSubheading?.startLine ?? nextEntryOrSectionEnd
 
       // Trim trailing blank lines from the span — they separate sections
       // or entries visually and don't belong to the deleted entry.
