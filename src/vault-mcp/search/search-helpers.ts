@@ -4,12 +4,6 @@ import { posix } from "node:path"
 import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import {
-  parseNote,
-  splitPropertiesBlock,
-  UnsupportedPropertiesBlockError,
-  type ParsedNote,
-} from "../obsidian-markdown/frontmatter.js"
 import { foldAsciiCase } from "../obsidian-markdown/links.js"
 import { isRecord } from "../../utils/is-record.js"
 import type {
@@ -25,13 +19,15 @@ import type {
 
 export const isString = (value: unknown): value is string => typeof value === "string"
 
+const isScalarListElement = (element: unknown): boolean => {
+  return element != null && typeof element !== "object"
+}
+
 /** Coerces a YAML frontmatter field to a string array: scalar elements are
- *  stringified; null elements, mappings and nested lists are dropped.
- *  gray-matter may parse multi-value YAML fields as a scalar or an array
- *  depending on syntax (flow vs block). */
+ *  stringified; null elements, mappings and nested lists are dropped. A
+ *  multi-value field may be written as one value (`tags: a`) or as a list. */
 export const coerceToArray = (value: unknown): string[] => {
-  if (Array.isArray(value))
-    return value.filter((element) => element != null && typeof element !== "object").map(String)
+  if (Array.isArray(value)) return value.filter(isScalarListElement).map(String)
 
   // A mapping value (related: { note: true }) is dropped, as the array branch
   // above drops mappings in a list; String() would index it as "[object Object]".
@@ -84,40 +80,14 @@ export const nestedTagLikePattern = (input: string): string => {
   return `${escapeLikeWildcards(normalizeTagQuery(input))}/%`
 }
 
-// ── Note parsing for the index ─────────────────────────────────
-
-/**
- * Parses a note as the index reads it.
- * - A properties block (the frontmatter) that the YAML parser cannot read is
- *   dropped, as Obsidian's metadata cache drops it: the note reads as its body
- *   with no properties, so its text, tasks and links stay indexed.
- * - `unreadableBlockError` carries the parser's refusal for the caller to log,
- *   or null when the block was read.
- */
-export const parseNoteForIndex = (
-  rawContent: string,
-): ParsedNote & { unreadableBlockError: UnsupportedPropertiesBlockError | null } => {
-  try {
-    const { data, content } = parseNote(rawContent)
-    return { data, content, unreadableBlockError: null }
-  } catch (error) {
-    // parseNote throws this error only for YAML the parser cannot read (kind
-    // `invalid-yaml`); the list, single-value and tag kinds come from parseNoteForRewrite
-    if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
-
-    // parseNote split the note at these same boundaries before it read the
-    // block, so the body starts after the block's closing `---` line
-    const { body } = splitPropertiesBlock(rawContent)
-    return { data: {}, content: body, unreadableBlockError: error }
-  }
-}
-
 // ── Stored row integrity ───────────────────────────────────────
 
 /** A stored index row cannot be read back: a JSON column that is not JSON or
  *  has the wrong shape, or an mtime Luxon rejects. The indexer wrote every
  *  such column itself, so the failure is the index's, never the call's, and
- *  the tool boundary appends the index remedy to it. */
+ *  the tool boundary appends the index remedy to it. Its `name` is set so
+ *  `describeError` prints `[IndexIntegrityError]: …`, the prefix the
+ *  index-backed tools' Errors entries name. */
 export class IndexIntegrityError extends Error {
   constructor(message: string, options?: { cause: unknown }) {
     super(message, options)
@@ -224,9 +194,7 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
     if (key === "title") continue
     if (value == null) continue
     if (Array.isArray(value)) {
-      const primitiveElements = value
-        .filter((element) => element != null && typeof element !== "object")
-        .map(String)
+      const primitiveElements = value.filter(isScalarListElement).map(String)
 
       if (primitiveElements.length > 0) {
         lines.push(`${key}: ${primitiveElements.join(" ")}`)

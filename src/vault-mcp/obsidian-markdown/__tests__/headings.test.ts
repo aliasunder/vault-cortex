@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest"
-import { parseHeadings, findHeading, linesBeforeFirstHeading } from "../headings.js"
+import {
+  parseHeadings,
+  findHeading,
+  findTrailingCommentBlockStart,
+  linesBeforeFirstHeading,
+} from "../headings.js"
 
 describe("parseHeadings", () => {
   it("parses H1–H6 with each section spanning to the next same-or-higher heading", () => {
@@ -516,15 +521,15 @@ describe("findHeading", () => {
   const headings = parseHeadings(["# Board", "## Active", "## Done", "### Active"])
 
   it("returns the single matching heading", () => {
-    expect(findHeading({ headings, text: "Board", bodyStartLine: 0 }).level).toBe(1)
+    expect(findHeading({ headings, text: "Board", bodyStartFileLine: 0 }).level).toBe(1)
   })
 
   it("disambiguates duplicate text by level", () => {
-    expect(findHeading({ headings, text: "Active", level: 3, bodyStartLine: 0 }).level).toBe(3)
+    expect(findHeading({ headings, text: "Active", level: 3, bodyStartFileLine: 0 }).level).toBe(3)
   })
 
   it("throws and lists available headings when none match", () => {
-    expect(() => findHeading({ headings, text: "Missing", bodyStartLine: 0 })).toThrow(
+    expect(() => findHeading({ headings, text: "Missing", bodyStartFileLine: 0 })).toThrow(
       new Error(
         'heading not found: "Missing". Available headings: # Board, ## Active, ## Done, ### Active',
       ),
@@ -532,7 +537,7 @@ describe("findHeading", () => {
   })
 
   it("throws ambiguous when more than one heading matches", () => {
-    expect(() => findHeading({ headings, text: "Active", bodyStartLine: 0 })).toThrow(
+    expect(() => findHeading({ headings, text: "Active", bodyStartFileLine: 0 })).toThrow(
       new Error(
         'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ### Active (line 4)',
       ),
@@ -540,7 +545,7 @@ describe("findHeading", () => {
   })
 
   it("names file lines in the ambiguity error when the body starts below a properties block", () => {
-    expect(() => findHeading({ headings, text: "Active", bodyStartLine: 3 })).toThrow(
+    expect(() => findHeading({ headings, text: "Active", bodyStartFileLine: 3 })).toThrow(
       new Error(
         'ambiguous heading: "Active" matches 2 sections: ## Active (line 5), ### Active (line 7)',
       ),
@@ -550,7 +555,7 @@ describe("findHeading", () => {
   it("throws ambiguous for same-level matches, naming each one's line", () => {
     const sameLevelHeadings = parseHeadings(["# Board", "## Active", "## Done", "## Active"])
     expect(() => {
-      findHeading({ headings: sameLevelHeadings, text: "Active", bodyStartLine: 0 })
+      findHeading({ headings: sameLevelHeadings, text: "Active", bodyStartFileLine: 0 })
     }).toThrow(
       new Error(
         'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ## Active (line 4)',
@@ -559,7 +564,7 @@ describe("findHeading", () => {
   })
 
   it("throws when the heading text is empty or whitespace", () => {
-    expect(() => findHeading({ headings, text: "   ", bodyStartLine: 0 })).toThrow(
+    expect(() => findHeading({ headings, text: "   ", bodyStartFileLine: 0 })).toThrow(
       new Error("heading cannot be empty"),
     )
   })
@@ -567,7 +572,7 @@ describe("findHeading", () => {
   it("resolves a setext heading by text and level", () => {
     const mixedHeadings = parseHeadings(["# ATX", "Setext Title", "---"])
     expect(
-      findHeading({ headings: mixedHeadings, text: "Setext Title", bodyStartLine: 0 }),
+      findHeading({ headings: mixedHeadings, text: "Setext Title", bodyStartFileLine: 0 }),
     ).toEqual({
       text: "Setext Title",
       level: 2,
@@ -575,5 +580,128 @@ describe("findHeading", () => {
       bodyStartLine: 3,
       bodyEndLine: 3,
     })
+  })
+})
+
+describe("findTrailingCommentBlockStart", () => {
+  it("returns 0 for empty input", () => {
+    expect(findTrailingCommentBlockStart([])).toBe(0)
+  })
+
+  it("returns lines.length when no comment delimiters exist", () => {
+    const lines = ["## Heading", "Some content", "More content"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(3)
+  })
+
+  it("finds a multi-line trailing comment block", () => {
+    const lines = [
+      "## Done",
+      "- [x] Task",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("finds a single-line trailing comment", () => {
+    const lines = ["## Notes", "Content", "", "%% private note %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("ignores a mid-body comment followed by more content", () => {
+    const lines = ["%% reminder %%", "- [ ] Task A", "## Done", "- [x] Task D"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(4)
+  })
+
+  it("ignores %% inside a fenced code block", () => {
+    const lines = ["## Section", "```", "%% not a comment %%", "```"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(4)
+  })
+
+  it("detects a trailing block when it starts on the first line", () => {
+    const lines = ["%% only comment %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(0)
+  })
+
+  it("detects the last trailing block when multiple comment blocks exist", () => {
+    const lines = ["%% first %%", "content", "%% second %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("handles an unclosed comment running to EOF", () => {
+    const lines = ["## Heading", "Content", "%% unclosed", "still in comment"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("returns lines.length when the last block has content after it", () => {
+    const lines = ["%% comment %%", "content after"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("absorbs blank lines preceding the trailing block", () => {
+    const lines = ["## Done", "Content", "", "", "%% settings %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
+
+  it("allows trailing blank lines after the closing %%", () => {
+    const lines = ["%% block %%", ""]
+    expect(findTrailingCommentBlockStart(lines)).toBe(0)
+  })
+
+  it("ignores a single mid-line %% before a multi-line trailing block", () => {
+    // Stray `%%` in card text (e.g. `100%%`) is not at a line boundary, so it
+    // must not toggle comment state. A per-substring count would treat the
+    // `%% kanban:settings` opener as a *closer* to the stray comment opened
+    // on line 0, shifting the detected block to the trailing `%%` on line 6
+    // — yielding 6 instead of 1.
+    const lines = [
+      "- [x] Card with 100%% off",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(1)
+  })
+
+  it("ignores an odd count of mid-line %% before a multi-line trailing block", () => {
+    // Three mid-line `%%` leave a per-substring counter in "open" state
+    // before the real block; the real opener gets misread as a closer to the
+    // stray comment, shifting the detected block to the trailing `%%` —
+    // yielding 8 instead of 3.
+    const lines = [
+      "- [x] 50%% off",
+      "- [x] 75%% discount",
+      "- [x] 33%% savings",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(3)
+  })
+
+  it("ignores %% embedded mid-word with no surrounding whitespace", () => {
+    // `100%%done` has no whitespace around the `%%`, so it is not a
+    // delimiter. Same regression scenario as the single-mid-line case: a
+    // per-substring count would shift the block to line 6.
+    const lines = [
+      "- [x] Score: 100%%done bonus",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(1)
   })
 })

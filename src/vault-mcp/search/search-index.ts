@@ -32,8 +32,8 @@ import {
   buildFtsMetadataText,
   escapeLikeWildcards,
   foldTag,
-  parseNoteForIndex,
 } from "./search-helpers.js"
+import { parseNoteSkippingUnreadableBlock } from "../obsidian-markdown/frontmatter.js"
 import * as queries from "./search-queries.js"
 import { hybridSearch } from "./hybrid-search.js"
 
@@ -417,7 +417,8 @@ export const createSearchIndex = (
       mtime       INTEGER,
       properties  TEXT,
       leading_callout TEXT,
-      bytes       INTEGER NOT NULL DEFAULT 0
+      bytes       INTEGER NOT NULL DEFAULT 0,
+      kanban_done_lanes TEXT
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -1488,7 +1489,7 @@ export const createSearchIndex = (
       data: frontmatter,
       content: noteBody,
       unreadableBlockError,
-    } = parseNoteForIndex(rawContent)
+    } = parseNoteSkippingUnreadableBlock(rawContent)
 
     // Only tags follow Obsidian's Tags view rules (any letter case for the
     // key, the tag-name test); related keeps every scalar value
@@ -1522,6 +1523,8 @@ export const createSearchIndex = (
       // First path segment only — search filters drill into subfolders
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(frontmatter.type) ? frontmatter.type : null,
+      // toISO() returns null for a value Luxon cannot parse, so such a note
+      // has no created date and never matches a created filter
       created: isString(frontmatter.created) ? DateTime.fromISO(frontmatter.created).toISO() : null,
       mtime: fileStat.mtimeMs,
       properties: JSON.stringify(frontmatter),
@@ -1538,7 +1541,8 @@ export const createSearchIndex = (
     // "Code Projects").
     const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
     // Tasks read the whole file, not noteBody, so their line numbers match the
-    // file's lines; extractTasks skips the properties block itself
+    // file's lines; extractTasks skips the properties block with
+    // splitPropertiesBlock, the same split noteBody comes from
     const extractedTasks = tasks.extractTasks(rawContent, statusRegistry)
     const memoryFile = memoryFileNameFromPath(filePath)
 
@@ -1711,7 +1715,7 @@ export const createSearchIndex = (
 
     // Re-parsing is pure, so this reads what upsertNote read; the unreadable-block
     // error is ignored because upsertNote already logged it
-    const { data: frontmatter, content: noteBody } = parseNoteForIndex(rawContent)
+    const { data: frontmatter, content: noteBody } = parseNoteSkippingUnreadableBlock(rawContent)
     const noteTitle = isString(frontmatter.title) ? frontmatter.title : basename(notePath, ".md")
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
@@ -2300,7 +2304,7 @@ export const createSearchIndex = (
     // Notes whose Pass 1 index write throws are skipped with a warning instead
     // of aborting the rebuild — one note must never prevent the server from
     // starting. An unreadable properties block is not such a failure,
-    // because parseNoteForIndex reads the body without it.
+    // because parseNoteSkippingUnreadableBlock reads the body without it.
     const skippedNotePaths = new Set<string>()
 
     const notesForEmbedding: Array<{
@@ -2396,7 +2400,7 @@ export const createSearchIndex = (
             db.transaction(() => {
               // Re-parsing is pure, so this reads what Pass 1 read; Pass 1 already
               // warned about an unreadable block for this note
-              const parsed = parseNoteForIndex(note.content)
+              const parsed = parseNoteSkippingUnreadableBlock(note.content)
               for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
                 const resolved = links.resolve({
                   target: rawTarget,

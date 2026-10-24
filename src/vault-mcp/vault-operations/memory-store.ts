@@ -4,11 +4,12 @@ import { readFile, readdir, mkdir, access } from "node:fs/promises"
 import { constants, type Dirent } from "node:fs"
 import { join, basename, dirname, resolve } from "node:path"
 import {
-  parseNote,
-  parseNoteForRewrite,
+  joinNoteKeepingBlock,
+  parseNoteSkippingUnreadableBlock,
+  splitNoteKeepingBlock,
+  splitPropertiesBlock,
   stringifyNote,
   UnkeepableOpeningBlockError,
-  UnsupportedPropertiesBlockError,
 } from "../obsidian-markdown/frontmatter.js"
 import type { ParsedNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
@@ -38,16 +39,16 @@ import type { Logger } from "../../logger.js"
 // bytes — a catastrophic shrink almost always means the on-disk copy diverged
 // (e.g. a skeleton template clobbering real content) rather than a legitimate
 // single-entry edit. The 1250-byte floor sits just above the largest empty
-// memory template (Routines 1228 B; Agents 1081 B; Me/Opinions/Principles
-// ~900 B — frontmatter + scope callout + headings, no entries), so a file with
-// no real content is never guarded, while a file with even one dated entry
-// (~1270 B+) is.
+// memory template once rendered (Routines: frontmatter, scope callout and
+// headings, no entries), so a file with no real content is never guarded,
+// while a file with even one dated entry is.
 const SHRINK_FLOOR_BYTES = 1250
 const SHRINK_RATIO = 0.5
 const guardAgainstShrink = (beforeBytes: number, afterBytes: number, context: string): void => {
   if (beforeBytes > SHRINK_FLOOR_BYTES && afterBytes < beforeBytes * SHRINK_RATIO) {
+    const refusedReductionPercent = (1 - SHRINK_RATIO) * 100
     throw new Error(
-      `refusing memory write: ${context} would shrink content from ${beforeBytes} to ${afterBytes} bytes (>50% reduction) — the on-disk content has likely diverged from the copy this write was based on`,
+      `refusing memory write: ${context} would shrink content from ${beforeBytes} to ${afterBytes} bytes (>${refusedReductionPercent}% reduction) — the on-disk content has likely diverged from the copy this write was based on`,
     )
   }
 }
@@ -78,11 +79,14 @@ const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
-/** Appends "(newest first)" when absent (case-insensitive match). */
+/** Appends "(newest first)" when absent (case-insensitive match). Trailing
+ *  spaces are dropped, so "Notes " writes the heading a later "Notes" finds. */
 const headingWithNewestFirstSuffix = (sectionName: string): string => {
-  return sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
-    ? sectionName
-    : `${sectionName} (newest first)`
+  const trimmedName = sectionName.trimEnd()
+
+  return trimmedName.toLowerCase().endsWith("(newest first)")
+    ? trimmedName
+    : `${trimmedName} (newest first)`
 }
 
 /** Matches runs of non-alphanumeric characters (replaced with hyphens in kebab-case). */
@@ -161,11 +165,11 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
   let scanFence: OpenFence = null
   let scanCommentOpen = false
 
-  // Fence and comment detection are mutually exclusive: fence state is
-  // skipped inside comments, and comment state is skipped inside fences.
+  // - Fence and comment detection are mutually exclusive: fence state is
+  //   skipped inside comments, and comment state is skipped inside fences.
+  // - Empty lines advance the state too, because an empty line ends a fence
+  //   opened inside a blockquote, and parseMemoryEntries reads them the same way.
   for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
-    if (!bodyLine) continue
-
     const fenceResult: ReturnType<typeof advanceFence> | null = scanCommentOpen
       ? null
       : advanceFence(bodyLine, scanFence)
@@ -417,40 +421,35 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
-  /** Parses a memory file's content with parseNote (`read`) or
-   *  parseNoteForRewrite (`rewrite`). A properties-block refusal is rethrown
-   *  naming the file, because a caller asking by bare name, or listing every
-   *  file, cannot otherwise tell which file to repair. */
-  const parseMemoryFileContent = (params: {
-    content: string
-    filename: string
-    rule: "read" | "rewrite"
-  }): ParsedNote => {
-    try {
-      return params.rule === "rewrite"
-        ? parseNoteForRewrite(params.content)
-        : parseNote(params.content)
-    } catch (error) {
-      if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
+  /** Parses a memory file for its listing. A block that is not valid YAML
+   *  reads as no properties, as Obsidian reads it, so one broken file does not
+   *  hide the others; the refusal is logged with the file. */
+  const parseMemoryFileForListing = (
+    params: { content: string; filename: string },
+    logger: Logger,
+  ): ParsedNote => {
+    const { data, content, unreadableBlockError } = parseNoteSkippingUnreadableBlock(params.content)
 
-      throw new UnsupportedPropertiesBlockError({
-        message: `memory file "${memoryDir}/${params.filename}": ${error.message}`,
-        kind: error.kind,
-        cause: error,
+    if (unreadableBlockError) {
+      logger.warn("memory file properties block unreadable", {
+        file: params.filename,
+        error: describeError(unreadableBlockError),
       })
     }
+    return { data, content }
   }
 
-  /** Serializes a memory file with stringifyNote. Its refusal of a file that
-   *  would open with `---` lines is rethrown naming the file, for the same
-   *  reason parseMemoryFileContent names it. */
-  const stringifyMemoryFile = (params: {
+  /** Serializes a memory file's edited body under its original properties
+   *  block. The refusal of a file that would open with `---` lines is
+   *  rethrown naming the file, because a caller asking by bare name cannot
+   *  otherwise tell which file it was. */
+  const joinMemoryFile = (params: {
+    textBeforeBody: string
     body: string
-    data: object
     filename: string
   }): string => {
     try {
-      return stringifyNote(params.body, params.data)
+      return joinNoteKeepingBlock({ textBeforeBody: params.textBeforeBody, body: params.body })
     } catch (error) {
       if (!(error instanceof UnkeepableOpeningBlockError)) throw error
 
@@ -694,6 +693,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     section: string
     bullet: string
   }): string => {
+    const created = DateTime.now().toISO()
+
+    if (!created) {
+      throw new Error("DateTime.now().toISO() returned null")
+    }
     const frontmatter = {
       title: params.fileName,
       type: "profile",
@@ -701,7 +705,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       // file into "living" by editing the property deliberately.
       "entry-policy": "append-only",
       tags: ["memory", toKebabCase(params.fileName)],
-      created: DateTime.now().toISO(),
+      created,
     }
     // New file names have no known scope, so seed a placeholder for the caller.
     // Known bootstrap files use the scopes in MEMORY_TEMPLATE_SPECS.
@@ -737,7 +741,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         concurrency: memoryReadConcurrency,
         mapper: async (filename) => {
           const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
-          return parseMemoryFileContent({ content: raw, filename, rule: "read" }).content.trim()
+          return splitPropertiesBlock(raw).body.trim()
         },
       })
       logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
@@ -745,18 +749,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-    const parsed = parseMemoryFileContent({
-      content: raw,
-      filename: `${params.file}.md`,
-      rule: "read",
-    })
+    const fileBody = splitPropertiesBlock(raw).body
 
     if (!params.section) {
       logger.info("get memory", { mode: "file", file: params.file })
-      return parsed.content.trim()
+      return fileBody.trim()
     }
 
-    const lines = splitIntoLines(parsed.content)
+    const lines = splitIntoLines(fileBody)
     const match = resolveSection({ lines, section: params.section, file: params.file })
 
     // Extract only the lines between this heading and the next
@@ -785,12 +785,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-    const parsed = parseMemoryFileContent({
-      content: raw,
-      filename: `${params.file}.md`,
-      rule: "read",
-    })
-    const lines = splitIntoLines(parsed.content)
+    const lines = splitIntoLines(splitPropertiesBlock(raw).body)
 
     // parseMemoryEntries returns every H2 entry in document order, each
     // carrying its verbatim section heading — so an omitted section is every
@@ -922,12 +917,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "created-file"
       }
 
-      const parsed = parseMemoryFileContent({
-        content: existingContent,
-        filename: `${params.file}.md`,
-        rule: "rewrite",
-      })
-      const contentLines = splitIntoLines(parsed.content)
+      const { textBeforeBody, body } = splitNoteKeepingBlock(existingContent)
+      const contentLines = splitIntoLines(body)
       const sections = parseSections(contentLines)
       const match = findSection(sections, params.section, 2)
 
@@ -949,9 +940,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const newSection = headingWithNewestFirstSuffix(params.section)
         const appendedLines = [...contentLines, `## ${newSection}`, bullet]
         const newContent = appendedLines.join("\n")
-        const serialized = stringifyMemoryFile({
+        const serialized = joinMemoryFile({
           body: newContent,
-          data: parsed.data,
+          textBeforeBody,
           filename: `${params.file}.md`,
         })
         const beforeBytes = Buffer.byteLength(existingContent, "utf8")
@@ -995,15 +986,18 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "unchanged"
       }
 
-      // -1 when the section has no genuine entries (the >= 0 guard below falls back to bodyEndLine)
-      const firstBulletOffset = entryLineOffsets.at(0) ?? -1
+      const firstBulletOffset = entryLineOffsets.at(0)
 
       // "top" inserts before the first existing bullet (newest-first ordering).
-      // "bottom" inserts at the section end — the last entry's continuation
-      // lines extend to there, so lastBulletOffset + 1 would land inside them.
-      // Empty sections fall back to bodyEndLine for both positions.
+      // "bottom" inserts at the section end, below any ### subsection in it;
+      // lastBulletOffset + 1 can land inside the last entry's continuation lines.
+      // Sections with no genuine entries fall back to bodyEndLine for both
+      // positions. Offset 0 is a bullet on the section's first line, so the
+      // check compares with undefined.
       const topInsertIndex =
-        firstBulletOffset >= 0 ? match.bodyStartLine + firstBulletOffset : match.bodyEndLine
+        firstBulletOffset === undefined
+          ? match.bodyEndLine
+          : match.bodyStartLine + firstBulletOffset
       const bottomInsertIndex = match.bodyEndLine
       const insertIndex = position === "top" ? topInsertIndex : bottomInsertIndex
 
@@ -1015,9 +1009,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       ]
 
       const newContent = updatedLines.join("\n")
-      const serialized = stringifyMemoryFile({
+      const serialized = joinMemoryFile({
         body: newContent,
-        data: parsed.data,
+        textBeforeBody,
         filename: `${params.file}.md`,
       })
       const beforeBytes = Buffer.byteLength(existingContent, "utf8")
@@ -1052,7 +1046,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       concurrency: memoryReadConcurrency,
       mapper: async (filename) => {
         const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
-        const parsed = parseMemoryFileContent({ content: raw, filename, rule: "read" })
+        const parsed = parseMemoryFileForListing({ content: raw, filename }, logger)
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
         const lines = splitIntoLines(parsed.content)
@@ -1119,50 +1113,53 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // read-modify-write can't be interleaved and lose a write.
     return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
       const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
-      const parsed = parseMemoryFileContent({
-        content: raw,
-        filename: `${params.file}.md`,
-        rule: "rewrite",
-      })
-      const lines = splitIntoLines(parsed.content)
+      const { textBeforeBody, body } = splitNoteKeepingBlock(raw)
+      const lines = splitIntoLines(body)
       const match = resolveSection({ lines, section: params.section, file: params.file })
 
       // Find the target bullet among genuine (non-fenced) entry lines.
       const targetBullet = `- **${params.date}**: ${params.entry}`
       const sectionBodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
       const genuineEntryOffsets = scanGenuineEntryOffsets(sectionBodyLines)
-      const matchingIndices = genuineEntryOffsets
-        .filter((offset) => sectionBodyLines[offset] === targetBullet)
-        .map((offset) => match.bodyStartLine + offset)
+      const matchingOffsets = genuineEntryOffsets.filter(
+        (offset) => sectionBodyLines[offset] === targetBullet,
+      )
 
-      if (matchingIndices.length === 0) {
+      if (matchingOffsets.length === 0) {
         throw new Error(
           `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
         )
       }
-      if (matchingIndices.length > 1) {
+      if (matchingOffsets.length > 1) {
         throw new Error(
-          `ambiguous: ${matchingIndices.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+          `ambiguous: ${matchingOffsets.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
         )
       }
 
       // Remove the matched entry's full span (bullet + continuation lines),
       // not just the bullet — leaving continuations would fold them into the
       // preceding entry's text.
-      const matchIndex = matchingIndices[0]
+      const matchOffset = matchingOffsets[0]
 
       // The length checks above guarantee exactly one element; TypeScript
       // cannot narrow an indexed access after a length check.
-      if (matchIndex === undefined) {
-        throw new Error("expected at least one matching index")
+      if (matchOffset === undefined) {
+        throw new Error("expected at least one matching offset")
       }
-      // Find the end of this entry's span: the next entry's offset, or the
-      // section's end when this is the last entry.
-      const matchOffset = matchIndex - match.bodyStartLine
+
+      // Find the end of this entry's span: the next entry, or the section's
+      // end when this is the last entry. A deeper heading (### and below)
+      // before that ends it too, as parseMemoryEntries ends an entry there, so
+      // the subsection it opens is not deleted with the entry.
+      const matchIndex = match.bodyStartLine + matchOffset
       const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
       const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
-      const rawSpanEnd =
+      const nextEntryOrSectionEnd =
         nextEntryOffset !== undefined ? match.bodyStartLine + nextEntryOffset : match.bodyEndLine
+      const nextSubheading = parseHeadings(lines).find(
+        (heading) => heading.startLine > matchIndex && heading.startLine < nextEntryOrSectionEnd,
+      )
+      const rawSpanEnd = nextSubheading?.startLine ?? nextEntryOrSectionEnd
 
       // Trim trailing blank lines from the span — they separate sections
       // or entries visually and don't belong to the deleted entry.
@@ -1174,9 +1171,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(trimmedSpanEnd)]
 
       const newContent = updatedLines.join("\n")
-      const serialized = stringifyMemoryFile({
+      const serialized = joinMemoryFile({
         body: newContent,
-        data: parsed.data,
+        textBeforeBody,
         filename: `${params.file}.md`,
       })
       const beforeBytes = Buffer.byteLength(raw, "utf8")

@@ -1971,24 +1971,25 @@ describe("moveNote — failure safety", () => {
     )
   })
 
-  it("logs a completion summary with the success and failure counts", async () => {
+  it("logs a completion summary with the link, source and pruned-folder counts", async () => {
     const { writeFixture, moveNote, logger } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    // Distinct counts (2 links, 1 source, 1 folder), so a swapped field fails
+    await writeFixture("Old/Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]] and [[Foo|again]].\n")
 
     await moveNote({
-      oldPath: "Foo.md",
+      oldPath: "Old/Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
+      pruneEmptyFolders: true,
     })
 
     expect(vi.mocked(logger.info)).toHaveBeenCalledWith("note move complete", {
-      from: "Foo.md",
+      from: "Old/Foo.md",
       to: "Bar.md",
-      linksUpdated: 1,
+      linksUpdated: 2,
       sourcesUpdated: 1,
-      sourcesFailed: 0,
-      prunedFolderCount: 0,
+      prunedFolderCount: 1,
     })
   })
 })
@@ -1996,9 +1997,6 @@ describe("moveNote — failure safety", () => {
 describe("moveNote — properties blocks the server cannot read or keep", () => {
   const LIST_BLOCK_MESSAGE =
     "properties block holds a list, not key-value pairs, so rewriting the note would delete it"
-
-  const UNCLOSED_FLOW_MESSAGE =
-    "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
 
   /** Awaits a call that must reject and returns what it rejected with. */
   const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
@@ -2026,12 +2024,115 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
     }
   }
 
-  it("aborts when a backlink source it must rewrite holds a list block", async () => {
+  // Each linking note's body link changes; its block, which a rewrite of the
+  // properties would refuse or reformat, goes back as written
+  it.each([
+    { label: "a list block", block: "---\n- a\n---\n" },
+    { label: "a single-value block", block: "---\nJust a paragraph.\n---\n" },
+    { label: "a block that is not valid YAML", block: "---\ntitle: [unclosed\n---\n" },
+    { label: "a commented block", block: "---\n# keep me\ntitle: 'Quoted'   # inline\n---\n" },
+    // The YAML parser reads `# scope\rnote: kept` as one comment line, so an
+    // LF in place of the CR would add a `note` property
+    {
+      label: "a carriage return inside a block line",
+      block: "---\n# scope\rnote: kept\na: 1\n---\n",
+    },
+    // The empty block stays above the body's own --- lines, so they never
+    // become the note's first block
+    {
+      label: "an empty block above body --- lines",
+      block: "---\n---\n---\ntitle: [unclosed\n---\n",
+    },
+  ])(
+    "rewrites the body links of a backlink source holding $label and keeps its block",
+    async ({ block }) => {
+      const { writeFixture, moveNote, readNote } = setupVault()
+      await writeFixture("Old/Target.md", "Target body\n")
+      await writeFixture("Hub.md", "Links [[Old/Target]].\n")
+      await writeFixture("Notes/Linking.md", `${block}See [[Old/Target]]\n`)
+
+      const result = await moveNote({
+        oldPath: "Old/Target.md",
+        newPath: "New/Target.md",
+        backlinkSources: ["Hub.md", "Notes/Linking.md"],
+      })
+
+      expect(result).toEqual({
+        moved_to: "New/Target.md",
+        links_updated: 2,
+        updated_notes: ["Hub.md", "Notes/Linking.md"],
+        pruned_empty_folders: 0,
+      })
+      expect({
+        "New/Target.md": await readNote("New/Target.md"),
+        "Hub.md": await readNote("Hub.md"),
+        "Notes/Linking.md": await readNote("Notes/Linking.md"),
+      }).toEqual({
+        "New/Target.md": "Target body\n",
+        "Hub.md": "Links [[New/Target]].\n",
+        "Notes/Linking.md": `${block}See [[New/Target]]\n`,
+      })
+    },
+  )
+
+  it("finds and rewrites a linking note whose block is not valid YAML when the index did not list it", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Old/Target.md", "Target body\n")
+    await writeFixture("Hub.md", "Links [[Old/Target]].\n")
+    await writeFixture("Notes/Broken.md", "---\ntitle: [unclosed\n---\nSee [[Old/Target]]\n")
+
+    const result = await moveNote({
+      oldPath: "Old/Target.md",
+      newPath: "New/Target.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "New/Target.md",
+      links_updated: 2,
+      updated_notes: ["Hub.md", "Notes/Broken.md"],
+      pruned_empty_folders: 0,
+    })
+    expect({
+      "Hub.md": await readNote("Hub.md"),
+      "Notes/Broken.md": await readNote("Notes/Broken.md"),
+    }).toEqual({
+      "Hub.md": "Links [[New/Target]].\n",
+      "Notes/Broken.md": "---\ntitle: [unclosed\n---\nSee [[New/Target]]\n",
+    })
+  })
+
+  it("leaves a link inside a block that is not valid YAML as it was, as Obsidian does", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    const block = '---\nrelated: "[[Old/Target]]"\ntitle: [unclosed\n---\n'
+    await writeFixture("Old/Target.md", "Target body\n")
+    await writeFixture("Notes/Broken.md", `${block}See [[Old/Target]]\n`)
+
+    const result = await moveNote({
+      oldPath: "Old/Target.md",
+      newPath: "New/Target.md",
+      backlinkSources: ["Notes/Broken.md"],
+    })
+
+    // Only the body link is counted; the one inside the block stays as it was
+    expect(result).toEqual({
+      moved_to: "New/Target.md",
+      links_updated: 1,
+      updated_notes: ["Notes/Broken.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Notes/Broken.md")).toBe(`${block}See [[New/Target]]\n`)
+  })
+
+  it("aborts as a rewrite failure when a backlink source with no block would open with one once saved", async () => {
     const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    // The note has no block as written; the save drops one of its two BOMs,
+    // so its opening --- lines would become a block the server cannot keep.
+    // Built from the code point so no invisible literal hides in the source.
+    const twoBoms = String.fromCharCode(0xfeff).repeat(2)
     const fixtures = {
       "Old/Target.md": "Target body\n",
-      "Hub.md": "Links [[Old/Target]].\n",
-      "Notes/Listy.md": "---\n- a\n---\nSee [[Old/Target]]\n",
+      "Notes/Two BOMs.md": `${twoBoms}---\ntitle: [unclosed\n---\nSee [[Old/Target]]\n`,
     }
     for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
 
@@ -2039,19 +2140,78 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
       moveNote({
         oldPath: "Old/Target.md",
         newPath: "New/Target.md",
-        backlinkSources: ["Hub.md", "Notes/Listy.md"],
+        backlinkSources: ["Notes/Two BOMs.md"],
       }),
     )
 
-    expect(describeRefusal(refusal)).toEqual({
-      kind: "not-key-value",
-      message: `move aborted: could not rewrite backlink source "Notes/Listy.md": ${LIST_BLOCK_MESSAGE}. Nothing was written.`,
+    expect({
+      isOpeningBlockRefusal: refusal instanceof UnkeepableOpeningBlockError,
+      message: refusal instanceof Error ? refusal.message : null,
+    }).toEqual({
+      isOpeningBlockRefusal: true,
+      message:
+        'move aborted: could not rewrite backlink source "Notes/Two BOMs.md": the note would open with a properties block the server cannot keep: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]. Nothing was written.',
     })
     expect(await noteExists("New/Target.md")).toBe(false)
     expect({
       "Old/Target.md": await readNote("Old/Target.md"),
-      "Hub.md": await readNote("Hub.md"),
-      "Notes/Listy.md": await readNote("Notes/Listy.md"),
+      "Notes/Two BOMs.md": await readNote("Notes/Two BOMs.md"),
+    }).toEqual(fixtures)
+  })
+
+  it("aborts as a rewrite failure when the moved note has no block but would open with one once saved", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    // The move one folder deeper must rewrite the relative image link, and the
+    // save drops one of the two BOMs, as in the backlink-source case above
+    const twoBoms = String.fromCharCode(0xfeff).repeat(2)
+    const fixtures = {
+      "assets/photo.png": "img",
+      "Notes/Two BOMs.md": `${twoBoms}---\ntitle: [unclosed\n---\n![[../assets/photo.png]]\n`,
+    }
+    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
+
+    const refusal = await captureRejection(
+      moveNote({ oldPath: "Notes/Two BOMs.md", newPath: "Notes/Sub/Two BOMs.md" }),
+    )
+
+    expect({
+      isOpeningBlockRefusal: refusal instanceof UnkeepableOpeningBlockError,
+      message: refusal instanceof Error ? refusal.message : null,
+    }).toEqual({
+      isOpeningBlockRefusal: true,
+      message:
+        'move aborted: could not rewrite "Notes/Two BOMs.md": the note would open with a properties block the server cannot keep: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]. Nothing was written.',
+    })
+    expect(await noteExists("Notes/Sub/Two BOMs.md")).toBe(false)
+    expect(await readNote("Notes/Two BOMs.md")).toBe(fixtures["Notes/Two BOMs.md"])
+  })
+
+  it("aborts when a property link must change in a block that also holds an explicitly tagged value", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    const fixtures = {
+      "Old/Target.md": "Target body\n",
+      "Notes/Tagged.md":
+        '---\ncreated: !!timestamp 2026-01-01\nrelated: "[[Old/Target]]"\n---\nbody\n',
+    }
+    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
+
+    const refusal = await captureRejection(
+      moveNote({
+        oldPath: "Old/Target.md",
+        newPath: "New/Target.md",
+        backlinkSources: ["Notes/Tagged.md"],
+      }),
+    )
+
+    expect(describeRefusal(refusal)).toEqual({
+      kind: "explicit-tag",
+      message:
+        'move aborted: could not rewrite backlink source "Notes/Tagged.md": properties block uses the YAML tag !!timestamp, which rewriting the note would drop. Nothing was written.',
+    })
+    expect(await noteExists("New/Target.md")).toBe(false)
+    expect({
+      "Old/Target.md": await readNote("Old/Target.md"),
+      "Notes/Tagged.md": await readNote("Notes/Tagged.md"),
     }).toEqual(fixtures)
   })
 
@@ -2099,102 +2259,45 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
     },
   )
 
-  it("aborts when the note being moved has a block that is not valid YAML", async () => {
+  it("moves a note whose block is not valid YAML byte-for-byte when it has no links to rewrite", async () => {
     const { writeFixture, moveNote, noteExists, readNote } = setupVault()
     const content = "---\ntitle: [unclosed\n---\nbody\n"
     await writeFixture("Old/Broken.md", content)
 
-    const refusal = await captureRejection(
-      moveNote({ oldPath: "Old/Broken.md", newPath: "New/Broken.md" }),
-    )
+    const result = await moveNote({ oldPath: "Old/Broken.md", newPath: "New/Broken.md" })
 
-    expect(describeRefusal(refusal)).toEqual({
-      kind: "invalid-yaml",
-      message: `move aborted: could not read "Old/Broken.md": ${UNCLOSED_FLOW_MESSAGE}. Nothing was written.`,
+    expect(result).toEqual({
+      moved_to: "New/Broken.md",
+      links_updated: 0,
+      updated_notes: [],
+      pruned_empty_folders: 0,
     })
-    expect(await noteExists("New/Broken.md")).toBe(false)
-    expect(await readNote("Old/Broken.md")).toBe(content)
+    expect(await noteExists("Old/Broken.md")).toBe(false)
+    expect(await readNote("New/Broken.md")).toBe(content)
   })
 
-  it("aborts when a backlink source has a block that is not valid YAML", async () => {
+  it("rewrites the moved note's own relative link and keeps its empty block above body --- lines", async () => {
     const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    const fixtures = {
-      "Old/Target.md": "Target body\n",
-      "Hub.md": "Links [[Old/Target]].\n",
-      "Notes/Broken.md": "---\ntitle: [unclosed\n---\nSee [[Old/Target]]\n",
-    }
-    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
-
-    const refusal = await captureRejection(
-      moveNote({
-        oldPath: "Old/Target.md",
-        newPath: "New/Target.md",
-        backlinkSources: ["Hub.md", "Notes/Broken.md"],
-      }),
-    )
-
-    expect(describeRefusal(refusal)).toEqual({
-      kind: "invalid-yaml",
-      message: `move aborted: could not read backlink source "Notes/Broken.md": ${UNCLOSED_FLOW_MESSAGE}. Nothing was written.`,
-    })
-    expect(await noteExists("New/Target.md")).toBe(false)
-    expect({
-      "Old/Target.md": await readNote("Old/Target.md"),
-      "Hub.md": await readNote("Hub.md"),
-      "Notes/Broken.md": await readNote("Notes/Broken.md"),
-    }).toEqual(fixtures)
-  })
-
-  it("aborts as a rewrite failure when a rewritten backlink source would open with a broken block", async () => {
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    // The empty block reads fine, so the rewrite writes no properties and the
-    // body's own --- lines would become the note's first block
-    const fixtures = {
-      "Old/Target.md": "Target body\n",
-      "Notes/Stacked.md": "---\n---\n---\ntitle: [unclosed\n---\nSee [[Old/Target]]\n",
-    }
-    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
-
-    const refusal = await captureRejection(
-      moveNote({
-        oldPath: "Old/Target.md",
-        newPath: "New/Target.md",
-        backlinkSources: ["Notes/Stacked.md"],
-      }),
-    )
-
-    expect(refusal).toBeInstanceOf(UnkeepableOpeningBlockError)
-    expect(refusal).toHaveProperty(
-      "message",
-      `move aborted: could not rewrite backlink source "Notes/Stacked.md": the note would open with a properties block the server cannot keep: ${UNCLOSED_FLOW_MESSAGE}. Nothing was written.`,
-    )
-    expect(await noteExists("New/Target.md")).toBe(false)
-    expect({
-      "Old/Target.md": await readNote("Old/Target.md"),
-      "Notes/Stacked.md": await readNote("Notes/Stacked.md"),
-    }).toEqual(fixtures)
-  })
-
-  it("aborts as a rewrite failure when the moved note's own rewrite would open with a broken block", async () => {
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    // The move one folder deeper must rewrite the relative image link, and
-    // with the empty block written back as none, the body's own --- lines
-    // would become the note's first block
-    const content = "---\n---\n---\ntitle: [unclosed\n---\n![[../assets/photo.png]]\n"
+    // The move one folder deeper must rewrite the relative image link; the
+    // empty block stays, so the body's own --- lines never open the note
     await writeFixture("assets/photo.png", "img")
-    await writeFixture("Notes/Stacked.md", content)
-
-    const refusal = await captureRejection(
-      moveNote({ oldPath: "Notes/Stacked.md", newPath: "Notes/Sub/Stacked.md" }),
+    await writeFixture(
+      "Notes/Stacked.md",
+      "---\n---\n---\ntitle: [unclosed\n---\n![[../assets/photo.png]]\n",
     )
 
-    expect(refusal).toBeInstanceOf(UnkeepableOpeningBlockError)
-    expect(refusal).toHaveProperty(
-      "message",
-      `move aborted: could not rewrite "Notes/Stacked.md": the note would open with a properties block the server cannot keep: ${UNCLOSED_FLOW_MESSAGE}. Nothing was written.`,
+    const result = await moveNote({ oldPath: "Notes/Stacked.md", newPath: "Notes/Sub/Stacked.md" })
+
+    expect(result).toEqual({
+      moved_to: "Notes/Sub/Stacked.md",
+      links_updated: 1,
+      updated_notes: [],
+      pruned_empty_folders: 0,
+    })
+    expect(await noteExists("Notes/Stacked.md")).toBe(false)
+    expect(await readNote("Notes/Sub/Stacked.md")).toBe(
+      "---\n---\n---\ntitle: [unclosed\n---\n![[../../assets/photo.png]]\n",
     )
-    expect(await noteExists("Notes/Sub/Stacked.md")).toBe(false)
-    expect(await readNote("Notes/Stacked.md")).toBe(content)
   })
 })
 

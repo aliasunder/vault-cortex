@@ -175,16 +175,17 @@ The three anchor tools share one resolution rule: a short, case-sensitive substr
 
 Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
 
-- **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
-- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in every backlink source it reads to plan its rewrites, even a source whose link needs no change. It refuses a list, a single value or a tag only in a note where it must rewrite a link.
-- **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit that removes the text above such lines, or a call that removes every property.
+- **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties. Reads that return no properties (`vault_read_note`'s `outline` and `heading` modes and `vault_get_memory`) split the block off without parsing it, and `vault_list_memory_files` lists a file whose block is not valid YAML under its file name, with a warning in the server log.
+- **Body edits** write the block back as written, with LF line breaks, so they accept any block: the five body-edit tools, both memory writes, and a move that changes links only in note bodies.
+- **Rewrites** of the properties refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. They are `vault_update_properties` merges, `vault_write_note` overwrites, the task tools (which write the note back from its parsed properties), and a move that must change a link inside the block. A move reads a block that is not valid YAML as no properties, as Obsidian does, so it rewrites that note's body links and leaves the links inside the block as they were.
+- **Results** are checked unless the write keeps the block as written: a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit to a note without a properties block that removes the text above such lines (deleting a heading that sits above them), or a call that removes every property.
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
   - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
   - For a `vault_write_note` overwrite of such a note, which replaces the body anyway, the steps skip the prose: replace the block, then run the overwrite again. These steps need only `vault_read_note` and `vault_update_properties`; if either is not served, it points at Obsidian.
   - For a write that would open the note with a block the server could not read or keep, the ways around it: give the note a property, put text above the `---` lines, or remove them.
-- **YAML comments** are not kept. A rewrite writes the block from its parsed properties, so it drops any comments, and a block holding only comments reads as no properties and is written back as none.
+- **YAML comments** survive body edits. A rewrite of the properties writes the block from its parsed values, so it drops any comments, and a block holding only comments reads as no properties and is written back as none.
 
-Unlike a read that parses the block, such as `vault_read_note` with `properties_only`, `outline` or `heading`, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
+Unlike a read that parses the block, such as `vault_read_note` with `properties_only`, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 
@@ -1219,9 +1220,9 @@ Docker hardening, and durability seatbelts above.
   `trash-sweeper.ts` share one serializing key for the whole `.trash/`
   domain.
 - **Properties-block guard** (`frontmatter.ts`): every rewrite refuses a
-  note whose properties block it cannot keep, and every write's result is
-  checked before it reaches disk, so no write silently drops a block's
-  properties.
+  note whose properties block it cannot keep, and every other write either
+  keeps the block as written or checks its result before it reaches disk,
+  so no write silently drops a block's properties.
   [Vault read/write](#vault-readwrite) gives the full rules and the
   repair path.
 - **Trash handling** (`moveNoteToTrash` in `vault-filesystem.ts`,
@@ -1236,9 +1237,10 @@ Docker hardening, and durability seatbelts above.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans notes and Canvas files for backlinks the
   search index missed (closing a lag race) or never records (links in
-  Canvas text cards). The scan skips a file it cannot read or parse, with
-  a warning, so an unreadable file aborts the move only when the index
-  lists it as a backlink. The move then reads every affected file and
+  Canvas text cards). The scan skips a file it cannot read, or a Canvas
+  file whose JSON it cannot parse, with a warning, so such a file aborts
+  the move only when the index lists it as a backlink. A note whose
+  properties block is not valid YAML is scanned for its body links. The move then reads every affected file and
   computes every rewrite _before_ touching anything. If any read fails, no
   file is mutated. Destination is written first via exclusive create;
   source is deleted last — a failure at any step leaves both copies rather
