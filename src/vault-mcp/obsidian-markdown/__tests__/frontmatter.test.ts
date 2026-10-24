@@ -929,6 +929,12 @@ describe("joinNoteKeepingBlock", () => {
       expected: "---\n- a\n- b\n---\nnew\n",
     },
     {
+      label: "a single-value block",
+      note: "---\nJust a paragraph.\n---\nold\n",
+      body: "new\n",
+      expected: "---\nJust a paragraph.\n---\nnew\n",
+    },
+    {
       label: "a value with an explicit tag",
       note: "---\ncreated: !!timestamp 2026-01-01\n---\nold\n",
       body: "new\n",

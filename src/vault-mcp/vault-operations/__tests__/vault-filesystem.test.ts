@@ -71,12 +71,17 @@ const DONE_TAG_MESSAGE =
 const UNCLOSED_FLOW_MESSAGE =
   "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
 
-/** A list block and a tagged block: reads accept both, a rewrite would lose both. */
+/** A list, a single-value and a tagged block: reads accept each, a rewrite would lose each. */
 const UNKEEPABLE_BLOCK_CASES = [
   {
     label: "a list block",
     content: "---\n- a\n- b\n---\nbody\n",
     refusal: { kind: "not-key-value", message: LIST_BLOCK_MESSAGE },
+  },
+  {
+    label: "a single-value block",
+    content: "---\nJust a paragraph.\n---\nbody\n",
+    refusal: { kind: "not-key-value", message: SINGLE_VALUE_MESSAGE },
   },
   {
     label: "an explicitly tagged block",

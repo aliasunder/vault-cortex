@@ -2028,6 +2028,7 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
   // properties would refuse or reformat, goes back as written
   it.each([
     { label: "a list block", block: "---\n- a\n---\n" },
+    { label: "a single-value block", block: "---\nJust a paragraph.\n---\n" },
     { label: "a block that is not valid YAML", block: "---\ntitle: [unclosed\n---\n" },
     { label: "a commented block", block: "---\n# keep me\ntitle: 'Quoted'   # inline\n---\n" },
     // The YAML parser reads `# scope\rnote: kept` as one comment line, so an
