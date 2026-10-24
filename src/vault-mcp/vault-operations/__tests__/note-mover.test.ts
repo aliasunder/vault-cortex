@@ -1973,21 +1973,23 @@ describe("moveNote — failure safety", () => {
 
   it("logs a completion summary with the link, source and pruned-folder counts", async () => {
     const { writeFixture, moveNote, logger } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    // Distinct counts (2 links, 1 source, 1 folder), so a swapped field fails
+    await writeFixture("Old/Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]] and [[Foo|again]].\n")
 
     await moveNote({
-      oldPath: "Foo.md",
+      oldPath: "Old/Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
+      pruneEmptyFolders: true,
     })
 
     expect(vi.mocked(logger.info)).toHaveBeenCalledWith("note move complete", {
-      from: "Foo.md",
+      from: "Old/Foo.md",
       to: "Bar.md",
-      linksUpdated: 1,
+      linksUpdated: 2,
       sourcesUpdated: 1,
-      prunedFolderCount: 0,
+      prunedFolderCount: 1,
     })
   })
 })

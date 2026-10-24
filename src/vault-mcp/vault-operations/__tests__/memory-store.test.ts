@@ -1785,7 +1785,7 @@ describe("deleteMemory", () => {
     )
   })
 
-  it("deletes an exact matching entry", async () => {
+  it("deletes an exact matching entry and keeps the rest of the file, properties included, as written", async () => {
     await deleteMemory(
       {
         vaultPath: vault,
@@ -1797,6 +1797,7 @@ describe("deleteMemory", () => {
       logger,
     )
 
+    // The block goes back as written, the local-offset created stamp included
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
       PRINCIPLES_MD.replace("- **2026-05-05**: Least-privilege for AI agents\n", ""),
     )
@@ -1887,23 +1888,6 @@ title: Dupe
       new Error(
         'ambiguous: 2 entries match (2026-01-01, "same entry") under ## Section (newest first) in About Me/Dupe.md',
       ),
-    )
-  })
-
-  it("preserves frontmatter after deletion", async () => {
-    await deleteMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-        date: "2026-05-05",
-        entry: "Least-privilege for AI agents",
-      },
-      logger,
-    )
-    // The block goes back as written, the local-offset created stamp included
-    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
-      PRINCIPLES_MD.replace("- **2026-05-05**: Least-privilege for AI agents\n", ""),
     )
   })
 
@@ -2620,22 +2604,40 @@ title: Big
   })
 
   it("allows a normal single-entry delete on a real-sized file", async () => {
+    const fileContent = `---
+title: Big
+---
+
+# Big
+
+## Notes (newest first)
+- **2026-06-14**: small entry
+- **2026-06-13**: ${"y".repeat(1300)}
+`
+    // Above the 1250-byte floor, so the shrink check runs instead of being skipped
+    expect(Buffer.byteLength(fileContent, "utf8")).toBeGreaterThan(1250)
+    await writeFile(join(vault, "About Me/Big.md"), fileContent, "utf8")
+
     await deleteMemory(
       {
         vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-        date: "2026-05-05",
-        entry: "Least-privilege for AI agents",
+        file: "Big",
+        section: "Notes (newest first)",
+        date: "2026-06-14",
+        entry: "small entry",
       },
       logger,
     )
-    const content = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    expect(content).not.toContain("Least-privilege for AI agents")
-    expect(content).toContain("Secrets invisible at every layer")
+
+    expect(await readFile(join(vault, "About Me/Big.md"), "utf8")).toBe(
+      fileContent.replace("- **2026-06-14**: small entry\n", ""),
+    )
   })
 
   it("skips the guard for files at or below the 1250-byte floor", async () => {
+    // Deleting the dominant entry shrinks the file by more than half, which
+    // the guard would refuse above the floor.
+    const dominantEntry = "x".repeat(1000)
     const tiny = `---
 title: T
 ---
@@ -2643,9 +2645,8 @@ title: T
 # T
 
 ## S (newest first)
-- **2026-06-14**: hi
+- **2026-06-14**: ${dominantEntry}
 `
-    // Sanity-check the fixture is genuinely under the guard's 1250-byte floor.
     expect(Buffer.byteLength(tiny, "utf8")).toBeLessThan(1250)
     await writeFile(join(vault, "About Me/T.md"), tiny, "utf8")
 
@@ -2655,12 +2656,14 @@ title: T
         file: "T",
         section: "S (newest first)",
         date: "2026-06-14",
-        entry: "hi",
+        entry: dominantEntry,
       },
       logger,
     )
-    const content = await readFile(join(vault, "About Me/T.md"), "utf8")
-    expect(content).not.toContain("- **2026-06-14**: hi")
+
+    expect(await readFile(join(vault, "About Me/T.md"), "utf8")).toBe(
+      "---\ntitle: T\n---\n\n# T\n\n## S (newest first)\n",
+    )
   })
 })
 

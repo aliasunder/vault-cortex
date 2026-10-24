@@ -5018,6 +5018,71 @@ describe("Windows line breaks (CRLF)", () => {
     })
   })
 
+  // Only a CR followed by LF is a line break to convert; a CR inside a line is text
+  describe("lone carriage returns", () => {
+    const LONE_CR_CONTENT = "X1\rX2"
+
+    it("patchNote keeps a lone carriage return inside content", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await patchNote(
+        { vaultPath: vault, path: "note.md", operation: "append", content: LONE_CR_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nB\n\nX1\rX2\n",
+      )
+    })
+
+    it("replaceInNote keeps a lone carriage return inside new_text", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "task", newText: LONE_CR_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [ ] X1\rX2\nB\n")
+    })
+
+    it("replaceSpan keeps a lone carriage return inside content", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await replaceSpan(
+        { vaultPath: vault, path: "note.md", startAnchor: "task", content: LONE_CR_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\nX1\rX2\nB\n")
+    })
+
+    it("insertAtAnchor keeps a lone carriage return inside content", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          anchor: "task",
+          position: "after",
+          content: LONE_CR_CONTENT,
+        },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nX1\rX2\nB\n",
+      )
+    })
+
+    it("deleteSpan keeps a lone carriage return in the note's own text while converting its CRLF line breaks", async () => {
+      await writeTestNote(
+        "note.md",
+        "---\r\ntitle: C\r\n---\r\n# H\r\nA1\rA2\r\n- [ ] task\r\nB\r\n",
+      )
+      await deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "task" }, logger)
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA1\rA2\nB\n")
+    })
+  })
+
   it("edits a CRLF note whose last property is a list of quoted links, keeping its properties as written with LF line breaks", async () => {
     await writeTestNote(
       "related.md",
