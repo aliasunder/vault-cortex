@@ -547,10 +547,6 @@ const replaceInNote = async (
   // - replaceAll never empties a non-empty string, unlike splitIntoLines, which
   //   would turn old_text "\r" into "", a search text that matches at offset 0.
   const searchText = oldText.replaceAll("\r\n", "\n")
-  // new_text is split the way patchNote, replaceSpan and insertAtAnchor split
-  // their content, so the `\r` before each of its line breaks, and a `\r` it
-  // ends with, are dropped
-  const replacementText = splitIntoLines(newText).join("\n")
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
@@ -571,13 +567,15 @@ const replaceInNote = async (
       ? body.split(searchText)
       : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + searchText.length)]
     const count = bodyParts.length - 1
-    // The body and the replacement already use LF line breaks
-    const updatedLines = bodyParts.join(replacementText).split("\n")
+    // Split as patchNote, replaceSpan and insertAtAnchor split content: a `\r`
+    // the edit leaves before a line break is dropped, one inside a line stays
+    const updatedLines = splitIntoLines(bodyParts.join(newText))
 
     // A deletion stacks the empty lines from both sides of each match into one
     // run, so that run is shrunk back. A replacement keeps new text between
     // them, and its line breaks are written where the caller put them. A
-    // new_text of "\r" splits to "" but is not a deletion the caller asked for.
+    // new_text of "\r" is dropped before a line break, but is not a deletion
+    // the caller asked for.
     const isDeletion = newText === ""
     const writtenLines = isDeletion
       ? collapseEmptyLineRunsAtEdits({

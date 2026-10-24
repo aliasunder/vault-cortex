@@ -5084,6 +5084,23 @@ describe("Windows line breaks (CRLF)", () => {
       expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\nA\n\n\nB\n")
     })
 
+    it("replaceInNote keeps a carriage return that new_text ends with when text follows it on the line", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "[ ]", newText: "[x]\r" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [x]\r task\nB\n")
+    })
+
+    it("replaceInNote drops the note's own carriage return that a deletion leaves before a line break", async () => {
+      await writeTestNote("note.md", "---\ntitle: C\n---\n# H\nA1\rX\nB\n")
+      await replaceInNote({ vaultPath: vault, path: "note.md", oldText: "X", newText: "" }, logger)
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA1\nB\n")
+    })
+
     it("replaceSpan keeps a lone carriage return inside content", async () => {
       await writeTestNote("note.md", LF_NOTE)
       await replaceSpan(
