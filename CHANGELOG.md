@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.55.2] — 2026-10-24
+
+### Features
+
+- **tools:** Append a remedy to every raw filesystem and index error (#701)
+
+### Bug Fixes
+
+- **deps:** Bump body-parser to 2.4.0 for CVE-2026-111181 (#708)
+
+### Maintenance
+
+- **deps:** Bump github/codeql-action/upload-sarif from 4.38.3 to 4.39.0 (#706)
+- **deps:** Bump the production group with 2 updates (#704)
+
 ## [0.55.1] — 2026-10-23
 
 ### Bug Fixes
