@@ -1971,7 +1971,7 @@ describe("moveNote — failure safety", () => {
     )
   })
 
-  it("logs a completion summary with the success and failure counts", async () => {
+  it("logs a completion summary with the link, source and pruned-folder counts", async () => {
     const { writeFixture, moveNote, logger } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")

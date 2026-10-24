@@ -254,21 +254,23 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
         if (isPagedRead) {
           return safeHandlerContent(
             reqLogger,
-            () =>
-              vaultFs.readNoteSection(
+            () => {
+              return vaultFs.readNoteSection(
                 { vaultPath, path, heading, headingLevel: heading_level },
                 reqLogger,
-              ),
+              )
+            },
             (text) => formatPagedRead({ text, mode: "section" }),
           )
         }
         return safeHandler(
           reqLogger,
-          () =>
-            vaultFs.readNoteSection(
+          () => {
+            return vaultFs.readNoteSection(
               { vaultPath, path, heading, headingLevel: heading_level },
               reqLogger,
-            ),
+            )
+          },
           (text) => {
             reqLogger.info("tool_result", { mode: "section" })
             return text
@@ -501,7 +503,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
-      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Properties are kept as written, and the note is saved with LF line breaks.
+      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Properties are kept as written, and CRLF line breaks are saved as LF.
 
 Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })
@@ -593,8 +595,8 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.patchNote(
+        () => {
+          return vaultPatcher.patchNote(
             {
               vaultPath,
               path,
@@ -605,7 +607,8 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
               includeChildren: include_children,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             outcome: "patched",
@@ -645,7 +648,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace exact text in a markdown note's body. Properties are kept as written, and the note is saved with LF line breaks${propertyEditClause}.
+      description: `Find and replace exact text in a markdown note's body. Properties are kept as written, and CRLF line breaks are saved as LF${propertyEditClause}.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" })
@@ -701,8 +704,8 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.replaceInNote(
+        () => {
+          return vaultPatcher.replaceInNote(
             {
               vaultPath,
               path,
@@ -711,7 +714,8 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
               replaceAllOccurrences: replace_all_occurrences,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             outcome: "replaced",
@@ -752,7 +756,7 @@ Returns: "Replaced <N> occurrence(s) in <path>" — N is the number of matches r
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
-      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Properties are kept as written, and the note is saved with LF line breaks.
+      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Properties are kept as written, and CRLF line breaks are saved as LF.
 
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
@@ -816,8 +820,8 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.deleteSpan(
+        () => {
+          return vaultPatcher.deleteSpan(
             {
               vaultPath,
               path,
@@ -826,7 +830,8 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
               firstMatch: first_match,
             },
             reqLogger,
-          ),
+          )
+        },
         (confirmation) => {
           reqLogger.info("tool_result", { outcome: "span_deleted" })
           return confirmation
@@ -850,7 +855,7 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
       title: "Replace Span",
-      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Properties are kept as written, and the note is saved with LF line breaks.
+      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Properties are kept as written, and CRLF line breaks are saved as LF.
 
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
@@ -922,8 +927,8 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.replaceSpan(
+        () => {
+          return vaultPatcher.replaceSpan(
             {
               vaultPath,
               path,
@@ -933,7 +938,8 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
               firstMatch: first_match,
             },
             reqLogger,
-          ),
+          )
+        },
         (confirmation) => {
           reqLogger.info("tool_result", { outcome: "span_replaced" })
           return confirmation
@@ -957,7 +963,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are kept as written, and the note is saved with LF line breaks.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are kept as written, and CRLF line breaks are saved as LF.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
@@ -1021,8 +1027,8 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultPatcher.insertAtAnchor(
+        () => {
+          return vaultPatcher.insertAtAnchor(
             {
               vaultPath,
               path,
@@ -1032,7 +1038,8 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
               firstMatch: first_match,
             },
             reqLogger,
-          ),
+          )
+        },
         (confirmation) => {
           reqLogger.info("tool_result", { outcome: "inserted_at_anchor" })
           return confirmation

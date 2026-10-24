@@ -1723,8 +1723,10 @@ describe("vault_search_by_tag handler", () => {
     const decoyNote = { filePath: "Other/newest.md", tag: "other", mtimeMs: 3000 }
     // Inserted in path order: inserting newest first would let the index's row
     // order stand in for the modified-time sort these tests check.
-    const notesInPathOrder = [...projectNotes, nestedTagNote, decoyNote].toSorted((noteA, noteB) =>
-      noteA.filePath.localeCompare(noteB.filePath),
+    const notesInPathOrder = [...projectNotes, nestedTagNote, decoyNote].toSorted(
+      (noteA, noteB) => {
+        return noteA.filePath.localeCompare(noteB.filePath)
+      },
     )
 
     for (const { filePath, tag, mtimeMs } of notesInPathOrder) {
@@ -3639,29 +3641,29 @@ describe("DISABLED_TOOLS", () => {
       label: "names both property editors while they are served",
       disabledTools: "",
       expectedLine:
-        "LF line breaks — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
+        "saved as LF — properties must be edited via vault_update_properties or vault_write_note's properties parameter.",
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
       expectedLine:
-        "LF line breaks — properties must be edited via vault_write_note's properties parameter.",
+        "saved as LF — properties must be edited via vault_write_note's properties parameter.",
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine: "LF line breaks — properties must be edited via vault_update_properties.",
+      expectedLine: "saved as LF — properties must be edited via vault_update_properties.",
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: "LF line breaks.",
+      expectedLine: "saved as LF.",
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
     const propertyEditLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-      startMarker: "LF line breaks",
+      startMarker: "saved as LF",
       endMarker: "\n\nExample:",
     })
     expect(propertyEditLine).toBe(expectedLine)
