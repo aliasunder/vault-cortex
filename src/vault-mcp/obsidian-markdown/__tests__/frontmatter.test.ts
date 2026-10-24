@@ -786,6 +786,48 @@ describe("parseNoteSkippingUnreadableBlock", () => {
     })
   })
 
+  it("drops a block whose alias names no anchor and reads the body with no properties", () => {
+    const parsed = parseNoteSkippingUnreadableBlock("---\ntitle: *bold*\n---\nBody line\n")
+
+    expect(parsed).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: expect.any(UnsupportedPropertiesBlockError),
+    })
+    expect({
+      kind: parsed.unreadableBlockError?.kind,
+      message: parsed.unreadableBlockError?.message,
+    }).toEqual({
+      kind: "invalid-yaml",
+      message:
+        "properties block is not valid YAML: Unresolved alias (the anchor must be set before the alias): bold*",
+    })
+  })
+
+  it("reads a single-value block as no properties without reporting it", () => {
+    expect(parseNoteSkippingUnreadableBlock("---\njust text\n---\nBody line\n")).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
+  it("reads a tagged value as the parser resolves its tag without reporting it", () => {
+    expect(parseNoteSkippingUnreadableBlock("---\ndone: !!str 1\n---\nBody line\n")).toEqual({
+      data: { done: "1" },
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
+  it("reads an empty block as no properties without reporting it", () => {
+    expect(parseNoteSkippingUnreadableBlock("---\n---\nBody line\n")).toEqual({
+      data: {},
+      content: "Body line\n",
+      unreadableBlockError: null,
+    })
+  })
+
   it("reads a note without a block as its whole content", () => {
     expect(parseNoteSkippingUnreadableBlock("Body line\n")).toEqual({
       data: {},

@@ -5056,6 +5056,34 @@ describe("Windows line breaks (CRLF)", () => {
       expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [ ] done\nB\n")
     })
 
+    it("replaceInNote drops the carriage return new_text ends with at every match when replacing all", async () => {
+      await writeTestNote("note.md", "---\ntitle: C\n---\n- [ ] task\n- [ ] task\n")
+      const result = await replaceInNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          oldText: "task",
+          newText: "done\r",
+          replaceAllOccurrences: true,
+        },
+        logger,
+      )
+
+      expect(result).toEqual({ message: "Replaced 2 occurrences in note.md", count: 2 })
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n- [ ] done\n- [ ] done\n")
+    })
+
+    // A deletion would shrink the two empty lines around X into one
+    it("replaceInNote keeps the empty lines around a match whose new_text is only a carriage return", async () => {
+      await writeTestNote("note.md", "---\ntitle: C\n---\nA\n\nX\n\nB\n")
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "X\n", newText: "\r" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\nA\n\n\nB\n")
+    })
+
     it("replaceSpan keeps a lone carriage return inside content", async () => {
       await writeTestNote("note.md", LF_NOTE)
       await replaceSpan(
