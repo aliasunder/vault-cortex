@@ -26,8 +26,8 @@ export type MemoryEntry = Readonly<{
    *  would silently lose memory content. */
   date: string
   /** Raw entry markdown: the dated bullet line plus every continuation line
-   *  (wrapped prose, sub-bullets, fenced code examples) up to the next entry
-   *  or section boundary, with trailing blank lines trimmed. */
+   *  (wrapped prose, sub-bullets, fenced code examples) up to the next entry,
+   *  a deeper heading or the section's end, with trailing blank lines trimmed. */
   text: string
   /** 0-based document order across the whole file, spanning sections. */
   entryIndex: number
@@ -78,7 +78,7 @@ const closeEntry = (openEntry: OpenEntry, section: string, entryIndex: number): 
  * the H2. Prose before a section's first entry (intro text, scope callouts)
  * belongs to no entry and is ignored; every line after an entry's bullet —
  * wrapped prose, sub-bullets, fenced code — is that entry's continuation
- * until the next entry starts or the section ends.
+ * until the next entry starts, a deeper heading opens, or the section ends.
  *
  * Fence/comment awareness works one way by design: a line that *looks* like a
  * dated bullet inside a fenced code block or `%% %%` comment never starts an

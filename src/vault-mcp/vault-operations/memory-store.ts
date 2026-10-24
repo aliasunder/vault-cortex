@@ -989,8 +989,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const firstBulletOffset = entryLineOffsets.at(0)
 
       // "top" inserts before the first existing bullet (newest-first ordering).
-      // "bottom" inserts at the section end — the last entry's continuation
-      // lines extend to there, so lastBulletOffset + 1 would land inside them.
+      // "bottom" inserts at the section end, below any ### subsection in it;
+      // lastBulletOffset + 1 can land inside the last entry's continuation lines.
       // Sections with no genuine entries fall back to bodyEndLine for both
       // positions. Offset 0 is a bullet on the section's first line, so the
       // check compares with undefined.
