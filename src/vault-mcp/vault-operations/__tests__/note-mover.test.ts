@@ -8,6 +8,7 @@ import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
 import { vaultPatcher } from "../vault-patcher.js"
 import {
   parseNoteForRewrite,
+  UnkeepableOpeningBlockError,
   UnsupportedPropertiesBlockError,
 } from "../../obsidian-markdown/frontmatter.js"
 import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
@@ -2077,10 +2078,19 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
       backlinkSources: ["Hub.md"],
     })
 
-    expect(result.updated_notes).toEqual(["Hub.md", "Notes/Broken.md"])
-    expect(await readNote("Notes/Broken.md")).toBe(
-      "---\ntitle: [unclosed\n---\nSee [[New/Target]]\n",
-    )
+    expect(result).toEqual({
+      moved_to: "New/Target.md",
+      links_updated: 2,
+      updated_notes: ["Hub.md", "Notes/Broken.md"],
+      pruned_empty_folders: 0,
+    })
+    expect({
+      "Hub.md": await readNote("Hub.md"),
+      "Notes/Broken.md": await readNote("Notes/Broken.md"),
+    }).toEqual({
+      "Hub.md": "Links [[New/Target]].\n",
+      "Notes/Broken.md": "---\ntitle: [unclosed\n---\nSee [[New/Target]]\n",
+    })
   })
 
   it("leaves a link inside a block that is not valid YAML as it was, as Obsidian does", async () => {
@@ -2089,13 +2099,55 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
     await writeFixture("Old/Target.md", "Target body\n")
     await writeFixture("Notes/Broken.md", `${block}See [[Old/Target]]\n`)
 
-    await moveNote({
+    const result = await moveNote({
       oldPath: "Old/Target.md",
       newPath: "New/Target.md",
       backlinkSources: ["Notes/Broken.md"],
     })
 
+    // Only the body link is counted; the one inside the block stays as it was
+    expect(result).toEqual({
+      moved_to: "New/Target.md",
+      links_updated: 1,
+      updated_notes: ["Notes/Broken.md"],
+      pruned_empty_folders: 0,
+    })
     expect(await readNote("Notes/Broken.md")).toBe(`${block}See [[New/Target]]\n`)
+  })
+
+  it("aborts as a rewrite failure when a backlink source with no block would open with one once saved", async () => {
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    // The note has no block as written; the save drops one of its two BOMs,
+    // so its opening --- lines would become a block the server cannot keep.
+    // Built from the code point so no invisible literal hides in the source.
+    const twoBoms = String.fromCharCode(0xfeff).repeat(2)
+    const fixtures = {
+      "Old/Target.md": "Target body\n",
+      "Notes/Two BOMs.md": `${twoBoms}---\ntitle: [unclosed\n---\nSee [[Old/Target]]\n`,
+    }
+    for (const [path, content] of Object.entries(fixtures)) await writeFixture(path, content)
+
+    const refusal = await captureRejection(
+      moveNote({
+        oldPath: "Old/Target.md",
+        newPath: "New/Target.md",
+        backlinkSources: ["Notes/Two BOMs.md"],
+      }),
+    )
+
+    expect({
+      isOpeningBlockRefusal: refusal instanceof UnkeepableOpeningBlockError,
+      message: refusal instanceof Error ? refusal.message : null,
+    }).toEqual({
+      isOpeningBlockRefusal: true,
+      message:
+        'move aborted: could not rewrite backlink source "Notes/Two BOMs.md": the note would open with a properties block the server cannot keep: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]. Nothing was written.',
+    })
+    expect(await noteExists("New/Target.md")).toBe(false)
+    expect({
+      "Old/Target.md": await readNote("Old/Target.md"),
+      "Notes/Two BOMs.md": await readNote("Notes/Two BOMs.md"),
+    }).toEqual(fixtures)
   })
 
   it("aborts when a property link must change in a block that also holds an explicitly tagged value", async () => {

@@ -1133,6 +1133,9 @@ const OVERWRITE_REPAIR_STEPS =
 const OPENING_BLOCK_STEP =
   "To write it, give the note at least one property, put a line of text above the --- lines, or remove those lines."
 
+const TAG_REPAIR_STEPS =
+  "To repair it, read the note in full with vault_read_note, then call vault_update_properties with replace: true and the complete corrected properties (leave out a key to remove it; null keeps it with an empty value). The tag cannot be kept; write the value without it."
+
 describe("unreadable properties blocks", () => {
   /** Plants a note straight on disk, as a hand edit or a sync would, and
    *  removes it when the test ends. */
@@ -1142,6 +1145,16 @@ describe("unreadable properties blocks", () => {
     onTestFinished(() => rm(fullPath, { force: true }))
     return fullPath
   }
+
+  /** The whole result of a failed call: one text block holding the message. */
+  const toolErrorResult = (text: string): ToolResult => ({
+    content: [{ type: "text", text }],
+    isError: true,
+  })
+
+  /** The refusal of a write that would leave the unclosed block at the top of a note. */
+  const UNCLOSED_OPENING_BLOCK_MESSAGE = `the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}`
+  const UNCLOSED_OPENING_BLOCK_ERROR = `[Error]: ${UNCLOSED_OPENING_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`
 
   it("returns the planted text from a full read, so an agent can see the broken block", async () => {
     await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
@@ -1165,9 +1178,8 @@ describe("unreadable properties blocks", () => {
       args: { path: "Broken Properties.md", properties: { status: "done" } },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+    expect(result).toEqual(
+      toolErrorResult(`[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`),
     )
     expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
   })
@@ -1257,10 +1269,7 @@ describe("unreadable properties blocks", () => {
       args: { path: "New Broken.md", body: "---\ntitle: [unclosed\n---\nBody\n" },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
-    )
+    expect(result).toEqual(toolErrorResult(UNCLOSED_OPENING_BLOCK_ERROR))
     await expect(readFile(fullPath, "utf8")).rejects.toThrow("ENOENT")
   })
 
@@ -1274,10 +1283,7 @@ describe("unreadable properties blocks", () => {
       args: { path: "Rule Then Block.md", start_anchor: "Intro paragraph" },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
-    )
+    expect(result).toEqual(toolErrorResult(UNCLOSED_OPENING_BLOCK_ERROR))
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 
@@ -1291,10 +1297,7 @@ describe("unreadable properties blocks", () => {
       args: { path: "Replace Then Block.md", old_text: "Intro paragraph\n", new_text: "" },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
-    )
+    expect(result).toEqual(toolErrorResult(UNCLOSED_OPENING_BLOCK_ERROR))
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 
@@ -1312,10 +1315,7 @@ describe("unreadable properties blocks", () => {
       },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
-    )
+    expect(result).toEqual(toolErrorResult(UNCLOSED_OPENING_BLOCK_ERROR))
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 
@@ -1334,10 +1334,7 @@ describe("unreadable properties blocks", () => {
       },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
-    )
+    expect(result).toEqual(toolErrorResult(UNCLOSED_OPENING_BLOCK_ERROR))
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 
@@ -1353,9 +1350,8 @@ describe("unreadable properties blocks", () => {
       args: { path: "Broken Properties.md", body: "New body\n", overwrite: true, properties },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${OVERWRITE_REPAIR_STEPS}`,
+    expect(result).toEqual(
+      toolErrorResult(`[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${OVERWRITE_REPAIR_STEPS}`),
     )
     expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
   })
@@ -1375,8 +1371,7 @@ describe("unreadable properties blocks", () => {
       args: { path: "Stacked Blocks.md", properties: {}, replace: true },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(result).toEqual(toolErrorResult(SINGLE_VALUE_OPENING_BLOCK_ERROR))
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 
@@ -1398,9 +1393,10 @@ describe("unreadable properties blocks", () => {
       },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: memory file "About Me/Two BOMs.md": the note would open with a properties block the server cannot keep: ${UNCLOSED_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+    expect(result).toEqual(
+      toolErrorResult(
+        `[Error]: memory file "About Me/Two BOMs.md": ${UNCLOSED_OPENING_BLOCK_MESSAGE}. ${OPENING_BLOCK_STEP}`,
+      ),
     )
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
@@ -1417,8 +1413,7 @@ describe("unreadable properties blocks", () => {
       args: { path: "Stacked Tasks.md", description: "New task", block_id: "new-task" },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(SINGLE_VALUE_OPENING_BLOCK_ERROR)
+    expect(result).toEqual(toolErrorResult(SINGLE_VALUE_OPENING_BLOCK_ERROR))
     expect(await readFile(fullPath, "utf8")).toBe(original)
   })
 
@@ -1435,8 +1430,7 @@ describe("unreadable properties blocks", () => {
 
     const result = await callTool({ client, name, args: { path: "List Block Edit.md", ...args } })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(LIST_BLOCK_ERROR)
+    expect(result).toEqual(toolErrorResult(LIST_BLOCK_ERROR))
     expect(await readFile(fullPath, "utf8")).toBe(LIST_BLOCK_NOTE)
   })
 
@@ -1449,10 +1443,36 @@ describe("unreadable properties blocks", () => {
       args: { path: "Broken Properties.md", properties_only: true },
     })
 
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toBe(
-      `[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`,
+    expect(result).toEqual(
+      toolErrorResult(`[Error]: ${UNCLOSED_BLOCK_MESSAGE}. ${CARRY_TEXT_REPAIR_STEPS}`),
     )
+  })
+
+  it("aborts a vault_move_note whose backlink source must change a property link in a block it cannot rewrite", async () => {
+    const targetContent = "Target body\n"
+    const sourceContent =
+      '---\ncreated: !!timestamp 2026-01-01\nrelated: "[[Contract Target]]"\n---\nBody line\n'
+    const targetPath = await plantNote("Contract Target.md", targetContent)
+    const sourcePath = await plantNote("Contract Tagged.md", sourceContent)
+    const destinationPath = join(serverVaultPath, "Moved Contract Target.md")
+    onTestFinished(() => rm(destinationPath, { force: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Contract Target.md", new_path: "Moved Contract Target.md" },
+    })
+
+    expect(result).toEqual(
+      toolErrorResult(
+        `[Error]: move aborted: could not rewrite backlink source "Contract Tagged.md": properties block uses the YAML tag !!timestamp, which rewriting the note would drop. Nothing was written. ${TAG_REPAIR_STEPS}`,
+      ),
+    )
+    expect({
+      target: await readFile(targetPath, "utf8"),
+      source: await readFile(sourcePath, "utf8"),
+    }).toEqual({ target: targetContent, source: sourceContent })
+    await expect(readFile(destinationPath, "utf8")).rejects.toThrow("ENOENT")
   })
 })
 

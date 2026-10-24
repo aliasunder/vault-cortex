@@ -354,7 +354,9 @@ describe("updateMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('memory file must not start with a dot: ".secret" would be a hidden file')
+    ).rejects.toThrow(
+      new Error('memory file must not start with a dot: ".secret" would be a hidden file'),
+    )
     const memoryDirEntries = await readdir(join(vault, "About Me"))
     expect(memoryDirEntries).not.toContain(".secret.md")
   })
@@ -1003,7 +1005,9 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)")
+    ).rejects.toThrow(
+      new Error("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"),
+    )
     // Nothing was written — the file is byte-identical to the fixture.
     const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
@@ -1086,7 +1090,9 @@ created: 2026-01-01T00:00:00-05:00
           },
           logger,
         ),
-      ).rejects.toThrow(`memory file must be a bare name without path separators: "${file}"`)
+      ).rejects.toThrow(
+        new Error(`memory file must be a bare name without path separators: "${file}"`),
+      )
       // No file escaped the memory directory into the vault root.
       expect(await readdir(vault)).toEqual(["About Me"])
     },
@@ -1709,7 +1715,9 @@ describe("deleteMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('memory file must not start with a dot: ".secret" would be a hidden file')
+    ).rejects.toThrow(
+      new Error('memory file must not start with a dot: ".secret" would be a hidden file'),
+    )
   })
 
   it("deletes an exact matching entry", async () => {
@@ -1770,7 +1778,11 @@ describe("deleteMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('no entry matching (2026-05-05, "nonexistent text")')
+    ).rejects.toThrow(
+      new Error(
+        'no entry matching (2026-05-05, "nonexistent text") under ## Decision heuristics (newest first) in About Me/Principles.md',
+      ),
+    )
   })
 
   // Server-written bullets only carry real calendar dates, so a malformed
@@ -1788,7 +1800,9 @@ describe("deleteMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)")
+    ).rejects.toThrow(
+      new Error("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"),
+    )
     const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
@@ -1816,7 +1830,11 @@ title: Dupe
         },
         logger,
       ),
-    ).rejects.toThrow("ambiguous: 2 entries match")
+    ).rejects.toThrow(
+      new Error(
+        'ambiguous: 2 entries match (2026-01-01, "same entry") under ## Section (newest first) in About Me/Dupe.md',
+      ),
+    )
   })
 
   it("preserves frontmatter after deletion", async () => {
@@ -1870,7 +1888,7 @@ title: Dupe
         },
         logger,
       ),
-    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+    ).rejects.toThrow(new Error('memory file not found: "About Me/Ghost.md"'))
   })
 
   it("throws on non-existent section", async () => {
@@ -2341,7 +2359,7 @@ describe("custom memoryDir", () => {
     onTestFinished(() => rm(customVault, { recursive: true }))
     await expect(
       customStore.getMemory({ vaultPath: customVault, file: "Nonexistent" }, logger),
-    ).rejects.toThrow('memory file not found: "Profile/Nonexistent.md"')
+    ).rejects.toThrow(new Error('memory file not found: "Profile/Nonexistent.md"'))
   })
 
   it("returns empty string when configured directory does not exist", async () => {
@@ -2497,6 +2515,11 @@ title: Big
 - **2026-06-13**: small tail entry
 `
     await writeFile(join(vault, "About Me/Big.md"), fileContent, "utf8")
+    const beforeBytes = Buffer.byteLength(fileContent, "utf8")
+    const afterBytes = Buffer.byteLength(
+      fileContent.replace(`- **2026-06-14**: ${dominantEntry}\n`, ""),
+      "utf8",
+    )
 
     await expect(
       deleteMemory(
@@ -2509,7 +2532,11 @@ title: Big
         },
         logger,
       ),
-    ).rejects.toThrow("refusing memory write")
+    ).rejects.toThrow(
+      new Error(
+        `refusing memory write: deleting memory entry would shrink content from ${beforeBytes} to ${afterBytes} bytes (>50% reduction) — the on-disk content has likely diverged from the copy this write was based on`,
+      ),
+    )
 
     // The guard fires before the write, so the file is left fully intact.
     expect(await readFile(join(vault, "About Me/Big.md"), "utf8")).toBe(fileContent)
@@ -2999,7 +3026,11 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow('section not found: "Nonexistent section" in About Me/Principles.md')
+    ).rejects.toThrow(
+      new Error(
+        'section not found: "Nonexistent section" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
+    )
   })
 
   it("throws when the section does not exist even with onOrAfter set", async () => {
@@ -3013,7 +3044,11 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow('section not found: "Nonexistent section" in About Me/Principles.md')
+    ).rejects.toThrow(
+      new Error(
+        'section not found: "Nonexistent section" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
+    )
   })
 
   it("throws when the memory file does not exist", async () => {
@@ -3027,7 +3062,7 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+    ).rejects.toThrow(new Error('memory file not found: "About Me/Ghost.md"'))
   })
 
   it("throws on an invalid on_or_after date", async () => {
@@ -3041,7 +3076,9 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow("date must be a real ISO calendar date")
+    ).rejects.toThrow(
+      new Error("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"),
+    )
   })
 
   it("returns entries with correct field shape", async () => {
@@ -3210,7 +3247,7 @@ created: 2026-01-01T00:00:00-05:00
   it("throws when the memory file does not exist and no section is given", async () => {
     await expect(
       getMemoryEntries({ vaultPath: vault, file: "Ghost", onOrAfter: "2026-05-01" }, logger),
-    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+    ).rejects.toThrow(new Error('memory file not found: "About Me/Ghost.md"'))
   })
 })
 
@@ -3436,8 +3473,29 @@ describe("memory file with a properties block the server cannot read or keep", (
     { label: "a first line of --- and two CRs", prefix: "---\r\r\ntitle: [unclosed\n---\n" },
   ]
 
-  const OPENS_A_BLOCK_MESSAGE =
-    'memory file "About Me/Broken.md": the note would open with a properties block the server cannot keep: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]'
+  /** The refusal each case expects. The class matters as well as the message:
+   *  the tool boundary picks the repair step by it, and toThrow compares only
+   *  the message. */
+  const OPENS_A_BLOCK_REFUSAL = {
+    isOpeningBlockRefusal: true,
+    message:
+      'memory file "About Me/Broken.md": the note would open with a properties block the server cannot keep: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]',
+  }
+
+  /** Awaits a call that must reject and returns its class check and message. */
+  const describeRejection = async (
+    pending: Promise<unknown>,
+  ): Promise<{ isOpeningBlockRefusal: boolean; message: string | null }> => {
+    try {
+      await pending
+    } catch (error) {
+      return {
+        isOpeningBlockRefusal: error instanceof UnkeepableOpeningBlockError,
+        message: error instanceof Error ? error.message : null,
+      }
+    }
+    throw new Error("expected the call to reject, but it resolved")
+  }
 
   it.each(OPENS_A_BLOCK_WHEN_SAVED_CASES)(
     "updateMemory refuses a file with $label and leaves it unchanged",
@@ -3445,7 +3503,7 @@ describe("memory file with a properties block the server cannot read or keep", (
       const content = buildMemoryFile(prefix)
       await plantBrokenFile(content)
 
-      await expect(
+      const refusal = await describeRejection(
         updateMemory(
           {
             vaultPath: vault,
@@ -3456,7 +3514,33 @@ describe("memory file with a properties block the server cannot read or keep", (
           },
           logger,
         ),
-      ).rejects.toThrow(new UnkeepableOpeningBlockError(OPENS_A_BLOCK_MESSAGE))
+      )
+
+      expect(refusal).toEqual(OPENS_A_BLOCK_REFUSAL)
+      expect(await readBrokenFile()).toBe(content)
+    },
+  )
+
+  it.each(OPENS_A_BLOCK_WHEN_SAVED_CASES)(
+    "updateMemory refuses a new section in a file with $label and leaves it unchanged",
+    async ({ prefix }) => {
+      const content = buildMemoryFile(prefix)
+      await plantBrokenFile(content)
+
+      const refusal = await describeRejection(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Broken",
+            section: "Brand new section",
+            entry: "new entry",
+            date: "2026-05-06",
+          },
+          logger,
+        ),
+      )
+
+      expect(refusal).toEqual(OPENS_A_BLOCK_REFUSAL)
       expect(await readBrokenFile()).toBe(content)
     },
   )
@@ -3467,7 +3551,7 @@ describe("memory file with a properties block the server cannot read or keep", (
       const content = buildMemoryFile(prefix)
       await plantBrokenFile(content)
 
-      await expect(
+      const refusal = await describeRejection(
         deleteMemory(
           {
             vaultPath: vault,
@@ -3478,7 +3562,9 @@ describe("memory file with a properties block the server cannot read or keep", (
           },
           logger,
         ),
-      ).rejects.toThrow(new UnkeepableOpeningBlockError(OPENS_A_BLOCK_MESSAGE))
+      )
+
+      expect(refusal).toEqual(OPENS_A_BLOCK_REFUSAL)
       expect(await readBrokenFile()).toBe(content)
     },
   )
