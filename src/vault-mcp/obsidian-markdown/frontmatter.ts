@@ -352,19 +352,16 @@ export const parseNoteForRewrite = (content: string): ParsedNote => {
 export const parseNoteSkippingUnreadableBlock = (
   rawContent: string,
 ): ParsedNote & { unreadableBlockError: UnsupportedPropertiesBlockError | null } => {
-  try {
-    const { data, content } = parseNote(rawContent)
-    return { data, content, unreadableBlockError: null }
-  } catch (error) {
-    // parseNote throws this error only for YAML the parser cannot read (kind
-    // `invalid-yaml`); the list, single-value and tag kinds come from parseNoteForRewrite
-    if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
+  const { blockText, body } = splitPropertiesBlock(rawContent)
 
-    // parseNote split the note at these same boundaries before it read the
-    // block, so the body starts after the block's closing `---` line
-    const { body } = splitPropertiesBlock(rawContent)
-    return { data: {}, content: body, unreadableBlockError: error }
+  if (blockText === null) return { data: {}, content: body, unreadableBlockError: null }
+
+  const reading = readPropertiesBlock(blockText)
+
+  if (reading.status === "unreadable") {
+    return { data: {}, content: body, unreadableBlockError: reading.error }
   }
+  return { data: reading.data, content: body, unreadableBlockError: null }
 }
 
 /**
