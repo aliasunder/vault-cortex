@@ -1746,6 +1746,45 @@ describe("deleteMemory", () => {
     expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(after)
   })
 
+  // A ### line inside code or a comment is not a heading, so it stays the
+  // entry's continuation and goes with it
+  it.each([
+    { label: "a code fence", opener: "```md", closer: "```" },
+    { label: "a %% comment", opener: "%%", closer: "%%" },
+  ])("deletes a ### line inside $label along with its entry", async ({ opener, closer }) => {
+    await writeFile(
+      join(vault, "About Me/Sectioned.md"),
+      `# T\n\n## S (newest first)\n- **2026-01-02**: two\n- **2026-01-01**: one\n${opener}\n### not a subsection\n${closer}\n- **2025-12-31**: older\n`,
+      "utf8",
+    )
+
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-01", entry: "one" },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n- **2026-01-02**: two\n- **2025-12-31**: older\n",
+    )
+  })
+
+  it("deleting an entry keeps the next entry when a ### subsection follows that entry", async () => {
+    await writeFile(
+      join(vault, "About Me/Sectioned.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-02**: two\n- **2026-01-01**: one\n\n### Sub\nkeep me\n",
+      "utf8",
+    )
+
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-02", entry: "two" },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n- **2026-01-01**: one\n\n### Sub\nkeep me\n",
+    )
+  })
+
   it("deletes an exact matching entry", async () => {
     await deleteMemory(
       {
