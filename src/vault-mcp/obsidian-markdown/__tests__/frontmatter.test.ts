@@ -865,14 +865,25 @@ describe("splitNoteKeepingBlock", () => {
     })
   })
 
-  it("writes the block's CRLF line breaks, and a CR ending its closer at the note's end, as LF and leaves the body's as they are", () => {
+  it("writes the block's CRLF line breaks as LF and leaves the body's as they are", () => {
     expect(splitNoteKeepingBlock("---\r\na: 1\r\n---\r\nbody\r\n")).toEqual({
       textBeforeBody: "---\na: 1\n---\n",
       body: "body\r\n",
     })
+  })
+
+  it("writes a CR ending the closer at the note's end as LF", () => {
     expect(splitNoteKeepingBlock("---\r\na: 1\r\n---\r")).toEqual({
       textBeforeBody: "---\na: 1\n---\n",
       body: "",
+    })
+  })
+
+  // Every read starts the body after this CR, reading it as the closer's line break
+  it("writes a lone CR between the closer and the body as LF", () => {
+    expect(splitNoteKeepingBlock("---\na: 1\n---\rbody\n")).toEqual({
+      textBeforeBody: "---\na: 1\n---\n",
+      body: "body\n",
     })
   })
 
@@ -958,6 +969,12 @@ describe("joinNoteKeepingBlock", () => {
       note: "---\r\na: 1\r\n---\r",
       body: "NEW",
       expected: "---\na: 1\n---\nNEW\n",
+    },
+    {
+      label: "a CR inside a block line above a lone CR after a closer at the end of the note",
+      note: "---\n# scope\rnote: kept\n---\r",
+      body: "NEW",
+      expected: "---\n# scope\rnote: kept\n---\nNEW\n",
     },
     {
       label: "a closer with text after its dashes",

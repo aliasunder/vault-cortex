@@ -2030,6 +2030,12 @@ describe("moveNote — properties blocks the server cannot read or keep", () => 
     { label: "a list block", block: "---\n- a\n---\n" },
     { label: "a block that is not valid YAML", block: "---\ntitle: [unclosed\n---\n" },
     { label: "a commented block", block: "---\n# keep me\ntitle: 'Quoted'   # inline\n---\n" },
+    // The YAML parser reads `# scope\rnote: kept` as one comment line, so an
+    // LF in place of the CR would add a `note` property
+    {
+      label: "a carriage return inside a block line",
+      block: "---\n# scope\rnote: kept\na: 1\n---\n",
+    },
     // The empty block stays above the body's own --- lines, so they never
     // become the note's first block
     {

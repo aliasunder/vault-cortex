@@ -3546,6 +3546,48 @@ describe("memory file with a properties block the server cannot read or keep", (
     )
   })
 
+  /** The YAML parser reads `# scope\rnote: kept` as one comment line, so the
+   *  block holds only `a`; an LF in place of the CR would add a `note` property. */
+  const CR_INSIDE_LINE_BLOCK = "---\n# scope\rnote: kept\na: 1\n---\n"
+
+  it("updateMemory keeps a carriage return inside a properties line as written", async () => {
+    await plantBrokenFile(buildMemoryFile(CR_INSIDE_LINE_BLOCK))
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Broken",
+        section: "Notes (newest first)",
+        entry: "new entry",
+        date: "2026-05-06",
+      },
+      logger,
+    )
+
+    expect(await readBrokenFile()).toBe(
+      `${CR_INSIDE_LINE_BLOCK}# Broken\n\n## Notes (newest first)\n- **2026-05-06**: new entry\n- **2026-05-05**: kept entry\n`,
+    )
+  })
+
+  it("deleteMemory keeps a carriage return inside a properties line as written", async () => {
+    await plantBrokenFile(buildMemoryFile(CR_INSIDE_LINE_BLOCK))
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "Broken",
+        section: "Notes (newest first)",
+        date: "2026-05-05",
+        entry: "kept entry",
+      },
+      logger,
+    )
+
+    expect(await readBrokenFile()).toBe(
+      `${CR_INSIDE_LINE_BLOCK}# Broken\n\n## Notes (newest first)\n`,
+    )
+  })
+
   // Each file has no properties block as written, but its opening lines would
   // become one once saved: the save drops one of two BOMs, or one of two CRs
   const OPENS_A_BLOCK_WHEN_SAVED_CASES = [
