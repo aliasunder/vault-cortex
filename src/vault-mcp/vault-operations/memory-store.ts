@@ -488,25 +488,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     return join(vaultPath, memoryDir, `${file}.md`)
   }
 
-  /** The first path on the way to the memory folder, from the vault root,
-   *  that exists but is not a folder. Undefined when each path is a folder or
-   *  missing; one can be missing after mkdir failed because it changed since,
-   *  or because a symlink there points nowhere. */
-  const findMemoryFolderBlocker = async (vaultPath: string): Promise<string | undefined> => {
-    // "Meta/About Me" → ["Meta", "Meta/About Me"]
-    const folderSegments = memoryDir.split("/")
-    const foldersFromRoot = folderSegments.map((_, index) => {
-      return folderSegments.slice(0, index + 1).join("/")
-    })
-
-    for (const folder of foldersFromRoot) {
-      const folderStats = await statOrNull(join(vaultPath, folder))
-
-      if (folderStats && !folderStats.isDirectory()) return folder
-    }
-    return undefined
-  }
-
   type MemoryTemplateSpec = {
     fileName: string
     title: string
@@ -931,19 +912,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
           if (!folderPathBlocked) throw error
 
-          // MEMORY_DIR can be nested, and mkdir does not say which folder on
-          // the way is a file, so the message names it for the owner
-          const blocker = await findMemoryFolderBlocker(params.vaultPath)
-          const blockerClause = blocker ? `: "${blocker}" is not a folder` : ""
-
           logger.warn("cannot create memory folder", {
             folder: memoryDir,
-            blocker,
             error: describeError(error),
           })
-          throw new Error(`cannot create memory folder "${memoryDir}"${blockerClause}`, {
-            cause: error,
-          })
+          throw new Error(`cannot create memory folder "${memoryDir}"`, { cause: error })
         }
 
         const content = buildNewMemoryFile({

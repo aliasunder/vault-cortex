@@ -885,12 +885,7 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     // The folder is server configuration, so the store wraps the raw mkdir
     // error instead of letting the boundary tell the caller to choose a path
     expect(result).toEqual({
-      content: [
-        {
-          type: "text",
-          text: '[Error]: cannot create memory folder "About Me": "About Me" is not a folder',
-        },
-      ],
+      content: [{ type: "text", text: '[Error]: cannot create memory folder "About Me"' }],
       isError: true,
     })
   })
