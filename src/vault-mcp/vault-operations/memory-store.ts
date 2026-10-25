@@ -20,7 +20,13 @@ import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
-import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
+import {
+  isDoubledMarkdownFileName,
+  isMemoryEntryLine,
+  memoryEntryLineDate,
+  parseMemoryEntries,
+  type MemoryEntry,
+} from "../obsidian-markdown/memory-entries.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -53,10 +59,6 @@ const guardAgainstShrink = (beforeBytes: number, afterBytes: number, context: st
   }
 }
 
-// Matches dated bullet entries: `- **YYYY-MM-DD**: ...`
-// The date portion is the reliable anchor — entry text after `: ` may contain its own **bold**
-const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
-
 /** Matches CR/LF anywhere in a string — memory entries are single-line dated
  *  bullets, so any line break in an input would corrupt the format. */
 const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
@@ -72,7 +74,7 @@ const isValidMemoryEntryDate = (dateText: string | undefined): boolean => {
   return DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
 }
 
-/** Thrown by updateMemory and deleteMemory when a supplied date fails
+/** Thrown by updateMemory and getMemoryEntries when a supplied date fails
  *  isValidMemoryEntryDate — one string so the two sites can't drift. */
 const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
   "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"
@@ -154,8 +156,8 @@ type ParsedSection = Readonly<{
 // ── Internal helpers ────────────────────────────────────────────
 
 /** Walks section body lines with fence/comment awareness and returns the
- *  0-based offsets of genuine entry bullets (lines matching ENTRY_PATTERN that
- *  are not inside a code fence or %% comment). Used by updateMemory's insertion
+ *  0-based offsets of genuine entry bullets (lines isMemoryEntryLine accepts
+ *  that are not inside a code fence or %% comment). Used by updateMemory's insertion
  *  scan, deleteMemory's bullet match, and parseSections' entry count — all three
  *  must agree on what counts as a real entry. */
 const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
@@ -185,7 +187,7 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
 
     if (insideCodeOrComment) continue
 
-    if (ENTRY_PATTERN.test(bodyLine)) {
+    if (isMemoryEntryLine(bodyLine)) {
       offsets.push(offsetIndex)
     }
   }
@@ -361,12 +363,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   /** Large memory folders must not exhaust file handles by reading every file at once. */
   const memoryReadConcurrency = 16
 
-  /** True for the .md entries the memory layer serves — excludes dot-prefixed
-   *  (hidden) filenames so a pre-existing hidden file on disk never leaks
-   *  through the no-file read or the list surfaces, mirroring the write-side
-   *  rejection in memoryFilePath. */
+  /** True for the .md entries the memory layer serves. It leaves out two
+   *  kinds of file that memoryFilePath refuses to name, so the no-file read
+   *  and the list surfaces never offer them:
+   *  - a dot-prefixed (hidden) name;
+   *  - a name ending in .md twice. */
   const isVisibleMemoryFile = (filename: string): boolean => {
-    return filename.endsWith(".md") && !filename.startsWith(".")
+    return (
+      filename.endsWith(".md") && !filename.startsWith(".") && !isDoubledMarkdownFileName(filename)
+    )
   }
 
   /** Reads the memory folder's direct entries.
@@ -460,18 +465,25 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
-  // A memory file is a bare name, never a path — a separator would let a
-  // name like "../../outside" escape the memory directory (and the vault)
-  // entirely, so reject it at the single point every memory path goes through.
-  // A dot-prefixed name would create a hidden file (invisible in Obsidian,
-  // excluded from listings and the index), so it is rejected the same way —
-  // memory paths bypass resolveSafePath's hidden-path guard via direct join.
+  // A memory file is a bare name, never a path, and every memory path built
+  // from a caller's name goes through this one check:
+  // - a separator would let a name like "../../outside" escape the memory
+  //   directory (and the vault);
+  // - a dot-prefixed name would create a hidden file, invisible in Obsidian
+  //   and left out of listings and the index (memory paths are joined
+  //   directly, so resolveSafePath's hidden-path guard never sees them);
+  // - a name ending in .md, in any letter case, already carries the
+  //   extension and would get a second one, creating "Opinions.md.md" beside
+  //   "Opinions.md".
   const memoryFilePath = (vaultPath: string, file: string): string => {
     if (file.includes("/") || file.includes("\\")) {
       throw new Error(`memory file must be a bare name without path separators: "${file}"`)
     }
     if (file.startsWith(".")) {
       throw new Error(`memory file must not start with a dot: "${file}" would be a hidden file`)
+    }
+    if (file.toLowerCase().endsWith(".md")) {
+      throw new Error(`memory file must be named without .md: "${file}"`)
     }
     return join(vaultPath, memoryDir, `${file}.md`)
   }
@@ -882,16 +894,23 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         try {
           await mkdir(dirname(filePath), { recursive: true })
         } catch (error) {
-          // The folder is server configuration (MEMORY_DIR), so a file sitting
-          // at its path is the vault owner's to move, not the caller's:
-          // - that failure is wrapped without its code, and the memory tools'
-          //   Errors entry names its fix;
+          // The folder is server configuration (MEMORY_DIR), so anything in
+          // its way is the vault owner's to fix, not the caller's. mkdir
+          // reports a file at the folder's own path as EEXIST, a file at a
+          // folder above it as ENOTDIR, and a broken symlink at its path as
+          // ENOENT:
+          // - those failures are wrapped without their code, because the tool
+          //   boundary's remedies for them tell the caller to choose another
+          //   path or to retry; the memory tools' Errors entry names the
+          //   owner's fix instead;
           // - other failures keep their code, so the tool boundary appends
           //   its remedy.
-          const fileAtFolderPath =
-            isErrnoException(error, "EEXIST") || isErrnoException(error, "ENOTDIR")
+          const folderPathBlocked =
+            isErrnoException(error, "EEXIST") ||
+            isErrnoException(error, "ENOTDIR") ||
+            isErrnoException(error, "ENOENT")
 
-          if (!fileAtFolderPath) throw error
+          if (!folderPathBlocked) throw error
 
           logger.warn("cannot create memory folder", {
             folder: memoryDir,
@@ -1103,12 +1122,18 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     },
     logger: Logger,
   ): Promise<void> => {
-    // Server-written bullets only ever carry real calendar dates, so a
-    // malformed date can never match — reject it up front with remediation
-    // instead of a guaranteed "no entry matching" miss.
-    if (!isValidMemoryEntryDate(params.date)) {
-      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
+    const targetBullet = `- **${params.date}**: ${params.entry}`
+
+    // Refused up front unless the entry parser reads the bullet as an entry
+    // dated exactly params.date. That test refuses:
+    // - a date of another shape, which can never match an entry;
+    // - text after the date ("2026-07-02**: x"), which would carry part of the entry.
+    // It passes an impossible date that a hand edit can leave in a file, such
+    // as 2026-02-30, because the parser checks the date's shape only.
+    if (memoryEntryLineDate(targetBullet) !== params.date) {
+      throw new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)")
     }
+
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
     return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
@@ -1118,7 +1143,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const match = resolveSection({ lines, section: params.section, file: params.file })
 
       // Find the target bullet among genuine (non-fenced) entry lines.
-      const targetBullet = `- **${params.date}**: ${params.entry}`
       const sectionBodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
       const genuineEntryOffsets = scanGenuineEntryOffsets(sectionBodyLines)
       const matchingOffsets = genuineEntryOffsets.filter(

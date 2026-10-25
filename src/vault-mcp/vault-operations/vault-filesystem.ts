@@ -170,28 +170,40 @@ export const pruneEmptyParents = async (
   return pruneFrom(start, 0)
 }
 
-/** The temp file a save writes beside its target: the target's path plus a
- *  dot, a UUID and ".tmp". That suffix makes the temp name longer than the
- *  target's, so a name near the filesystem's length limit can read fine and
- *  still fail to save. */
-export const tempSavePath = (filePath: string): string => `${filePath}.${randomUUID()}.tmp`
+/** The temp file a save writes beside its target: a dot, a UUID and ".tmp".
+ *  - The leading dot hides it, so Obsidian Sync and the file watcher never
+ *    open a file the save is about to rename away; file-watcher.ts ignores
+ *    every dot-prefixed path.
+ *  - Its name is 41 bytes (a 36-character UUID plus the dot and ".tmp")
+ *    whatever the target's name, so a target named near the filesystem's
+ *    limit still saves.
+ *  - It stays in the target's folder, so the rename or link that follows
+ *    never crosses filesystems. */
+export const tempSavePath = (filePath: string): string => {
+  return join(dirname(filePath), `.${randomUUID()}.tmp`)
+}
 
-/** How many bytes tempSavePath adds to a target's name. */
-export const TEMP_SAVE_SUFFIX_BYTES = Buffer.byteLength(tempSavePath(""), "utf8")
-
-/** Matches the suffix tempSavePath appends, at the end of a path. It matches that
- *  shape, not only paths a save wrote, so a note named the same way counts too. */
-const TEMP_SAVE_SUFFIX_REGEX =
-  /\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
-
-export const isTempSavePath = (path: string): boolean => TEMP_SAVE_SUFFIX_REGEX.test(path)
+/** Removes a file a write left behind. A failed removal is logged, not thrown,
+ *  so the caller's own failure is the one that propagates. */
+const removeLeftoverFile = async (
+  params: { fullPath: string; loggedPath: string; failureLogMessage: string },
+  logger: Logger,
+): Promise<void> => {
+  try {
+    await rm(params.fullPath, { force: true })
+  } catch (cleanupError) {
+    logger.warn(params.failureLogMessage, {
+      path: params.loggedPath,
+      error: describeError(cleanupError),
+    })
+  }
+}
 
 /**
  * Stages content to a unique temp file, then renames over the target.
  * `rename` is atomic on the same filesystem, so the target is never
  * truncated — readers (notably the obsidian-sync container) see either the old
- * content or the new content, never a 0-byte or partial write. This is the
- * core defense against the partial-write clobber class of bug.
+ * content or the new content, never a 0-byte or partial write.
  *
  * Overwrites an existing target; use `atomicWriteFileExclusive` when the file
  * must not already exist.
@@ -205,16 +217,11 @@ export const atomicWriteFile = async (
     await writeFile(tmpPath, params.content, "utf8")
     await rename(tmpPath, params.filePath)
   } catch (err) {
-    // Best-effort cleanup so a failed write never strands a temp file. A
-    // failed cleanup is logged, not thrown, so the write failure propagates.
-    try {
-      await rm(tmpPath, { force: true })
-    } catch (cleanupError) {
-      logger.warn("failed to remove temp file", {
-        path: tmpPath,
-        error: describeError(cleanupError),
-      })
-    }
+    // A failed write never strands its temp file
+    await removeLeftoverFile(
+      { fullPath: tmpPath, loggedPath: tmpPath, failureLogMessage: "failed to remove temp file" },
+      logger,
+    )
     throw err
   }
 }
@@ -265,30 +272,25 @@ export const atomicWriteFileExclusive = async (
       await rename(tmpPath, params.filePath)
     } catch (renameError) {
       // The reservation took but the swap failed — drop the placeholder so a
-      // failed write never strands a 0-byte note at the destination. A failed
-      // cleanup is logged, not thrown, so the swap failure propagates.
-      try {
-        await rm(params.filePath, { force: true })
-      } catch (cleanupError) {
-        logger.warn("failed to remove reservation placeholder", {
-          path: params.filePath,
-          error: describeError(cleanupError),
-        })
-      }
+      // failed write never strands a 0-byte note at the destination.
+      await removeLeftoverFile(
+        {
+          fullPath: params.filePath,
+          loggedPath: params.filePath,
+          failureLogMessage: "failed to remove reservation placeholder",
+        },
+        logger,
+      )
       throw renameError
     }
   } finally {
-    // Always drop the temp file — renamed away on success, redundant otherwise.
-    // A failed cleanup is logged, not thrown, so the original failure (e.g.
-    // EEXIST) propagates.
-    try {
-      await rm(tmpPath, { force: true })
-    } catch (cleanupError) {
-      logger.warn("failed to remove temp file", {
-        path: tmpPath,
-        error: describeError(cleanupError),
-      })
-    }
+    // Always drop the temp file. After a link it is a second name for the
+    // target, so removing it leaves the target alone; after the rename it is
+    // already gone.
+    await removeLeftoverFile(
+      { fullPath: tmpPath, loggedPath: tmpPath, failureLogMessage: "failed to remove temp file" },
+      logger,
+    )
   }
 }
 
@@ -708,16 +710,15 @@ const moveNoteToTrash = async (
         await rename(params.fullPath, candidateFullPath)
       } catch (renameError) {
         // The claim took but the move failed — drop our placeholder so it
-        // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
-        // logged, not thrown, so the rename failure propagates as the cause.
-        try {
-          await rm(candidateFullPath, { force: true })
-        } catch (cleanupError) {
-          logger.warn("failed to remove claim placeholder", {
-            path: candidateRelativePath,
-            error: describeError(cleanupError),
-          })
-        }
+        // doesn't strand a 0-byte file occupying a suffix.
+        await removeLeftoverFile(
+          {
+            fullPath: candidateFullPath,
+            loggedPath: candidateRelativePath,
+            failureLogMessage: "failed to remove claim placeholder",
+          },
+          logger,
+        )
         throw renameError
       }
 

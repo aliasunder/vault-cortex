@@ -12,7 +12,11 @@ import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/ca
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
-import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
+import {
+  isDoubledMarkdownFileName,
+  parseMemoryEntries,
+  type MemoryEntry,
+} from "../obsidian-markdown/memory-entries.js"
 import { parseFrontmatterTags } from "../obsidian-markdown/tags.js"
 import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
@@ -1353,10 +1357,12 @@ export const createSearchIndex = (
   /** Bare memory file name ("Principles") for notes that are DIRECT children
    *  of the memory dir — the memory tool family's flat namespace, so recall
    *  output feeds straight back into vault_get_memory / vault_delete_memory.
-   *  Null for every other path (nested subfolders included). */
+   *  Null for every other path (nested subfolders included), and for a name
+   *  ending in .md twice, which no memory tool takes. */
   const memoryFileNameFromPath = (filePath: string): string | null => {
     if (memoryDir === undefined) return null
     if (!filePath.endsWith(".md")) return null
+    if (isDoubledMarkdownFileName(basename(filePath))) return null
     if (posix.dirname(filePath) !== memoryDir) return null
     return basename(filePath, ".md")
   }

@@ -302,7 +302,7 @@ export const createSafeHandlers = (params: {
     if (error instanceof UnsupportedPropertiesBlockError) {
       return describePropertiesBlockRepair({ kind: error.kind, isToolEnabled })
     }
-    return remedyForCodedError({ error, isToolEnabled })
+    return remedyForCodedError(error)
   }
 
   /** The error's text with a Node error's paths made vault-relative, then its

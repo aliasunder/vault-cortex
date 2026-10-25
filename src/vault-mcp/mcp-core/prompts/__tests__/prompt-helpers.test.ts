@@ -168,42 +168,14 @@ describe("wrapWithDataMarkers", () => {
 })
 
 describe("describeErrorForPromptFallback", () => {
-  const everyToolServed = (): boolean => true
-  const noToolServed = (): boolean => false
-
   it("makes a filesystem error's path vault-relative and appends its remedy without the closing period", () => {
     const error = Object.assign(
       new Error("EACCES: permission denied, open '/srv/vault/Projects/plan.md'"),
       { code: "EACCES", syscall: "open", path: "/srv/vault/Projects/plan.md" },
     )
 
-    expect(
-      describeErrorForPromptFallback({
-        error,
-        vaultPath: "/srv/vault",
-        isToolEnabled: everyToolServed,
-      }),
-    ).toBe(
+    expect(describeErrorForPromptFallback({ error, vaultPath: "/srv/vault" })).toBe(
       "[Error]: EACCES: permission denied, open 'Projects/plan.md'. Ask the vault's owner to fix the file's or folder's permissions",
-    )
-  })
-
-  it("passes the enabled tool set to the remedy, so an unserved tool goes unnamed", () => {
-    const tempSavePath = "/srv/vault/a.md.123e4567-e89b-12d3-a456-426614174000.tmp"
-    const error = Object.assign(new Error(`ENAMETOOLONG: name too long, open '${tempSavePath}'`), {
-      code: "ENAMETOOLONG",
-      syscall: "open",
-      path: tempSavePath,
-    })
-
-    expect(
-      describeErrorForPromptFallback({
-        error,
-        vaultPath: "/srv/vault",
-        isToolEnabled: noToolServed,
-      }),
-    ).toBe(
-      "[Error]: ENAMETOOLONG: name too long, open 'a.md.123e4567-e89b-12d3-a456-426614174000.tmp'. The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note)",
     )
   })
 
@@ -212,7 +184,6 @@ describe("describeErrorForPromptFallback", () => {
       describeErrorForPromptFallback({
         error: new Error("daily notes config is not valid JSON."),
         vaultPath: "/srv/vault",
-        isToolEnabled: everyToolServed,
       }),
     ).toBe("[Error]: daily notes config is not valid JSON")
   })
@@ -222,7 +193,6 @@ describe("describeErrorForPromptFallback", () => {
       describeErrorForPromptFallback({
         error: new Error("note not found: Projects/plan.md"),
         vaultPath: "/srv/vault",
-        isToolEnabled: everyToolServed,
       }),
     ).toBe("[Error]: note not found: Projects/plan.md")
   })

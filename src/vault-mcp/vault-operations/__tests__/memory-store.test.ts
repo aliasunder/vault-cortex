@@ -161,6 +161,12 @@ describe("getMemory", () => {
     expect(result).toContain("# Principles")
   })
 
+  it("leaves a file whose name ends in .md twice out of the all-files read", async () => {
+    const withoutDoubledName = await getMemory({ vaultPath: vault }, logger)
+    await writeFile(join(vault, "About Me", "Opinions.MD.md"), "# Doubled\n", "utf8")
+    expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutDoubledName)
+  })
+
   it("skips a folder whose name ends in .md in the all-files read", async () => {
     const withoutFolder = await getMemory({ vaultPath: vault }, logger)
     await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
@@ -336,6 +342,20 @@ describe("getMemory", () => {
       'memory file must not start with a dot: ".secret" would be a hidden file',
     )
   })
+
+  // The store adds .md itself, so "Opinions.md" names "Opinions.md.md". A real
+  // file of that name on disk makes the name check, not a missing file, the
+  // only possible rejection.
+  it.each([
+    { label: "lowercase", file: "Opinions.md" },
+    { label: "uppercase", file: "Opinions.MD" },
+  ])("rejects a file name ending in .md ($label) even when that file exists", async ({ file }) => {
+    await writeFile(join(vault, "About Me", `${file}.md`), "## Notes (newest first)\n", "utf8")
+
+    await expect(getMemory({ vaultPath: vault, file }, logger)).rejects.toThrow(
+      new Error(`memory file must be named without .md: "${file}"`),
+    )
+  })
 })
 
 describe("updateMemory", () => {
@@ -359,6 +379,29 @@ describe("updateMemory", () => {
     )
     const memoryDirEntries = await readdir(join(vault, "About Me"))
     expect(memoryDirEntries).not.toContain(".secret.md")
+  })
+
+  it.each([
+    { label: "lowercase", file: "Opinions.md" },
+    { label: "uppercase", file: "Opinions.MD" },
+  ])("rejects a file name ending in .md ($label) and writes nothing", async ({ file }) => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file,
+          section: "Notes (newest first)",
+          entry: "never written",
+          date: "2026-05-08",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error(`memory file must be named without .md: "${file}"`))
+    expect((await readdir(join(vault, "About Me"))).toSorted()).toEqual([
+      "Opinions.md",
+      "Principles.md",
+    ])
+    expect(await readFile(join(vault, "About Me/Opinions.md"), "utf8")).toBe(OPINIONS_MD)
   })
 
   it("inserts entry at top of section by default", async () => {
@@ -651,6 +694,41 @@ created: 2026-01-01T00:00:00-05:00
     })
   })
 
+  it("wraps the mkdir failure when the memory folder is a symlink that points nowhere", async () => {
+    // mkdir reports ENOENT here, and a retry cannot fix a broken link, so the
+    // failure is the vault owner's like a file at the folder's path
+    const memoryFolder = join(vault, "About Me")
+    await rm(memoryFolder, { recursive: true })
+    await symlink(join(vault, "missing-folder"), memoryFolder)
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "About Me"', {
+        cause: Object.assign(
+          new Error(`ENOENT: no such file or directory, mkdir '${memoryFolder}'`),
+          { errno: -2, code: "ENOENT", syscall: "mkdir", path: memoryFolder },
+        ),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "About Me",
+      error: `[Error]: ENOENT: no such file or directory, mkdir '${memoryFolder}'`,
+    })
+  })
+
   it("wraps the mkdir failure when a file sits where a parent of the memory folder belongs", async () => {
     // mkdir reports ENOTDIR, not EEXIST, when the file is a parent of the
     // folder it creates
@@ -691,8 +769,9 @@ created: 2026-01-01T00:00:00-05:00
   it.skipIf(runsAsRoot)(
     "lets a permission failure creating the memory folder through with its code",
     async () => {
-      // Only a file at the folder's path is wrapped; a permission failure
-      // keeps Node's coded error so the tool boundary can name its remedy
+      // Only a file or broken symlink in the folder's way is wrapped; a
+      // permission failure keeps Node's coded error so the tool boundary can
+      // name its remedy
       const readOnlyVault = await mkdtemp(join(tmpdir(), "read-only-vault-"))
       const memoryFolder = join(readOnlyVault, "About Me")
       onTestFinished(() => rm(readOnlyVault, { recursive: true }))
@@ -909,7 +988,7 @@ created: 2026-01-01T00:00:00-05:00
     const section = await getMemory({ vaultPath: vault, file: "Fenced", section: "Notes" }, logger)
 
     // The new entry is inserted before the first real entry, not before
-    // the column-0 fenced bullet that matches ENTRY_PATTERN.
+    // the column-0 fenced bullet that looks like an entry.
     expect(section).toBe(
       [
         "- **2026-06-16**: New entry appended at top",
@@ -993,6 +1072,7 @@ created: 2026-01-01T00:00:00-05:00
     { dateKind: "a timestamp", date: "2026-07-02T10:00:00" },
     { dateKind: "free text with a line break", date: "today\n" },
     { dateKind: "a calendar-impossible date", date: "2026-13-40" },
+    { dateKind: "a day past the end of its month", date: "2026-02-30" },
   ])("rejects $dateKind as the entry date", async ({ date }) => {
     await expect(
       updateMemory(
@@ -1839,26 +1919,90 @@ describe("deleteMemory", () => {
     )
   })
 
-  // Server-written bullets only carry real calendar dates, so a malformed
-  // date can never match — the guard turns a guaranteed "no entry matching"
-  // miss into an actionable format error before any file read.
-  it("rejects a calendar-impossible date and leaves the file unchanged", async () => {
+  // An entry's date is read by its shape alone, so a date of another shape
+  // can never match — the guard turns a guaranteed "no entry matching" miss
+  // into a format error before any file read.
+  it("rejects a date that is not YYYY-MM-DD and leaves the file unchanged", async () => {
     await expect(
       deleteMemory(
         {
           vaultPath: vault,
           file: "Principles",
           section: "Decision heuristics (newest first)",
-          date: "2026-13-40",
+          date: "2026-5-5",
           entry: "Least-privilege for AI agents",
         },
         logger,
       ),
-    ).rejects.toThrow(
-      new Error("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"),
-    )
+    ).rejects.toThrow(new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)"))
     const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
+  })
+
+  // The built bullet "- **2026-01-01**: **Tip**: rest" is a line in the file,
+  // so only the date check stops the delete
+  it("rejects a date with entry text after it and leaves the file unchanged", async () => {
+    const boldLeadPath = join(vault, "About Me/BoldLead.md")
+    const boldLeadContent = "## Notes (newest first)\n- **2026-01-01**: **Tip**: rest\n"
+    await writeFile(boldLeadPath, boldLeadContent, "utf8")
+
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "BoldLead",
+          section: "Notes",
+          date: "2026-01-01**: **Tip",
+          entry: "rest",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)"))
+    expect(await readFile(boldLeadPath, "utf8")).toBe(boldLeadContent)
+  })
+
+  it("deletes a hand-edited entry whose date is not a real calendar day", async () => {
+    const handEditedPath = join(vault, "About Me/Hand.md")
+    await writeFile(
+      handEditedPath,
+      "## Notes (newest first)\n- **2026-02-30**: typed by hand\n- **2026-01-01**: kept\n",
+      "utf8",
+    )
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "Hand",
+        section: "Notes",
+        date: "2026-02-30",
+        entry: "typed by hand",
+      },
+      logger,
+    )
+
+    expect(await readFile(handEditedPath, "utf8")).toBe(
+      "## Notes (newest first)\n- **2026-01-01**: kept\n",
+    )
+  })
+
+  it("rejects a file name ending in .md and leaves a file of that name unchanged", async () => {
+    const doubledExtensionPath = join(vault, "About Me", "Opinions.md.md")
+    const doubledExtensionContent = "## Notes (newest first)\n- **2026-01-01**: old\n"
+    await writeFile(doubledExtensionPath, doubledExtensionContent, "utf8")
+
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Opinions.md",
+          section: "Notes",
+          date: "2026-01-01",
+          entry: "old",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('memory file must be named without .md: "Opinions.md"'))
+    expect(await readFile(doubledExtensionPath, "utf8")).toBe(doubledExtensionContent)
   })
 
   it("throws on ambiguous match", async () => {
@@ -2046,6 +2190,13 @@ describe("listMemoryFiles", () => {
 
   it("excludes a pre-existing hidden memory file from the outlines", async () => {
     await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
+  // Listed, it would show as file "Opinions.md", which every memory tool refuses
+  it("leaves a file whose name ends in .md twice out of the outlines", async () => {
+    await writeFile(join(vault, "About Me", "Opinions.md.md"), "# Doubled\n", "utf8")
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
@@ -2342,6 +2493,12 @@ describe("listMemoryFileNames", () => {
 
   it("excludes a pre-existing hidden memory file", async () => {
     await writeFile(join(vault, "About Me/.secret.md"), "# Hidden\n", "utf8")
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("leaves out a file whose name ends in .md twice", async () => {
+    await writeFile(join(vault, "About Me/Opinions.md.md"), "# Doubled\n", "utf8")
     const names = await listMemoryFileNames({ vaultPath: vault }, logger)
     expect(names).toEqual(["Opinions", "Principles"])
   })

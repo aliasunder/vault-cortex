@@ -1196,12 +1196,19 @@ Docker hardening, and durability seatbelts above.
 - **Atomic writes** (`atomicWriteFile` in `vault-filesystem.ts`):
   write-to-temp-then-rename. The target is never truncated — the
   Obsidian Sync process sees either old content or new content, never a
-  0-byte or partial write. The temp file is named after the note plus
-  `.<UUID>.tmp`, 41 bytes longer, so a note whose name sits fewer than
-  41 bytes under the filesystem's limit reads fine but cannot be saved; the
-  failed save's error carries a remedy (`coded-error-remedy.ts`) asking for
-  a name at least 41 bytes shorter. On failure the temp file is removed, by a `catch` in
-  `atomicWriteFile` and by a `finally` in `atomicWriteFileExclusive`.
+  0-byte or partial write. The temp file is `.<UUID>.tmp` in the note's
+  folder:
+  - hidden: Obsidian Sync and the file watcher skip dot-prefixed names,
+    so neither opens it;
+  - 41 bytes whatever the note's name, so a note named near the
+    filesystem's limit still saves;
+  - on the note's filesystem, so the rename (or the hard link of an
+    exclusive create, below) stays atomic.
+
+  A `catch` in `atomicWriteFile` removes the temp file after a failure. A
+  `finally` in `atomicWriteFileExclusive` removes it after every call,
+  because after a link it is a second name for the note.
+
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with
   `EEXIST` if the target already exists, closing the TOCTOU race on
@@ -1246,8 +1253,10 @@ Docker hardening, and durability seatbelts above.
   source is deleted last — a failure at any step leaves both copies rather
   than losing content.
 - **Content-hash gating** (`search-index.ts`): SHA-256 per chunk. Only
-  changed content re-embeds on both incremental updates and full rebuilds
-  — a correctness guarantee (not just performance).
+  changed content re-embeds on both incremental updates and full rebuilds.
+  Each chunk's hash is saved in the same transaction as its vector, so a
+  crash can never mark a chunk as embedded while its vector is missing; the
+  gating is a correctness guarantee, not just a performance one.
 - **Symlink safety** (`filterValidSymlinks` in
   `utils/filter-valid-symlinks.ts`): broken symlinks and symlinks to
   non-file targets are filtered from directory listings before indexing
@@ -1321,7 +1330,7 @@ Docker hardening, and durability seatbelts above.
   `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
   return a structured `isError` response with the error's name and message,
   plus one remedy sentence for a raw filesystem or search-index error
-  (`coded-error-remedy.ts`, keyed on the error's code, syscall and path) or
+  (`coded-error-remedy.ts`, keyed on the error's code and syscall) or
   how to fix a properties-block refusal — no stack traces. A buggy tool
   never crashes the server. The prompts' fallback messages carry the same
   remedy sentence.

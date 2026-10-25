@@ -9,7 +9,7 @@ import type { Logger } from "../../../logger.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { truncateToCodePointLimit } from "../../../utils/truncate-to-code-point-limit.js"
 import { describeErrorRelativeTo } from "../../../utils/describe-error.js"
-import { appendCodedErrorRemedy } from "../coded-error-remedy.js"
+import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 
 export type PromptRegistrationContext = ToolAvailability & {
   server: McpServer
@@ -53,13 +53,14 @@ export const textResult = (text: string): GetPromptResult => ({
 export const describeErrorForPromptFallback = (params: {
   error: unknown
   vaultPath: string
-  isToolEnabled: ToolAvailability["isToolEnabled"]
 }): string => {
-  const { error, vaultPath, isToolEnabled } = params
-  const errorText = appendCodedErrorRemedy({
+  const { error, vaultPath } = params
+  // Prompts write nothing and read through paths that never refuse a
+  // properties block, so only coded remedies apply, never the tool boundary's
+  // repair steps
+  const errorText = appendRemedy({
     message: describeErrorRelativeTo({ error, directory: vaultPath }),
-    error,
-    isToolEnabled,
+    remedy: remedyForCodedError(error),
   })
 
   return errorText.endsWith(".") ? errorText.slice(0, -1) : errorText
@@ -72,7 +73,10 @@ export const exceedsCharCap = (text: string, maxChars: number | undefined): bool
   // within the cap settles it without walking the text.
   if (!maxChars || text.length <= maxChars) return false
 
-  return !text[Symbol.iterator]().drop(maxChars).next().done
+  // A string's iterator yields code points, not UTF-16 units
+  const codePointsPastCap = text[Symbol.iterator]().drop(maxChars)
+
+  return !codePointsPastCap.next().done
 }
 
 /** Opt-in safety cap for live content embedded in a prompt. When the caller
@@ -84,6 +88,8 @@ export const capContent = (
   maxChars: number | undefined,
   toolName: string | undefined,
 ): string => {
+  // exceedsCharCap also checks !maxChars, but only this check narrows
+  // maxChars to a number for the truncation below
   if (!maxChars || !exceedsCharCap(text, maxChars)) return text
 
   const keptText = truncateToCodePointLimit(text, maxChars)

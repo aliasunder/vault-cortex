@@ -342,7 +342,7 @@ export const registerVaultOrientationPrompt = ({
         // The prompt takes no arguments, so a failure caught here is the
         // server's own and logs at error, not warn
         reqLogger.error("prompt_error", describeErrorForLog(error))
-        const clientMessage = describeErrorForPromptFallback({ error, vaultPath, isToolEnabled })
+        const clientMessage = describeErrorForPromptFallback({ error, vaultPath })
         const fallbackTools = formatEnabledToolList([
           "vault_list_tags",
           "vault_list_property_keys",

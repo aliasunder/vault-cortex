@@ -11,14 +11,9 @@ import {
   toolInputErrorResult,
 } from "./tool-helpers.js"
 
-/** The memory tools' filesystem-error entry: the shared one plus where an
- *  existing file gets a shorter name. The remedy the tool boundary appends to
- *  a too-long name (coded-error-remedy.ts) renames with vault_move_note, and
- *  the memory folder is protected from moves by default. */
-const MEMORY_FILESYSTEM_ERROR_ENTRY = `${FILESYSTEM_ERROR_ENTRY}; rename an existing memory file with a too-long name in Obsidian`
-
-/** The memory store names a folder standing where the file would go, since a
- *  folder in the memory folder is the vault owner's. */
+/** The memory store names a folder standing where the file would go. That
+ *  folder is the vault owner's, so the caller picks another name instead of
+ *  removing it. */
 const MEMORY_FILE_IS_FOLDER_ERROR_ENTRY =
   '- "cannot write memory file …: that path is not a file" — a folder already has this name; choose another file name'
 
@@ -94,7 +89,7 @@ Prefer vault_read_note for reading non-memory notes.
 Errors:
 - "section requires a file" / "on_or_after requires a file" — section or on_or_after was passed without file; add file
 - "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names
-- "memory file must not start with a dot" / "memory file must be a bare name without path separators" — pass the file's bare name: no folder or slash, and no leading dot
+- "memory file must not start with a dot" / "memory file must be a bare name without path separators" / "memory file must be named without .md" — pass the file's bare name: no folder or slash, no leading dot, and no .md
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 - "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise ask the vault's owner to check the folder
@@ -186,7 +181,7 @@ Example: vault_list_memory_files() returns [{ file: "Principles", title: "Princi
 
 When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabledText("vault_delete_memory", ", and to check a file's entry_policy before pruning entries")}.
 
-Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name, whether or not it has frontmatter or a scope callout. Subfolders are not read, and hidden (dot-prefixed) files are skipped.
+Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name, whether or not it has frontmatter or a scope callout. Subfolders are not read, and hidden (dot-prefixed) files and names ending in .md twice are skipped.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
@@ -320,11 +315,11 @@ Errors:
 - "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
 - "entry contains a control character" / "section contains a control character" — the value includes a non-printable control byte; remove it before writing.
-- "memory file must not start with a dot" / "memory file must be a bare name without path separators" — use a bare file name: no folder or slash, and no leading dot.
+- "memory file must not start with a dot" / "memory file must be a bare name without path separators" / "memory file must be named without .md" — use a bare file name: no folder or slash, no leading dot, and no .md.
 - "section not created: … is nearly identical to existing section …" — the name differs from an existing heading only by an HTML-entity slip, a typo, or spacing; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section. Names differing only in digits (e.g. "2025" vs "2026") count as different.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
 ${MEMORY_FILE_IS_FOLDER_ERROR_ENTRY}
-${MEMORY_FILESYSTEM_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_FOLDER_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
@@ -423,14 +418,14 @@ Parameters:
 
 Errors:
 - "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names.
-- "memory file must not start with a dot" / "memory file must be a bare name without path separators" — pass the file's bare name: no folder or slash, and no leading dot.
-- "date must be a real ISO calendar date" — date only accepts an existing calendar date in bare YYYY-MM-DD form. A hand-edited bullet carrying an impossible date cannot be targeted by this tool — remove it with ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
+- "memory file must not start with a dot" / "memory file must be a bare name without path separators" / "memory file must be named without .md" — pass the file's bare name: no folder or slash, no leading dot, and no .md.
+- "date must be YYYY-MM-DD" — pass the entry's date exactly as the file shows it, zero-padded.
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section. Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
-${MEMORY_FILESYSTEM_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: "Deleted entry from ${config.memoryDir}/<file>.md → ## <section>".`,

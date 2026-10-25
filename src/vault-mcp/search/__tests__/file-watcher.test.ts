@@ -23,6 +23,7 @@ import { extractPdfText } from "../../obsidian-markdown/pdf.js"
 import { readdirOrNull, statOrNull } from "../../../utils/fs.js"
 import type { SearchIndex } from "../search-index.js"
 import { watchVaultAndBuildIndex } from "../file-watcher.js"
+import { atomicWriteFile } from "../../vault-operations/vault-filesystem.js"
 import { logger } from "../../../logger.js"
 
 // Auto-spy chokidar: spy: true keeps the real implementation, so the
@@ -110,6 +111,28 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     const results = index.fullTextSearch({ query: "watcher" }, logger)
     expect(results.map((result) => result.path)).toEqual(["test.md"])
   })
+
+  // The server saves through a hidden temp file, which the watcher ignores,
+  // so only the rename onto the note can report it
+  it(
+    "indexes a note the server saves through its hidden temp file",
+    { timeout: 15000 },
+    async () => {
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: index },
+        {
+          stabilityThreshold: 200,
+          pollInterval: 50,
+        },
+      )
+
+      await atomicWriteFile({ filePath: join(vault, "saved.md"), content: "savedopal\n" }, logger)
+
+      await waitFor(() => index.fullTextSearch({ query: "savedopal" }, logger).length > 0)
+      const results = index.fullTextSearch({ query: "savedopal" }, logger)
+      expect(results.map((result) => result.path)).toEqual(["saved.md"])
+    },
+  )
 
   it("re-indexes a modified file", { timeout: 15000 }, async () => {
     await startWatcherWithoutRebuild(
