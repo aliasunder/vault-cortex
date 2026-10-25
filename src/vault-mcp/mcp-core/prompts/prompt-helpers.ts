@@ -55,6 +55,9 @@ export const describeErrorForPromptFallback = (params: {
   vaultPath: string
 }): string => {
   const { error, vaultPath } = params
+  // Only coded remedies apply: prompts write nothing and read through paths
+  // that never refuse a properties block, so the tool boundary's repair steps
+  // cannot arise here
   const errorText = appendCodedErrorRemedy({
     message: describeErrorRelativeTo({ error, directory: vaultPath }),
     error,
