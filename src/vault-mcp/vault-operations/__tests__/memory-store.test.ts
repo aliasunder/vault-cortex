@@ -769,8 +769,9 @@ created: 2026-01-01T00:00:00-05:00
   it.skipIf(runsAsRoot)(
     "lets a permission failure creating the memory folder through with its code",
     async () => {
-      // Only a file at the folder's path is wrapped; a permission failure
-      // keeps Node's coded error so the tool boundary can name its remedy
+      // Only a file or broken symlink in the folder's way is wrapped; a
+      // permission failure keeps Node's coded error so the tool boundary can
+      // name its remedy
       const readOnlyVault = await mkdtemp(join(tmpdir(), "read-only-vault-"))
       const memoryFolder = join(readOnlyVault, "About Me")
       onTestFinished(() => rm(readOnlyVault, { recursive: true }))
