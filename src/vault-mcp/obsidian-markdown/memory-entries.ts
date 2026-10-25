@@ -40,10 +40,16 @@ export type MemoryEntry = Readonly<{
  *  the colon may contain its own `**bold**`. */
 const ENTRY_START_PATTERN = /^- \*\*(\d{4}-\d{2}-\d{2})\*\*:/
 
+/** The date of the memory entry the line opens, as written, or undefined
+ *  when the line opens no entry. The date is checked for shape only. */
+export const memoryEntryLineDate = (line: string): string | undefined => {
+  return ENTRY_START_PATTERN.exec(line)?.[1]
+}
+
 /** True when the line opens a dated memory entry, the same test the parser
  *  uses, so the memory store's writes agree with it on what an entry is. The
  *  date is checked for shape only. */
-export const isMemoryEntryLine = (line: string): boolean => ENTRY_START_PATTERN.test(line)
+export const isMemoryEntryLine = (line: string): boolean => Boolean(memoryEntryLineDate(line))
 
 /** True for a file name that ends in .md twice, in any letter case, such as
  *  "Opinions.md.md". The memory tools add .md to a bare name and refuse a name
@@ -137,8 +143,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
         continue
       }
 
-      const entryStartMatch = ENTRY_START_PATTERN.exec(line)
-      const entryDate = entryStartMatch?.[1]
+      const entryDate = memoryEntryLineDate(line)
 
       if (entryDate) {
         if (openEntry !== null) {

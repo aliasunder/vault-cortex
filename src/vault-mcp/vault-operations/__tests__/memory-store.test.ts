@@ -2017,6 +2017,28 @@ describe("deleteMemory", () => {
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
+  // The built bullet "- **2026-01-01**: **Tip**: rest" is a line in the file,
+  // so only the date check stops the delete
+  it("rejects a date with entry text after it and leaves the file unchanged", async () => {
+    const boldLeadPath = join(vault, "About Me/BoldLead.md")
+    const boldLeadContent = "## Notes (newest first)\n- **2026-01-01**: **Tip**: rest\n"
+    await writeFile(boldLeadPath, boldLeadContent, "utf8")
+
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "BoldLead",
+          section: "Notes",
+          date: "2026-01-01**: **Tip",
+          entry: "rest",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)"))
+    expect(await readFile(boldLeadPath, "utf8")).toBe(boldLeadContent)
+  })
+
   it("deletes a hand-edited entry whose date is not a real calendar day", async () => {
     const handEditedPath = join(vault, "About Me/Hand.md")
     await writeFile(

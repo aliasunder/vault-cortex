@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   isDoubledMarkdownFileName,
   isMemoryEntryLine,
+  memoryEntryLineDate,
   parseMemoryEntries,
 } from "../memory-entries.js"
 
@@ -34,6 +35,20 @@ describe("isMemoryEntryLine", () => {
     { label: "an indented bullet", line: "  - **2026-07-02**: an entry", opensEntry: false },
   ])("returns $opensEntry for $label", ({ line, opensEntry }) => {
     expect(isMemoryEntryLine(line)).toBe(opensEntry)
+  })
+})
+
+describe("memoryEntryLineDate", () => {
+  it.each([
+    { label: "a dated bullet", line: "- **2026-07-02**: an entry", date: "2026-07-02" },
+    {
+      label: "entry text that opens with a bold lead",
+      line: "- **2026-07-02**: **Tip**: rest",
+      date: "2026-07-02",
+    },
+    { label: "a line that opens no entry", line: "- 2026-07-02: an entry", date: undefined },
+  ])("returns $date for $label", ({ line, date }) => {
+    expect(memoryEntryLineDate(line)).toBe(date)
   })
 })
 

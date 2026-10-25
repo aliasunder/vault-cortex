@@ -23,6 +23,7 @@ import { withFileLock } from "../../utils/file-write-lock.js"
 import {
   isDoubledMarkdownFileName,
   isMemoryEntryLine,
+  memoryEntryLineDate,
   parseMemoryEntries,
   type MemoryEntry,
 } from "../obsidian-markdown/memory-entries.js"
@@ -1150,11 +1151,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<void> => {
     const targetBullet = `- **${params.date}**: ${params.entry}`
 
-    // A bullet the entry parser would not read as an entry can never match
-    // one, so it is refused up front instead of ending in a guaranteed "no
-    // entry matching" miss. The parser checks the date's shape only, so an
-    // impossible date a hand edit left in a file, such as 2026-02-30, passes.
-    if (!isMemoryEntryLine(targetBullet)) {
+    // Refused up front unless the entry parser reads the bullet as an entry
+    // dated exactly params.date:
+    // - a date of another shape can never match an entry;
+    // - text after the date ("2026-07-02**: x") would carry part of the entry;
+    // - an impossible date a hand edit left in a file, such as 2026-02-30,
+    //   passes, because the parser checks the date's shape only.
+    if (memoryEntryLineDate(targetBullet) !== params.date) {
       throw new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)")
     }
     // Serialize with concurrent updates/deletes to the same file so the
