@@ -1198,13 +1198,16 @@ Docker hardening, and durability seatbelts above.
   Obsidian Sync process sees either old content or new content, never a
   0-byte or partial write. The temp file is `.<UUID>.tmp` in the note's
   folder:
-  - hidden, so Obsidian Sync and the file watcher never open it;
+  - hidden: Obsidian Sync and the file watcher skip dot-prefixed names,
+    so neither opens it;
   - 41 bytes whatever the note's name, so a note named near the
     filesystem's limit still saves;
-  - on the note's filesystem, so the rename or link stays atomic.
+  - on the note's filesystem, so the rename (or the hard link of an
+    exclusive create, below) stays atomic.
 
-  On failure the temp file is removed, by a `catch` in `atomicWriteFile`
-  and by a `finally` in `atomicWriteFileExclusive`.
+  A `catch` in `atomicWriteFile` removes the temp file after a failure. A
+  `finally` in `atomicWriteFileExclusive` removes it after every call,
+  because after a link it is a second name for the note.
 
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with

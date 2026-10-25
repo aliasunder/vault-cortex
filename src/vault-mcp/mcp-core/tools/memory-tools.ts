@@ -11,8 +11,9 @@ import {
   toolInputErrorResult,
 } from "./tool-helpers.js"
 
-/** The memory store names a folder standing where the file would go, since a
- *  folder in the memory folder is the vault owner's. */
+/** The memory store names a folder standing where the file would go. That
+ *  folder is the vault owner's, so the caller picks another name instead of
+ *  removing it. */
 const MEMORY_FILE_IS_FOLDER_ERROR_ENTRY =
   '- "cannot write memory file …: that path is not a file" — a folder already has this name; choose another file name'
 

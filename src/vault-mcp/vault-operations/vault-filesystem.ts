@@ -172,9 +172,11 @@ export const pruneEmptyParents = async (
 
 /** The temp file a save writes beside its target: a dot, a UUID and ".tmp".
  *  - The leading dot hides it, so Obsidian Sync and the file watcher never
- *    open a file the save is about to rename away.
- *  - Its name is 41 bytes whatever the target's name, so a target named
- *    near the filesystem's limit still saves.
+ *    open a file the save is about to rename away; file-watcher.ts ignores
+ *    every dot-prefixed path.
+ *  - Its name is 41 bytes (a 36-character UUID plus the dot and ".tmp")
+ *    whatever the target's name, so a target named near the filesystem's
+ *    limit still saves.
  *  - It stays in the target's folder, so the rename or link that follows
  *    never crosses filesystems. */
 export const tempSavePath = (filePath: string): string => {
@@ -185,8 +187,7 @@ export const tempSavePath = (filePath: string): string => {
  * Stages content to a unique temp file, then renames over the target.
  * `rename` is atomic on the same filesystem, so the target is never
  * truncated — readers (notably the obsidian-sync container) see either the old
- * content or the new content, never a 0-byte or partial write. This is the
- * core defense against the partial-write clobber class of bug.
+ * content or the new content, never a 0-byte or partial write.
  *
  * Overwrites an existing target; use `atomicWriteFileExclusive` when the file
  * must not already exist.
@@ -273,9 +274,10 @@ export const atomicWriteFileExclusive = async (
       throw renameError
     }
   } finally {
-    // Always drop the temp file — renamed away on success, redundant otherwise.
-    // A failed cleanup is logged, not thrown, so the original failure (e.g.
-    // EEXIST) propagates.
+    // Always drop the temp file. After a link it is a second name for the
+    // target, so removing it leaves the target alone; after the rename it is
+    // already gone. A failed cleanup is logged, not thrown, so the original
+    // failure (e.g. EEXIST) propagates.
     try {
       await rm(tmpPath, { force: true })
     } catch (cleanupError) {

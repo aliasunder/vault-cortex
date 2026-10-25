@@ -78,8 +78,8 @@ const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
   "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"
 
 /** The date shape ENTRY_PATTERN reads as an entry. A hand edit can leave an
- *  impossible date such as 2026-02-30 in it, so deleteMemory checks only
- *  the shape. */
+ *  impossible date such as 2026-02-30 in a memory file, so deleteMemory
+ *  checks only the shape. */
 const MEMORY_ENTRY_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/
 
 const isString = (value: unknown): value is string => typeof value === "string"
@@ -465,15 +465,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
-  // A memory file is a bare name, never a path, and every memory path goes
-  // through this one check:
+  // A memory file is a bare name, never a path, and every memory path built
+  // from a caller's name goes through this one check:
   // - a separator would let a name like "../../outside" escape the memory
   //   directory (and the vault);
   // - a dot-prefixed name would create a hidden file, invisible in Obsidian
   //   and left out of listings and the index (memory paths are joined
   //   directly, so resolveSafePath's hidden-path guard never sees them);
-  // - a name ending in .md would get a second .md, creating "Opinions.md.md"
-  //   beside "Opinions.md".
+  // - a name ending in .md, in any letter case, already carries the
+  //   extension and would get a second one, creating "Opinions.md.md" beside
+  //   "Opinions.md".
   const memoryFilePath = (vaultPath: string, file: string): string => {
     if (file.includes("/") || file.includes("\\")) {
       throw new Error(`memory file must be a bare name without path separators: "${file}"`)
@@ -487,10 +488,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     return join(vaultPath, memoryDir, `${file}.md`)
   }
 
-  /** The first folder on the way to the memory folder, from the vault root,
-   *  that is something other than a folder; undefined when every one is a
-   *  folder or missing (it changed since mkdir failed, or a symlink there
-   *  points nowhere). */
+  /** The first path on the way to the memory folder, from the vault root,
+   *  that exists but is not a folder. Undefined when each path is a folder or
+   *  missing; one can be missing after mkdir failed because it changed since,
+   *  or because a symlink there points nowhere. */
   const findMemoryFolderBlocker = async (vaultPath: string): Promise<string | undefined> => {
     // "Meta/About Me" → ["Meta", "Meta/About Me"]
     const folderSegments = memoryDir.split("/")
@@ -499,9 +500,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     })
 
     for (const folder of foldersFromRoot) {
-      const entry = await statOrNull(join(vaultPath, folder))
+      const folderStats = await statOrNull(join(vaultPath, folder))
 
-      if (entry && !entry.isDirectory()) return folder
+      if (folderStats && !folderStats.isDirectory()) return folder
     }
     return undefined
   }
@@ -912,10 +913,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         try {
           await mkdir(dirname(filePath), { recursive: true })
         } catch (error) {
-          // The folder is server configuration (MEMORY_DIR), so a file sitting
-          // at its path is the vault owner's to move, not the caller's:
-          // - that failure is wrapped without its code, and the memory tools'
-          //   Errors entry names its fix;
+          // The folder is server configuration (MEMORY_DIR), so a file in its
+          // way is the vault owner's to move, not the caller's. mkdir reports
+          // a file at the folder's own path as EEXIST, and one at a folder
+          // above it as ENOTDIR:
+          // - those failures are wrapped without their code, because the tool
+          //   boundary's remedy for a mkdir EEXIST or ENOTDIR tells the caller
+          //   to choose another path; the memory tools' Errors entry names the
+          //   owner's fix instead;
           // - other failures keep their code, so the tool boundary appends
           //   its remedy.
           const fileAtFolderPath =

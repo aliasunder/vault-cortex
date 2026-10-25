@@ -28,6 +28,8 @@ const describeSystemErrorRemedy = (error: SystemError): string => {
       if (error.syscall === "mkdir") {
         return "A folder in the path is an existing file; choose a path whose folders are folders."
       }
+      // readdirOrNull (utils/fs.ts) returns null when the listed path is not
+      // a folder, so a raw scandir failure means it changed mid-listing
       if (error.syscall === "scandir") {
         return "The folder changed while it was being listed; retry."
       }
@@ -35,7 +37,8 @@ const describeSystemErrorRemedy = (error: SystemError): string => {
       // two steps of the call:
       // - reads treat ENOTDIR as no file (utils/fs.ts);
       // - both exclusive creates catch their EEXIST: note-mover.ts around
-      //   atomicWriteFileExclusive, and claimTrashTarget.
+      //   atomicWriteFileExclusive, and claimTrashTarget in
+      //   vault-filesystem.ts.
       return CHANGED_DURING_CALL_REMEDY
     }
     case "EACCES":
@@ -55,13 +58,14 @@ const describeSystemErrorRemedy = (error: SystemError): string => {
     case "EAGAIN":
     case "EBUSY":
       return "The server is busy; retry."
-    // The helpers in utils/fs.ts absorb the ordinary cases of these, so a raw
-    // one means the file changed between two steps of the call
+    // Reads absorb the ordinary cases of these (utils/fs.ts), and each write
+    // creates its folder and checks or reads its target first, so a raw one
+    // means the file changed between two steps of the call
     case "ENOENT":
     case "EISDIR":
       return CHANGED_DURING_CALL_REMEDY
-    // A code outside the table (EXDEV, ESTALE) comes from the host's disks or
-    // mounts, which only the owner can change
+    // A code no case above names (EXDEV, ESTALE) comes from the host's disks
+    // or mounts, which only the owner can change
     default:
       return "Report the error to the vault's owner."
   }
@@ -83,8 +87,8 @@ export const remedyForCodedError = (error: unknown): string | undefined => {
 /** A message followed by its remedy, or the message alone when there is none.
  *  A message that already ends with a period gets the remedy after a space (a
  *  move abort's properties-block message ends with "Nothing was written.");
- *  Node's messages end with a quoted path, so they get ". ". Every client text
- *  that carries a remedy joins it here, so the two cannot disagree. */
+ *  Node's messages end with a quoted path, so they get ". ". Tool errors and
+ *  prompt fallbacks both join their remedy here, so the two cannot disagree. */
 export const appendRemedy = (params: { message: string; remedy: string | undefined }): string => {
   if (!params.remedy) return params.message
 
