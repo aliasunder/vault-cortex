@@ -245,15 +245,15 @@ Errors: (messages use camelCase names, e.g. blockId for block_id)
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "heading required for Kanban boards" — pass heading with the target lane
-- "heading "X" not found; available: ..." — the error lists the note's headings
+- "heading "X" not found; available: ..." — the message lists the note's headings
 - "cannot place at position P under "X" — the heading appears N times" — integer position on a note with duplicate heading names; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task outside a fenced code block or %% %% comment; re-read the parent's block_id or line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}
 - "parent task ambiguous" — more than one task line ends in that ^id (the message lists their line numbers); pass parent_line instead
 - "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the parent's checkbox character (c) is typed NON_TASK so it is not a task, or todo has no symbol and the default [ ] character has another type; the user must change that character's type or add a todo symbol there, then restart the server
 - "parentBlockId and parentLine are mutually exclusive" / "parent and heading are mutually exclusive" — drop one
-- "blockId ... already exists in this note" / "blockId ... contains invalid characters" — the message names the allowed characters
+- "blockId ... already exists in this note" / "blockId ... contains invalid characters" — pick a block_id no other line in the note ends in; the invalid-characters message names the allowed characters
 - "blockId is required" — pass block_id
-- "blockId is not allowed on a sub-task on a Kanban board" / "subtask ... ends in a block ID" — the message names what to drop and why
+- "blockId is not allowed on a sub-task on a Kanban board" / "subtask ... ends in a block ID" — the message names what to drop
 - "description is empty" / "subtasks cannot contain an empty item" / "description must be a single line" / "subtasks items must be a single line" — pass visible text on a single line
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — the message names the allowed characters
 - "unrecognized recurrence rule ..." — the message gives example rules
@@ -500,7 +500,7 @@ Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); sub-tasks move with their parent, so move or reposition the parent instead
 - "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading; the message names the fix
 - "cannot reorder within "X" — the heading appears N times" / "cannot place at position P under "X" — the heading appears N times" — the heading name is duplicated in the note: the task's own heading for a reorder in place, the one in heading for a move; for a cross-lane move use "top" or "bottom" (they place under the first match), or rename one section to make it unique
-- "heading "X" not found; available: ..." — the error lists the note's headings
+- "heading "X" not found; available: ..." — the message lists the note's headings
 - "multiple done lanes detected" / "no done lane detected" — status "done" on a Kanban board with more than one lane holding a **Complete** line, or with none and no "Done" heading; pass heading to pick the lane
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "assignBlockId is not allowed" / "description ends in a block ID" / "subtask ... ends in a block ID" — a new ^id on an indented line of a Kanban board; leave the line without an id and target it by line, and drop any trailing ^id from the text

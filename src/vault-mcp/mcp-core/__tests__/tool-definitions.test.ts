@@ -2023,7 +2023,7 @@ describe("vault_find_orphans live folder defaults", () => {
     expect(parametersSection).toBe(
       [
         '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
-        "- limit applies after exclusions and sorting by most recently modified. There is no offset, and nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to see them.",
+        "- limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.",
       ].join("\n"),
     )
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -3369,38 +3369,44 @@ describe("DISABLED_TOOLS", () => {
     expect(ambiguousHeadingEntry).toBe(expectedEntry)
   })
 
+  const WRITE_NOTE_WHEN_TO_USE =
+    "When to use: Creating a new note, or replacing a whole note's body."
+  const WRITE_NOTE_PROPERTIES_LINE =
+    "Prefer vault_update_properties for property-only edits (no body round-trip)."
+  const WRITE_NOTE_MEMORY_LINE =
+    "Prefer vault_update_memory for appending dated entries to About Me/ memory files."
+
   it.each([
     {
       label: "names both partial-edit tools while they are served",
       disabledTools: "",
-      expectedEntry:
-        '- "note already exists" — set overwrite: true to replace it, or use vault_patch_note or vault_replace_in_note for partial edits',
+      partialEditLine: "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
     },
     {
       label: "names only vault_patch_note when vault_replace_in_note is disabled",
       disabledTools: "vault_replace_in_note",
-      expectedEntry:
-        '- "note already exists" — set overwrite: true to replace it, or use vault_patch_note for partial edits',
+      partialEditLine: "Prefer vault_patch_note to change part of a note.",
     },
     {
       label: "names only vault_replace_in_note when vault_patch_note is disabled",
       disabledTools: "vault_patch_note",
-      expectedEntry:
-        '- "note already exists" — set overwrite: true to replace it, or use vault_replace_in_note for partial edits',
+      partialEditLine: "Prefer vault_replace_in_note to change part of a note.",
     },
-    {
-      label: "offers only overwrite when both partial-edit tools are disabled",
-      disabledTools: "vault_patch_note,vault_replace_in_note",
-      expectedEntry: '- "note already exists" — set overwrite: true to replace it',
-    },
-  ])("vault_write_note's already-exists entry $label", ({ disabledTools, expectedEntry }) => {
-    const alreadyExistsEntry = extractDescriptionSection({
+  ])("vault_write_note's partial-edit routing $label", ({ disabledTools, partialEditLine }) => {
+    const whenToUse = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_WRITE_NOTE,
-      startMarker: '- "note already exists"',
-      endMarker: '\n- "path must end',
+      startMarker: "When to use:",
+      endMarker: "\n\nErrors:",
     })
-    expect(alreadyExistsEntry).toBe(expectedEntry)
+    expect(whenToUse).toBe(
+      [
+        WRITE_NOTE_WHEN_TO_USE,
+        partialEditLine,
+        WRITE_NOTE_PROPERTIES_LINE,
+        WRITE_NOTE_MEMORY_LINE,
+      ].join("\n"),
+    )
   })
 
   it.each([
@@ -3432,27 +3438,26 @@ describe("DISABLED_TOOLS", () => {
     expect(routingLine).toBe(`the full note body.\n${expectedLine}`)
   })
 
-  const WRITE_NOTE_WHEN_TO_USE =
-    "When to use: Creating a new note, or replacing a whole note's body."
-  const WRITE_NOTE_PROPERTIES_LINE =
-    "Prefer vault_update_properties for property-only edits (no body round-trip)."
-  const WRITE_NOTE_MEMORY_LINE =
-    "Prefer vault_update_memory for appending dated entries to About Me/ memory files."
-
   it.each([
     {
-      label: "keeps both routing lines while their tools are served",
+      label: "keeps every routing line while its tools are served",
       disabledTools: "",
-      expectedLines: [WRITE_NOTE_WHEN_TO_USE, WRITE_NOTE_PROPERTIES_LINE, WRITE_NOTE_MEMORY_LINE],
+      expectedLines: [
+        WRITE_NOTE_WHEN_TO_USE,
+        "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
+        WRITE_NOTE_PROPERTIES_LINE,
+        WRITE_NOTE_MEMORY_LINE,
+      ],
     },
     {
       label: "drops the vault_update_properties line when that tool is disabled",
-      disabledTools: "vault_update_properties",
+      disabledTools: "vault_update_properties,vault_patch_note,vault_replace_in_note",
       expectedLines: [WRITE_NOTE_WHEN_TO_USE, WRITE_NOTE_MEMORY_LINE],
     },
     {
-      label: "leaves only the when-to-use line when both routing tools are disabled",
-      disabledTools: "vault_update_properties,vault_update_memory",
+      label: "leaves only the when-to-use line when every routing tool is disabled",
+      disabledTools:
+        "vault_update_properties,vault_update_memory,vault_patch_note,vault_replace_in_note",
       expectedLines: [WRITE_NOTE_WHEN_TO_USE],
     },
   ])("vault_write_note's when-to-use $label", ({ disabledTools, expectedLines }) => {

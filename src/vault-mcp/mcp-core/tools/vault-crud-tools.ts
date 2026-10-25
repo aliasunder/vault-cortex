@@ -89,7 +89,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }) // disambiguate when several "Done" headings exist
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 }) // first 20 lines of an oversized section
 
-When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. Use properties_only: true when you only need properties. For an oversized note or section, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
+When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. For a note or section too long for one response (the server sets no cap; the outline gives each section's bytes), page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
 Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_list_tasks", " For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's Markdown.")}${whenToolEnabledText("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabledText("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included.
@@ -99,10 +99,10 @@ Errors:
 - "heading not found" — the message lists the available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive — set at most one"
-- "heading_level requires a heading" — heading_level only disambiguates a heading; pass heading with it
+- "heading_level requires a heading" — pass heading with it
 - "heading cannot be empty" — heading is whitespace only; pass the heading's text
 - "line paging is not available in outline mode" / "… properties_only mode" — start_line and limit page only a full read or a heading section
-- "start line past the end" — the message states the line count
+- "start line past the end" — the message states the line count; resend a start_line within it
 - 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_read_file", "; read other files (images, .canvas, data files) with vault_read_file")}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "properties block is not valid YAML …" — a full read, outline and heading still work; the error says how to repair it
@@ -140,7 +140,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
           .max(6)
           .optional()
           .describe(
-            "Heading level (1-6) for disambiguation when multiple headings share the same text; only applies with heading",
+            "Heading level (1-6) for disambiguation when multiple headings share the same text",
           ),
         start_line: z
           .number()
@@ -351,14 +351,12 @@ Returns: JSON array of every matching vault-relative path, with no cap (e.g. ["N
     },
   )
 
-  // The "note already exists" remedy names only the partial-edit tools the
-  // server serves, and drops the clause when it serves neither.
+  // The routing line names only the partial-edit tools the server serves, and
+  // drops out when it serves neither.
   const partialEditToolNames = formatEnabledToolList(["vault_patch_note", "vault_replace_in_note"])
-  const partialEditAdvice = partialEditToolNames
-    ? `, or use ${partialEditToolNames} for partial edits`
-    : ""
 
   const writeNoteAlternativeLines = [
+    partialEditToolNames ? `Prefer ${partialEditToolNames} to change part of a note.` : "",
     whenToolEnabledText(
       "vault_update_properties",
       "Prefer vault_update_properties for property-only edits (no body round-trip).",
@@ -384,9 +382,9 @@ Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.",
 When to use: Creating a new note, or replacing a whole note's body.${writeNoteAlternativeLines}
 
 Errors:
-- "note already exists" — set overwrite: true to replace it${partialEditAdvice}
+- "note already exists" — set overwrite: true to replace it
 - "path must end in …" — add the .md extension
-- "cannot write note …: that path is not a file" — a folder, or a link to one, already has this name; choose another path
+- "cannot write note …: that path is not a file" — a folder already has this name; choose another path
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — remove the character the message names
@@ -1230,10 +1228,10 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them.
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources; retry the move.
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
-- "move aborted: …" — nothing was written. "could not read …" names the note, or a note linking to it, that could not be read; fix that note, then retry. "could not rewrite …" says why a note could not be saved with its links rewritten, and how to fix it. "could not write to …", or "could not rename to …" for a case-only rename, means new_path could not be created; retry once, then ask the vault's owner to fix the folder or disk.
+- "move aborted: …" — nothing was written. "could not read …" names the note, or a note linking to it, that could not be read; fix that note, then retry. "could not rewrite …" says why a note could not be saved with its links rewritten, and how to fix it. "could not write to …", or "could not rename to …" for a case-only rename, means new_path could not be created (new parent folders it needed may remain); retry once, then ask the vault's owner to fix the folder or disk.
 - "move incomplete: …" — the move failed partway (rare: a permission or disk error); no data is lost, and the message names what failed, the state it left, and the step that finishes the move.
 ${FILESYSTEM_ERROR_ENTRY}; nothing was written.
-- "[SqliteError]: …" — the search index failed before the move began, so nothing was written; the message says what to do.
+- "[SqliteError]: …" — the search index failed and nothing was written; the message says what to do.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.
 

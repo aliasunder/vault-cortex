@@ -27,7 +27,7 @@ Example: vault_get_daily_note({}) — returns today's daily note
 When to use: When you need today's or a specific date's daily note.${whenToolEnabledText("vault_patch_note", " To append content to a daily note section, use the returned path with vault_patch_note.")}${whenToolEnabledText("vault_recent_notes", " For recent vault activity, vault_recent_notes lists the most recently changed notes; it has no date filter.")}
 
 Parameters:
-- date: past and future dates are both valid.
+- date: always YYYY-MM-DD, whatever filename format the vault uses; past and future dates are both valid.
 
 Errors:
 - "invalid date" — use YYYY-MM-DD format

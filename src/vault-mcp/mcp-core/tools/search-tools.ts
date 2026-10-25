@@ -526,10 +526,10 @@ Prefer vault_search when you also have a text query (it supports property filter
 Parameters:
 - key matches exactly and case-sensitively; value matches stored text the same way, with no partial matching or globbing.
 - A value written as a complete, finite YAML number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary, "1e999") matches only as text. Numbers compare as 64-bit floats, so integers past 2^53 can compare equal and "1e-999" matches 0.
-- Pass a checkbox as "1" (checked) or "0" (unchecked); a checkbox matches only as text, so "1.0" and "true" do not match.
-- An array element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
+- value for a checkbox: pass "1" (checked) or "0" (unchecked); a checkbox matches only as text, so "1.0" and "true" do not match.
+- value against a list property: an element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
-- limit keeps the most recently modified matches. There is no offset, and nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to see them.
+- limit keeps the most recently modified matches. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Behavior: Results can lag a file change by a few seconds: a note written moments ago may not match yet, and one changed moments ago may still match its old value.
 
@@ -596,9 +596,9 @@ When to use: Understanding what references a note or canvas, assessing its conne
 For outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes nothing else links to, use vault_find_orphans.
 
 Parameters:
-- path is the target's full vault-relative path, never a link's text: a link written as [[Note]], as a relative ../Note.md, or as a full path counts toward the note it resolves to.
+- path: pass the target's own path, never a link's text: a link written as [[Note]], as a relative ../Note.md, or as a full path counts toward the note it resolves to.
 
-Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title, then path; title is a canvas source's file name without .canvas; bytes is the source's on-disk size), and count.
+Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title; title is a canvas source's file name without .canvas; bytes is the source's on-disk size), and count.
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
@@ -648,13 +648,13 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 For incoming links (what links TO a note), use vault_get_backlinks.
 
 Parameters:
-- path is looked up in the search index, so a note or canvas created or moved in the last few seconds is not found yet.
+- path: a note or canvas created or moved in the last few seconds is not found yet.
 
 Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". The title field is null for files and broken links. The daily_note_forward_ref flag is true on a broken link into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage — and false otherwise, including when the daily notes folder is the vault root or blank. The bytes field is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
-- A path the index does not hold (missing, in a dot-prefixed folder, or not indexed yet) returns an empty result (count 0), not an error, just as a note with no outbound links does. If you expected links, ${linkEmptyResultRemedy}.
+- A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does. If you expected links, ${linkEmptyResultRemedy}.
 ${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
         path: z
@@ -726,7 +726,7 @@ Prefer vault_get_backlinks to check the connectivity of one specific note rather
 
 Parameters:
 - exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.${orphanDefaultsText.dailyFolderLine}
-- limit applies after exclusions and sorting by most recently modified. There is no offset, and nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to see them.
+- limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Behavior: A file change takes a few seconds to appear here, so a link written moments ago may not count yet.
 
@@ -735,7 +735,7 @@ Errors:
 - "too many excluded folders" — exclude_folders has more than 994 entries; pass a shorter list, then retry.
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON array of note metadata (path, title, tags, related, folder (top-level folder), type, created (null when missing or not an ISO date), modified, bytes, leading_callout, additional_properties), sorted by most recently modified, then by path. The bytes field is the on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder (top-level folder), type, created (null when missing or not an ISO date), modified, bytes, leading_callout, additional_properties), sorted by most recently modified. The bytes field is the on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {
         exclude_folders: z
           .array(z.string().min(1))

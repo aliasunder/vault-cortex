@@ -88,14 +88,14 @@ Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (n
 Example: vault_get_memory({ file: "Opinions", section: "Code patterns", on_or_after: "2026-09-01" })
 Example: vault_get_memory({ file: "Opinions", on_or_after: "2026-09-01" }) — every section's entries since the date
 
-When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names. Use on_or_after when you need entries from a known date forward.
+When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names.
 Prefer vault_read_note for reading non-memory notes.${whenToolEnabledText("vault_memory_recall", " To find entries by topic across every file, use vault_memory_recall.")}
 
 Errors:
 - "section requires a file" / "on_or_after requires a file" — add file
 - "memory file not found" — call vault_list_memory_files to discover valid names
 ${MEMORY_FILE_NAME_ERROR_ENTRY}
-- "section not found: …" — no H2 heading matches; the error lists the file's available sections
+- "section not found: …" — no H2 heading matches; the message lists the file's sections
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 - "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise ask the vault's owner to check the folder
 
@@ -422,7 +422,7 @@ Errors:
 - "memory file not found" — call vault_list_memory_files to discover valid names.
 ${MEMORY_FILE_NAME_ERROR_ENTRY}
 - "date must be YYYY-MM-DD" — pass the entry's date exactly as the file shows it, zero-padded.
-- "section not found: …" — no H2 heading matches; the error lists the file's available sections
+- "section not found: …" — no H2 heading matches; the message lists the file's sections
 - "no entry matching …" — verify the exact text with vault_get_memory(file, section).
 - "ambiguous: N entries match …" — remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (first_match: true, since identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — the delete would remove more than half the file; re-read it with vault_get_memory, and remove an entry that really is that large with ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
