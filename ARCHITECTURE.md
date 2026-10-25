@@ -1328,7 +1328,7 @@ Docker hardening, and durability seatbelts above.
   `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
   return a structured `isError` response with the error's name and message,
   plus one remedy sentence for a raw filesystem or search-index error
-  (`coded-error-remedy.ts`, keyed on the error's code, syscall and path) or
+  (`coded-error-remedy.ts`, keyed on the error's code and syscall) or
   how to fix a properties-block refusal — no stack traces. A buggy tool
   never crashes the server. The prompts' fallback messages carry the same
   remedy sentence.

@@ -726,6 +726,42 @@ created: 2026-01-01T00:00:00-05:00
     })
   })
 
+  it("wraps the mkdir failure when the memory folder is a symlink that points nowhere", async () => {
+    // mkdir reports ENOENT here, and a retry cannot fix a broken link, so the
+    // failure is the vault owner's like a file at the folder's path
+    const memoryFolder = join(vault, "About Me")
+    await rm(memoryFolder, { recursive: true })
+    await symlink(join(vault, "missing-folder"), memoryFolder)
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "About Me"', {
+        cause: Object.assign(
+          new Error(`ENOENT: no such file or directory, mkdir '${memoryFolder}'`),
+          { errno: -2, code: "ENOENT", syscall: "mkdir", path: memoryFolder },
+        ),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "About Me",
+      blocker: undefined,
+      error: `[Error]: ENOENT: no such file or directory, mkdir '${memoryFolder}'`,
+    })
+  })
+
   it("wraps the mkdir failure when a file sits where a parent of the memory folder belongs", async () => {
     // mkdir reports ENOTDIR, not EEXIST, when the file is a parent of the
     // folder it creates

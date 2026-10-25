@@ -913,20 +913,23 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         try {
           await mkdir(dirname(filePath), { recursive: true })
         } catch (error) {
-          // The folder is server configuration (MEMORY_DIR), so a file in its
-          // way is the vault owner's to move, not the caller's. mkdir reports
-          // a file at the folder's own path as EEXIST, and one at a folder
-          // above it as ENOTDIR:
+          // The folder is server configuration (MEMORY_DIR), so anything in
+          // its way is the vault owner's to fix, not the caller's. mkdir
+          // reports a file at the folder's own path as EEXIST, a file at a
+          // folder above it as ENOTDIR, and a broken symlink at its path as
+          // ENOENT:
           // - those failures are wrapped without their code, because the tool
-          //   boundary's remedy for a mkdir EEXIST or ENOTDIR tells the caller
-          //   to choose another path; the memory tools' Errors entry names the
+          //   boundary's remedies for them tell the caller to choose another
+          //   path or to retry; the memory tools' Errors entry names the
           //   owner's fix instead;
           // - other failures keep their code, so the tool boundary appends
           //   its remedy.
-          const fileAtFolderPath =
-            isErrnoException(error, "EEXIST") || isErrnoException(error, "ENOTDIR")
+          const folderPathBlocked =
+            isErrnoException(error, "EEXIST") ||
+            isErrnoException(error, "ENOTDIR") ||
+            isErrnoException(error, "ENOENT")
 
-          if (!fileAtFolderPath) throw error
+          if (!folderPathBlocked) throw error
 
           // MEMORY_DIR can be nested, and mkdir does not say which folder on
           // the way is a file, so the message names it for the owner
