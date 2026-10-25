@@ -1,5 +1,25 @@
 import { describe, it, expect } from "vitest"
-import { parseMemoryEntries } from "../memory-entries.js"
+import { isMemoryEntryLine, parseMemoryEntries } from "../memory-entries.js"
+
+describe("isMemoryEntryLine", () => {
+  it.each([
+    { label: "a dated bullet", line: "- **2026-07-02**: an entry", opensEntry: true },
+    {
+      label: "an impossible date of the right shape",
+      line: "- **2026-02-30**: typed by hand",
+      opensEntry: true,
+    },
+    {
+      label: "a date that is not zero-padded",
+      line: "- **2026-7-2**: an entry",
+      opensEntry: false,
+    },
+    { label: "a bullet with no bold date", line: "- 2026-07-02: an entry", opensEntry: false },
+    { label: "an indented bullet", line: "  - **2026-07-02**: an entry", opensEntry: false },
+  ])("returns $opensEntry for $label", ({ line, opensEntry }) => {
+    expect(isMemoryEntryLine(line)).toBe(opensEntry)
+  })
+})
 
 describe("parseMemoryEntries", () => {
   it("parses a single dated entry with exact section, date, text, and index", () => {

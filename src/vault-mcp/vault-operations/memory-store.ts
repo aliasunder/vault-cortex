@@ -20,7 +20,11 @@ import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
-import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
+import {
+  isMemoryEntryLine,
+  parseMemoryEntries,
+  type MemoryEntry,
+} from "../obsidian-markdown/memory-entries.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -53,10 +57,6 @@ const guardAgainstShrink = (beforeBytes: number, afterBytes: number, context: st
   }
 }
 
-// Matches dated bullet entries: `- **YYYY-MM-DD**: ...`
-// The date portion is the reliable anchor — entry text after `: ` may contain its own **bold**
-const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
-
 /** Matches CR/LF anywhere in a string — memory entries are single-line dated
  *  bullets, so any line break in an input would corrupt the format. */
 const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
@@ -76,11 +76,6 @@ const isValidMemoryEntryDate = (dateText: string | undefined): boolean => {
  *  isValidMemoryEntryDate — one string so the two sites can't drift. */
 const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
   "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"
-
-/** The date shape ENTRY_PATTERN reads as an entry. A hand edit can leave an
- *  impossible date such as 2026-02-30 in a memory file, so deleteMemory
- *  checks only the shape. */
-const MEMORY_ENTRY_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
@@ -159,8 +154,8 @@ type ParsedSection = Readonly<{
 // ── Internal helpers ────────────────────────────────────────────
 
 /** Walks section body lines with fence/comment awareness and returns the
- *  0-based offsets of genuine entry bullets (lines matching ENTRY_PATTERN that
- *  are not inside a code fence or %% comment). Used by updateMemory's insertion
+ *  0-based offsets of genuine entry bullets (lines isMemoryEntryLine accepts
+ *  that are not inside a code fence or %% comment). Used by updateMemory's insertion
  *  scan, deleteMemory's bullet match, and parseSections' entry count — all three
  *  must agree on what counts as a real entry. */
 const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
@@ -190,7 +185,7 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
 
     if (insideCodeOrComment) continue
 
-    if (ENTRY_PATTERN.test(bodyLine)) {
+    if (isMemoryEntryLine(bodyLine)) {
       offsets.push(offsetIndex)
     }
   }
@@ -1149,9 +1144,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     },
     logger: Logger,
   ): Promise<void> => {
-    // A date of any other shape can never match an entry, so it is refused
-    // up front instead of ending in a guaranteed "no entry matching" miss.
-    if (!MEMORY_ENTRY_DATE_SHAPE.test(params.date)) {
+    const targetBullet = `- **${params.date}**: ${params.entry}`
+
+    // A bullet the entry parser would not read as an entry can never match
+    // one, so it is refused up front instead of ending in a guaranteed "no
+    // entry matching" miss. The parser checks the date's shape only, so an
+    // impossible date a hand edit left in a file, such as 2026-02-30, passes.
+    if (!isMemoryEntryLine(targetBullet)) {
       throw new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)")
     }
     // Serialize with concurrent updates/deletes to the same file so the
@@ -1163,7 +1162,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const match = resolveSection({ lines, section: params.section, file: params.file })
 
       // Find the target bullet among genuine (non-fenced) entry lines.
-      const targetBullet = `- **${params.date}**: ${params.entry}`
       const sectionBodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
       const genuineEntryOffsets = scanGenuineEntryOffsets(sectionBodyLines)
       const matchingOffsets = genuineEntryOffsets.filter(

@@ -37,9 +37,13 @@ export type MemoryEntry = Readonly<{
 
 /** Matches the first line of a dated memory entry (`- **YYYY-MM-DD**: …`) and
  *  captures the date. The bold date is the reliable anchor — entry text after
- *  the colon may contain its own `**bold**`. Same shape as memory-store's
- *  ENTRY_PATTERN, with a capture group added. */
+ *  the colon may contain its own `**bold**`. */
 const ENTRY_START_PATTERN = /^- \*\*(\d{4}-\d{2}-\d{2})\*\*:/
+
+/** True when the line opens a dated memory entry, the same test the parser
+ *  uses, so the memory store's writes agree with it on what an entry is. The
+ *  date is checked for shape only. */
+export const isMemoryEntryLine = (line: string): boolean => ENTRY_START_PATTERN.test(line)
 
 /** Matches any ATX heading line (H1–H6) per CommonMark §4.2: 0-3 leading
  *  spaces, hashes, then a space/tab separator or end of line (empty headings

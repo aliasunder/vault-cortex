@@ -1060,7 +1060,7 @@ created: 2026-01-01T00:00:00-05:00
     const section = await getMemory({ vaultPath: vault, file: "Fenced", section: "Notes" }, logger)
 
     // The new entry is inserted before the first real entry, not before
-    // the column-0 fenced bullet that matches ENTRY_PATTERN.
+    // the column-0 fenced bullet that looks like an entry.
     expect(section).toBe(
       [
         "- **2026-06-16**: New entry appended at top",
