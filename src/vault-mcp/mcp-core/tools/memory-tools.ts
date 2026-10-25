@@ -181,7 +181,7 @@ Example: vault_list_memory_files() returns [{ file: "Principles", title: "Princi
 
 When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabledText("vault_delete_memory", ", and to check a file's entry_policy before pruning entries")}.
 
-Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name, whether or not it has frontmatter or a scope callout. Subfolders are not read, and hidden (dot-prefixed) files are skipped.
+Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name, whether or not it has frontmatter or a scope callout. Subfolders are not read, and hidden (dot-prefixed) files and names ending in .md twice are skipped.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
