@@ -1253,8 +1253,10 @@ Docker hardening, and durability seatbelts above.
   source is deleted last — a failure at any step leaves both copies rather
   than losing content.
 - **Content-hash gating** (`search-index.ts`): SHA-256 per chunk. Only
-  changed content re-embeds on both incremental updates and full rebuilds
-  — a correctness guarantee (not just performance).
+  changed content re-embeds on both incremental updates and full rebuilds.
+  Each chunk's hash is saved in the same transaction as its vector, so a
+  crash can never mark a chunk as embedded while its vector is missing; the
+  gating is a correctness guarantee, not just a performance one.
 - **Symlink safety** (`filterValidSymlinks` in
   `utils/filter-valid-symlinks.ts`): broken symlinks and symlinks to
   non-file targets are filtered from directory listings before indexing
