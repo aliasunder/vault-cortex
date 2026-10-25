@@ -183,6 +183,22 @@ export const tempSavePath = (filePath: string): string => {
   return join(dirname(filePath), `.${randomUUID()}.tmp`)
 }
 
+/** Removes a file a write left behind. A failed removal is logged, not thrown,
+ *  so the caller's own failure is the one that propagates. */
+const removeLeftoverFile = async (
+  params: { fullPath: string; logPath: string; failureLogMessage: string },
+  logger: Logger,
+): Promise<void> => {
+  try {
+    await rm(params.fullPath, { force: true })
+  } catch (cleanupError) {
+    logger.warn(params.failureLogMessage, {
+      path: params.logPath,
+      error: describeError(cleanupError),
+    })
+  }
+}
+
 /**
  * Stages content to a unique temp file, then renames over the target.
  * `rename` is atomic on the same filesystem, so the target is never
@@ -201,16 +217,11 @@ export const atomicWriteFile = async (
     await writeFile(tmpPath, params.content, "utf8")
     await rename(tmpPath, params.filePath)
   } catch (err) {
-    // Best-effort cleanup so a failed write never strands a temp file. A
-    // failed cleanup is logged, not thrown, so the write failure propagates.
-    try {
-      await rm(tmpPath, { force: true })
-    } catch (cleanupError) {
-      logger.warn("failed to remove temp file", {
-        path: tmpPath,
-        error: describeError(cleanupError),
-      })
-    }
+    // A failed write never strands its temp file
+    await removeLeftoverFile(
+      { fullPath: tmpPath, logPath: tmpPath, failureLogMessage: "failed to remove temp file" },
+      logger,
+    )
     throw err
   }
 }
@@ -261,31 +272,25 @@ export const atomicWriteFileExclusive = async (
       await rename(tmpPath, params.filePath)
     } catch (renameError) {
       // The reservation took but the swap failed — drop the placeholder so a
-      // failed write never strands a 0-byte note at the destination. A failed
-      // cleanup is logged, not thrown, so the swap failure propagates.
-      try {
-        await rm(params.filePath, { force: true })
-      } catch (cleanupError) {
-        logger.warn("failed to remove reservation placeholder", {
-          path: params.filePath,
-          error: describeError(cleanupError),
-        })
-      }
+      // failed write never strands a 0-byte note at the destination.
+      await removeLeftoverFile(
+        {
+          fullPath: params.filePath,
+          logPath: params.filePath,
+          failureLogMessage: "failed to remove reservation placeholder",
+        },
+        logger,
+      )
       throw renameError
     }
   } finally {
     // Always drop the temp file. After a link it is a second name for the
     // target, so removing it leaves the target alone; after the rename it is
-    // already gone. A failed cleanup is logged, not thrown, so the original
-    // failure (e.g. EEXIST) propagates.
-    try {
-      await rm(tmpPath, { force: true })
-    } catch (cleanupError) {
-      logger.warn("failed to remove temp file", {
-        path: tmpPath,
-        error: describeError(cleanupError),
-      })
-    }
+    // already gone.
+    await removeLeftoverFile(
+      { fullPath: tmpPath, logPath: tmpPath, failureLogMessage: "failed to remove temp file" },
+      logger,
+    )
   }
 }
 
@@ -705,16 +710,15 @@ const moveNoteToTrash = async (
         await rename(params.fullPath, candidateFullPath)
       } catch (renameError) {
         // The claim took but the move failed — drop our placeholder so it
-        // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
-        // logged, not thrown, so the rename failure propagates as the cause.
-        try {
-          await rm(candidateFullPath, { force: true })
-        } catch (cleanupError) {
-          logger.warn("failed to remove claim placeholder", {
-            path: candidateRelativePath,
-            error: describeError(cleanupError),
-          })
-        }
+        // doesn't strand a 0-byte file occupying a suffix.
+        await removeLeftoverFile(
+          {
+            fullPath: candidateFullPath,
+            logPath: candidateRelativePath,
+            failureLogMessage: "failed to remove claim placeholder",
+          },
+          logger,
+        )
         throw renameError
       }
 

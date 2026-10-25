@@ -9,7 +9,7 @@ import type { Logger } from "../../../logger.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { truncateToCodePointLimit } from "../../../utils/truncate-to-code-point-limit.js"
 import { describeErrorRelativeTo } from "../../../utils/describe-error.js"
-import { appendCodedErrorRemedy } from "../coded-error-remedy.js"
+import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 
 export type PromptRegistrationContext = ToolAvailability & {
   server: McpServer
@@ -58,9 +58,9 @@ export const describeErrorForPromptFallback = (params: {
   // Prompts write nothing and read through paths that never refuse a
   // properties block, so only coded remedies apply, never the tool boundary's
   // repair steps
-  const errorText = appendCodedErrorRemedy({
+  const errorText = appendRemedy({
     message: describeErrorRelativeTo({ error, directory: vaultPath }),
-    error,
+    remedy: remedyForCodedError(error),
   })
 
   return errorText.endsWith(".") ? errorText.slice(0, -1) : errorText

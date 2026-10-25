@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { appendCodedErrorRemedy, remedyForCodedError } from "../coded-error-remedy.js"
+import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 import { IndexIntegrityError } from "../../search/search-helpers.js"
 
 /** A Node system error as fs produces it: the message, plus the structured
@@ -167,14 +167,12 @@ describe("remedyForCodedError", () => {
   })
 })
 
-describe("appendCodedErrorRemedy", () => {
+describe("appendRemedy", () => {
   it("appends the remedy after a period and a space when the message ends in a quoted path", () => {
-    const error = systemError({ code: "EACCES", syscall: "open", path: "/vault/Locked.md" })
-
     expect(
-      appendCodedErrorRemedy({
+      appendRemedy({
         message: "[Error]: EACCES: permission denied, open 'Locked.md'",
-        error,
+        remedy: "Ask the vault's owner to fix the file's or folder's permissions.",
       }),
     ).toBe(
       "[Error]: EACCES: permission denied, open 'Locked.md'. Ask the vault's owner to fix the file's or folder's permissions.",
@@ -182,22 +180,17 @@ describe("appendCodedErrorRemedy", () => {
   })
 
   it("appends the remedy after one space when the message already ends with a period", () => {
-    const error = systemError({ code: "EACCES", syscall: "open", path: "/vault/Locked.md" })
-
     expect(
-      appendCodedErrorRemedy({
+      appendRemedy({
         message: "Nothing was written.",
-        error,
+        remedy: "Ask the vault's owner to fix the file's or folder's permissions.",
       }),
     ).toBe("Nothing was written. Ask the vault's owner to fix the file's or folder's permissions.")
   })
 
-  it("returns the message unchanged for an error the table does not know", () => {
-    expect(
-      appendCodedErrorRemedy({
-        message: "[Error]: note not found",
-        error: new Error("note not found"),
-      }),
-    ).toBe("[Error]: note not found")
+  it("returns the message unchanged when there is no remedy", () => {
+    expect(appendRemedy({ message: "[Error]: note not found", remedy: undefined })).toBe(
+      "[Error]: note not found",
+    )
   })
 })

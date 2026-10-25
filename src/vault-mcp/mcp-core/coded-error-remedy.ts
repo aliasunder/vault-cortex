@@ -95,9 +95,3 @@ export const appendRemedy = (params: { message: string; remedy: string | undefin
   const separator = params.message.endsWith(".") ? " " : ". "
   return `${params.message}${separator}${params.remedy}`
 }
-
-/** The client text for an error: its message followed by the remedy when the
- *  error has one. */
-export const appendCodedErrorRemedy = (params: { message: string; error: unknown }): string => {
-  return appendRemedy({ message: params.message, remedy: remedyForCodedError(params.error) })
-}
