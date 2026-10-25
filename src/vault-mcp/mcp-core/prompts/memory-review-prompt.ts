@@ -228,7 +228,7 @@ export const registerMemoryReviewPrompt = ({
         // An unknown file returns earlier in the try, so a failure caught here
         // is the server's own and logs at error, not warn
         reqLogger.error("prompt_error", describeErrorForLog(error))
-        const clientMessage = describeErrorForPromptFallback({ error, vaultPath, isToolEnabled })
+        const clientMessage = describeErrorForPromptFallback({ error, vaultPath })
         const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"])
         const fallbackHint = fallbackTools
           ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`

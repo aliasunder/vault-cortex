@@ -441,7 +441,7 @@ export const registerDailyReviewPrompt = ({
         // the exception: it passes those checks, but the task filter refuses
         // the day after it
         reqLogger.error("prompt_error", describeErrorForLog(error))
-        const clientMessage = describeErrorForPromptFallback({ error, vaultPath, isToolEnabled })
+        const clientMessage = describeErrorForPromptFallback({ error, vaultPath })
         const dailyFallbackHint = whenToolEnabledText(
           "vault_get_daily_note",
           " Try vault_get_daily_note to fetch the note directly.",

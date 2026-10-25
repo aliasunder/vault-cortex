@@ -13,6 +13,7 @@ import {
   rename,
   symlink,
 } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
@@ -22,12 +23,13 @@ import { DateTime } from "luxon"
 // exact call the production code makes (the forced-collision and
 // rename-failure trash tests).
 vi.mock("node:fs/promises", { spy: true })
+// A pass-through spy too, so a test can fix the UUID a save's temp name uses
+// and assert the exact path
+vi.mock("node:crypto", { spy: true })
 import {
   vaultFs,
   atomicWriteFile,
   atomicWriteFileExclusive,
-  isTempSavePath,
-  TEMP_SAVE_SUFFIX_BYTES,
   pruneEmptyParents,
   readTrashFileState,
   resolveSafePath,
@@ -127,6 +129,11 @@ const describeOutputRefusal = (
   }
 }
 
+const FIXED_UUID = "123e4567-e89b-12d3-a456-426614174000"
+
+/** A name one byte under the 255-byte name limit of APFS and ext4. */
+const NAME_ONE_BYTE_UNDER_LIMIT = `${"n".repeat(251)}.md`
+
 let vault: string
 
 beforeEach(async () => {
@@ -168,6 +175,7 @@ describe("atomicWriteFile", () => {
     await mkdir(target)
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
+    vi.mocked(randomUUID).mockReturnValueOnce(FIXED_UUID)
     // The next rm call is the temp-file cleanup after the EISDIR rename
     vi.mocked(rm).mockImplementationOnce(async () => {
       throw new Error("EPERM: injected cleanup failure")
@@ -177,41 +185,36 @@ describe("atomicWriteFile", () => {
       /EISDIR/,
     )
 
-    // The temp path carries a random UUID, so only its shape is assertable
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to remove temp file", {
-      path: expect.stringMatching(/occupied\..+\.tmp$/),
+      path: join(vault, `.${FIXED_UUID}.tmp`),
       error: "[Error]: EPERM: injected cleanup failure",
     })
   })
+
+  it("saves a note whose name is one byte under the filesystem's name limit", async () => {
+    const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
+
+    await atomicWriteFile({ filePath: target, content: "near the limit\n" }, logger)
+
+    expect(await readFile(target, "utf8")).toBe("near the limit\n")
+    expect(await readdir(vault)).toEqual([NAME_ONE_BYTE_UNDER_LIMIT])
+  })
 })
 
-describe("isTempSavePath", () => {
-  it("recognises the temp file a save writes beside its target", () => {
-    expect(isTempSavePath("/vault/Notes/a.md.123e4567-e89b-12d3-a456-426614174000.tmp")).toBe(true)
+describe("tempSavePath", () => {
+  it("names a hidden file in the target's folder: a dot, the UUID and .tmp", () => {
+    vi.mocked(randomUUID).mockReturnValueOnce(FIXED_UUID)
+
+    expect(tempSavePath("/vault/Notes/a.md")).toBe(`/vault/Notes/.${FIXED_UUID}.tmp`)
   })
 
-  // The literal paths in this block pin the regex; this row pins it to the
-  // generator, so changing either one cannot silently leave a real temp-save
-  // failure with the generic remedy instead of the temp-save one.
-  it("recognises the path tempSavePath actually writes", () => {
-    expect(isTempSavePath(tempSavePath("/vault/Notes/a.md"))).toBe(true)
-  })
+  // Sync and the file watcher skip a hidden name, and a fixed length means a
+  // note's own name length never decides whether its save fits
+  it("gives a long name the same 41-byte temp name as a short one", () => {
+    vi.mocked(randomUUID).mockReturnValueOnce(FIXED_UUID)
 
-  it.each([
-    { label: "the target itself", path: "/vault/Notes/a.md" },
-    { label: "a note whose own name ends in .tmp", path: "/vault/Notes/draft.tmp" },
-    {
-      label: "a UUID that is not followed by .tmp",
-      path: "/vault/a.md.123e4567-e89b-12d3-a456-426614174000",
-    },
-    { label: "a short hex run before .tmp", path: "/vault/a.md.123e4567.tmp" },
-  ])("rejects $label", ({ path }) => {
-    expect(isTempSavePath(path)).toBe(false)
-  })
-
-  it("adds 41 bytes to the target's name: a dot, a 36-byte UUID and .tmp", () => {
-    expect(TEMP_SAVE_SUFFIX_BYTES).toBe(41)
+    expect(tempSavePath(`/vault/${NAME_ONE_BYTE_UNDER_LIMIT}`)).toBe(`/vault/.${FIXED_UUID}.tmp`)
   })
 })
 
@@ -258,6 +261,7 @@ describe("atomicWriteFileExclusive", () => {
     await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
+    vi.mocked(randomUUID).mockReturnValueOnce(FIXED_UUID)
     // The next rm call is the finally block's temp-file cleanup, reached
     // after link throws EEXIST on the occupied target
     vi.mocked(rm).mockImplementationOnce(async () => {
@@ -272,14 +276,22 @@ describe("atomicWriteFileExclusive", () => {
 
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to remove temp file", {
-      path: expect.stringMatching(/taken\.md\..+\.tmp$/),
+      path: join(vault, `.${FIXED_UUID}.tmp`),
       error: "[Error]: EPERM: injected cleanup failure",
     })
     // The intercepted cleanup genuinely left the staging file on disk, and
     // the occupied target survives untouched
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toHaveLength(1)
+    expect((await readdir(vault)).toSorted()).toEqual([`.${FIXED_UUID}.tmp`, "taken.md"])
     expect(await readFile(target, "utf8")).toBe("original\n")
+  })
+
+  it("creates a note whose name is one byte under the filesystem's name limit", async () => {
+    const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
+
+    await atomicWriteFileExclusive({ filePath: target, content: "near the limit\n" }, logger)
+
+    expect(await readFile(target, "utf8")).toBe("near the limit\n")
+    expect(await readdir(vault)).toEqual([NAME_ONE_BYTE_UNDER_LIMIT])
   })
 
   // Covers the rename fallback path taken on filesystems without hard-link
@@ -327,6 +339,18 @@ describe("atomicWriteFileExclusive", () => {
       )
       const entries = await readdir(vault)
       expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    })
+
+    it("creates a note whose name is one byte under the filesystem's name limit", async () => {
+      const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
+
+      await atomicWriteFileExclusive(
+        { filePath: target, content: "near the limit\n", hardLinksSupported: false },
+        logger,
+      )
+
+      expect(await readFile(target, "utf8")).toBe("near the limit\n")
+      expect(await readdir(vault)).toEqual([NAME_ONE_BYTE_UNDER_LIMIT])
     })
 
     it("logs the placeholder cleanup failure when both the swap and the cleanup fail", async () => {

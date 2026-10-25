@@ -11,12 +11,6 @@ import {
   toolInputErrorResult,
 } from "./tool-helpers.js"
 
-/** The memory tools' filesystem-error entry: the shared one plus where an
- *  existing file gets a shorter name. The remedy the tool boundary appends to
- *  a too-long name (coded-error-remedy.ts) renames with vault_move_note, and
- *  the memory folder is protected from moves by default. */
-const MEMORY_FILESYSTEM_ERROR_ENTRY = `${FILESYSTEM_ERROR_ENTRY}; rename an existing memory file with a too-long name in Obsidian`
-
 /** The memory store names a folder standing where the file would go, since a
  *  folder in the memory folder is the vault owner's. */
 const MEMORY_FILE_IS_FOLDER_ERROR_ENTRY =
@@ -324,7 +318,7 @@ Errors:
 - "section not created: … is nearly identical to existing section …" — the name differs from an existing heading only by an HTML-entity slip, a typo, or spacing; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section. Names differing only in digits (e.g. "2025" vs "2026") count as different.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
 ${MEMORY_FILE_IS_FOLDER_ERROR_ENTRY}
-${MEMORY_FILESYSTEM_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_FOLDER_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
@@ -430,7 +424,7 @@ Errors:
 - "ambiguous: N entries match …" — more than one identical bullet exists in the section. Remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — safety guard blocked a write that would remove more than half the file. Re-read with vault_get_memory to confirm current content; an entry that really is that large needs ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 ${MEMORY_FILE_READ_ERROR_ENTRY}
-${MEMORY_FILESYSTEM_ERROR_ENTRY}
+${FILESYSTEM_ERROR_ENTRY}
 ${MEMORY_OPENING_BLOCK_ERROR_ENTRY}
 
 Returns: "Deleted entry from ${config.memoryDir}/<file>.md → ## <section>".`,

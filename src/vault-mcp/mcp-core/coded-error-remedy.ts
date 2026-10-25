@@ -5,8 +5,6 @@
 
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { IndexIntegrityError } from "../search/search-helpers.js"
-import { TEMP_SAVE_SUFFIX_BYTES, isTempSavePath } from "../vault-operations/vault-filesystem.js"
-import type { ToolName } from "./tool-registry.js"
 
 const INDEX_REMEDY =
   "The server's search index could not be read; the call was not at fault. Retry once; if it fails again, tell the server's owner."
@@ -21,23 +19,10 @@ const isSystemError = (error: NodeJS.ErrnoException): error is SystemError => {
   return typeof error.syscall === "string"
 }
 
-const describeTempSaveRemedy = (isToolEnabled: (name: ToolName) => boolean): string => {
-  const renameToolClause = isToolEnabled("vault_move_note") ? " with vault_move_note" : ""
-
-  return `The name leaves no room for the temporary file a save writes beside it; save it under a name at least ${TEMP_SAVE_SUFFIX_BYTES} bytes shorter (rename an existing note${renameToolClause}).`
-}
-
-const describeSystemErrorRemedy = (
-  error: SystemError,
-  isToolEnabled: (name: ToolName) => boolean,
-): string => {
+const describeSystemErrorRemedy = (error: SystemError): string => {
   switch (error.code) {
-    // The temp file is always the failing path: a save writes it first, and
-    // the rename or link that follows targets the shorter final name
-    case "ENAMETOOLONG": {
-      if (error.path && isTempSavePath(error.path)) return describeTempSaveRemedy(isToolEnabled)
+    case "ENAMETOOLONG":
       return "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
-    }
     case "ENOTDIR":
     case "EEXIST": {
       if (error.syscall === "mkdir") {
@@ -85,19 +70,14 @@ const describeSystemErrorRemedy = (
 /** The remedy sentence for a raw filesystem error (a Node error with a
  *  syscall) or a search-index failure (a SqliteError or an
  *  IndexIntegrityError); undefined for any other error, whose own text stands. */
-export const remedyForCodedError = (params: {
-  error: unknown
-  isToolEnabled: (name: ToolName) => boolean
-}): string | undefined => {
-  const { error, isToolEnabled } = params
-
+export const remedyForCodedError = (error: unknown): string | undefined => {
   if (error instanceof IndexIntegrityError) return INDEX_REMEDY
   if (!isErrnoException(error)) return undefined
   // isErrnoException admits any Error with a string code, so better-sqlite3's
   // SqliteError (a SQLITE_* code and no syscall) passes it
   if (error.code.startsWith("SQLITE_")) return INDEX_REMEDY
   if (!isSystemError(error)) return undefined
-  return describeSystemErrorRemedy(error, isToolEnabled)
+  return describeSystemErrorRemedy(error)
 }
 
 /** A message followed by its remedy, or the message alone when there is none.
@@ -114,8 +94,6 @@ export const appendRemedy = (params: { message: string; remedy: string | undefin
 
 /** The client text for an error: its message followed by the remedy when the
  *  error has one. */
-export const appendCodedErrorRemedy = (params: {
-  message: string
-  error: unknown
-  isToolEnabled: (name: ToolName) => boolean
-}): string => appendRemedy({ message: params.message, remedy: remedyForCodedError(params) })
+export const appendCodedErrorRemedy = (params: { message: string; error: unknown }): string => {
+  return appendRemedy({ message: params.message, remedy: remedyForCodedError(params.error) })
+}

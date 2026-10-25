@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
-import { rm, writeFile, mkdir, readFile, stat, rename, unlink } from "node:fs/promises"
+import { rm, writeFile, mkdir, readFile, readdir, stat, rename, unlink } from "node:fs/promises"
 import { mkdtempSync } from "node:fs"
 import { basename, join, dirname } from "node:path"
 import { tmpdir } from "node:os"
@@ -23,6 +23,9 @@ vi.mock("node:fs/promises", { spy: true })
 vi.mock("../vault-filesystem.js", { spy: true })
 
 const PROTECTED = ["About Me", "Daily Notes"] as const
+
+/** A name one byte under the 255-byte name limit of APFS and ext4. */
+const NAME_ONE_BYTE_UNDER_LIMIT = `${"n".repeat(251)}.md`
 
 /** A Logger whose methods are spies, so a test can assert on its log calls
  *  (vi.mocked(logger.info)…) without touching the shared logger singleton.
@@ -142,6 +145,17 @@ describe("moveNote — file relocation", () => {
       updated_notes: [],
       pruned_empty_folders: 0,
     })
+  })
+
+  it("moves a note to a name one byte under the filesystem's name limit", async () => {
+    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Draft.md", "Body.\n")
+
+    await moveNote({ oldPath: "Draft.md", newPath: NAME_ONE_BYTE_UNDER_LIMIT })
+
+    expect(await noteExists("Draft.md")).toBe(false)
+    expect(await readNote(NAME_ONE_BYTE_UNDER_LIMIT)).toBe("Body.\n")
+    expect(await readdir(vault)).toEqual([NAME_ONE_BYTE_UNDER_LIMIT])
   })
 })
 
@@ -2446,6 +2460,21 @@ describe("moveNote — Windows mode (rename-based exclusive write)", () => {
     // Both notes are untouched — the failed move wrote nothing.
     expect(await readNote("Bar.md")).toBe("occupied\n")
     expect(await readNote("Foo.md")).toBe("content\n")
+  })
+
+  it("moves a note to a name one byte under the filesystem's name limit in Windows mode", async () => {
+    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+
+    await moveNote({
+      oldPath: "Foo.md",
+      newPath: NAME_ONE_BYTE_UNDER_LIMIT,
+      windowsBindMount: true,
+    })
+
+    expect(await noteExists("Foo.md")).toBe(false)
+    expect(await readNote(NAME_ONE_BYTE_UNDER_LIMIT)).toBe("content\n")
+    expect(await readdir(vault)).toEqual([NAME_ONE_BYTE_UNDER_LIMIT])
   })
 })
 

@@ -3207,15 +3207,13 @@ describe("DISABLED_TOOLS", () => {
   it.each([
     { toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY },
     { toolName: TOOL_NAMES.VAULT_DELETE_MEMORY },
-  ])("$toolName's filesystem Errors entry sends a rename to Obsidian", ({ toolName }) => {
+  ])("$toolName carries the shared filesystem Errors entry", ({ toolName }) => {
     const filesystemEntry = findDescriptionLine({
       registeredCalls: registerWithConfig({}),
       toolName,
       linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
     })
-    expect(filesystemEntry).toBe(
-      `${SHARED_FILESYSTEM_ENTRY}; rename an existing memory file with a too-long name in Obsidian`,
-    )
+    expect(filesystemEntry).toBe(SHARED_FILESYSTEM_ENTRY)
   })
 
   it("vault_update_memory lists the memory folder's own failure with the owner's remedy", () => {

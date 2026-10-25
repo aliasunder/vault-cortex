@@ -705,8 +705,6 @@ const FOLDER_IS_FILE_REMEDY =
   "A folder in the path is an existing file; choose a path whose folders are folders."
 const PATH_TOO_LONG_REMEDY =
   "The path is too long for the filesystem, so nothing can exist at it; check the path, or shorten it for a new file."
-const TEMP_SAVE_REMEDY =
-  "The name leaves no room for the temporary file a save writes beside it; save it under a name at least 41 bytes shorter (rename an existing note with vault_move_note)."
 const LINK_LOOP_REMEDY =
   "The path goes through a symbolic-link loop; ask the vault's owner to fix the link."
 
@@ -803,75 +801,6 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     },
   )
 
-  // A name of 233 bytes reads, but the temp file a save writes beside it
-  // adds 41 bytes and goes over the filesystem's 255-byte limit
-  it.each([
-    { name: "vault_replace_in_note", args: { old_text: "line one", new_text: "line 1" } },
-    { name: "vault_delete_span", args: { start_anchor: "line one" } },
-    { name: "vault_replace_span", args: { start_anchor: "line one", content: "line 1" } },
-    { name: "vault_create_task", args: { description: "another task", block_id: "another" } },
-  ])("$name on a note whose name is too long for the save's temp file", async ({ name, args }) => {
-    const nameTooLongForTempFile = `${"b".repeat(230)}.md`
-    await plantFileWithMode({ filePath: nameTooLongForTempFile, mode: 0o644 })
-
-    const result = await callTool({ client, name, args: { path: nameTooLongForTempFile, ...args } })
-    expect(result).toEqual({
-      content: [
-        {
-          type: "text",
-          // The temp file's name ends in a random UUID
-          text: expect.stringMatching(
-            new RegExp(
-              `^\\[Error\\]: ENAMETOOLONG: name too long, open '${RegExp.escape(nameTooLongForTempFile)}\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(TEMP_SAVE_REMEDY)}$`,
-            ),
-          ),
-        },
-      ],
-      isError: true,
-    })
-    // The note opens under its own name and is unchanged, so only the save's
-    // temp file name was too long
-    await expect(readFile(join(serverVaultPath, nameTooLongForTempFile), "utf8")).resolves.toBe(
-      "line one\n- [ ] a task\n",
-    )
-  })
-
-  const memoryFileContent = "## Notes (newest first)\n- **2026-01-01**: kept\n"
-
-  it.each([
-    { name: "vault_update_memory", args: { section: "Notes", entry: "added" } },
-    { name: "vault_delete_memory", args: { section: "Notes", date: "2026-01-01", entry: "kept" } },
-  ])(
-    "$name on a memory file whose name is too long for the save's temp file",
-    async ({ name, args }) => {
-      const fileTooLongForTempFile = "m".repeat(230)
-      const memoryFilePath = join(serverVaultPath, "About Me", `${fileTooLongForTempFile}.md`)
-      await writeFile(memoryFilePath, memoryFileContent)
-      onTestFinished(() => rm(memoryFilePath))
-
-      const result = await callTool({
-        client,
-        name,
-        args: { file: fileTooLongForTempFile, ...args },
-      })
-      expect(result).toEqual({
-        content: [
-          {
-            type: "text",
-            // The temp file's name ends in a random UUID
-            text: expect.stringMatching(
-              new RegExp(
-                `^\\[Error\\]: ENAMETOOLONG: name too long, open 'About Me/${fileTooLongForTempFile}\\.md\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(TEMP_SAVE_REMEDY)}$`,
-              ),
-            ),
-          },
-        ],
-        isError: true,
-      })
-      await expect(readFile(memoryFilePath, "utf8")).resolves.toBe(memoryFileContent)
-    },
-  )
-
   it.skipIf(runsAsRoot)(
     "vault_write_note into a read-only folder names the temp file vault-relative",
     async () => {
@@ -886,10 +815,10 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
         content: [
           {
             type: "text",
-            // The temp file's name ends in a random UUID
+            // The temp file's hidden name is a random UUID
             text: expect.stringMatching(
               new RegExp(
-                `^\\[Error\\]: EACCES: permission denied, open 'Sealed/new\\.md\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(PERMISSIONS_REMEDY)}$`,
+                `^\\[Error\\]: EACCES: permission denied, open 'Sealed/\\.[0-9a-f-]{36}\\.tmp'\\. ${RegExp.escape(PERMISSIONS_REMEDY)}$`,
               ),
             ),
           },

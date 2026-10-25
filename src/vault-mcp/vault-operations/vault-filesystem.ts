@@ -170,21 +170,16 @@ export const pruneEmptyParents = async (
   return pruneFrom(start, 0)
 }
 
-/** The temp file a save writes beside its target: the target's path plus a
- *  dot, a UUID and ".tmp". That suffix makes the temp name longer than the
- *  target's, so a name near the filesystem's length limit can read fine and
- *  still fail to save. */
-export const tempSavePath = (filePath: string): string => `${filePath}.${randomUUID()}.tmp`
-
-/** How many bytes tempSavePath adds to a target's name. */
-export const TEMP_SAVE_SUFFIX_BYTES = Buffer.byteLength(tempSavePath(""), "utf8")
-
-/** Matches the suffix tempSavePath appends, at the end of a path. It matches that
- *  shape, not only paths a save wrote, so a note named the same way counts too. */
-const TEMP_SAVE_SUFFIX_REGEX =
-  /\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/
-
-export const isTempSavePath = (path: string): boolean => TEMP_SAVE_SUFFIX_REGEX.test(path)
+/** The temp file a save writes beside its target: a dot, a UUID and ".tmp".
+ *  - The leading dot hides it, so Obsidian Sync and the file watcher never
+ *    open a file the save is about to rename away.
+ *  - Its name is 41 bytes whatever the target's name, so a target named
+ *    near the filesystem's limit still saves.
+ *  - It stays in the target's folder, so the rename or link that follows
+ *    never crosses filesystems. */
+export const tempSavePath = (filePath: string): string => {
+  return join(dirname(filePath), `.${randomUUID()}.tmp`)
+}
 
 /**
  * Stages content to a unique temp file, then renames over the target.

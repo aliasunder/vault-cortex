@@ -53,13 +53,11 @@ export const textResult = (text: string): GetPromptResult => ({
 export const describeErrorForPromptFallback = (params: {
   error: unknown
   vaultPath: string
-  isToolEnabled: ToolAvailability["isToolEnabled"]
 }): string => {
-  const { error, vaultPath, isToolEnabled } = params
+  const { error, vaultPath } = params
   const errorText = appendCodedErrorRemedy({
     message: describeErrorRelativeTo({ error, directory: vaultPath }),
     error,
-    isToolEnabled,
   })
 
   return errorText.endsWith(".") ? errorText.slice(0, -1) : errorText
