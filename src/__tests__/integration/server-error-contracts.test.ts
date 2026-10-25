@@ -885,7 +885,12 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     // The folder is server configuration, so the store wraps the raw mkdir
     // error instead of letting the boundary tell the caller to choose a path
     expect(result).toEqual({
-      content: [{ type: "text", text: '[Error]: cannot create memory folder "About Me"' }],
+      content: [
+        {
+          type: "text",
+          text: '[Error]: cannot create memory folder "About Me": "About Me" is not a folder',
+        },
+      ],
       isError: true,
     })
   })
@@ -1690,6 +1695,32 @@ describe("memory errors", () => {
       result,
       'memory file must be a bare name without path separators: "Nested/Preferences"',
     )
+  })
+
+  it.each([
+    { name: "vault_get_memory", args: {} },
+    { name: "vault_update_memory", args: { section: "Editor settings", entry: "never written" } },
+    {
+      name: "vault_delete_memory",
+      args: { section: "Editor settings", date: "2026-01-01", entry: "anything" },
+    },
+  ])("$name with .md in the file name", async ({ name, args }) => {
+    const result = await callTool({ client, name, args: { file: "Preferences.md", ...args } })
+    expectToolError(result, 'memory file must be named without .md: "Preferences.md"')
+  })
+
+  it("vault_delete_memory with a date that is not YYYY-MM-DD", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: {
+        file: "Preferences",
+        section: "Editor settings",
+        date: "2026-1-1",
+        entry: "anything",
+      },
+    })
+    expectToolError(result, "date must be YYYY-MM-DD (e.g. 2026-07-02)")
   })
 })
 

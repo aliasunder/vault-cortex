@@ -72,10 +72,15 @@ const isValidMemoryEntryDate = (dateText: string | undefined): boolean => {
   return DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
 }
 
-/** Thrown by updateMemory and deleteMemory when a supplied date fails
+/** Thrown by updateMemory and getMemoryEntries when a supplied date fails
  *  isValidMemoryEntryDate — one string so the two sites can't drift. */
 const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
   "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"
+
+/** The date shape ENTRY_PATTERN reads as an entry. A hand edit can leave an
+ *  impossible date such as 2026-02-30 in it, so deleteMemory checks only
+ *  the shape. */
+const MEMORY_ENTRY_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
@@ -460,12 +465,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
-  // A memory file is a bare name, never a path — a separator would let a
-  // name like "../../outside" escape the memory directory (and the vault)
-  // entirely, so reject it at the single point every memory path goes through.
-  // A dot-prefixed name would create a hidden file (invisible in Obsidian,
-  // excluded from listings and the index), so it is rejected the same way —
-  // memory paths bypass resolveSafePath's hidden-path guard via direct join.
+  // A memory file is a bare name, never a path, and every memory path goes
+  // through this one check:
+  // - a separator would let a name like "../../outside" escape the memory
+  //   directory (and the vault);
+  // - a dot-prefixed name would create a hidden file, invisible in Obsidian
+  //   and left out of listings and the index (memory paths are joined
+  //   directly, so resolveSafePath's hidden-path guard never sees them);
+  // - a name ending in .md would get a second .md, creating "Opinions.md.md"
+  //   beside "Opinions.md".
   const memoryFilePath = (vaultPath: string, file: string): string => {
     if (file.includes("/") || file.includes("\\")) {
       throw new Error(`memory file must be a bare name without path separators: "${file}"`)
@@ -473,7 +481,29 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     if (file.startsWith(".")) {
       throw new Error(`memory file must not start with a dot: "${file}" would be a hidden file`)
     }
+    if (file.toLowerCase().endsWith(".md")) {
+      throw new Error(`memory file must be named without .md: "${file}"`)
+    }
     return join(vaultPath, memoryDir, `${file}.md`)
+  }
+
+  /** The first folder on the way to the memory folder, from the vault root,
+   *  that is something other than a folder; undefined when every one is a
+   *  folder or missing (it changed since mkdir failed, or a symlink there
+   *  points nowhere). */
+  const findMemoryFolderBlocker = async (vaultPath: string): Promise<string | undefined> => {
+    // "Meta/About Me" → ["Meta", "Meta/About Me"]
+    const folderSegments = memoryDir.split("/")
+    const foldersFromRoot = folderSegments.map((_, index) => {
+      return folderSegments.slice(0, index + 1).join("/")
+    })
+
+    for (const folder of foldersFromRoot) {
+      const entry = await statOrNull(join(vaultPath, folder))
+
+      if (entry && !entry.isDirectory()) return folder
+    }
+    return undefined
   }
 
   type MemoryTemplateSpec = {
@@ -893,11 +923,19 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
           if (!fileAtFolderPath) throw error
 
+          // MEMORY_DIR can be nested, and mkdir does not say which folder on
+          // the way is a file, so the message names it for the owner
+          const blocker = await findMemoryFolderBlocker(params.vaultPath)
+          const blockerClause = blocker ? `: "${blocker}" is not a folder` : ""
+
           logger.warn("cannot create memory folder", {
             folder: memoryDir,
+            blocker,
             error: describeError(error),
           })
-          throw new Error(`cannot create memory folder "${memoryDir}"`, { cause: error })
+          throw new Error(`cannot create memory folder "${memoryDir}"${blockerClause}`, {
+            cause: error,
+          })
         }
 
         const content = buildNewMemoryFile({
@@ -1103,11 +1141,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     },
     logger: Logger,
   ): Promise<void> => {
-    // Server-written bullets only ever carry real calendar dates, so a
-    // malformed date can never match — reject it up front with remediation
-    // instead of a guaranteed "no entry matching" miss.
-    if (!isValidMemoryEntryDate(params.date)) {
-      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
+    // A date of any other shape can never match an entry, so it is refused
+    // up front instead of ending in a guaranteed "no entry matching" miss.
+    if (!MEMORY_ENTRY_DATE_SHAPE.test(params.date)) {
+      throw new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)")
     }
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
