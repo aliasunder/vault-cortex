@@ -363,11 +363,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   /** Large memory folders must not exhaust file handles by reading every file at once. */
   const memoryReadConcurrency = 16
 
-  /** True for the .md entries the memory layer serves. It mirrors the
-   *  rejections in memoryFilePath, so a file on disk that no memory tool can
-   *  name never reaches the no-file read or the list surfaces:
+  /** True for the .md entries the memory layer serves. It leaves out two
+   *  kinds of file that memoryFilePath refuses to name, so the no-file read
+   *  and the list surfaces never offer them:
    *  - a dot-prefixed (hidden) name;
-   *  - a name ending in .md twice, which only the listing would offer. */
+   *  - a name ending in .md twice. */
   const isVisibleMemoryFile = (filename: string): boolean => {
     return (
       filename.endsWith(".md") && !filename.startsWith(".") && !isDoubledMarkdownFileName(filename)
