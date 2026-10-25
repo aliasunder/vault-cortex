@@ -153,8 +153,7 @@ describe("atomicWriteFile", () => {
 
   it("leaves no .tmp staging file behind on success", async () => {
     await atomicWriteFile({ filePath: join(vault, "clean.md"), content: "body\n" }, logger)
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(await readdir(vault)).toEqual(["clean.md"])
   })
 
   it("cleans up the staging file and rethrows when the rename fails", async () => {
@@ -166,8 +165,7 @@ describe("atomicWriteFile", () => {
     await expect(atomicWriteFile({ filePath: target, content: "body\n" }, logger)).rejects.toThrow(
       /EISDIR/,
     )
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(await readdir(vault)).toEqual(["occupied"])
   })
 
   it("logs the temp-file cleanup failure when both the rename and the cleanup fail", async () => {
@@ -240,8 +238,7 @@ describe("atomicWriteFileExclusive", () => {
 
   it("leaves no .tmp staging file behind on success", async () => {
     await atomicWriteFileExclusive({ filePath: join(vault, "clean.md"), content: "body\n" }, logger)
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(await readdir(vault)).toEqual(["clean.md"])
   })
 
   it("leaves no .tmp staging file behind when the target already exists", async () => {
@@ -252,8 +249,7 @@ describe("atomicWriteFileExclusive", () => {
     ).rejects.toMatchObject({
       code: "EEXIST",
     })
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(await readdir(vault)).toEqual(["exists.md"])
   })
 
   it("logs the temp-file cleanup failure when the claim fails and the cleanup fails", async () => {
@@ -337,8 +333,7 @@ describe("atomicWriteFileExclusive", () => {
         },
         logger,
       )
-      const entries = await readdir(vault)
-      expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+      expect(await readdir(vault)).toEqual(["clean.md"])
     })
 
     it("creates a note whose name is one byte under the filesystem's name limit", async () => {

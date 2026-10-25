@@ -764,6 +764,45 @@ created: 2026-01-01T00:00:00-05:00
     })
   })
 
+  it("names the nested memory folder itself when its parent is a folder and it is a file", async () => {
+    // "Meta" is a real folder, so the check must walk past it to the file at
+    // "Meta/About Me"
+    const nestedStore = createMemoryStore({ memoryDir: "Meta/About Me" })
+    const memoryFolder = join(vault, "Meta", "About Me")
+    await mkdir(join(vault, "Meta"))
+    await writeFile(memoryFolder, "not a folder")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      nestedStore.updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "Meta/About Me": "Meta/About Me" is not a folder', {
+        cause: Object.assign(new Error(`EEXIST: file already exists, mkdir '${memoryFolder}'`), {
+          errno: -17,
+          code: "EEXIST",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "Meta/About Me",
+      blocker: "Meta/About Me",
+      error: `[Error]: EEXIST: file already exists, mkdir '${memoryFolder}'`,
+    })
+  })
+
   it.skipIf(runsAsRoot)(
     "lets a permission failure creating the memory folder through with its code",
     async () => {
