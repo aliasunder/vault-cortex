@@ -15,7 +15,6 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
   FILESYSTEM_ERROR_ENTRY,
-  INDEX_ENGINE_ERROR_ENTRY,
   LISTING_FILESYSTEM_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
   describeTextWindow,
@@ -81,7 +80,7 @@ export const registerVaultCrudTools = ({
     TOOL_NAMES.VAULT_READ_NOTE,
     {
       title: "Read Note",
-      description: `Read a markdown note by its vault-relative path. By default returns the full raw content including properties; optional modes return just the properties, just the heading outline, or just one section — so large notes don't blow the token budget. Set at most one of properties_only, outline, or heading.
+      description: `Read a markdown note by its vault-relative path. By default returns the full raw content including properties; optional modes return just the properties, just the heading outline, or just one section.
 
 Example: vault_read_note({ path: "Projects/vault-cortex.md" })
 Example: vault_read_note({ path: "Projects/vault-cortex.md", properties_only: true })
@@ -97,13 +96,13 @@ Section boundaries: a section spans from its heading to the next heading of the 
 
 Errors:
 - "note not found" — no note exists at this path; verify it with vault_list_notes
-- "heading not found" — no heading matches the text; error lists available headings
+- "heading not found" — the message lists the available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
-- "outline, heading, and properties_only are mutually exclusive" — only one mode per call
+- "outline, heading, and properties_only are mutually exclusive — set at most one"
 - "heading_level requires a heading" — heading_level only disambiguates a heading; pass heading with it
 - "heading cannot be empty" — heading is whitespace only; pass the heading's text
-- "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
-- "start line past the end" — start_line exceeds the rendition's line count; error states the total
+- "line paging is not available in outline mode" / "… properties_only mode" — start_line and limit page only a full read or a heading section
+- "start line past the end" — the message states the line count
 - 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_read_file", "; read other files (images, .canvas, data files) with vault_read_file")}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "properties block is not valid YAML …" — a full read, outline and heading still work; the error says how to repair it
@@ -111,7 +110,7 @@ ${FILESYSTEM_ERROR_ENTRY}
 
 Returns: Raw markdown string (default); JSON object of properties, {} when the note has none (properties_only); JSON outline object, shaped as the outline parameter describes (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)"). Unpaged full reads return the file's exact bytes; heading sections and paged reads use LF line endings.
 
-Outline: bytes at the root is the whole file's on-disk size and modified is its filesystem modification time; each heading's bytes is the exact UTF-8 byte length of the text that heading mode returns for that section. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
+Outline: bytes at the root is the whole file's on-disk size and modified is its filesystem modification time (ISO 8601); each heading's bytes is the exact UTF-8 byte length of the text that heading mode returns for that section. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
       inputSchema: {
         path: z
           .string()
@@ -127,7 +126,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
           .boolean()
           .optional()
           .describe(
-            "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+            "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
           ),
         heading: z
           .string()
@@ -148,9 +147,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
           .int()
           .min(1)
           .optional()
-          .describe(
-            "First line to return, 1-based (default 1). Pages the text output (full body or a heading section). Not valid for outline or properties_only (JSON modes).",
-          ),
+          .describe("First line to return, 1-based (default 1)."),
         limit: z
           .number()
           .int()
@@ -311,7 +308,7 @@ When to use: Browsing what exists in a folder by filename, or finding notes matc
 Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
 Parameters:
-- folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
+- folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
 - glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "**/*.md" lists every note under it.
 
 Behavior: Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed; symlinked notes are included.
@@ -321,7 +318,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
 ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
-Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
+Returns: JSON array of every matching vault-relative path, with no cap (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
         folder: z
           .string()
@@ -379,23 +376,23 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create a markdown note. Errors if a note already exists at the path unless overwrite is set. Body replaces the entire note content: existing content will be lost unless you include it in body, so do not use this tool for surgical edits to large files. Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values. A new note leaves out keys set to null.
+      description: `Create a markdown note, or with overwrite: true replace an existing note's body; the old body's text is lost unless the new body includes it. Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values. A new note leaves out keys set to null.
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
 
-When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body.${writeNoteAlternativeLines}
+When to use: Creating a new note, or replacing a whole note's body.${writeNoteAlternativeLines}
 
 Errors:
 - "note already exists" — set overwrite: true to replace it${partialEditAdvice}
 - "path must end in …" — add the .md extension
-- "cannot write note …: that path is not a file" — a folder already has this name; choose another path
+- "cannot write note …: that path is not a file" — a folder, or a link to one, already has this name; choose another path
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-- "body contains a control character" — body includes a non-printable control byte; remove it before writing
+- "body contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry("with overwrite: true")}
-- "the note would open with a properties block the server cannot keep …" — the note would get no properties (none passed or kept from an overwritten note, or every key set to null), and the body opens with --- lines around text that is invalid YAML, a list, a single value, or a YAML tag, which would become its properties block; pass at least one property, or start the body without --- lines
+- "the note would open with a properties block the server cannot keep …" — the note would get no properties (none passed or kept from an overwritten note, or every key set to null), and the body opens with --- lines around text that can't be kept as properties; the error says how to avoid it
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
@@ -527,7 +524,7 @@ Section boundaries: a section spans from its heading to the next heading of the 
 Errors:
 - "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
 - "path must end in …" — add the .md extension
-- "heading not found" — no heading matches the text; error lists available headings
+- "heading not found" — the message lists the available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate; if they share a level, rename one${whenToolEnabledText("vault_replace_in_note", " or use vault_replace_in_note to target by text content")}
 - "operation … requires a heading target" — pass heading, or use append or prepend to edit the file body
 - "heading cannot be empty" — heading is whitespace only; pass the heading's text
@@ -535,7 +532,7 @@ Errors:
 - "section … has N child headings …" — the target section contains child headings that replace would destroy; pass include_children: true to confirm, or target the child heading directly
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-- "content contains a control character" — content includes a non-printable control byte; remove it before writing
+- "content contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -665,7 +662,7 @@ Errors:
 - "text not found" — old_text does not appear in the note body; ${textNotFoundRemedy}
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-- "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
+- "new_text contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -762,14 +759,14 @@ Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone.${deleteSpanAlternativesLine}
 
 Parameters:
-- end_anchor is searched at or after the start line and must be unique among those lines. If both match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
+- end_anchor is searched at or after the start line and must be unique among those lines. If start_anchor and end_anchor match the same line, only that one line is deleted. ${fencedBlockEndAnchorText("remove")}
 
 Behavior: Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); ${anchorNotFoundRemedy}
+- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; ${anchorNotFoundRemedy}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -788,14 +785,14 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
           .string()
           .min(1)
           .describe(
-            "Short, unique substring that identifies the first line of the block (case-sensitive). Pick a brief fragment — do not paste the whole block.",
+            "Short, unique substring of the block's first line, a body line (case-sensitive). Pick a brief fragment — do not paste the whole block.",
           ),
         end_anchor: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Short substring that identifies the LAST line of the block (case-sensitive). Omit to delete just the single line containing start_anchor.",
+            "Short substring of the block's LAST line, a body line (case-sensitive). Omit to delete just the single line containing start_anchor.",
           ),
         first_match: z
           .boolean()
@@ -861,17 +858,17 @@ Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning]
 When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone.${replaceSpanAlternativesLine}
 
 Parameters:
-- end_anchor is searched at or after the start line and must be unique among those lines. If both match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
+- end_anchor is searched at or after the start line and must be unique among those lines. If start_anchor and end_anchor match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
 - content: line breaks at its start or end merge with the note's empty lines on that side, keeping the wider run (at the note's end, content's trailing line breaks count one fewer). So content can widen a gap but never narrow it: content with no line break at either end keeps the gaps as they were, and content ending in one ("| X |\\n") leaves an empty line after it, which splits a table. Content made only of line breaks joins both sides into one gap. Empty lines inside content are written as given. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); ${anchorNotFoundRemedy}
+- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; ${anchorNotFoundRemedy}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-- "content contains a control character" — content includes a non-printable control byte; remove it before writing
+- "content contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -889,14 +886,14 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
           .string()
           .min(1)
           .describe(
-            "Short, unique substring that identifies the first line of the block (case-sensitive). Pick a brief fragment — do not paste the whole block.",
+            "Short, unique substring of the block's first line, a body line (case-sensitive). Pick a brief fragment — do not paste the whole block.",
           ),
         end_anchor: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Short substring that identifies the LAST line of the block (case-sensitive). Omit to replace just the single line containing start_anchor.",
+            "Short substring of the block's LAST line, a body line (case-sensitive). Omit to replace just the single line containing start_anchor.",
           ),
         content: z
           .string()
@@ -974,11 +971,11 @@ Parameters:
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
 - "path must end in …" — add the .md extension
-- "anchor not found" — fragment not on any line; ${anchorNotFoundRemedy}
+- "anchor not found" — fragment not on any body line; ${anchorNotFoundRemedy}
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
-- "content contains a control character" — content includes a non-printable control byte; remove it before writing
+- "content contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -996,7 +993,7 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
           .string()
           .min(1)
           .describe(
-            "Short, unique substring on the line to insert next to (case-sensitive). Pick a brief fragment — do not paste the whole line.",
+            "Short, unique substring of the body line to insert next to (case-sensitive). Pick a brief fragment — do not paste the whole line.",
           ),
         position: z
           .enum(["before", "after"])
@@ -1210,7 +1207,7 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — and Canvas cards that embed the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
@@ -1227,18 +1224,16 @@ Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
 - "note not found: …" — old_path does not exist; ${noteNotFoundVerifyRemedy}.
 - "source and destination are the same path" — old_path and new_path name the same note, so there is nothing to move.
-- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder (listed under When to use); pick a new_path outside it, or leave a protected note where it is.
-- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry.
+- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder; pick a new_path outside it, or leave a protected note where it is.
+- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault's owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry.
 - "path must end in …" — both old_path and new_path must end in .md.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them.
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources; retry the move.
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
-- "move incomplete: …" — an ordinary move failed partway (rare: a permission or disk error); no data is lost, and the error names what failed and the resulting state. If a backlink write failed: new_path exists and old_path is intact, so delete the partial new_path, then re-run the move. If the final delete failed: both paths exist, so delete old_path to finish.
-- A case-only rename that fails partway — "move aborted: could not rename to …" means nothing was written; retry the move, and if it fails again ask the vault's owner to fix the folder's permissions. "move incomplete: …" means the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
-- "move aborted: could not read …" / "move aborted: could not rewrite …" — the note, or a note linking to it, could not be read, or could not be saved with its links rewritten (the error says why and how to fix it); nothing was written; fix that note, then retry.
-- "move aborted: could not write to …" — new_path could not be created; nothing was written. The folder or disk can't be written; ask the vault's owner to fix it.
+- "move aborted: …" — nothing was written. "could not read …" names the note, or a note linking to it, that could not be read; fix that note, then retry. "could not rewrite …" says why a note could not be saved with its links rewritten, and how to fix it. "could not write to …", or "could not rename to …" for a case-only rename, means new_path could not be created; retry once, then ask the vault's owner to fix the folder or disk.
+- "move incomplete: …" — the move failed partway (rare: a permission or disk error); no data is lost, and the message names what failed, the state it left, and the step that finishes the move.
 ${FILESYSTEM_ERROR_ENTRY}; nothing was written.
-${INDEX_ENGINE_ERROR_ENTRY}; nothing was written.
+- "[SqliteError]: …" — the search index failed before the move began, so nothing was written; the message says what to do.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text.
 
@@ -1326,7 +1321,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block (null writes an empty property, {} removes it). A merge refuses a block it cannot keep — invalid YAML, a list, a single value, or a YAML tag — so replace is how to repair one. The body is kept; a merge only adds a missing final newline.
+      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block (null writes an empty property, {} removes it). The body is kept; a merge only adds a missing final newline.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })
@@ -1340,7 +1335,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 ${FILESYSTEM_ERROR_ENTRY}
-${describePropertiesBlockErrorEntry("without replace: true")}
+- "properties block …" — without replace: true, the merge refuses a block it cannot keep: invalid YAML, a list, a single value, or a YAML tag; the error says how to repair it
 ${OPENING_BLOCK_ERROR_ENTRY}
 
 Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks ("[[Note]]"), keep types consistent (mismatches cause silent query failures).

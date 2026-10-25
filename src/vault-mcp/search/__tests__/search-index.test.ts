@@ -4874,6 +4874,20 @@ describe("findOrphans", () => {
     })
   })
 
+  it("accepts up to 994 excluded folders and refuses 995", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const createExcludeFolders = (count: number): string[] => {
+      return Array.from({ length: count }, (_, folderIndex) => `Folder${folderIndex}`)
+    }
+    const largestAccepted = createExcludeFolders(994)
+    const oneTooMany = createExcludeFolders(995)
+
+    expect(queryIndex.findOrphans({ excludeFolders: largestAccepted }, logger)).toEqual([])
+    expect(() => {
+      queryIndex.findOrphans({ excludeFolders: oneTooMany }, logger)
+    }).toThrow("too many excluded folders")
+  })
+
   it("propagates unrelated SQLite query failures unchanged", () => {
     const queryIndex = createSearchIndex(":memory:")
     const requestLogger = { ...logger, warn: vi.fn() }
