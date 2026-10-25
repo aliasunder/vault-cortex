@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest"
-import { isMemoryEntryLine, parseMemoryEntries } from "../memory-entries.js"
+import {
+  isDoubledMarkdownFileName,
+  isMemoryEntryLine,
+  parseMemoryEntries,
+} from "../memory-entries.js"
+
+describe("isDoubledMarkdownFileName", () => {
+  it.each([
+    { label: "a name ending in .md twice", fileName: "Opinions.md.md", doubled: true },
+    { label: "an uppercase first extension", fileName: "Opinions.MD.md", doubled: true },
+    { label: "a path ending in .md twice", fileName: "About Me/Opinions.md.md", doubled: true },
+    { label: "a name ending in .md once", fileName: "Opinions.md", doubled: false },
+    { label: "a name with .md inside it", fileName: "Notes.md backup.md", doubled: false },
+  ])("returns $doubled for $label", ({ fileName, doubled }) => {
+    expect(isDoubledMarkdownFileName(fileName)).toBe(doubled)
+  })
+})
 
 describe("isMemoryEntryLine", () => {
   it.each([

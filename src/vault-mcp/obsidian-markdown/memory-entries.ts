@@ -45,6 +45,14 @@ const ENTRY_START_PATTERN = /^- \*\*(\d{4}-\d{2}-\d{2})\*\*:/
  *  date is checked for shape only. */
 export const isMemoryEntryLine = (line: string): boolean => ENTRY_START_PATTERN.test(line)
 
+/** True for a file name that ends in .md twice, in any letter case, such as
+ *  "Opinions.md.md". The memory tools add .md to a bare name and refuse a name
+ *  that already ends in .md, so no memory tool can reach such a file, and the
+ *  memory listings and recall leave it out instead of offering its name. */
+export const isDoubledMarkdownFileName = (fileName: string): boolean => {
+  return fileName.toLowerCase().endsWith(".md.md")
+}
+
 /** Matches any ATX heading line (H1–H6) per CommonMark §4.2: 0-3 leading
  *  spaces, hashes, then a space/tab separator or end of line (empty headings
  *  are valid). Inside an H2 span this can only be a deeper heading (H3+) —

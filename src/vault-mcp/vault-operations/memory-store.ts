@@ -21,6 +21,7 @@ import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import {
+  isDoubledMarkdownFileName,
   isMemoryEntryLine,
   parseMemoryEntries,
   type MemoryEntry,
@@ -361,12 +362,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   /** Large memory folders must not exhaust file handles by reading every file at once. */
   const memoryReadConcurrency = 16
 
-  /** True for the .md entries the memory layer serves — excludes dot-prefixed
-   *  (hidden) filenames so a pre-existing hidden file on disk never leaks
-   *  through the no-file read or the list surfaces, mirroring the write-side
-   *  rejection in memoryFilePath. */
+  /** True for the .md entries the memory layer serves. It mirrors the
+   *  rejections in memoryFilePath, so a file on disk that no memory tool can
+   *  name never reaches the no-file read or the list surfaces:
+   *  - a dot-prefixed (hidden) name;
+   *  - a name ending in .md twice, which only the listing would offer. */
   const isVisibleMemoryFile = (filename: string): boolean => {
-    return filename.endsWith(".md") && !filename.startsWith(".")
+    return (
+      filename.endsWith(".md") && !filename.startsWith(".") && !isDoubledMarkdownFileName(filename)
+    )
   }
 
   /** Reads the memory folder's direct entries.

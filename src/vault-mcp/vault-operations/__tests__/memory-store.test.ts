@@ -161,6 +161,12 @@ describe("getMemory", () => {
     expect(result).toContain("# Principles")
   })
 
+  it("leaves a file whose name ends in .md twice out of the all-files read", async () => {
+    const withoutDoubledName = await getMemory({ vaultPath: vault }, logger)
+    await writeFile(join(vault, "About Me", "Opinions.MD.md"), "# Doubled\n", "utf8")
+    expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutDoubledName)
+  })
+
   it("skips a folder whose name ends in .md in the all-files read", async () => {
     const withoutFolder = await getMemory({ vaultPath: vault }, logger)
     await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
@@ -2244,6 +2250,13 @@ describe("listMemoryFiles", () => {
     expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
+  // Listed, it would show as file "Opinions.md", which every memory tool refuses
+  it("leaves a file whose name ends in .md twice out of the outlines", async () => {
+    await writeFile(join(vault, "About Me", "Opinions.md.md"), "# Doubled\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
   it("skips a folder whose name ends in .md and still lists the files", async () => {
     await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
@@ -2536,6 +2549,12 @@ describe("listMemoryFileNames", () => {
 
   it("excludes a pre-existing hidden memory file", async () => {
     await writeFile(join(vault, "About Me/.secret.md"), "# Hidden\n", "utf8")
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("leaves out a file whose name ends in .md twice", async () => {
+    await writeFile(join(vault, "About Me/Opinions.md.md"), "# Doubled\n", "utf8")
     const names = await listMemoryFileNames({ vaultPath: vault }, logger)
     expect(names).toEqual(["Opinions", "Principles"])
   })

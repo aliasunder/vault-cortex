@@ -149,6 +149,24 @@ describe("memory entry indexing", () => {
     expect(selectEntryRows(inspect)).toEqual([])
   })
 
+  // No memory tool takes the name "Opinions.md", so recall must not offer it
+  it("does not index entries for a memory file whose name ends in .md twice", async () => {
+    const { index, inspect } = await createInspectableMemoryIndex()
+    index.upsertNote(
+      {
+        filePath: "About Me/Opinions.md.md",
+        rawContent: OPINIONS_V1,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // The note itself was indexed (the trigger ran) — only the entry
+    // extraction leaves it out.
+    const noteResults = index.fullTextSearch({ query: "immutable", filters: {} }, logger)
+    expect(noteResults.map((result) => result.path)).toEqual(["About Me/Opinions.md.md"])
+    expect(selectEntryRows(inspect)).toEqual([])
+  })
+
   it("does not index entries for a note nested below the memory dir", async () => {
     const { index, inspect } = await createInspectableMemoryIndex()
     index.upsertNote(
