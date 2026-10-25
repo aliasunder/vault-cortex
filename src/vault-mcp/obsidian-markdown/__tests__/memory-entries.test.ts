@@ -32,6 +32,11 @@ describe("isMemoryEntryLine", () => {
       opensEntry: false,
     },
     { label: "a bullet with no bold date", line: "- 2026-07-02: an entry", opensEntry: false },
+    {
+      label: "a bold date with no colon after it",
+      line: "- **2026-07-02** an entry",
+      opensEntry: false,
+    },
     { label: "an indented bullet", line: "  - **2026-07-02**: an entry", opensEntry: false },
   ])("returns $opensEntry for $label", ({ line, opensEntry }) => {
     expect(isMemoryEntryLine(line)).toBe(opensEntry)

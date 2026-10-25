@@ -703,6 +703,44 @@ title: Agents
     expect(countVectors(inspect)).toBe(3)
   })
 
+  // An index built before such names were left out holds their entries under
+  // file "Opinions.md"; the rebuild is what stops recall offering that name
+  it("removes entries an earlier index held for a memory file whose name ends in .md twice", async () => {
+    const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
+    await writeFile(join(memoryDirPath, "Opinions.md.md"), OPINIONS_V1)
+    const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    await firstBuild.embedding
+    const writer = new Database(join(dir, "index.db"))
+    onTestFinished(() => {
+      writer.close()
+    })
+    writer
+      .prepare(
+        `INSERT INTO memory_entries (file, section, entry_date, entry_text, entry_index, content_hash)
+         VALUES ('Opinions.md', 'Process (newest first)', '2026-06-25',
+                 '- **2026-06-25**: Sequential over parallel review.', 0, 'stale')`,
+      )
+      .run()
+    // The stale row is in place, so the rebuild below has something to remove
+    expect(selectEntryRows(inspect).map((row) => row.file)).toEqual([
+      "Agents",
+      "Opinions",
+      "Opinions",
+      "Opinions",
+      "Opinions.md",
+    ])
+
+    const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    await secondBuild.embedding
+
+    expect(selectEntryRows(inspect).map((row) => row.file)).toEqual([
+      "Agents",
+      "Opinions",
+      "Opinions",
+      "Opinions",
+    ])
+  })
+
   it("re-indexes a memory note's entries from its body when its block is not valid YAML", async () => {
     const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
     const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
