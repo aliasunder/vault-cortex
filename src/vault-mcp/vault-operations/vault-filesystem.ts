@@ -186,14 +186,14 @@ export const tempSavePath = (filePath: string): string => {
 /** Removes a file a write left behind. A failed removal is logged, not thrown,
  *  so the caller's own failure is the one that propagates. */
 const removeLeftoverFile = async (
-  params: { fullPath: string; logPath: string; failureLogMessage: string },
+  params: { fullPath: string; loggedPath: string; failureLogMessage: string },
   logger: Logger,
 ): Promise<void> => {
   try {
     await rm(params.fullPath, { force: true })
   } catch (cleanupError) {
     logger.warn(params.failureLogMessage, {
-      path: params.logPath,
+      path: params.loggedPath,
       error: describeError(cleanupError),
     })
   }
@@ -219,7 +219,7 @@ export const atomicWriteFile = async (
   } catch (err) {
     // A failed write never strands its temp file
     await removeLeftoverFile(
-      { fullPath: tmpPath, logPath: tmpPath, failureLogMessage: "failed to remove temp file" },
+      { fullPath: tmpPath, loggedPath: tmpPath, failureLogMessage: "failed to remove temp file" },
       logger,
     )
     throw err
@@ -276,7 +276,7 @@ export const atomicWriteFileExclusive = async (
       await removeLeftoverFile(
         {
           fullPath: params.filePath,
-          logPath: params.filePath,
+          loggedPath: params.filePath,
           failureLogMessage: "failed to remove reservation placeholder",
         },
         logger,
@@ -288,7 +288,7 @@ export const atomicWriteFileExclusive = async (
     // target, so removing it leaves the target alone; after the rename it is
     // already gone.
     await removeLeftoverFile(
-      { fullPath: tmpPath, logPath: tmpPath, failureLogMessage: "failed to remove temp file" },
+      { fullPath: tmpPath, loggedPath: tmpPath, failureLogMessage: "failed to remove temp file" },
       logger,
     )
   }
@@ -714,7 +714,7 @@ const moveNoteToTrash = async (
         await removeLeftoverFile(
           {
             fullPath: candidateFullPath,
-            logPath: candidateRelativePath,
+            loggedPath: candidateRelativePath,
             failureLogMessage: "failed to remove claim placeholder",
           },
           logger,

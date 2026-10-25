@@ -47,8 +47,7 @@ export const memoryEntryLineDate = (line: string): string | undefined => {
 }
 
 /** True when the line opens a dated memory entry, the same test the parser
- *  uses, so the memory store's writes agree with it on what an entry is. The
- *  date is checked for shape only. */
+ *  uses, so the memory store's writes agree with it on what an entry is. */
 export const isMemoryEntryLine = (line: string): boolean => Boolean(memoryEntryLineDate(line))
 
 /** True for a file name that ends in .md twice, in any letter case, such as

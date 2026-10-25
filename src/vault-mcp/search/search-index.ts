@@ -1362,7 +1362,7 @@ export const createSearchIndex = (
   const memoryFileNameFromPath = (filePath: string): string | null => {
     if (memoryDir === undefined) return null
     if (!filePath.endsWith(".md")) return null
-    if (isDoubledMarkdownFileName(filePath)) return null
+    if (isDoubledMarkdownFileName(basename(filePath))) return null
     if (posix.dirname(filePath) !== memoryDir) return null
     return basename(filePath, ".md")
   }
