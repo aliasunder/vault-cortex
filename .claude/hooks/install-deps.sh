@@ -13,7 +13,9 @@ set -euo pipefail
 # Logs go to stderr because SessionStart hook stdout enters the model's context.
 log() { echo "[install-deps] $*" >&2; }
 
-# Explicit command callers need the selected Node bin, not a readiness signal.
+# Explicit command callers print the selected Node bin:
+# - --node-bin selects Node without installing.
+# - --prepare-node-bin also runs dependency setup.
 # Claude hook invocations omit the argument and keep stdout empty.
 output_mode="${1:-}"
 case "${output_mode}" in
