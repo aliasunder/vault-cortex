@@ -52,8 +52,8 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? "vault notes and file content (canvas, PDF, and text files)"
     : "vault notes"
   const searchResultFieldsText = config.fileToolsEnabled
-    ? "path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes"
-    : "path, title, snippet, score, tags, folder, type, kind, created, modified, bytes"
+    ? "path, title, snippet, score, tags, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes"
+    : "path, title, snippet, score, tags, folder (top-level folder), type, kind, created, modified, bytes"
   const searchResultKindText = config.fileToolsEnabled
     ? `The kind field is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").`
     : `The kind field is always "note".`

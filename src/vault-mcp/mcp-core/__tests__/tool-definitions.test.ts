@@ -1184,7 +1184,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder limits results to notes:",
     resultFields:
-      "results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes",
+      "results array (path, title, snippet, score, tags, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes",
     kindSentence:
       'The kind field is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").',
   }
@@ -1192,7 +1192,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
     searchedScope: "search across vault notes",
     filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
     resultFields:
-      "results array (path, title, snippet, score, tags, folder, type, kind, created, modified, bytes",
+      "results array (path, title, snippet, score, tags, folder (top-level folder), type, kind, created, modified, bytes",
     kindSentence: 'The kind field is always "note".',
   }
 
@@ -1379,7 +1379,7 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
 
     expect(openerAndReturnsLines(description)).toEqual({
       opener:
-        'Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.',
+        'Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. When reranking runs, a meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.',
       returns: `${RECALL_RETURNS_LEAD} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker's relevance cut was applied.`,
     })
   })
