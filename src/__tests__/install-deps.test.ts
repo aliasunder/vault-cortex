@@ -768,14 +768,15 @@ describe("install-deps hook", () => {
         "bash",
         [
           "-c",
-          'node -p process.versions.modules && npm --prefix "$1" test',
+          'export PATH="$1:$PATH"; node -p process.versions.modules && npm --prefix "$2" test',
           "bash",
+          run.stdout.trimEnd(),
           fixture.checkout,
         ],
         {
           cwd: fixture.outsideDir,
           encoding: "utf8",
-          env: { ...hookEnv({ fixture, path }), PATH: `${run.stdout.trimEnd()}:${path}` },
+          env: hookEnv({ fixture, path }),
         },
       )
 
@@ -855,15 +856,48 @@ describe("install-deps hook", () => {
       const run = runHook({ fixture, payloadCwd: null, claudeProjectDir: fixture.outsideDir })
 
       expect({
-        status: run.status,
-        stderr: run.stderr,
+        ...run,
         npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+        lockCreated: existsSync(join(fixture.stateDir, "install-deps.lock")),
       }).toEqual({
         status: 0,
+        stdout: "",
         stderr: `[install-deps] no git checkout resolved from '${fixture.outsideDir}' — skipping\n`,
         npmCalls: [],
+        marker: null,
+        stamp: null,
+        lockCreated: false,
       })
     })
+
+    it.each([{ operation: "environment" }, { operation: "prepare" }] as const)(
+      "reports no checkout for $operation without touching install state",
+      ({ operation }) => {
+        const fixture = createHookFixture()
+
+        const run = runHook({
+          fixture,
+          payloadCwd: fixture.outsideDir,
+          operation,
+        })
+
+        expect({
+          ...run,
+          npmCalls: recordedNpmCalls(fixture),
+          ...installState(fixture),
+          lockCreated: existsSync(join(fixture.stateDir, "install-deps.lock")),
+        }).toEqual({
+          status: 1,
+          stdout: "",
+          stderr: `[install-deps] no git checkout resolved from '${fixture.outsideDir}' — skipping\n`,
+          npmCalls: [],
+          marker: null,
+          stamp: null,
+          lockCreated: false,
+        })
+      },
+    )
   })
 
   describe("with a marker left by an interrupted install", () => {

@@ -63,6 +63,7 @@ payload_cwd="$(read_payload_field cwd)"
 checkout_lookup_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
 checkout="$(git -C "${checkout_lookup_dir}" rev-parse --show-toplevel 2>/dev/null)" || {
   log "no git checkout resolved from '${checkout_lookup_dir}' — skipping"
+  [[ -z "${output_mode}" ]] || exit 1
   exit 0
 }
 

@@ -423,9 +423,15 @@ Claude Code uses the committed session/worktree hook. Other clients can opt in
 through `.claude/hooks/prepare-command.sh`: send JSON with the checkout's `cwd`
 and `hook_event_name: "PreToolUse"` on stdin, and pass `environment` or `prepare`.
 The first operation selects Node without writing install state; the second also
-waits for the existing dependency and SST setup. Both print only the physical
-Node bin directory to stdout. Prepend that directory to the command's PATH.
+waits for the existing dependency and SST setup. Both operations print only the
+selected physical Node bin directory to stdout. Require a successful exit and
+a nonempty absolute directory containing an executable `node` before prepending
+the directory to the command's PATH.
 Ordinary `install-deps.sh` calls keep empty stdout and their existing behavior.
+
+With nvm, selection uses the checkout's `.nvmrc` version when installed, then
+nvm's default alias. If neither lookup finds an executable, or nvm is
+unavailable, selection uses the current PATH. Setup never downloads Node.
 
 Setup keeps the existing per-worktree lock and nonblocking failure behavior;
 an exit of zero does not prove dependencies are ready. Check the actual test or
