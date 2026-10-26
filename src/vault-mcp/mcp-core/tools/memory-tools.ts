@@ -30,7 +30,7 @@ const MEMORY_FOLDER_ERROR_ENTRY =
 /** The memory store wraps a failed read without the Node error's code, so the
  *  filesystem-error entry's code names never match this message. */
 const MEMORY_FILE_READ_ERROR_ENTRY =
-  "- \"cannot read memory file …\" — the file can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise its permissions need the vault's owner"
+  "- \"cannot read memory file …\" — the file can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise ask the vault's owner to fix its permissions"
 
 /** A memory write keeps the file's properties block, so it refuses only a
  *  file with no block whose opening lines would become one once saved:
@@ -79,7 +79,7 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
-      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: that file's content, frontmatter stripped. With file+section: just that H2 section's entries. No args: every file's content, frontmatter stripped, joined by --- lines — can be large. Returns empty string when no memory files exist yet.
+      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: that file's content, properties block stripped. With file+section: just that H2 section's entries. No args: every file's content, properties block stripped, joined by --- lines — can be large. Returns empty string when no memory files exist yet.
 
 With file+on_or_after: only the entries dated on or after that date (inclusive), in document order (newest first when new entries go at the top, their default position). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
 
@@ -182,7 +182,7 @@ Example: vault_list_memory_files() returns [{ file: "Principles", title: "Princi
 
 When to use: ${discoveryPurpose}${whenToolEnabledText("vault_delete_memory", ", and each file's entry_policy to check before pruning entries")}.${whenToolEnabledText("vault_memory_recall", " To find entries by topic instead, use vault_memory_recall.")}
 
-Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name, whether or not it has frontmatter or a scope callout. Subfolders are not read, and hidden (dot-prefixed) files and names ending in .md twice are skipped.
+Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name, whether or not it has frontmatter or a scope callout. Subfolders are not read, and hidden (dot-prefixed) files and names ending in .md.md (such as Opinions.md.md) are skipped.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
@@ -234,7 +234,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`
 ${recallUsageSections}
 
 ${recallReturnsLead} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker's relevance cut was applied.`
-    : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
+    : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching instead of returning nothing.
 
 ${recallUsageSections}
 

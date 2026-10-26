@@ -1389,7 +1389,7 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
 
     expect(openerAndReturnsLines(description)).toEqual({
       opener:
-        'Recall memory entries about a topic — entry-granular keyword retrieval across ALL About Me/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.',
+        'Recall memory entries about a topic — entry-granular keyword retrieval across ALL About Me/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching instead of returning nothing.',
       returns: `${RECALL_RETURNS_LEAD} In keyword-only mode search_mode is always "fts" and reranked always false.`,
     })
     expect(description).not.toContain("hybrid")

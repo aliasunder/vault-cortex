@@ -89,7 +89,7 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }) // disambiguate when several "Done" headings exist
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 }) // first 20 lines of an oversized section
 
-When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. For a note or section too long for one response (the server sets no cap; the outline gives each section's bytes), page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
+When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. For a note or section too long for one response (this tool sets no cap; the outline gives each section's bytes), page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
 Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_list_tasks", " For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's Markdown.")}${whenToolEnabledText("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabledText("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included.
@@ -1319,7 +1319,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block (null writes an empty property, {} removes it). The body is kept; a merge only adds a missing final newline.
+      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block (here null writes an empty property, and {} removes it). The body is kept; a merge only adds a missing final newline.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })

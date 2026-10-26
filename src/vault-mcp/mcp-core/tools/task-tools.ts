@@ -26,7 +26,7 @@ export const registerTaskTools = ({
     TOOL_NAMES.VAULT_LIST_TASKS,
     {
       title: "List Tasks",
-      description: `List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🏁 onCompletion, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result says where the task lives (path, line, heading; see Returns), so no follow-up reads are needed to locate it. Task lines inside fenced code blocks and %% %% comment blocks are not indexed. Checkboxes typed NON_TASK in the Tasks plugin's status registry are also excluded.
+      description: `List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🏁 onCompletion, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result says where the task lives (path, line, heading; see Returns), so no follow-up reads are needed to locate it. Task lines inside fenced code blocks and %% %% comment blocks are not indexed. Checkboxes typed NON_TASK in the Tasks plugin's status settings are also excluded.
 
 Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the "what's overdue?" call
 Example: vault_list_tasks({ path: "Code Projects/vault-cortex/TASKS.md", heading: ["Active", "Up Next", "Waiting On"], sort_by: "position" }) — actionable Kanban lanes in board order
@@ -43,7 +43,7 @@ Parameters:
 - status: "not_done" and "all" expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
 - due / scheduled / start / done / created / cancelled: a date filter only matches tasks that HAVE that date.
 - folder: a whole folder, subfolders included ("Projects" covers "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
-- sort_by: a task with none of a date sort's dates comes last; "priority" ascending puts highest first, with no priority between medium and low.
+- sort_by: a task with none of a date sort's dates comes last; "priority" ascending puts highest first, and tasks with no priority sort between medium and low.
 
 Errors:
 - "invalid due.before date: …" (any date filter's bound) — the bound isn't in YYYY-MM-DD form; use that form
@@ -481,7 +481,7 @@ Parameters:
 - At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
 - status side effects:
   Kanban: "done" moves the card and everything nested under it to the done lane (the lane holding a **Complete** line, else the heading "Done", exact case), leaving nested checkboxes as they are; a sub-task stays under its parent.
-  Recurring (🔁), on "done" only: spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes on the line directly below the task instead, so the task's nested lines then sit under the spawn. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line, except on an indented line of a Kanban board. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
+  Recurring (🔁), on "done" only: spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes on the line directly below the task instead, so the task's nested lines then sit under the spawn. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line; an indented line of a Kanban board refuses a new id, so target that spawn by line instead. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
   Delete (🏁 delete / [onCompletion:: delete]), on "done": removes the task line and its children instead of moving to done. With 🔁 + 🏁, the next occurrence is still created, and the completed task is removed.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the next occurrence. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
