@@ -413,7 +413,7 @@ Example: vault_delete_memory({ file: "Opinions", section: "Tools and workflows (
 Example: vault_delete_memory({ file: "Routines", section: "Daily/weekly rhythm (newest first)", date: "2026-03-10", entry: "Gym Tue/Thu at 7am" }) — prune an expired entry from an entry-policy: living file
 
 When to use: Removing an entry that was wrong when it was written — a mistake, a misattribution, or something never true. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state via vault_update_memory instead (newest-first naturally supersedes). The exception is a file whose frontmatter declares \`entry-policy: living\` (check via vault_list_memory_files) — a current-state file where deleting an expired entry is the intended maintenance. Call vault_get_memory(file, section) first to see exact entry text for matching.
-${whenToolEnabledText("vault_delete_note", `Prefer vault_delete_note for deleting whole notes outside ${config.memoryDir}/.\n`)}
+${whenToolEnabledText("vault_delete_note", "Prefer vault_delete_note for deleting whole notes; vault_delete_note refuses protected paths.\n")}
 Parameters:
 - date + entry together pick the bullet line within the given section; identical copies make the match ambiguous. The entry text matches the bullet's first line only, and the delete also removes the lines that continue that entry.
 - section scopes the match — an identical entry under a different heading is not found.
