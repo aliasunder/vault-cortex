@@ -63,8 +63,9 @@ on a folder for the full list.
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed Claude Code hook setup only (the rest is gitignored): settings.json registers the hook below
-  hooks/install-deps.sh # Runs at session start and worktree entry: loads nvm, installs dependencies when needed (npm ci, sst install), and at session start puts the checkout's Node (the .nvmrc version when nvm has it, else nvm's default alias) first on PATH for the session's later Bash commands
+.claude/ # Committed dependency hooks (the rest is gitignored); settings.json registers Claude Code setup
+  hooks/install-deps.sh # Claude session/worktree setup; loads the checkout's Node and installs dependencies/SST types when needed
+  hooks/prepare-command.sh # Optional command interface: environment selects Node; prepare also runs dependency setup
 obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
 rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian that prints the Sync token for .env
 templates/memory/ # About Me/ memory file templates for new vaults
@@ -415,6 +416,10 @@ limitations (no hard links, polling for file watching) but does not
 change path separator behavior. Native Windows execution (without
 Docker) is not a supported deployment and would break path handling
 throughout the codebase.
+
+## Dependency setup for agent commands
+
+Before integrating agent command setup, read [Agent command setup](./CONTRIBUTING.md#agent-command-setup).
 
 ## Code style
 
@@ -968,7 +973,7 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
     `init-setup-vault.test.ts`, `check-sync-vault.test.ts` (the vault
     check `init-setup-vault` runs), and `print-derived-env.test.ts` (the
     derivation that `init-derive-env` publishes)
-  - the Claude Code hook in `.claude/hooks/` →
+  - the dependency hooks in `.claude/hooks/` →
     `src/__tests__/install-deps.test.ts`
   - the release scripts in `.github/scripts/` → `src/__tests__/`:
     `generate-notes.test.ts`, `generate-cli-notes.test.ts`,
