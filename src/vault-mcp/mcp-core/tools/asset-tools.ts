@@ -137,7 +137,7 @@ Errors:
 - "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
 - "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; any other PDF or image error comes back in the reading library's own words. Replace or re-export the file
 - "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead. If that read also finds no text, this tool can't read the PDF
-- "image cannot be fitted into …" — even shrunk to 64 pixels on its longer side, the image is over the image output budget, which happens only when the server's owner sets MAX_IMAGE_OUTPUT_BYTES very low; ask them to raise it
+- "image cannot be fitted into …" — even shrunk and recompressed, the image is over the image output budget, which happens when the server's owner sets MAX_IMAGE_OUTPUT_BYTES very low; ask them to raise it
 ${FILESYSTEM_ERROR_ENTRY}
 - "file changed while reading" — the file was written while it was read (for example by Sync); retry the read
 - "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the vault's owner to restart the server
