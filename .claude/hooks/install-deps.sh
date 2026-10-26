@@ -22,6 +22,10 @@ case "${output_mode}" in
   ""|--node-bin|--prepare-node-bin) ;;
   *) log "unknown operation '${output_mode}'"; exit 2 ;;
 esac
+if (($# > 1)); then
+  log "expected at most one operation argument"
+  exit 2
+fi
 
 # A hook's non-interactive shell never sources .bashrc, so nvm is loaded here.
 # - Without it, npm can resolve to a system Node (cloud images ship Node 22 at

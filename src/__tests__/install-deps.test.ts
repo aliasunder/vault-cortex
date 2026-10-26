@@ -485,6 +485,30 @@ describe("install-deps hook", () => {
         arguments: ["--unknown"],
         message: "[install-deps] unknown operation '--unknown'\n",
       },
+      {
+        label: "trailing arguments after wrapper environment",
+        path: COMMAND_PATH,
+        arguments: ["environment", "--verbose"],
+        message: "[prepare-command] expected exactly one operation argument\n",
+      },
+      {
+        label: "trailing arguments after wrapper prepare",
+        path: COMMAND_PATH,
+        arguments: ["prepare", "--verbose"],
+        message: "[prepare-command] expected exactly one operation argument\n",
+      },
+      {
+        label: "trailing arguments after installer environment selection",
+        path: HOOK_PATH,
+        arguments: ["--node-bin", "--verbose"],
+        message: "[install-deps] expected at most one operation argument\n",
+      },
+      {
+        label: "trailing arguments after installer preparation",
+        path: HOOK_PATH,
+        arguments: ["--prepare-node-bin", "--verbose"],
+        message: "[install-deps] expected at most one operation argument\n",
+      },
     ])(
       "rejects $label before touching install state",
       ({ path, arguments: commandArguments, message }) => {
@@ -764,32 +788,26 @@ describe("install-deps hook", () => {
       )
 
       const run = runHook({ fixture, operation: "prepare", path })
-      const command = spawnSync(
-        "bash",
-        [
-          "-c",
-          'export PATH="$1:$PATH"; node -p process.versions.modules && npm --prefix "$2" test',
-          "bash",
-          run.stdout.trimEnd(),
-          fixture.checkout,
-        ],
-        {
-          cwd: fixture.outsideDir,
-          encoding: "utf8",
-          env: hookEnv({ fixture, path }),
-        },
-      )
+      const executionOptions = {
+        cwd: fixture.outsideDir,
+        encoding: "utf8" as const,
+        env: hookEnv({ fixture, path: `${run.stdout.trimEnd()}:${path}` }),
+      }
+      const runtime = spawnSync("node", ["-p", "process.versions.modules"], executionOptions)
+      const command = spawnSync("npm", ["--prefix", fixture.checkout, "test"], executionOptions)
 
       expect({
         status: run.status,
         stdout: run.stdout,
+        runtime: { status: runtime.status, stdout: runtime.stdout, stderr: runtime.stderr },
         command: { status: command.status, stdout: command.stdout, stderr: command.stderr },
         npmCalls: recordedNpmCalls(fixture),
         ...installState(fixture),
       }).toEqual({
         status: 0,
         stdout: `${checkoutBin}\n`,
-        command: { status: 0, stdout: "137\n", stderr: "" },
+        runtime: { status: 0, stdout: "137\n", stderr: "" },
+        command: { status: 0, stdout: "", stderr: "" },
         npmCalls: ["abi-137 ci", `v24 --prefix ${fixture.checkout} test`],
         marker: null,
         stamp: `${fixture.lockfileHash} node-abi-137\n`,
