@@ -868,7 +868,7 @@
             ]
           },
           "sort_direction": {
-            "description": "Sort direction. Default per field: \"asc\" for due/scheduled/priority/position, \"desc\" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.",
+            "description": "Sort direction. Default per field: \"asc\" for due/scheduled/priority/position, \"desc\" for start/created/done/note_mtime. Within the fallback chain of a date sort (see sort_by), each fallback uses its own default; an explicit value overrides all fields uniformly.",
             "type": "string",
             "enum": [
               "asc",

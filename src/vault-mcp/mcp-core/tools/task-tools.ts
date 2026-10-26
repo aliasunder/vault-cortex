@@ -133,7 +133,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .enum(["asc", "desc"])
           .optional()
           .describe(
-            'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.',
+            'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within the fallback chain of a date sort (see sort_by), each fallback uses its own default; an explicit value overrides all fields uniformly.',
           ),
       },
     },
