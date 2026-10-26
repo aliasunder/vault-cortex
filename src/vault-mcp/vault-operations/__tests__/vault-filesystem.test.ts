@@ -2223,6 +2223,11 @@ describe("listAssets", () => {
     expect(files).toEqual(["assets/board.canvas", "assets/photo.png"])
   })
 
+  it("returns an empty listing when folder names a file", async () => {
+    const files = await listAssets({ vaultPath: vault, folder: "assets/photo.png" }, logger)
+    expect(files).toEqual([])
+  })
+
   it("includes a symlinked asset in the listing", async () => {
     await symlink("assets/photo.png", join(vault, "linked.png"))
     const files = await listAssets({ vaultPath: vault }, logger)

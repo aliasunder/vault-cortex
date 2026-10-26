@@ -7273,7 +7273,7 @@ describe("canvas file content and links", () => {
         logger,
       )
       const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
-      expect(backlinks.map((backlink) => backlink.path)).toEqual(["Diagrams/arch.canvas"])
+      expect(backlinks).toEqual([{ path: "Diagrams/arch.canvas", title: "arch", bytes: 500 }])
     })
 
     it("canvas outgoing links show file-node targets", () => {

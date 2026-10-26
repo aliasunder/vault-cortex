@@ -3451,8 +3451,12 @@ describe("DISABLED_TOOLS", () => {
     },
     {
       label: "drops the vault_update_properties line when that tool is disabled",
-      disabledTools: "vault_update_properties,vault_patch_note,vault_replace_in_note",
-      expectedLines: [WRITE_NOTE_WHEN_TO_USE, WRITE_NOTE_MEMORY_LINE],
+      disabledTools: "vault_update_properties",
+      expectedLines: [
+        WRITE_NOTE_WHEN_TO_USE,
+        "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
+        WRITE_NOTE_MEMORY_LINE,
+      ],
     },
     {
       label: "leaves only the when-to-use line when every routing tool is disabled",
