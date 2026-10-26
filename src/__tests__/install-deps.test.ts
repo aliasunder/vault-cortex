@@ -466,6 +466,116 @@ const createDirectoryKeyedNodeShim = (
 
 describe("install-deps hook", () => {
   describe("repository command interface", () => {
+    it.each([
+      {
+        label: "a missing wrapper operation",
+        path: COMMAND_PATH,
+        arguments: [],
+        message: "[prepare-command] expected environment or prepare\n",
+      },
+      {
+        label: "an unknown wrapper operation",
+        path: COMMAND_PATH,
+        arguments: ["unknown"],
+        message: "[prepare-command] expected environment or prepare\n",
+      },
+      {
+        label: "an unknown installer operation",
+        path: HOOK_PATH,
+        arguments: ["--unknown"],
+        message: "[install-deps] unknown operation '--unknown'\n",
+      },
+    ])(
+      "rejects $label before touching install state",
+      ({ path, arguments: commandArguments, message }) => {
+        const fixture = createHookFixture()
+        leaveOlderStamp(fixture)
+
+        const run = spawnSync("bash", [path, ...commandArguments], {
+          cwd: fixture.outsideDir,
+          input: hookPayload({ fixture }),
+          encoding: "utf8",
+          env: hookEnv({ fixture }),
+        })
+
+        expect({
+          status: run.status,
+          stdout: run.stdout,
+          stderr: run.stderr,
+          npmCalls: recordedNpmCalls(fixture),
+          ...installState(fixture),
+          lockCreated: existsSync(join(fixture.stateDir, "install-deps.lock")),
+        }).toEqual({
+          status: 2,
+          stdout: "",
+          stderr: message,
+          npmCalls: [],
+          marker: null,
+          stamp: `${OLDER_INSTALL_IDENTITY}\n`,
+          lockCreated: false,
+        })
+      },
+    )
+
+    it.each([
+      { label: "environment selection", operation: "environment" },
+      { label: "dependency preparation", operation: "prepare" },
+      { label: "a Claude hook", operation: undefined },
+    ] as const)("keeps nvm startup output off stdout for $label", ({ operation }) => {
+      const fixture = createHookFixture()
+      writeFileSync(
+        join(fixture.outsideDir, ".nvm", "nvm.sh"),
+        "echo 'nvm startup output'\nfalse\n",
+      )
+
+      const run = runHook({ fixture, ...(operation ? { operation } : {}) })
+
+      expect({ ...run, npmCalls: recordedNpmCalls(fixture) }).toEqual({
+        status: 0,
+        stdout: operation ? `${dirname(realpathSync(process.execPath))}\n` : "",
+        stderr:
+          "nvm startup output\n" +
+          (operation === "environment"
+            ? ""
+            : `[install-deps] node_modules current in ${fixture.checkout} — nothing to do\n`),
+        npmCalls: [],
+      })
+    })
+
+    it("diagnoses a failed runtime probe before printing a bin or touching install state", () => {
+      const fixture = createHookFixture()
+      leaveOlderStamp(fixture)
+      writeExecutable(
+        join(fixture.stubBinDir, "node"),
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "-p" ] && [ "$2" = "process.execPath" ]; then',
+          "  echo 'runtime probe failed' >&2",
+          "  exit 9",
+          "fi",
+          `exec "${process.execPath}" "$@"`,
+          "",
+        ].join("\n"),
+      )
+
+      const run = runHook({ fixture, operation: "prepare" })
+
+      expect({
+        ...run,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+        lockCreated: existsSync(join(fixture.stateDir, "install-deps.lock")),
+      }).toEqual({
+        status: 1,
+        stdout: "",
+        stderr: `[install-deps] could not resolve the selected Node in ${fixture.checkout}\n`,
+        npmCalls: [],
+        marker: null,
+        stamp: `${OLDER_INSTALL_IDENTITY}\n`,
+        lockCreated: false,
+      })
+    })
+
     it("selects a valid Node bin without touching missing dependencies, SST types or interrupted-install state", () => {
       const fixture = createHookFixture()
       rmSync(join(fixture.checkout, "node_modules"), { recursive: true })
@@ -567,15 +677,27 @@ describe("install-deps hook", () => {
       })
     })
 
-    it("diagnoses an invalid runtime result without printing a bin or touching install state", () => {
+    it.each([
+      { label: "a relative runtime path", pathKind: "relative" },
+      { label: "a missing runtime executable", pathKind: "missing" },
+      { label: "a non-executable runtime file", pathKind: "non-executable" },
+    ])("rejects $label without printing a bin or touching install state", ({ pathKind }) => {
       const fixture = createHookFixture()
       leaveOlderStamp(fixture)
+      const runtimePath =
+        pathKind === "relative" ? "relative/node" : join(fixture.outsideDir, "runtime")
+
+      if (pathKind === "relative") {
+        mkdirSync(join(fixture.outsideDir, "relative"))
+        writeExecutable(join(fixture.outsideDir, runtimePath), "#!/bin/sh\nexit 0\n")
+      }
+      if (pathKind === "non-executable") writeFileSync(runtimePath, "not executable\n")
       writeExecutable(
         join(fixture.stubBinDir, "node"),
         [
           "#!/bin/sh",
           'if [ "$1" = "-p" ] && [ "$2" = "process.execPath" ]; then',
-          "  echo relative/node",
+          `  echo "${runtimePath}"`,
           "  exit 0",
           "fi",
           `exec "${process.execPath}" "$@"`,
