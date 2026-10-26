@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 
 import { describe, expect, it, onTestFinished } from "vitest"
 
@@ -28,6 +28,7 @@ import { describe, expect, it, onTestFinished } from "vitest"
  */
 
 const HOOK_PATH = resolve(import.meta.dirname, "../../.claude/hooks/install-deps.sh")
+const COMMAND_PATH = resolve(import.meta.dirname, "../../.claude/hooks/prepare-command.sh")
 
 /** Stub `npm`: appends its arguments to STUB_NPM_LOG, one call per line. An
  *  `ls` call exits with STUB_NPM_LS_STATUS and a `ci` call with
@@ -105,6 +106,7 @@ type HookRun = {
 
 type HookRunOptions = {
   fixture: HookFixture
+  operation?: "environment" | "prepare"
   /** What the stub `npm ls` exits with. Defaults to 0, a complete tree. */
   npmLsStatus?: number
   /** What the stub `npm ci` exits with. Defaults to 0, a finished install. */
@@ -277,7 +279,8 @@ const hookEnv = (options: HookRunOptions): Record<string, string> => {
 }
 
 const runHook = (options: HookRunOptions): HookRun => {
-  const result = spawnSync("bash", [HOOK_PATH], {
+  const command = options.operation ? [COMMAND_PATH, options.operation] : [HOOK_PATH]
+  const result = spawnSync("bash", command, {
     cwd: options.fixture.outsideDir,
     input: hookPayload(options),
     encoding: "utf8",
@@ -423,6 +426,10 @@ const createNodeBinDir = (fixture: HookFixture, version: keyof typeof STUB_NODE_
       `  echo ${STUB_NODE_ABIS[version]}`,
       "  exit 0",
       "fi",
+      'if [ "$1" = "-p" ] && [ "$2" = "process.execPath" ]; then',
+      `  echo "${join(binDir, "node")}"`,
+      "  exit 0",
+      "fi",
       `exec "${process.execPath}" "$@"`,
       "",
     ].join("\n"),
@@ -434,7 +441,239 @@ const createNodeBinDir = (fixture: HookFixture, version: keyof typeof STUB_NODE_
   return binDir
 }
 
+/** A version-manager shim chooses a different real executable in the target
+ *  checkout than in the shell's original working directory. */
+const createDirectoryKeyedNodeShim = (
+  fixture: HookFixture,
+): { shimBin: string; checkoutBin: string } => {
+  const checkoutBin = createNodeBinDir(fixture, "v24")
+  const outsideBin = createNodeBinDir(fixture, "v20")
+  const shimBin = join(fixture.outsideDir, "shims")
+  mkdirSync(shimBin)
+  writeExecutable(
+    join(shimBin, "node"),
+    [
+      "#!/bin/sh",
+      `if [ "$PWD" = "${fixture.checkout}" ]; then`,
+      `  exec "${join(checkoutBin, "node")}" "$@"`,
+      "fi",
+      `exec "${join(outsideBin, "node")}" "$@"`,
+      "",
+    ].join("\n"),
+  )
+  return { shimBin, checkoutBin }
+}
+
 describe("install-deps hook", () => {
+  describe("repository command interface", () => {
+    it("selects a valid Node bin without touching missing dependencies, SST types or interrupted-install state", () => {
+      const fixture = createHookFixture()
+      rmSync(join(fixture.checkout, "node_modules"), { recursive: true })
+      rmSync(join(fixture.checkout, ".sst"), { recursive: true })
+      leaveMarker(fixture)
+      leaveOlderStamp(fixture)
+      const claudeEnvFile = join(fixture.outsideDir, "foreign-env")
+      writeFileSync(claudeEnvFile, "keep this file\n")
+
+      const run = runHook({ fixture, operation: "environment", claudeEnvFile })
+
+      expect({
+        ...run,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+        lockCreated: existsSync(join(fixture.stateDir, "install-deps.lock")),
+        dependenciesCreated: existsSync(join(fixture.checkout, "node_modules")),
+        sstCreated: existsSync(join(fixture.checkout, ".sst")),
+        envFile: readFileSync(claudeEnvFile, "utf8"),
+      }).toEqual({
+        status: 0,
+        stdout: `${dirname(realpathSync(process.execPath))}\n`,
+        stderr: "",
+        npmCalls: [],
+        marker: `${fixture.installIdentity}\n`,
+        stamp: `${OLDER_INSTALL_IDENTITY}\n`,
+        lockCreated: false,
+        dependenciesCreated: false,
+        sstCreated: false,
+        envFile: "keep this file\n",
+      })
+    })
+
+    it.each([{ dependencyState: "missing" }, { dependencyState: "stale" }])(
+      "prepares $dependencyState dependencies and missing SST types while printing only the selected bin",
+      ({ dependencyState }) => {
+        const fixture = createHookFixture()
+
+        if (dependencyState === "missing") {
+          rmSync(join(fixture.checkout, "node_modules"), { recursive: true })
+        } else {
+          leaveOlderStamp(fixture)
+        }
+        rmSync(join(fixture.checkout, ".sst"), { recursive: true })
+        writeExecutable(
+          join(fixture.stubBinDir, "npm"),
+          NPM_STUB.replace('case "$*" in', 'echo "npm output"\ncase "$*" in'),
+        )
+        writeExecutable(
+          join(fixture.stubBinDir, "npx"),
+          NPX_STUB.replace("exit 0\n", "echo 'sst output'\nexit 0\n"),
+        )
+        const claudeEnvFile = join(fixture.outsideDir, "foreign-env")
+        writeFileSync(claudeEnvFile, "keep this file\n")
+
+        const run = runHook({ fixture, operation: "prepare", claudeEnvFile })
+
+        expect({
+          ...run,
+          npmCalls: recordedNpmCalls(fixture),
+          ...installState(fixture),
+          envFile: readFileSync(claudeEnvFile, "utf8"),
+        }).toEqual({
+          status: 0,
+          stdout: `${dirname(realpathSync(process.execPath))}\n`,
+          stderr: [
+            `[install-deps] installing dependencies in ${fixture.checkout} (node ${process.version})`,
+            "npm output",
+            "[install-deps] install complete",
+            `[install-deps] installing SST platform types in ${fixture.checkout}`,
+            "sst output",
+            "",
+          ].join("\n"),
+          npmCalls: ["ci", "npx sst install"],
+          marker: null,
+          stamp: `${fixture.installIdentity}\n`,
+          envFile: "keep this file\n",
+        })
+      },
+    )
+
+    it("reports the selected bin after a failed install while preserving the retry marker", () => {
+      const fixture = createHookFixture()
+      leaveOlderStamp(fixture)
+
+      const run = runHook({ fixture, operation: "prepare", npmCiStatus: 1 })
+
+      expect({ ...run, npmCalls: recordedNpmCalls(fixture), ...installState(fixture) }).toEqual({
+        status: 0,
+        stdout: `${dirname(realpathSync(process.execPath))}\n`,
+        stderr: [
+          `[install-deps] installing dependencies in ${fixture.checkout} (node ${process.version})`,
+          "[install-deps] npm ci failed — the session continues without dependencies; the marker forces a retry next session",
+          "",
+        ].join("\n"),
+        npmCalls: ["ci"],
+        marker: `${fixture.installIdentity}\n`,
+        stamp: `${OLDER_INSTALL_IDENTITY}\n`,
+      })
+    })
+
+    it("diagnoses an invalid runtime result without printing a bin or touching install state", () => {
+      const fixture = createHookFixture()
+      leaveOlderStamp(fixture)
+      writeExecutable(
+        join(fixture.stubBinDir, "node"),
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "-p" ] && [ "$2" = "process.execPath" ]; then',
+          "  echo relative/node",
+          "  exit 0",
+          "fi",
+          `exec "${process.execPath}" "$@"`,
+          "",
+        ].join("\n"),
+      )
+
+      const run = runHook({ fixture, operation: "prepare" })
+
+      expect({
+        ...run,
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+        lockCreated: existsSync(join(fixture.stateDir, "install-deps.lock")),
+      }).toEqual({
+        status: 1,
+        stdout: "",
+        stderr: `[install-deps] selected Node in ${fixture.checkout} returned an invalid executable path\n`,
+        npmCalls: [],
+        marker: null,
+        stamp: `${OLDER_INSTALL_IDENTITY}\n`,
+        lockCreated: false,
+      })
+    })
+
+    it.each([{ operation: "environment" }, { operation: "prepare" }] as const)(
+      "uses the .nvmrc Node despite the wrong initial PATH for $operation",
+      ({ operation }) => {
+        const fixture = createHookFixture()
+        leaveOlderStamp(fixture)
+        writeFileSync(join(fixture.checkout, ".nvmrc"), "24\n")
+        writeNvmStandIn(fixture)
+        const launchingBin = createNodeBinDir(fixture, "v22")
+        const nvmrcBin = createNodeBinDir(fixture, "v24")
+        const defaultBin = createNodeBinDir(fixture, "v20")
+
+        const run = runHook({
+          fixture,
+          operation,
+          path: `${launchingBin}:${fixture.stubBinDir}:${runnerPath()}`,
+          nvmAnswers: { nvmrcNode: join(nvmrcBin, "node"), defaultNode: join(defaultBin, "node") },
+        })
+
+        expect({
+          status: run.status,
+          stdout: run.stdout,
+          npmCalls: recordedNpmCalls(fixture),
+        }).toEqual({
+          status: 0,
+          stdout: `${nvmrcBin}\n`,
+          npmCalls: operation === "prepare" ? ["v24 ci"] : [],
+        })
+      },
+    )
+
+    it("returns the checkout's physical runtime so a prefix command outside the checkout uses the installer's Node", () => {
+      const fixture = createHookFixture()
+      leaveOlderStamp(fixture)
+      const { shimBin, checkoutBin } = createDirectoryKeyedNodeShim(fixture)
+      const path = `${shimBin}:${fixture.stubBinDir}:${runnerPath()}`
+      writeExecutable(
+        join(fixture.stubBinDir, "npm"),
+        '#!/bin/sh\nprintf "abi-%s %s\\n" "$(node -p process.versions.modules)" "$*" >> "$STUB_NPM_LOG"\n',
+      )
+
+      const run = runHook({ fixture, operation: "prepare", path })
+      const command = spawnSync(
+        "bash",
+        [
+          "-c",
+          'node -p process.versions.modules && npm --prefix "$1" test',
+          "bash",
+          fixture.checkout,
+        ],
+        {
+          cwd: fixture.outsideDir,
+          encoding: "utf8",
+          env: { ...hookEnv({ fixture, path }), PATH: `${run.stdout.trimEnd()}:${path}` },
+        },
+      )
+
+      expect({
+        status: run.status,
+        stdout: run.stdout,
+        command: { status: command.status, stdout: command.stdout, stderr: command.stderr },
+        npmCalls: recordedNpmCalls(fixture),
+        ...installState(fixture),
+      }).toEqual({
+        status: 0,
+        stdout: `${checkoutBin}\n`,
+        command: { status: 0, stdout: "137\n", stderr: "" },
+        npmCalls: ["abi-137 ci", `v24 --prefix ${fixture.checkout} test`],
+        marker: null,
+        stamp: `${fixture.lockfileHash} node-abi-137\n`,
+      })
+    })
+  })
+
   it("resolves npm and npx to the stubs, with no nvm command, after loading the HOME nvm.sh the way the hook does", () => {
     const fixture = createHookFixture()
     // The hook's own condition: it loads $HOME/.nvm/nvm.sh only when the file
@@ -1165,20 +1404,7 @@ describe("install-deps hook", () => {
     it("records the ABI of the Node a directory-keyed shim picks in the checkout, where npm ci runs", () => {
       const fixture = createHookFixture()
       leaveOlderStamp(fixture)
-      const shimBin = join(fixture.outsideDir, "shims")
-      mkdirSync(shimBin)
-      writeExecutable(
-        join(shimBin, "node"),
-        [
-          "#!/bin/sh",
-          'if [ "$1" = "-p" ] && [ "$2" = "process.versions.modules" ]; then',
-          `  if [ "$PWD" = "${fixture.checkout}" ]; then echo ${STUB_NODE_ABIS.v24}; else echo ${STUB_NODE_ABIS.v20}; fi`,
-          "  exit 0",
-          "fi",
-          `exec "${process.execPath}" "$@"`,
-          "",
-        ].join("\n"),
-      )
+      const { shimBin } = createDirectoryKeyedNodeShim(fixture)
 
       const run = runHook({ fixture, path: `${shimBin}:${fixture.stubBinDir}:${runnerPath()}` })
 
