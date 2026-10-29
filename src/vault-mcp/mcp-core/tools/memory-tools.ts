@@ -34,7 +34,7 @@ const SECTION_NOT_FOUND_ERROR_ENTRY =
 /** The memory store wraps a failed read without the Node error's code, so the
  *  filesystem-error entry's code names never match this message. */
 const formatMemoryFileReadErrorEntry = (fileNameCheckRemedy: string): string => {
-  return `- "cannot read memory file …" — the file can't be read: ${fileNameCheckRemedy} (a name longer than the filesystem allows fails here); otherwise ask the vault's owner to fix its permissions`
+  return `- "cannot read memory file …" — the file can't be read: ${fileNameCheckRemedy}; otherwise ask the vault's owner to fix its permissions`
 }
 
 /** A memory write keeps the file's properties block, so it refuses only a
@@ -78,7 +78,7 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_DELETE_MEMORY,
   ])
   const discoveryPurpose = discoveryFollowUpTools
-    ? `Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}; this tool gives the valid file and section names`
+    ? `Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}`
     : "Discovering what memory files and sections exist — and what each file is for"
 
   // The tools a recall entry's file/section fields feed into. Rendered as a
@@ -104,9 +104,9 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
-      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: that file. With file+section: just that H2 section's entries. No args: every file, joined by --- lines — can be large.
+      description: `Read semantic memory from ${config.memoryDir}/ files. Each file holds dated bullet entries under H2 headings. With file: that file. With file+section: just that H2 section's entries. No args: every file, joined by --- lines — can be large.
 
-With file+on_or_after: only the entries dated on or after that date (inclusive), in document order (newest first when new entries go at the top, their default position). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
+With file+on_or_after: only the entries dated on or after that date, in document order (newest first by default). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
 
 Example: vault_get_memory({ file: "Principles" }) — the whole file
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
@@ -121,9 +121,9 @@ Errors:
 ${MEMORY_FILE_NAME_ERROR_ENTRY}
 ${SECTION_NOT_FOUND_ERROR_ENTRY}
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
-- "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: ${memoryFileNameCheckRemedy} (a name longer than the filesystem allows fails here); otherwise ask the vault's owner to check the folder
+- "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: ${memoryFileNameCheckRemedy}; otherwise ask the vault's owner to check the folder
 
-Returns: Without on_or_after, raw markdown with the properties block stripped, or an empty string when no memory files exist yet. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact). An empty match returns { entries: [], total: 0, on_or_after }.`,
+Returns: Without on_or_after, raw markdown with the properties block stripped, or an empty string when no memory files exist yet. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the raw entry markdown (bullet + continuation lines, wikilinks intact). An empty match returns { entries: [], total: 0, on_or_after }.`,
       inputSchema: {
         file: z
           .string()
@@ -137,7 +137,7 @@ Returns: Without on_or_after, raw markdown with the properties block stripped, o
           .min(1)
           .optional()
           .describe(
-            'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix. Omit to read the whole file.',
+            'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix.',
           ),
         on_or_after: z.string().min(1).optional().describe("Inclusive date filter (YYYY-MM-DD)."),
       },
@@ -200,13 +200,13 @@ Returns: Without on_or_after, raw markdown with the properties block stripped, o
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     {
       title: "List Memory Files",
-      description: `Discovery tool — lists ${config.memoryDir}/ memory files with each file's heading outline, per-section entry counts, and leading callout. An entry is a dated bullet line ("- **YYYY-MM-DD**: text"). Does NOT return actual entries.
+      description: `Discovery tool — lists ${config.memoryDir}/ memory files with each file's heading outline, per-section entry counts, and leading callout. Does NOT return actual entries.
 
 Example: vault_list_memory_files()
 
 When to use: ${discoveryPurpose}${whenToolEnabledText("vault_delete_memory", ", and each file's entry_policy to check before pruning entries")}.${whenToolEnabledText("vault_memory_recall", " To find entries by topic instead, use vault_memory_recall.")}
 
-Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name, whether or not it has frontmatter or a scope callout. Subfolders are not read, and hidden (dot-prefixed) files and names ending in .md.md (such as Opinions.md.md) are skipped.
+Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name. Subfolders are not read, and hidden (dot-prefixed) files are skipped.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
@@ -257,7 +257,7 @@ When to use: Answering "what does my memory say about X?" or "how has my view on
 Behavior: A memory file change takes a few seconds to appear here, so an entry written moments ago may not be recalled yet.
 
 Errors:
-- No matching entries returns { entries: [], total: 0, truncated: false, search_mode, reranked }, not an error
+- No matching entries returns entries: [] and total: 0, not an error
 - An unknown file returns empty results — ${memoryFileNotFoundRemedy}
 ${INDEX_ENGINE_ERROR_ENTRY}`
   const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file.`
@@ -267,11 +267,11 @@ ${INDEX_ENGINE_ERROR_ENTRY}`
   // (EMBEDDING_ENABLED=false) get an honest variant with a synonym-requery
   // workaround instead of an overclaim.
   const memoryRecallDescription = config.embeddingEnabled
-    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.
+    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to any-term keyword matching instead of returning nothing.
 
 ${recallUsageSections}
 
-${recallReturnsLead} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker's relevance cut was applied.`
+${recallReturnsLead} search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.`
     : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching instead of returning nothing.
 
 ${recallUsageSections}
@@ -297,7 +297,7 @@ ${recallReturnsLead} In keyword-only mode search_mode is always "fts" and rerank
           .min(1)
           .optional()
           .describe(
-            'Optional: restrict to one memory file, name without .md (e.g. "Opinions"), in its exact letter case. Omit for cross-file recall — the default and usual choice.',
+            'Restrict to one memory file, name without .md (e.g. "Opinions"), in its exact letter case. Omit for cross-file recall — the default and usual choice.',
           ),
         limit: z
           .number()
@@ -338,10 +338,6 @@ ${recallReturnsLead} In keyword-only mode search_mode is always "fts" and rerank
   const updateMemoryReuseNamesSentence = listMemoryFilesEnabled
     ? "Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped."
     : "Reuse existing file and section names so entries stay grouped."
-  const scopeCalloutFillInClause = whenToolEnabledText(
-    "vault_replace_in_note",
-    " via vault_replace_in_note",
-  )
   const scopeCalloutReplaceInstruction = isToolEnabled("vault_replace_in_note")
     ? "use vault_replace_in_note to replace"
     : "replace"
@@ -350,14 +346,14 @@ ${recallReturnsLead} In keyword-only mode search_mode is always "fts" and rerank
       "vault_write_note",
       "Prefer vault_write_note for creating non-memory notes.",
     ),
-    `A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in${scopeCalloutFillInClause}).`,
+    "A missing file or section is created automatically.",
   ])
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
-      description: `Append a dated entry to a section of a memory file in ${config.memoryDir}/. Idempotent — an exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare \`entry-policy: living\` in frontmatter${whenToolEnabledText("vault_list_memory_files", " (surfaced by vault_list_memory_files)")} — a current-state file where pruning expired entries${whenToolEnabledText("vault_delete_memory", " with vault_delete_memory")} is expected maintenance rather than a violation.
+      description: `Append a dated entry to a section of a memory file in ${config.memoryDir}/. An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare \`entry-policy: living\` in frontmatter${whenToolEnabledText("vault_list_memory_files", " (surfaced by vault_list_memory_files)")} — a current-state file where pruning expired entries${whenToolEnabledText("vault_delete_memory", " with vault_delete_memory")} is expected maintenance.
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 Example: vault_update_memory({ file: "Routines", section: "Daily/weekly rhythm (newest first)", entry: "Gym Mon/Wed at 6am", options: { date: "2026-10-01", position: "bottom" } }) — a backdated entry placed below the existing ones
@@ -370,12 +366,11 @@ Parameters:
 Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.
 
 Errors:
-- "entry must be a single line" — the message names the two fixes.
-- "section must be a single line" — the message names the fix.
-- "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
+- "entry must be a single line" / "section must be a single line" — the message names the fix.
+- "date must be a real ISO calendar date" — pass options.date as an existing calendar date in bare YYYY-MM-DD form, not a timestamp.
 - "entry contains a control character" / "section contains a control character" — remove the character the message names.
 ${MEMORY_FILE_NAME_ERROR_ENTRY}
-- "section not created: … is nearly identical to existing section …" — the name differs from an existing heading only by an HTML-entity slip, a typo, or spacing; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section. Names differing only in digits (e.g. "2025" vs "2026") count as different.
+- "section not created: … is nearly identical to existing section …" — pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a new section.
 ${memoryFileReadErrorEntry}
 ${MEMORY_FILE_IS_FOLDER_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
@@ -400,7 +395,7 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
           .string()
           .min(1)
           .describe(
-            'Raw entry text — a single line; the server prepends "- **YYYY-MM-DD**: " automatically. Do not include the date or bullet prefix.',
+            'Raw entry text — a single line, without the "- **YYYY-MM-DD**: " prefix, which the server prepends.',
           ),
         options: createStrictInputObject({
           date: z
@@ -472,7 +467,7 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
 Example: vault_delete_memory({ file: "Opinions", section: "Tools and workflows (newest first)", date: "2026-05-01", entry: "Prefer X over Y" })
 Example: vault_delete_memory({ file: "Routines", section: "Daily/weekly rhythm (newest first)", date: "2026-03-10", entry: "Gym Tue/Thu at 7am" }) — prune an expired entry from an entry-policy: living file
 
-When to use: Removing an entry that was wrong when it was written — a mistake, a misattribution, or something never true. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state${whenToolEnabledText("vault_update_memory", " via vault_update_memory")} instead (newest-first naturally supersedes). The exception is a file whose frontmatter declares \`entry-policy: living\`${whenToolEnabledText("vault_list_memory_files", " (check via vault_list_memory_files)")} — a current-state file where deleting an expired entry is the intended maintenance.${whenToolEnabledText("vault_get_memory", " Call vault_get_memory(file, section) first to see exact entry text for matching.")}
+When to use: Removing an entry that was wrong when it was written. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state${whenToolEnabledText("vault_update_memory", " via vault_update_memory")} instead. The exception is a file whose frontmatter declares \`entry-policy: living\`${whenToolEnabledText("vault_list_memory_files", " (check via vault_list_memory_files)")} — a current-state file where deleting an expired entry is the intended maintenance.${whenToolEnabledText("vault_get_memory", " Call vault_get_memory(file, section) first to see exact entry text for matching.")}
 ${whenToolEnabledText("vault_delete_note", "Prefer vault_delete_note for deleting whole notes; vault_delete_note refuses protected paths.\n")}
 Parameters:
 - date + entry together pick the bullet line within the given section; identical copies make the match ambiguous. The entry text matches the bullet's first line only, and the delete also removes the lines that continue that entry.
@@ -484,7 +479,7 @@ ${MEMORY_FILE_NAME_ERROR_ENTRY}
 - "date must be YYYY-MM-DD" — pass the entry's date exactly as the file shows it, zero-padded.
 ${SECTION_NOT_FOUND_ERROR_ENTRY}
 - "no entry matching …" — ${entryNotFoundRemedy}.
-- "ambiguous: N entries match …" — remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (first_match: true, since identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
+- "ambiguous: N entries match …" — remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (first_match: true) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — the delete would remove more than half the file; ${whenToolEnabledText("vault_get_memory", "re-read it with vault_get_memory, and ")}remove an entry that really is that large with ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 ${memoryFileReadErrorEntry}
 ${FILESYSTEM_ERROR_ENTRY}

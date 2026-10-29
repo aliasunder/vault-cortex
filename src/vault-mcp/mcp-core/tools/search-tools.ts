@@ -30,7 +30,7 @@ export const registerSearchTools = ({
 }: ToolRegistrationContext): void => {
   // These parts read the same with or without embeddings, so both
   // vault_search description variants share them
-  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.`
+  const searchSyntaxText = `Unquoted terms use implicit AND with stemming ("running" also matches "run"); wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases.`
 
   // File-content search applies only the folder filter, so hybrid search
   // drops file results whenever any other filter is set
@@ -72,7 +72,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? "path, title, snippet, score, tags, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes"
     : "path, title, snippet, score, tags, folder (top-level folder), type, kind, created, modified, bytes"
   const searchResultKindText = config.fileToolsEnabled
-    ? `The kind field is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").`
+    ? `The kind field is "note" for markdown notes or "file" for non-markdown content; file results also carry extension (e.g. ".pdf").`
     : `The kind field is always "note".`
   const searchResultDetailsText = `${searchResultKindText} The created field is omitted, not null, when a result has none; type is null when the result has no type property. The bytes field is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
 
@@ -92,10 +92,9 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const searchLagLine =
     "Behavior: Results can lag a file change by a few seconds, so a note written moments ago may not be found yet."
   const searchErrorsSection = `Errors:
-- No matches returns { results: [], total: 0, search_mode, reranked }, not an error
+- No matches returns an empty results array with total 0, not an error
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}
-- "invalid created.on date: …" (any created/modified bound) — the bound isn't in YYYY-MM-DD form; use that form
-- "… is not a calendar date" — a created/modified bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
+- "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name
 ${INDEX_ERROR_ENTRY}`
 
@@ -111,13 +110,13 @@ ${searchFiltersSection}
 Example: vault_search({ query: "how the server watches for file changes" })
 ${searchSharedExamples}
 
-When to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Try natural-language queries, not just keywords.${searchAlternativesLine}
+When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.${searchAlternativesLine}
 
 ${searchLagLine}
 
 ${searchErrorsSection}
 
-Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches; a total equal to limit may mean more exist, so raise limit to check), search_mode ("hybrid" when vector embeddings contributed, "fts" when only keyword matching ran), and reranked (true when reranking refined the ordering). A higher score is more relevant. ${searchResultDetailsText}`
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("hybrid" when vector embeddings contributed, "fts" when only keyword matching ran), and reranked (true when reranking refined the ordering). A higher score is more relevant. ${searchResultDetailsText}`
         : `Full-text search across ${searchedContentText}, ranked by relevance. ${searchSyntaxText}
 
 ${searchFiltersSection}
@@ -131,7 +130,7 @@ ${searchLagLine}
 
 ${searchErrorsSection}
 
-Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches; a total equal to limit may mean more exist, so raise limit to check), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). A higher score is more relevant. ${searchResultDetailsText}`,
+Returns: JSON with results array (${searchResultFieldsText}), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). A higher score is more relevant. ${searchResultDetailsText}`,
       inputSchema: {
         query: z.string().min(1).describe("Search query text"),
         filters: createStrictInputObject({
@@ -230,7 +229,7 @@ Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — not
 When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.${whenToolEnabledText("vault_list_tags", " Use vault_list_tags first to discover available tags.")}${whenToolEnabledText("vault_search", "\nPrefer vault_search when you need text-based relevance ranking.")}
 
 Parameters:
-- limit applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: a result count equal to limit may mean more exist, so raise limit to check.
+- limit applies after sorting, so you get the most recently modified notes; nothing in the response signals truncation.
 
 Behavior: Results can lag a file change by a few seconds: a note written moments ago may not appear yet, and one moved, deleted, or retagged moments ago may still be listed.
 
@@ -240,14 +239,12 @@ Errors:
 - "tag must not be empty …" — tag is "#" alone; pass the tag name.
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (every frontmatter tag Obsidian accepts, in the note's letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (in the note's letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
           .min(1)
-          .describe(
-            'Tag, "#" optional (e.g. "project", "session-log"). Nested tags use "/" (e.g. "project/vault-cortex").',
-          ),
+          .describe('Tag, "#" optional (e.g. "project", "session-log", "project/vault-cortex")'),
         exact: z
           .boolean()
           .optional()
@@ -282,11 +279,11 @@ Returns: JSON array of notes sorted by most recently modified, then by path asce
   const listTagsAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_search_by_tag",
-      'Prefer vault_search_by_tag once you know which tag to query — it supports hierarchical prefix matching ("project" matches "project/*").',
+      "Prefer vault_search_by_tag once you know which tag to query.",
     ),
     whenToolEnabledText(
       "vault_list_property_values",
-      'To count tags in one folder, or only the most-used ones, use vault_list_property_values({ key: "tags" }) with folder or limit; it counts every value of the tags property and lists spellings that differ in letter case apart.',
+      'To count tags in one folder, or only the most-used ones, use vault_list_property_values({ key: "tags" }) with folder or limit.',
     ),
   ])
 
@@ -362,7 +359,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder (top-le
           .enum(["created", "modified"])
           .optional()
           .default("modified")
-          .describe('Timestamp to sort by, newest first (default "modified")'),
+          .describe('Timestamp to sort by (default "modified")'),
         limit: z
           .number()
           .int()
@@ -414,7 +411,7 @@ When to use: Exploring a folder's contents with full context for vault orientati
 
 Parameters:
 - folder names a whole folder, not a text prefix: "Projects" matches notes under "Projects/" but not "ProjectsOld/". Matching ignores ASCII letter case, and a trailing slash is ignored.
-- limit applies after sorting, so you get the most recently modified notes. There is no offset, and nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to see them.
+- limit applies after sorting, so you get the most recently modified notes. There is no offset, and nothing in the response signals truncation; raise limit to see more.
 
 Behavior: Results can lag a file change by a few seconds: a note written moments ago may not appear yet, one renamed or deleted moments ago may still be listed, and a just-changed note may show its old metadata. Notes in hidden (dot-prefixed) folders never appear.
 
@@ -434,7 +431,7 @@ Returns: JSON array of note metadata sorted by most recently modified, then by p
           .boolean()
           .optional()
           .default(true)
-          .describe("Include subfolders (default: true); false lists only the folder's top level"),
+          .describe("Include subfolders (default: true)"),
         limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
@@ -470,10 +467,9 @@ Returns: JSON array of note metadata sorted by most recently modified, then by p
     TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
     {
       title: "List Property Keys",
-      description: `Discover all property keys in the vault with note counts and sample values. Lets you understand the vault's metadata schema without reading individual notes.
+      description: `Discover all property keys in the vault with note counts and sample values.
 
 Example: vault_list_property_keys() returns [{ key: "tags", count: 342, sample_values: ["session-log", "project"] }, ...]
-Example: vault_list_property_keys({ folder: "Projects" }) — the keys used under Projects/ only
 
 When to use: Discovering what properties exist before searching by property. Good first step for vault orientation${whenToolEnabledText("vault_list_tags", " alongside vault_list_tags")}.${listPropertyKeysAlternativesLine}
 
@@ -525,10 +521,10 @@ When to use: Enumerating possible values for a property key${whenToolEnabledText
 Parameters:
 - key is case-sensitive and must match exactly${whenToolEnabledText("vault_list_property_keys", " as returned by vault_list_property_keys")}.
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case.
-- limit applies after sorting by count descending, so you always get the most-used values first. Nothing in the response signals truncation: exactly limit values may mean more exist, which is common for keys with many distinct values like "title" or "created"; raise limit to check.
+- limit applies after sorting by count descending, so you get the most-used values first; nothing in the response signals truncation.
 
 Behavior:
-- Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]). Array elements are unpacked and counted individually, so the sum of counts may exceed the note count.
+- Array elements (tags: ["a", "b"]) are counted individually, so the sum of counts may exceed the note count.
 - Values with the same displayed string share one row with combined occurrence counts: number 1 and text "1" count together, while text "1.0" stays separate. Grouping happens before limit.
 - Checkbox true and false come back as "1" and "0", counted with the numbers 1 and 0.
 - null values are skipped.
@@ -606,11 +602,11 @@ When to use: Finding notes by metadata when you don't have a text query.${search
 
 Parameters:
 - key matches exactly and case-sensitively; value matches stored text the same way, with no partial matching or globbing.
-- A value written as a complete, finite YAML number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary, "1e999") matches only as text. Numbers compare as 64-bit floats, so integers past 2^53 can compare equal and "1e-999" matches 0.
+- A value written as a complete, finite YAML number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary) matches only as text.
 - value for a checkbox: pass "1" (checked) or "0" (unchecked); a checkbox matches only as text, so "1.0" and "true" do not match.
 - value against a list property: an element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
-- limit keeps the most recently modified matches. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+- limit keeps the most recently modified matches; nothing in the response signals truncation.
 
 Behavior: Results can lag a file change by a few seconds: a note written moments ago may not match yet, and one changed moments ago may still match its old value.
 
@@ -621,7 +617,7 @@ ${INDEX_ERROR_ENTRY}
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending, then by path — recently-synced notes may sort ahead of older content edits.
 - folder is the top-level folder ("" at the vault root); title falls back to the file name without .md when missing or not text; related is [] when missing; type is null when missing or not text; created is null when missing or not an ISO date.
 - leading_callout appears only when the note has a leading callout.
-- additional_properties appears only when frontmatter has keys outside title, type, created, related, and the first key spelled tags in any letter case.`,
+- additional_properties appears only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {
         key: z.string().min(1).describe('Property key name (e.g. "status", "type", "tags").'),
         value: z.string().min(1).describe('Value to match (e.g. "active", "4", "1e-7").'),
@@ -688,7 +684,7 @@ When to use: Understanding what references a note or canvas, assessing its conne
 Parameters:
 - path: pass the target's own path, never a link's text: a link written as [[Note]], as a relative ../Note.md, or as a full path counts toward the note it resolves to.
 
-Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title; title is a canvas source's file name without .canvas; bytes is the source's on-disk size), and count.
+Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title; bytes is the source's on-disk size), and count.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
@@ -735,7 +731,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes (vault-relative paths embedded in the canvas), not links inside text cards. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it. A broken link's path is its target text up to any #heading or |alias, in its original letter case, with a markdown link's %-escapes decoded.
+      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes, not links inside text cards. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it. A broken link's path is its target text without any #heading or |alias.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
@@ -745,7 +741,7 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 Parameters:
 - path: a note or canvas created or moved in the last few seconds is not found yet.
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". The title field is null for files and broken links. The daily_note_forward_ref flag is true on a broken link into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage — and false otherwise, including when the daily notes folder is the vault root or blank. The bytes field is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". The title field is null for files and broken links. The daily_note_forward_ref flag is true on a broken link into the vault's daily notes folder — a daily note not yet created, not genuine breakage — and false otherwise. The bytes field is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
@@ -803,8 +799,8 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     : {
         folders: `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`,
         dailyFolderLine: isToolEnabled("vault_get_daily_note")
-          ? " The defaults' daily notes folder is the one vault_get_daily_note's path starts with; when it is the vault root or blank, the defaults hold no daily folder."
-          : " When the vault's daily notes folder is the vault root or blank, the defaults hold no daily folder.",
+          ? " The defaults' daily notes folder is the one vault_get_daily_note's path starts with."
+          : "",
       }
 
   const findOrphansAlternativesLine = formatServedSentencesLine([
@@ -818,7 +814,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     TOOL_NAMES.VAULT_FIND_ORPHANS,
     {
       title: "Find Orphans",
-      description: `Find notes with no incoming links from other notes or canvases — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan.
+      description: `Find notes with no incoming links from other notes or canvases. A note that only links to itself still counts as an orphan.
 
 Example: vault_find_orphans({})
 Example: vault_find_orphans({ exclude_folders: ["Templates", "Archive"], limit: 20 })
@@ -827,13 +823,13 @@ When to use: Vault maintenance — surfacing notes to integrate into the graph.$
 
 Parameters:
 - exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.${orphanDefaultsText.dailyFolderLine}
-- limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+- limit applies after exclusions and sorting by most recently modified; nothing in the response signals truncation.
 
 Behavior: A file change takes a few seconds to appear here, so a link written moments ago may not count yet.
 
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
-- "too many excluded folders" — exclude_folders has more than 994 entries; pass a shorter list, then retry.
+- "too many excluded folders" — pass at most 994 exclude_folders entries, then retry.
 ${INDEX_ERROR_ENTRY}
 
 Returns: JSON array of note metadata (path, title, tags, related, folder (top-level folder), type, created (null when missing or not an ISO date), modified, bytes, leading_callout, additional_properties), sorted by most recently modified. The bytes field is the on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,

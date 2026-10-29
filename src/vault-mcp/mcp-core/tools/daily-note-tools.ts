@@ -30,7 +30,7 @@ Parameters:
 
 Errors:
 - "invalid date" — use YYYY-MM-DD format
-- "… is not a calendar date" — the date has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
+- "… is not a calendar date" — the date names a day that doesn't exist, such as 2026-02-30; pass a real date
 - "daily note format contains unsupported token(s): ..." — the configured format uses tokens the server cannot reproduce; the message names the tokens and the fix
 - "path traversal blocked" / "hidden path blocked" / "absolute path blocked" — the configured daily notes folder or format leads outside the vault or into a hidden folder; change it in Obsidian, or set DAILY_NOTES_FOLDER and DAILY_NOTES_FORMAT
 ${FILESYSTEM_ERROR_ENTRY}

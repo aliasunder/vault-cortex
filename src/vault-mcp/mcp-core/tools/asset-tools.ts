@@ -113,16 +113,16 @@ Example: vault_read_file({ path: "papers/research.pdf" }) — structured text wi
 When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", " vault_search also indexes canvas, PDF, and text-format content, but not images or other files.")}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
 What each file type returns:
-- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds the image output budget (MAX_IMAGE_OUTPUT_BYTES, ${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed.
-- Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels.
-- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes relative to the body text), code blocks and inline code (from monospace fonts), page separators, and a deduplicated links footer.
-- Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text. .svg is returned as its XML source; .base (an Obsidian Bases file) as its YAML source.
+- Images (.png/.jpg/.jpeg/.gif/.webp): the image as an image block, downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels, and delivered untouched otherwise. Animated GIFs are reduced to their first frame when recompressed.
+- Canvas (.canvas): a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
+- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer.
+- Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text.
 
 raw: true switches a canvas or PDF to its other form:
-- Canvas: the exact JSON source (geometry, ids, colors — full fidelity) instead of the outline.
-- PDF: each page rendered and returned as an image block instead of extracted text, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Only the first ${config.maxPdfRenderPages} pages are rendered; later pages are readable only as text, without raw.
+- Canvas: the exact JSON source (geometry, ids, colors) instead of the outline.
+- PDF: each page rendered as an image block instead of extracted text, showing layout, diagrams, tables, and formatting. Only the first ${config.maxPdfRenderPages} pages are rendered; later pages are readable only as text, without raw.
 
-Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (a fixed 100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; an unpaged read of a text format returns the file byte-exact.
+Line paging: start_line and limit page any text result as a line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (a fixed 100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; an unpaged read of a text format returns the file byte-exact.
 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_read_note", "; read notes with vault_read_note")}
@@ -131,16 +131,16 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's owner can raise
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
-- "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input; paging applies only to text results, and an image always comes back as its image block
+- "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; ask for a UTF-8 copy
-- "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
+- "invalid .canvas JSON" — the canvas file is empty or not valid JSON; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
-- "PDF is password-protected" — the PDF needs a password, which this tool cannot supply; read an unprotected copy instead
+- "PDF is password-protected" — this tool cannot supply a password; read an unprotected copy instead
 - "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; any other PDF or image error comes back in the reading library's own words. Replace or re-export the file
-- "PDF page rendering failed" — raw: true was set and the PDF opened, but no page could be rendered; read it without raw: true to get its text instead. If that read also finds no text, this tool can't read the PDF
-- "image cannot be fitted into …" — even shrunk and recompressed, the image is over the image output budget, which happens when the server's owner sets MAX_IMAGE_OUTPUT_BYTES very low; ask them to raise it
+- "PDF page rendering failed" — read it without raw: true to get its text instead; if that read also finds no text, this tool can't read the PDF
+- "image cannot be fitted into …" — the image is over the image output budget even after shrinking; ask the server's owner to raise MAX_IMAGE_OUTPUT_BYTES
 ${FILESYSTEM_ERROR_ENTRY}
-- "file changed while reading" — the file was written while it was read (for example by Sync); retry the read
+- "file changed while reading" — the file was written while it was read; retry the read
 - "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the vault's owner to restart the server
 - "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
 
@@ -247,7 +247,7 @@ Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a d
 
 Errors:
 - A visible folder containing no files — or one that doesn't exist, or a path that names a file — returns an empty listing, not an error.
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian"; use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder is absolute, escapes the vault, names the vault root itself (e.g. "."), or is hidden like ".obsidian"; use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
 ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).${whenToolEnabledText(
