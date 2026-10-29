@@ -7251,6 +7251,39 @@ describe("canvas file content and links", () => {
       })
     })
 
+    it("reports a file's full parent folder and a note's top-level folder", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Diagrams/System/plan.md",
+          rawContent: "# Plan\n\nThe architecture deployment plan.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/System/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/System/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+
+      const { results } = await fileIndex.hybridSearch({ query: "architecture deployment" }, logger)
+      const foldersByPath = results
+        .map(({ path, folder }) => ({ path, folder }))
+        .toSorted((left, right) => left.path.localeCompare(right.path))
+
+      expect(foldersByPath).toEqual([
+        { path: "Diagrams/System/arch.canvas", folder: "Diagrams/System" },
+        { path: "Diagrams/System/plan.md", folder: "Diagrams" },
+      ])
+    })
+
     it("canvas file-node references appear as backlinks", () => {
       const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
         fileToolsEnabled: true,
