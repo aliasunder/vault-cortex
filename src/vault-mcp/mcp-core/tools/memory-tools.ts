@@ -229,7 +229,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`
   // (EMBEDDING_ENABLED=false) get an honest variant with a synonym-requery
   // workaround instead of an overclaim.
   const memoryRecallDescription = config.embeddingEnabled
-    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. When reranking runs, a meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.
+    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.
 
 ${recallUsageSections}
 
