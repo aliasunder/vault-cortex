@@ -53,7 +53,7 @@ Errors:
 - No matches returns { total: 0, tasks: [] }, not an error
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON { total, tasks }. Every task carries path, line, status, status_char (the checkbox character, such as "x" or "/"), description, folder (the task note's parent folder, e.g. "Code Projects/vault-cortex"), depth (0 for top-level, 1+ for sub-tasks), is_kanban_task (true when the task's note is a Kanban board, with kanban-plugin in its properties), depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only: the headings of the lanes the board marks **Complete**), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist; done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
+Returns: JSON { total, tasks }. Every task carries path, line, status, status_char (the checkbox character, such as "x" or "/"), description, folder (the task note's parent folder, e.g. "Code Projects/vault-cortex"), depth (0 for top-level, 1+ for sub-tasks), is_kanban_task (true when the task's note is a Kanban board, with kanban-plugin in its properties), depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only: the headings of the lanes holding a **Complete** line), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist; done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
       inputSchema: {
         status: z
           .union([
@@ -133,7 +133,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .enum(["asc", "desc"])
           .optional()
           .describe(
-            'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within the fallback chain of a date sort (see sort_by), each fallback uses its own default; an explicit value overrides all fields uniformly.',
+            'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within the cascade of a date sort (see sort_by), each field uses its own default; an explicit value overrides all fields uniformly.',
           ),
       },
     },
@@ -520,7 +520,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
 - description is the current text, and block_id and heading reflect the task after the update; block_id is omitted when the task has none, heading when the task sits above the first heading.
 - subtasks lists each checklist item add_subtasks wrote as { line, description } (omitted when none were added); checklist items are written without a block_id, so line is the handle for a follow-up update.
 - next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has.
-- changes lists every field applied as "field: before → after", with "(none)" for an absent value; a 🏁 delete is listed as "on_completion: task removed (🏁 delete)", naming any removed children. An add_subtasks change appears as "subtasks", its two sides checklist-item counts, and a spawn adds "next_occurrence: (none) → line N".
+- changes lists every field applied as "field: before → after", with "(none)" for an absent value; a 🏁 delete is listed as "on_completion: task removed (🏁 delete)", or "on_completion: task and N children removed (🏁 delete)" when nested lines went with it. An add_subtasks change appears as "subtasks", its two sides checklist-item counts, and a spawn adds "next_occurrence: (none) → line N".
 - advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted (see Obsidian syntax above), a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text, or a finite rule with no occurrences left).
 - on_completion_applied is "delete", present only when the effective on_completion was delete (already on the task or set in the same call) and the task was transitioned to done.`,
       inputSchema: {
