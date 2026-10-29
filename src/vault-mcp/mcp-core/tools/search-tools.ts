@@ -565,7 +565,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
 
   // The two discovery tools share one "Use … and …" sentence, so each clause
   // joins it only while its tool is served.
-  const propertyDiscoveryClauses = [
+  const propertyDiscoveryTools = [
     whenToolEnabledText(
       "vault_list_property_keys",
       "vault_list_property_keys to discover valid keys",
@@ -574,9 +574,11 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
       "vault_list_property_values",
       "vault_list_property_values to see what values a key takes",
     ),
-  ].filter(Boolean)
-  const propertyDiscoverySentence =
-    propertyDiscoveryClauses.length > 0 ? `Use ${propertyDiscoveryClauses.join(" and ")}.` : ""
+  ]
+    .filter(Boolean)
+    .join(" and ")
+  const propertyDiscoverySentence = propertyDiscoveryTools ? `Use ${propertyDiscoveryTools}.` : ""
+
   const searchByPropertyAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_search",
@@ -659,6 +661,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
   const linkEmptyResultRemedy = linkPathFinders
     ? `find valid paths with ${linkPathFinders}`
     : "check the path's spelling and letter case"
+
   const backlinksAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_get_outgoing_links",
@@ -727,6 +730,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
       "For incoming links (what links TO a note), use vault_get_backlinks.",
     ),
   ])
+
   registerTool(
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {

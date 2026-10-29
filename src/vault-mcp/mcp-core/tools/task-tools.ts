@@ -34,6 +34,9 @@ export const registerTaskTools = ({
   search,
   logger: sessionLogger,
 }: ToolRegistrationContext): void => {
+  // The note-not-found Errors entry of both task write tools.
+  const noteNotFoundErrorEntry = `- "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}`
+
   // ── vault_list_tasks ────────────────────────────────────────────
 
   const listTasksAlternativesLine = formatServedSentencesLine([
@@ -260,7 +263,7 @@ Parameters:
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day; a task with no dates recurs as a dateless copy.
 
 Errors: (messages use camelCase names, e.g. blockId for block_id)
-- "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}
+${noteNotFoundErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 - "heading required for Kanban boards" — pass heading with the target lane
@@ -481,7 +484,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
 
   const updateTaskLineDescription = isToolEnabled("vault_list_tasks")
     ? "1-based line number from vault_list_tasks. Fragile if the file changed since the query."
-    : "1-based line number of the task line. Fragile if the file changed since you read it."
+    : "1-based line number of the task. Fragile if the note changed since you read it."
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
@@ -510,7 +513,7 @@ Parameters:
 - position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, an unmoved task stays put. Ignored when the task is deleted on completion.
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
-- "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}
+${noteNotFoundErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — the message states the rule

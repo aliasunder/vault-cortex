@@ -14,7 +14,6 @@ import { pageTextByLines } from "../../obsidian-markdown/lines.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
-  CONCURRENT_WRITE_ERROR_ENTRY,
   CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
   FILESYSTEM_ERROR_ENTRY,
   LISTING_FILESYSTEM_ERROR_ENTRY,
@@ -36,6 +35,11 @@ const CONTENT_CONTROL_CHARACTER_ERROR_ENTRY =
   '- "content contains a control character" — remove the character the message names'
 const AMBIGUOUS_SPAN_ANCHOR_ERROR_ENTRY =
   '- "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true'
+
+/** The Errors entry of a tool whose write lock refused the call, when the caller
+ *  re-reads the note before retrying because the other write may have changed it. */
+const CONCURRENT_WRITE_REREAD_ERROR_ENTRY =
+  '- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry'
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -84,7 +88,8 @@ export const registerVaultCrudTools = ({
 }: ToolRegistrationContext): void => {
   // The read, edit, and delete tools' not-found remedies name vault_list_notes or
   // vault_read_note only while that tool is served; otherwise they fall back to a
-  // check that needs no tool.
+  // check that needs no tool. Each remedy keeps its own tools' wording, so the
+  // three note-not-found remedies differ by a word or two.
   const listNotesEnabled = isToolEnabled("vault_list_notes")
   const noteNotFoundCheckRemedy = listNotesEnabled
     ? "check vault_list_notes for valid paths"
@@ -95,6 +100,18 @@ export const registerVaultCrudTools = ({
   const readNoteNotFoundRemedy = listNotesEnabled
     ? "verify it with vault_list_notes"
     : "check its spelling and letter case"
+  const readNoteEnabled = isToolEnabled("vault_read_note")
+  const textNotFoundRemedy = readNoteEnabled
+    ? "verify exact text with vault_read_note"
+    : "check old_text's letter case, spacing, and line breaks"
+  const anchorNotFoundRemedy = readNoteEnabled
+    ? "verify with vault_read_note"
+    : "check the fragment's letter case and spacing"
+
+  // Errors entries built from those remedies that two or more tools share word for word.
+  const noteNotFoundCheckErrorEntry = `- "note not found" — path does not exist; ${noteNotFoundCheckRemedy}`
+  const noteNotFoundVerifyErrorEntry = `- "note not found" — ${noteNotFoundVerifyRemedy}`
+  const spanAnchorNotFoundErrorEntry = `- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; ${anchorNotFoundRemedy}`
 
   // Incoming and outgoing links are separate tools, so the sentence names
   // whichever of the pair is served.
@@ -105,12 +122,15 @@ export const registerVaultCrudTools = ({
     if (backlinksEnabled && outgoingLinksEnabled) {
       return "To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links."
     }
-    if (backlinksEnabled) return "To explore what links to this note, use vault_get_backlinks."
+    if (backlinksEnabled) {
+      return "To explore what links to this note, use vault_get_backlinks."
+    }
     if (outgoingLinksEnabled) {
       return "To explore what this note links to, use vault_get_outgoing_links."
     }
     return ""
   }
+
   const readNoteAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText("vault_search", "Prefer vault_search when you don't know the path."),
     whenToolEnabledText(
@@ -441,7 +461,7 @@ Errors:
 ${NOTE_EXTENSION_ERROR_ENTRY}
 - "cannot write note …: that path is not a file" — a folder already has this name; choose another path
 ${PATH_SAFETY_ERROR_ENTRY}
-${CONCURRENT_WRITE_ERROR_ENTRY}
+${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}
 - "body contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry("with overwrite: true")}
@@ -503,6 +523,7 @@ Returns: "Wrote <path>".`,
 
 Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it).`
     : ""
+
   const patchNoteAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_write_note",
@@ -532,14 +553,6 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     ),
   ])
 
-  const readNoteEnabled = isToolEnabled("vault_read_note")
-  const textNotFoundRemedy = readNoteEnabled
-    ? "verify exact text with vault_read_note"
-    : "check old_text's letter case, spacing, and line breaks"
-  const anchorNotFoundRemedy = readNoteEnabled
-    ? "verify with vault_read_note"
-    : "check the fragment's letter case and spacing"
-
   registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
@@ -564,7 +577,7 @@ Heading-targeted ops keep the matched heading. Every operation writes content ve
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
 Errors:
-- "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
+${noteNotFoundCheckErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${HEADING_NOT_FOUND_ERROR_ENTRY}
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate; if they share a level, rename one${whenToolEnabledText("vault_replace_in_note", " or use vault_replace_in_note to target by text content")}
@@ -573,7 +586,7 @@ ${EMPTY_HEADING_ERROR_ENTRY}
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it
 - "section … has N child headings …" — the target section contains child headings that replace would destroy; pass include_children: true to confirm, or target the child heading directly
 ${PATH_SAFETY_ERROR_ENTRY}
-${CONCURRENT_WRITE_ERROR_ENTRY}
+${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}
 ${CONTENT_CONTROL_CHARACTER_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -703,11 +716,11 @@ Parameters:
 - replace_all_occurrences: set true for deliberate bulk renames or term replacements.
 
 Errors:
-- "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
+${noteNotFoundCheckErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 - "text not found" — old_text does not appear in the note body; ${textNotFoundRemedy}
 ${PATH_SAFETY_ERROR_ENTRY}
-${CONCURRENT_WRITE_ERROR_ENTRY}
+${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}
 - "new_text contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -810,12 +823,12 @@ Parameters:
 Behavior: Blank lines never double: the text above and below the removed lines ends up separated by the wider of the two runs of empty lines that stood there; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So removing a table row leaves the table whole. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 
 Errors:
-- "note not found" — ${noteNotFoundVerifyRemedy}
+${noteNotFoundVerifyErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
-- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; ${anchorNotFoundRemedy}
+${spanAnchorNotFoundErrorEntry}
 ${AMBIGUOUS_SPAN_ANCHOR_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
-${CONCURRENT_WRITE_ERROR_ENTRY}
+${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -911,12 +924,12 @@ Parameters:
   - Empty lines inside content and elsewhere in the note are kept as written, and a line holding only spaces or tabs counts as text, not as an empty line.
 
 Errors:
-- "note not found" — ${noteNotFoundVerifyRemedy}
+${noteNotFoundVerifyErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
-- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; ${anchorNotFoundRemedy}
+${spanAnchorNotFoundErrorEntry}
 ${AMBIGUOUS_SPAN_ANCHOR_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
-${CONCURRENT_WRITE_ERROR_ENTRY}
+${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}
 ${CONTENT_CONTROL_CHARACTER_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -1013,12 +1026,12 @@ Parameters:
 - content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
 
 Errors:
-- "note not found" — ${noteNotFoundVerifyRemedy}
+${noteNotFoundVerifyErrorEntry}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 - "anchor not found" — fragment not on any body line; ${anchorNotFoundRemedy}
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 ${PATH_SAFETY_ERROR_ENTRY}
-${CONCURRENT_WRITE_ERROR_ENTRY}
+${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}
 ${CONTENT_CONTROL_CHARACTER_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -1383,7 +1396,7 @@ Errors:
 - "note not found" — path does not exist; ${updatePropertiesNoteNotFoundRemedy}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
-${CONCURRENT_WRITE_ERROR_ENTRY}
+${CONCURRENT_WRITE_REREAD_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 - "properties block …" — without replace: true, the merge refuses a block it cannot keep: invalid YAML, a list, a single value, or a YAML tag; the error says how to repair it
 ${OPENING_BLOCK_ERROR_ENTRY}

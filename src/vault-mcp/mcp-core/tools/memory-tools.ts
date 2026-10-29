@@ -31,12 +31,6 @@ const MEMORY_FOLDER_ERROR_ENTRY =
 const SECTION_NOT_FOUND_ERROR_ENTRY =
   '- "section not found: …" — no H2 heading matches; the message lists the file\'s sections'
 
-/** The memory store wraps a failed read without the Node error's code, so the
- *  filesystem-error entry's code names never match this message. */
-const formatMemoryFileReadErrorEntry = (fileNameCheckRemedy: string): string => {
-  return `- "cannot read memory file …" — the file can't be read: ${fileNameCheckRemedy}; otherwise ask the vault's owner to fix its permissions`
-}
-
 /** A memory write keeps the file's properties block, so it refuses only a
  *  file with no block whose opening lines would become one once saved:
  *  - two leading BOMs before `---`, of which the save drops one;
@@ -66,7 +60,10 @@ export const registerMemoryTools = ({
   const memoryFileNameCheckRemedy = listMemoryFilesEnabled
     ? "check file against vault_list_memory_files"
     : "check file's spelling and length"
-  const memoryFileReadErrorEntry = formatMemoryFileReadErrorEntry(memoryFileNameCheckRemedy)
+
+  // The memory store wraps a failed read without the Node error's code, so the
+  // filesystem-error entry's code names never match this message.
+  const memoryFileReadErrorEntry = `- "cannot read memory file …" — the file can't be read: ${memoryFileNameCheckRemedy}; otherwise ask the vault's owner to fix its permissions`
 
   // Tools a reader follows vault_list_memory_files with. Every one of them —
   // the read tool included — can be dropped individually via DISABLED_TOOLS,
@@ -92,7 +89,7 @@ export const registerMemoryTools = ({
     ? `; file and section feed directly into ${recallConsumerTools}`
     : ""
 
-  const getMemoryAlternativesLine = formatServedSentencesLine([
+  const memoryReadAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText("vault_read_note", "Prefer vault_read_note for reading non-memory notes."),
     whenToolEnabledText(
       "vault_memory_recall",
@@ -113,7 +110,7 @@ Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (n
 Example: vault_get_memory({ file: "Opinions", section: "Code patterns", on_or_after: "2026-09-01" })
 Example: vault_get_memory({ file: "Opinions", on_or_after: "2026-09-01" }) — every section's entries since the date
 
-When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files.${whenToolEnabledText("vault_list_memory_files", " Call vault_list_memory_files first to discover valid file and section names.")}${getMemoryAlternativesLine}
+When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files.${whenToolEnabledText("vault_list_memory_files", " Call vault_list_memory_files first to discover valid file and section names.")}${memoryReadAlternativesLine}
 
 Errors:
 - "section requires a file" / "on_or_after requires a file" — add file
@@ -235,17 +232,16 @@ Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, l
 
   // The two alternatives share one "Prefer …; prefer …" sentence, so each
   // clause joins it only while its tool is served.
-  const recallAlternativeClauses = [
+  const recallAlternatives = [
     whenToolEnabledText(
       "vault_get_memory",
       "vault_get_memory to read a known file or section verbatim",
     ),
     whenToolEnabledText("vault_search", "vault_search for notes outside the memory layer"),
-  ].filter(Boolean)
-  const recallAlternativesSentence =
-    recallAlternativeClauses.length > 0
-      ? ` Prefer ${recallAlternativeClauses.join("; prefer ")}.`
-      : ""
+  ]
+    .filter(Boolean)
+    .join("; prefer ")
+  const recallAlternativesSentence = recallAlternatives ? ` Prefer ${recallAlternatives}.` : ""
 
   // These parts read the same with or without embeddings, so both
   // vault_memory_recall description variants share them
@@ -338,9 +334,6 @@ ${recallReturnsLead} In keyword-only mode search_mode is always "fts" and rerank
   const updateMemoryReuseNamesSentence = listMemoryFilesEnabled
     ? "Call vault_list_memory_files first and reuse existing file and section names so entries stay grouped."
     : "Reuse existing file and section names so entries stay grouped."
-  const scopeCalloutReplaceInstruction = isToolEnabled("vault_replace_in_note")
-    ? "use vault_replace_in_note to replace"
-    : "replace"
   const updateMemoryAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_write_note",
@@ -348,6 +341,10 @@ ${recallReturnsLead} In keyword-only mode search_mode is always "fts" and rerank
     ),
     "A missing file or section is created automatically.",
   ])
+
+  const createdFileReplyReplaceStep = isToolEnabled("vault_replace_in_note")
+    ? "use vault_replace_in_note to replace"
+    : "replace"
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
@@ -444,7 +441,7 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
             // Nudge the caller to author the scope callout the new file was
             // seeded with, so the file self-documents what belongs in it.
             case "created-file":
-              return `${confirmation}. Created a new memory file with a placeholder scope callout — ${scopeCalloutReplaceInstruction} its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
+              return `${confirmation}. Created a new memory file with a placeholder scope callout — ${createdFileReplyReplaceStep} its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
             case "created-section":
             case "appended":
               return confirmation

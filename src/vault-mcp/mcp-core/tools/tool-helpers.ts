@@ -57,9 +57,9 @@ export const createStrictInputObject = <Shape extends z.ZodRawShape>(
   })
 }
 
-/** Sentences that point to other tools, each already "" when its tool is
- *  disabled, as one line that starts with a line break. Empty sentences drop out
- *  before the join, so none leaves a leading space or an empty line. */
+/** Sentences, any of them "" when gated off, as one line that starts with a
+ *  line break. Empty sentences drop out before the join, so none leaves a
+ *  leading space or an empty line. */
 export const formatServedSentencesLine = (gatedSentences: readonly string[]): string => {
   const servedSentences = gatedSentences.filter(Boolean).join(" ")
 
@@ -251,19 +251,16 @@ export const OPENING_BLOCK_ERROR_ENTRY =
 export const FILESYSTEM_ERROR_ENTRY =
   '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do'
 
-/** The Errors entry of every tool that resolves a single note path. */
+/** The Errors entry of a tool that resolves a single note or file path. */
 export const PATH_SAFETY_ERROR_ENTRY =
   '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it'
 
-/** The Errors entry of every tool whose path must name a markdown note. */
+/** The Errors entry of a tool whose path must name a markdown note. */
 export const NOTE_EXTENSION_ERROR_ENTRY = '- "path must end in …" — add the .md extension'
 
-/** The Errors entry of every tool that edits one note under its write lock,
- *  which refuses a second write instead of queueing it. */
-export const CONCURRENT_WRITE_ERROR_ENTRY =
-  '- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry'
-
-/** The same refusal, for a tool whose remedy is a plain retry. */
+/** The Errors entry of a tool whose write lock refused the call, when a plain
+ *  retry is the remedy. The lock refuses a second write to a note instead of
+ *  queueing it. */
 export const CONCURRENT_WRITE_RETRY_ERROR_ENTRY =
   '- "concurrent write in progress" — another write to this note is in flight; retry'
 
