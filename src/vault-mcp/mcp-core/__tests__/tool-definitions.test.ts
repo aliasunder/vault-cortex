@@ -2965,7 +2965,7 @@ describe("DISABLED_TOOLS", () => {
     )
     const description = listFilesCall?.[1].description
     expect(description).toContain(
-      "BEFORE calling vault_get_memory; it gives the valid file and section names.",
+      "BEFORE calling vault_get_memory; this tool gives the valid file and section names.",
     )
     expect(description).not.toContain("vault_update_memory")
     expect(description).not.toContain("pruning entries")
@@ -3018,6 +3018,11 @@ describe("DISABLED_TOOLS", () => {
     { toolName: TOOL_NAMES.VAULT_DELETE_MEMORY, disabledTool: "vault_delete_note" },
     { toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY, disabledTool: "vault_delete_memory" },
     { toolName: TOOL_NAMES.VAULT_LIST_TAGS, disabledTool: "vault_list_property_values" },
+    { toolName: TOOL_NAMES.VAULT_READ_FILE, disabledTool: "vault_read_note" },
+    { toolName: TOOL_NAMES.VAULT_READ_FILE, disabledTool: "vault_get_outgoing_links" },
+    { toolName: TOOL_NAMES.VAULT_READ_FILE, disabledTool: "vault_list_files" },
+    { toolName: TOOL_NAMES.VAULT_READ_FILE, disabledTool: "vault_search" },
+    { toolName: TOOL_NAMES.VAULT_LIST_FILES, disabledTool: "vault_get_outgoing_links" },
   ])("$toolName names $disabledTool only while it is served", ({ toolName, disabledTool }) => {
     const describeTool = (disabledTools: string): string | undefined => {
       const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
@@ -3027,6 +3032,23 @@ describe("DISABLED_TOOLS", () => {
 
     expect(describeTool("")).toContain(disabledTool)
     expect(describeTool(disabledTool)).not.toContain(disabledTool)
+  })
+
+  it("vault_list_files falls back to its plain purpose when a note discovery tool is disabled", () => {
+    const listFilesWhenToUse = (disabledTools: string): string | undefined => {
+      return findDescriptionLine({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_LIST_FILES,
+        linePrefix: "When to use:",
+      })
+    }
+
+    expect(listFilesWhenToUse("")).toBe(
+      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
+    )
+    expect(listFilesWhenToUse("vault_search_by_folder")).toBe(
+      "When to use: discovering what files exist before reading them with vault_read_file. This is the discovery surface for every file that is not a markdown note. For the files one specific note links to, prefer vault_get_outgoing_links.",
+    )
   })
 
   it("names only the surviving consumer when vault_get_memory alone is disabled", () => {

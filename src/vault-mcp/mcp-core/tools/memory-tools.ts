@@ -61,7 +61,7 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_DELETE_MEMORY,
   ])
   const discoveryPurpose = discoveryFollowUpTools
-    ? `Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}; it gives the valid file and section names`
+    ? `Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}; this tool gives the valid file and section names`
     : "Discovering what memory files and sections exist — and what each file is for"
 
   // The tools a recall entry's file/section fields feed into. Rendered as a
