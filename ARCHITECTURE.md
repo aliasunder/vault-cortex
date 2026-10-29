@@ -134,9 +134,11 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 2. **Read-only mode** — `READONLY_MODE=true` keeps exactly the tools whose own `readOnlyHint` annotation says they don't write; write tools are never advertised to clients rather than rejected at call time. The `memory-review` prompt follows its write tool, and the memory bootstrap is skipped.
 3. **Per-tool disabling** — `DISABLED_TOOLS` subtracts individually named tools. Purely subtractive: it cannot re-enable a tool an earlier predicate removed. Unknown names fail the boot (a typo that silently disabled nothing would mislead the operator).
 
-Group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry — annotations are declared once, and a new gating axis is one new predicate, not new branching in every module. Availability-keyed cross-references in tool descriptions and prompts disappear whenever their target does; a small number of durable API-level references (e.g. error-section alternatives naming sibling tools) remain. Search, indexing, and the file watcher are unaffected by `READONLY_MODE` and `DISABLED_TOOLS` — they write to the index database outside the vault, not to the vault itself.
+How the served set is built and kept consistent:
 
-The wrapper also builds each tool's input with `createStrictInputObject`, so a parameter the tool doesn't declare is rejected with an error naming the accepted ones; tools with no parameters accept any key.
+- **Registration** — group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry, so annotations are declared once and a new gating axis is one new predicate. The wrapper also builds each tool's input with `createStrictInputObject`, so a parameter the tool doesn't declare is rejected with an error naming the accepted ones; tools with no parameters accept any key.
+- **Cross-references** — references to other tools in tool descriptions and prompts are availability-keyed, so each disappears whenever its target does. A test disables each tool in turn and checks that no served tool's description or input schema still names it.
+- **What gating leaves alone** — search, indexing and the file watcher ignore `READONLY_MODE` and `DISABLED_TOOLS`, because they write to the index database outside the vault, not to the vault itself.
 
 ### Vault read/write
 
