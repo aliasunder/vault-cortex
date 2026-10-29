@@ -14,6 +14,9 @@ import {
   INDEX_ERROR_ENTRY,
 } from "./tool-helpers.js"
 
+/** The link-graph tools accept a canvas as well as a note. */
+const LINK_GRAPH_EXTENSION_ERROR_ENTRY = '- "path must end in …" — add the .md or .canvas extension'
+
 export const registerSearchTools = ({
   registerTool,
   safeHandler,
@@ -688,7 +691,7 @@ Parameters:
 Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title; title is a canvas source's file name without .canvas; bytes is the source's on-disk size), and count.
 
 Errors:
-- "path must end in …" — add the .md or .canvas extension
+${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
 - A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links, ${linkEmptyResultRemedy}.
 ${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
@@ -745,7 +748,7 @@ Parameters:
 Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". The title field is null for files and broken links. The daily_note_forward_ref flag is true on a broken link into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage — and false otherwise, including when the daily notes folder is the vault root or blank. The bytes field is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors:
-- "path must end in …" — add the .md or .canvas extension
+${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
 - A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does. If you expected links, ${linkEmptyResultRemedy}.
 ${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {

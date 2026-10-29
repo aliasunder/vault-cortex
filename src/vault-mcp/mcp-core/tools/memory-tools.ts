@@ -28,6 +28,9 @@ const MEMORY_FILE_IS_FOLDER_ERROR_ENTRY =
 const MEMORY_FOLDER_ERROR_ENTRY =
   '- "cannot create memory folder …" — a file sits where the memory folder belongs; ask the vault\'s owner to move it'
 
+const SECTION_NOT_FOUND_ERROR_ENTRY =
+  '- "section not found: …" — no H2 heading matches; the message lists the file\'s sections'
+
 /** The memory store wraps a failed read without the Node error's code, so the
  *  filesystem-error entry's code names never match this message. */
 const formatMemoryFileReadErrorEntry = (fileNameCheckRemedy: string): string => {
@@ -116,7 +119,7 @@ Errors:
 - "section requires a file" / "on_or_after requires a file" — add file
 - "memory file not found" — ${memoryFileNotFoundRemedy}
 ${MEMORY_FILE_NAME_ERROR_ENTRY}
-- "section not found: …" — no H2 heading matches; the message lists the file's sections
+${SECTION_NOT_FOUND_ERROR_ENTRY}
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 - "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: ${memoryFileNameCheckRemedy} (a name longer than the filesystem allows fails here); otherwise ask the vault's owner to check the folder
 
@@ -479,7 +482,7 @@ Errors:
 - "memory file not found" — ${memoryFileNotFoundRemedy}.
 ${MEMORY_FILE_NAME_ERROR_ENTRY}
 - "date must be YYYY-MM-DD" — pass the entry's date exactly as the file shows it, zero-padded.
-- "section not found: …" — no H2 heading matches; the message lists the file's sections
+${SECTION_NOT_FOUND_ERROR_ENTRY}
 - "no entry matching …" — ${entryNotFoundRemedy}.
 - "ambiguous: N entries match …" — remove the extra copy with ${whenToolEnabledText("vault_delete_span", "vault_delete_span (first_match: true, since identical lines make every anchor ambiguous) or ")}a manual edit, then retry.
 - "refusing memory write: … would shrink content" — the delete would remove more than half the file; ${whenToolEnabledText("vault_get_memory", "re-read it with vault_get_memory, and ")}remove an entry that really is that large with ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.

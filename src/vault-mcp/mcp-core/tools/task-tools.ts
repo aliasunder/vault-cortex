@@ -4,6 +4,7 @@ import { z } from "zod"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
+  CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
   dateFilterSchema,
   FILESYSTEM_ERROR_ENTRY,
   INDEX_ERROR_ENTRY,
@@ -14,6 +15,15 @@ import {
   PATH_SAFETY_ERROR_ENTRY,
 } from "./tool-helpers.js"
 import { taskMutations } from "../../vault-operations/task-mutations.js"
+
+// Errors entries vault_create_task and vault_update_task share word for word.
+const TASK_HEADING_NOT_FOUND_ERROR_ENTRY =
+  '- "heading "X" not found; available: ..." — the message lists the note\'s headings'
+const TASK_ID_CHARACTERS_ERROR_ENTRY =
+  '- "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — the message names the allowed characters'
+const RECURRENCE_RULE_ERROR_ENTRY =
+  '- "unrecognized recurrence rule ..." — the message gives example rules'
+const TASK_DATE_ERROR_ENTRY = '- "invalid date: …" — the message names the expected format'
 
 export const registerTaskTools = ({
   registerTool,
@@ -259,7 +269,7 @@ Errors: (messages use camelCase names, e.g. blockId for block_id)
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 - "heading required for Kanban boards" — pass heading with the target lane
-- "heading "X" not found; available: ..." — the message lists the note's headings
+${TASK_HEADING_NOT_FOUND_ERROR_ENTRY}
 - "cannot place at position P under "X" — the heading appears N times" — integer position on a note with duplicate heading names; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task outside a fenced code block or %% %% comment; re-read the parent's block_id or line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}
 - "parent task ambiguous" — more than one task line ends in that ^id (the message lists their line numbers); pass parent_line instead
@@ -269,10 +279,10 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "blockId is required" — pass block_id
 - "blockId is not allowed on a sub-task on a Kanban board" / "subtask ... ends in a block ID" — the message names what to drop
 - "description is empty" / "subtasks cannot contain an empty item" / "description must be a single line" / "subtasks items must be a single line" — pass visible text on a single line
-- "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — the message names the allowed characters
-- "unrecognized recurrence rule ..." — the message gives example rules
-- "invalid date: …" — the message names the expected format
-- "concurrent write in progress" — another write to this note is in flight; retry
+${TASK_ID_CHARACTERS_ERROR_ENTRY}
+${RECURRENCE_RULE_ERROR_ENTRY}
+${TASK_DATE_ERROR_ENTRY}
+${CONCURRENT_WRITE_RETRY_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -518,15 +528,15 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); sub-tasks move with their parent, so move or reposition the parent instead
 - "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading; the message names the fix
 - "cannot reorder within "X" — the heading appears N times" / "cannot place at position P under "X" — the heading appears N times" — the heading name is duplicated in the note: the task's own heading for a reorder in place, the one in heading for a move; for a cross-lane move use "top" or "bottom" (they place under the first match), or rename one section to make it unique
-- "heading "X" not found; available: ..." — the message lists the note's headings
+${TASK_HEADING_NOT_FOUND_ERROR_ENTRY}
 - "multiple done lanes detected" / "no done lane detected" — status "done" on a Kanban board with more than one lane whose first line is **Complete**, or with none and no "Done" heading; pass heading to pick the lane
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "assignBlockId is not allowed" / "description ends in a block ID" / "subtask ... ends in a block ID" — a new ^id on an indented line of a Kanban board; leave the line without an id and target it by line, and drop any trailing ^id from the text
-- "invalid date: …" — the message names the expected format
+${TASK_DATE_ERROR_ENTRY}
 - "description cannot be empty" / "addSubtasks cannot contain an empty item" / "description must be a single line" / "addSubtasks items must be a single line" — pass visible text on a single line
-- "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — the message names the allowed characters
-- "unrecognized recurrence rule ..." — the message gives example rules
-- "concurrent write in progress" — another write to this note is in flight; retry
+${TASK_ID_CHARACTERS_ERROR_ENTRY}
+${RECURRENCE_RULE_ERROR_ENTRY}
+${CONCURRENT_WRITE_RETRY_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}

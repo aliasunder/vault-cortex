@@ -263,6 +263,10 @@ export const NOTE_EXTENSION_ERROR_ENTRY = '- "path must end in …" — add the 
 export const CONCURRENT_WRITE_ERROR_ENTRY =
   '- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry'
 
+/** The same refusal, for a tool whose remedy is a plain retry. */
+export const CONCURRENT_WRITE_RETRY_ERROR_ENTRY =
+  '- "concurrent write in progress" — another write to this note is in flight; retry'
+
 /** The listing tools' form of the entry: one unreadable folder fails the whole
  *  listing, and the caller can list around it. */
 export const LISTING_FILESYSTEM_ERROR_ENTRY =
