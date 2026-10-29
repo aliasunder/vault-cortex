@@ -8,7 +8,9 @@ import {
   FILESYSTEM_ERROR_ENTRY,
   INDEX_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
+  NOTE_EXTENSION_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
+  PATH_SAFETY_ERROR_ENTRY,
 } from "./tool-helpers.js"
 import { taskMutations } from "../../vault-operations/task-mutations.js"
 
@@ -242,8 +244,8 @@ Parameters:
 
 Errors: (messages use camelCase names, e.g. blockId for block_id)
 - "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}
-- "path must end in …" — add the .md extension
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
+${NOTE_EXTENSION_ERROR_ENTRY}
+${PATH_SAFETY_ERROR_ENTRY}
 - "heading required for Kanban boards" — pass heading with the target lane
 - "heading "X" not found; available: ..." — the message lists the note's headings
 - "cannot place at position P under "X" — the heading appears N times" — integer position on a note with duplicate heading names; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
@@ -489,8 +491,8 @@ Parameters:
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 - "note not found" — path does not exist; check the path${whenToolEnabledText("vault_list_notes", " with vault_list_notes")}
-- "path must end in …" — add the .md extension
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
+${NOTE_EXTENSION_ERROR_ENTRY}
+${PATH_SAFETY_ERROR_ENTRY}
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — the message states the rule
 - "blockId ... not found" / "blockId ... is inside a fenced code block or comment" — no task line outside a fenced code block or %% %% comment ends with that ^id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
 - "blockId ... matches N task lines" — more than one task line ends in the id (the message lists their line numbers); target the intended task by line. To repair on a regular note, give all but one line a new id with assign_block_id. On a Kanban board, where the plugin copied a sub-task's id onto its card, remove the id from the sub-task's line (assign_block_id: null, by line), then assign the card the id its existing links use, or a new one

@@ -11,6 +11,7 @@ import {
   describeTextWindow,
   FILESYSTEM_ERROR_ENTRY,
   LISTING_FILESYSTEM_ERROR_ENTRY,
+  PATH_SAFETY_ERROR_ENTRY,
 } from "./tool-helpers.js"
 
 /** One-line, model-facing summary accompanying an image block: what file it
@@ -126,7 +127,7 @@ Line paging: start_line and limit page any text result — text formats, canvas 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_read_note", "; read notes with vault_read_note")}
 - "file not found" — no file exists at that path (a folder is not a file)${whenToolEnabledText("vault_list_files", "; discover valid paths via vault_list_files")}
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
+${PATH_SAFETY_ERROR_ENTRY}
 - "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's owner can raise
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line

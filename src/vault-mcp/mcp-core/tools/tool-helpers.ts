@@ -242,6 +242,18 @@ export const OPENING_BLOCK_ERROR_ENTRY =
 export const FILESYSTEM_ERROR_ENTRY =
   '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do'
 
+/** The Errors entry of every tool that resolves a single note path. */
+export const PATH_SAFETY_ERROR_ENTRY =
+  '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it'
+
+/** The Errors entry of every tool whose path must name a markdown note. */
+export const NOTE_EXTENSION_ERROR_ENTRY = '- "path must end in …" — add the .md extension'
+
+/** The Errors entry of every tool that edits one note under its write lock,
+ *  which refuses a second write instead of queueing it. */
+export const CONCURRENT_WRITE_ERROR_ENTRY =
+  '- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry'
+
 /** The listing tools' form of the entry: one unreadable folder fails the whole
  *  listing, and the caller can list around it. */
 export const LISTING_FILESYSTEM_ERROR_ENTRY =

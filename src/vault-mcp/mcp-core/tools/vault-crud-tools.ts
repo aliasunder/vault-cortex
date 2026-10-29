@@ -14,11 +14,14 @@ import { pageTextByLines } from "../../obsidian-markdown/lines.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
+  CONCURRENT_WRITE_ERROR_ENTRY,
   FILESYSTEM_ERROR_ENTRY,
   LISTING_FILESYSTEM_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
   describeTextWindow,
+  NOTE_EXTENSION_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
+  PATH_SAFETY_ERROR_ENTRY,
   toolInputErrorResult,
 } from "./tool-helpers.js"
 
@@ -104,7 +107,7 @@ Errors:
 - "line paging is not available in outline mode" / "… properties_only mode" — start_line and limit page only a full read or a heading section
 - "start line past the end" — the message states the line count; resend a start_line within it
 - 'path must end in ".md"' — add the extension to a note's path${whenToolEnabledText("vault_read_file", "; read other files (images, .canvas, data files) with vault_read_file")}
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
+${PATH_SAFETY_ERROR_ENTRY}
 - "properties block is not valid YAML …" — a full read, outline and heading still work; the error says how to repair it
 ${FILESYSTEM_ERROR_ENTRY}
 
@@ -383,10 +386,10 @@ When to use: Creating a new note, or replacing a whole note's body.${writeNoteAl
 
 Errors:
 - "note already exists" — set overwrite: true to replace it
-- "path must end in …" — add the .md extension
+${NOTE_EXTENSION_ERROR_ENTRY}
 - "cannot write note …: that path is not a file" — a folder already has this name; choose another path
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_ERROR_ENTRY}
 - "body contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry("with overwrite: true")}
@@ -521,15 +524,15 @@ Section boundaries: a section spans from its heading to the next heading of the 
 
 Errors:
 - "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
-- "path must end in …" — add the .md extension
+${NOTE_EXTENSION_ERROR_ENTRY}
 - "heading not found" — the message lists the available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate; if they share a level, rename one${whenToolEnabledText("vault_replace_in_note", " or use vault_replace_in_note to target by text content")}
 - "operation … requires a heading target" — pass heading, or use append or prepend to edit the file body
 - "heading cannot be empty" — heading is whitespace only; pass the heading's text
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it
 - "section … has N child headings …" — the target section contains child headings that replace would destroy; pass include_children: true to confirm, or target the child heading directly
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_ERROR_ENTRY}
 - "content contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -660,10 +663,10 @@ Parameters:
 
 Errors:
 - "note not found" — path does not exist; ${noteNotFoundCheckRemedy}
-- "path must end in …" — add the .md extension
+${NOTE_EXTENSION_ERROR_ENTRY}
 - "text not found" — old_text does not appear in the note body; ${textNotFoundRemedy}
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_ERROR_ENTRY}
 - "new_text contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -767,11 +770,11 @@ Behavior: Blank lines never double: the text above and below the removed lines e
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
-- "path must end in …" — add the .md extension
+${NOTE_EXTENSION_ERROR_ENTRY}
 - "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; ${anchorNotFoundRemedy}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
@@ -868,11 +871,11 @@ Parameters:
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
-- "path must end in …" — add the .md extension
+${NOTE_EXTENSION_ERROR_ENTRY}
 - "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; ${anchorNotFoundRemedy}
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_ERROR_ENTRY}
 - "content contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -975,11 +978,11 @@ Parameters:
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
-- "path must end in …" — add the .md extension
+${NOTE_EXTENSION_ERROR_ENTRY}
 - "anchor not found" — fragment not on any body line; ${anchorNotFoundRemedy}
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_ERROR_ENTRY}
 - "content contains a control character" — remove the character the message names
 ${FILESYSTEM_ERROR_ENTRY}
 ${OPENING_BLOCK_ERROR_ENTRY}
@@ -1094,8 +1097,8 @@ Parameters:
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
-- "path must end in …" — add the .md extension
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
+${NOTE_EXTENSION_ERROR_ENTRY}
+${PATH_SAFETY_ERROR_ENTRY}
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
 - "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry
@@ -1336,9 +1339,9 @@ ${whenToolEnabledText("vault_write_note", "Prefer vault_write_note when creating
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
-- "path must end in …" — add the .md extension
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
-- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+${NOTE_EXTENSION_ERROR_ENTRY}
+${PATH_SAFETY_ERROR_ENTRY}
+${CONCURRENT_WRITE_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 - "properties block …" — without replace: true, the merge refuses a block it cannot keep: invalid YAML, a list, a single value, or a YAML tag; the error says how to repair it
 ${OPENING_BLOCK_ERROR_ENTRY}

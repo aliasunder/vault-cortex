@@ -9,7 +9,6 @@ import { FILESYSTEM_ERROR_ENTRY } from "./tool-helpers.js"
 export const registerDailyNoteTools = ({
   registerTool,
   safeHandler,
-  isToolEnabled,
   whenToolEnabledText,
   vaultPath,
   logger: sessionLogger,
@@ -36,7 +35,7 @@ Errors:
 - "path traversal blocked" / "hidden path blocked" / "absolute path blocked" — the configured daily notes folder or format leads outside the vault or into a hidden folder; change it in Obsidian, or set DAILY_NOTES_FOLDER and DAILY_NOTES_FORMAT
 ${FILESYSTEM_ERROR_ENTRY}
 
-Returns: JSON with path (string — resolved vault-relative path), content (string|null — the note's full text, properties block included, or null when the note doesn't exist), and exists (boolean).${isToolEnabled("vault_write_note") ? " When exists is false, create the note with vault_write_note using the returned path." : ""}`,
+Returns: JSON with path (string — resolved vault-relative path), content (string|null — the note's full text, properties block included, or null when the note doesn't exist), and exists (boolean).${whenToolEnabledText("vault_write_note", " When exists is false, create the note with vault_write_note using the returned path.")}`,
       inputSchema: {
         date: z
           .string()
