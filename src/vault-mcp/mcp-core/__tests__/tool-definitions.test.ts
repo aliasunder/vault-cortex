@@ -1581,18 +1581,16 @@ describe("vault_memory_recall handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(requireTextContent(result)) as {
-      entries: Array<{ file: string; date: string }>
-      total: number
-      truncated: boolean
-      search_mode: string
-    }
     // Three entries match "mutation"; limit: 2 must reach the query
     // layer (the truncation is only observable if the mapping worked).
-    expect(payload.total).toBe(3)
-    expect(payload.truncated).toBe(true)
-    expect(payload.entries).toHaveLength(2)
-    expect(payload.search_mode).toBe("fts")
+    // Which two come back is a ranking detail, not the limit under test.
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      entries: [expect.any(Object), expect.any(Object)],
+      total: 3,
+      truncated: true,
+      search_mode: "fts",
+      reranked: false,
+    })
   })
 
   it("returns an empty evidence set for a no-match query, not an error", async () => {
@@ -2963,8 +2961,15 @@ describe("DISABLED_TOOLS", () => {
       ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     )
     const description = listFilesCall?.[1].description
-    expect(description).toContain(
-      "BEFORE calling vault_get_memory; this tool gives the valid file and section names.",
+
+    expect(
+      findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+        linePrefix: "When to use:",
+      }),
+    ).toBe(
+      "When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory; this tool gives the valid file and section names. To find entries by topic instead, use vault_memory_recall.",
     )
     expect(description).not.toContain("vault_update_memory")
     expect(description).not.toContain("pruning entries")
@@ -2982,7 +2987,13 @@ describe("DISABLED_TOOLS", () => {
     )
     const description = listFilesCall?.[1].description
 
-    expect(description).toContain(
+    expect(
+      findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+        linePrefix: "When to use:",
+      }),
+    ).toBe(
       "When to use: Discovering what memory files and sections exist — and what each file is for. To find entries by topic instead, use vault_memory_recall.",
     )
     expect(description).not.toContain("BEFORE calling")
@@ -3033,33 +3044,41 @@ describe("DISABLED_TOOLS", () => {
     expect(describeTool(disabledTool)).not.toContain(disabledTool)
   })
 
-  it("vault_list_files falls back to its plain purpose when a note discovery tool is disabled", () => {
-    const listFilesWhenToUse = (disabledTools: string): string | undefined => {
-      return findDescriptionLine({
-        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
-        toolName: TOOL_NAMES.VAULT_LIST_FILES,
-        linePrefix: "When to use:",
-      })
-    }
+  const listFilesWhenToUse = (disabledTools: string): string | undefined => {
+    return findDescriptionLine({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_LIST_FILES,
+      linePrefix: "When to use:",
+    })
+  }
 
+  it("vault_list_files contrasts itself with the note discovery tools while all three are served", () => {
     expect(listFilesWhenToUse("")).toBe(
       "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
     )
-    expect(listFilesWhenToUse("vault_search_by_folder")).toBe(
-      "When to use: discovering what files exist before reading them with vault_read_file. This is the discovery surface for every file that is not a markdown note. For the files one specific note links to, prefer vault_get_outgoing_links.",
-    )
   })
+
+  it.each(["vault_list_notes", "vault_search_by_folder", "vault_search"])(
+    "vault_list_files falls back to its plain purpose when %s is disabled",
+    (disabledTool) => {
+      expect(listFilesWhenToUse(disabledTool)).toBe(
+        "When to use: discovering what files exist before reading them with vault_read_file. This is the discovery surface for every file that is not a markdown note. For the files one specific note links to, prefer vault_get_outgoing_links.",
+      )
+    },
+  )
 
   it("names only the surviving consumer when vault_get_memory alone is disabled", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_get_memory",
     })
-    const recallCall = registeredCalls.find(
-      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
-    )
-
-    expect(recallCall?.[1].description).toContain(
-      "file and section feed directly into vault_delete_memory.",
+    expect(
+      findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_MEMORY_RECALL,
+        linePrefix: "Returns:",
+      }),
+    ).toBe(
+      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker\'s relevance cut was applied.',
     )
   })
 
