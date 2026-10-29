@@ -3044,6 +3044,29 @@ describe("DISABLED_TOOLS", () => {
     expect(describeTool(disabledTool)).not.toContain(disabledTool)
   })
 
+  it("no served tool's text names a tool DISABLED_TOOLS turned off", () => {
+    // The input schema as JSON Schema carries every .describe() text, nested
+    // objects included, the way a client receives it.
+    const collectServedText = ([toolName, toolConfig]: RegisterToolCall): string => {
+      if (!toolConfig.inputSchema) throw new Error(`tool ${toolName} registered without a schema`)
+
+      const schemaText = JSON.stringify(z.toJSONSchema(toolConfig.inputSchema))
+      return `${requireDescription(toolConfig, toolName)}\n${schemaText}`
+    }
+
+    // Each entry reads "naming tool -> disabled tool"; \b keeps vault_search
+    // from matching inside vault_search_by_tag.
+    const findToolsNaming = (disabledTool: string): string[] => {
+      const disabledToolPattern = new RegExp(`\\b${disabledTool}\\b`)
+      const namingCalls = registerWithConfig({ DISABLED_TOOLS: disabledTool }).filter(
+        (registeredCall) => disabledToolPattern.test(collectServedText(registeredCall)),
+      )
+      return namingCalls.map(([namingTool]) => `${namingTool} -> ${disabledTool}`)
+    }
+
+    expect(ALL_TOOL_NAMES.flatMap(findToolsNaming)).toEqual([])
+  })
+
   const listFilesWhenToUse = (disabledTools: string): string | undefined => {
     return findDescriptionLine({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),

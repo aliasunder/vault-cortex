@@ -57,6 +57,15 @@ export const createStrictInputObject = <Shape extends z.ZodRawShape>(
   })
 }
 
+/** Sentences that point to other tools, each already "" when its tool is
+ *  disabled, as one line that starts with a line break. Empty sentences drop out
+ *  before the join, so none leaves a leading space or an empty line. */
+export const formatServedSentencesLine = (gatedSentences: readonly string[]): string => {
+  const servedSentences = gatedSentences.filter(Boolean).join(" ")
+
+  return servedSentences ? `\n${servedSentences}` : ""
+}
+
 export type ToolRegistrationContext = ToolAvailability &
   SafeHandlers & {
     registerTool: RegisterGatedTool

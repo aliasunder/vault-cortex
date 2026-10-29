@@ -19,6 +19,7 @@ import {
   LISTING_FILESYSTEM_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
   describeTextWindow,
+  formatServedSentencesLine,
   NOTE_EXTENSION_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
@@ -58,15 +59,6 @@ const describeProtectedPaths = (config: VaultConfig): string => {
   return `${config.memoryDir}/ and the daily notes folder (${DEFAULT_DAILY_NOTES_FOLDER}/ by default; not protected when it is the vault root or blank)`
 }
 
-/** Sentences that point to other tools, each already "" when its tool is
- *  disabled, as one line that starts with a line break. Empty sentences drop out
- *  before the join, so none leaves a leading space or an empty line. */
-const formatServedSentencesLine = (gatedSentences: readonly string[]): string => {
-  const servedSentences = gatedSentences.filter(Boolean).join(" ")
-
-  return servedSentences ? `\n${servedSentences}` : ""
-}
-
 export const registerVaultCrudTools = ({
   registerTool,
   isToolEnabled,
@@ -79,6 +71,49 @@ export const registerVaultCrudTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
+  // The read, edit, and delete tools' not-found remedies name vault_list_notes or
+  // vault_read_note only while that tool is served; otherwise they fall back to a
+  // check that needs no tool.
+  const listNotesEnabled = isToolEnabled("vault_list_notes")
+  const noteNotFoundCheckRemedy = listNotesEnabled
+    ? "check vault_list_notes for valid paths"
+    : "check its spelling and letter case"
+  const noteNotFoundVerifyRemedy = listNotesEnabled
+    ? "verify path with vault_list_notes"
+    : "check the path's spelling and letter case"
+  const readNoteNotFoundRemedy = listNotesEnabled
+    ? "verify it with vault_list_notes"
+    : "check its spelling and letter case"
+
+  // Incoming and outgoing links are separate tools, so the sentence names
+  // whichever of the pair is served.
+  const describeReadNoteLinkTools = (): string => {
+    const backlinksEnabled = isToolEnabled("vault_get_backlinks")
+    const outgoingLinksEnabled = isToolEnabled("vault_get_outgoing_links")
+
+    if (backlinksEnabled && outgoingLinksEnabled) {
+      return "To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links."
+    }
+    if (backlinksEnabled) return "To explore what links to this note, use vault_get_backlinks."
+    if (outgoingLinksEnabled) {
+      return "To explore what this note links to, use vault_get_outgoing_links."
+    }
+    return ""
+  }
+  const readNoteAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText("vault_search", "Prefer vault_search when you don't know the path."),
+    whenToolEnabledText(
+      "vault_list_tasks",
+      "For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's Markdown.",
+    ),
+    whenToolEnabledText(
+      "vault_get_memory",
+      `Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`,
+    ),
+    whenToolEnabledText("vault_patch_note", "To edit a section you've read, use vault_patch_note."),
+    describeReadNoteLinkTools(),
+  ])
+
   registerTool(
     TOOL_NAMES.VAULT_READ_NOTE,
     {
@@ -92,13 +127,12 @@ Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 }) // disambiguate when several "Done" headings exist
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 }) // first 20 lines of an oversized section
 
-When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. For a note or section too long for one response (this tool sets no cap; the outline gives each section's bytes), page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.
-Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_list_tasks", " For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's Markdown.")}${whenToolEnabledText("vault_get_memory", ` Prefer vault_get_memory for ${config.memoryDir}/ files (returns content without properties).`)}${whenToolEnabledText("vault_patch_note", " To edit a section you've read, use vault_patch_note.")} To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.
+When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. For a note or section too long for one response (this tool sets no cap; the outline gives each section's bytes), page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.${readNoteAlternativesLine}
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included.
 
 Errors:
-- "note not found" — no note exists at this path; verify it with vault_list_notes
+- "note not found" — no note exists at this path; ${readNoteNotFoundRemedy}
 - "heading not found" — the message lists the available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive — set at most one"
@@ -297,6 +331,15 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
     },
   )
 
+  const listNotesAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_search_by_folder",
+      "Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths.",
+    ),
+    whenToolEnabledText("vault_search", "Prefer vault_search for content-based discovery."),
+    whenToolEnabledText("vault_read_note", "Use vault_read_note to read a note from the results."),
+  ])
+
   registerTool(
     TOOL_NAMES.VAULT_LIST_NOTES,
     {
@@ -307,8 +350,7 @@ Example: vault_list_notes({ folder: "Projects" })
 Example: vault_list_notes({ glob: "**/*session-log*.md" })
 Example: vault_list_notes({ folder: "Projects", glob: "*.md" }) — the folder's top-level notes only
 
-When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
-Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
+When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.${listNotesAlternativesLine}
 
 Parameters:
 - folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
@@ -480,15 +522,6 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     ),
   ])
 
-  // The edit and delete tools' not-found remedies name vault_list_notes or vault_read_note
-  // only while that tool is served; otherwise they fall back to a check that needs no tool.
-  const listNotesEnabled = isToolEnabled("vault_list_notes")
-  const noteNotFoundCheckRemedy = listNotesEnabled
-    ? "check vault_list_notes for valid paths"
-    : "check its spelling and letter case"
-  const noteNotFoundVerifyRemedy = listNotesEnabled
-    ? "verify path with vault_list_notes"
-    : "check the path's spelling and letter case"
   const readNoteEnabled = isToolEnabled("vault_read_note")
   const textNotFoundRemedy = readNoteEnabled
     ? "verify exact text with vault_read_note"
@@ -1325,6 +1358,10 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     },
   )
 
+  const updatePropertiesNoteNotFoundRemedy = isToolEnabled("vault_write_note")
+    ? "create the note first with vault_write_note"
+    : noteNotFoundCheckRemedy
+
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
@@ -1338,7 +1375,7 @@ When to use: Changing tags, status, type, or any property without reading/rewrit
 ${whenToolEnabledText("vault_write_note", "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). ")}${whenToolEnabledText("vault_read_note", "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a block. ")}Arrays are replaced entirely, not appended to.
 
 Errors:
-- "note not found" — path does not exist; create the note first with vault_write_note
+- "note not found" — path does not exist; ${updatePropertiesNoteNotFoundRemedy}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONCURRENT_WRITE_ERROR_ENTRY}

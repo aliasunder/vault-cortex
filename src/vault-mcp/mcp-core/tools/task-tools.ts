@@ -8,6 +8,7 @@ import {
   FILESYSTEM_ERROR_ENTRY,
   INDEX_ERROR_ENTRY,
   describePropertiesBlockErrorEntry,
+  formatServedSentencesLine,
   NOTE_EXTENSION_ERROR_ENTRY,
   OPENING_BLOCK_ERROR_ENTRY,
   PATH_SAFETY_ERROR_ENTRY,
@@ -17,12 +18,24 @@ import { taskMutations } from "../../vault-operations/task-mutations.js"
 export const registerTaskTools = ({
   registerTool,
   safeHandler,
+  isToolEnabled,
   whenToolEnabledText,
   vaultPath,
   search,
   logger: sessionLogger,
 }: ToolRegistrationContext): void => {
   // ── vault_list_tasks ────────────────────────────────────────────
+
+  const listTasksAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_read_note",
+      "Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write.",
+    ),
+    whenToolEnabledText(
+      "vault_search",
+      "Prefer vault_search for full-text queries over note content.",
+    ),
+  ])
 
   registerTool(
     TOOL_NAMES.VAULT_LIST_TASKS,
@@ -36,8 +49,7 @@ Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
 Example: vault_list_tasks({ top_level_only: true, path: "TASKS.md" }) — board cards only, excluding checklist sub-items
 
-When to use: Reading task status and order on one board (path + sort_by: "position"; add status: "all" to include done and cancelled cards). Also any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
-${whenToolEnabledText("vault_read_note", "Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write. ")}Prefer vault_search for full-text queries over note content.
+When to use: Reading task status and order on one board (path + sort_by: "position"; add status: "all" to include done and cancelled cards). Also any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.${listTasksAlternativesLine}
 
 Behavior: A file change takes a few seconds to appear here, so a task written moments ago may still show its old state.
 
@@ -462,6 +474,10 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
 
   // ── vault_update_task ───────────────────────────────────────────
 
+  const updateTaskLineDescription = isToolEnabled("vault_list_tasks")
+    ? "1-based line number from vault_list_tasks. Fragile if the file changed since the query."
+    : "1-based line number of the task line. Fragile if the file changed since you read it."
+
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
@@ -539,14 +555,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .describe(
             "Stable task identifier — the ^block-id at the end of the task line, without the ^. Preferred over line.",
           ),
-        line: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .describe(
-            "1-based line number from vault_list_tasks. Fragile if the file changed since the query.",
-          ),
+        line: z.number().int().min(1).optional().describe(updateTaskLineDescription),
         status: z
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
