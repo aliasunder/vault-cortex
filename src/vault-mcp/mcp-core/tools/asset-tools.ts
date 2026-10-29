@@ -251,7 +251,7 @@ ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).${whenToolEnabledText(
         "vault_read_file",
-        "\n\nReadable types: vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp; a large one comes back shrunk, so it is still cheap to read), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base. It cannot read any type outside these lists.",
+        "\n\nReadable types: vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base. It cannot read any type outside these lists.",
       )}`,
       inputSchema: {
         folder: z

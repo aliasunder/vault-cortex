@@ -79,7 +79,7 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_GET_MEMORY,
     {
       title: "Get Memory",
-      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: that file's content, properties block stripped. With file+section: just that H2 section's entries. No args: every file's content, properties block stripped, joined by --- lines — can be large. Returns empty string when no memory files exist yet.
+      description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: that file. With file+section: just that H2 section's entries. No args: every file, joined by --- lines — can be large.
 
 With file+on_or_after: only the entries dated on or after that date (inclusive), in document order (newest first when new entries go at the top, their default position). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
 
@@ -99,7 +99,7 @@ ${MEMORY_FILE_NAME_ERROR_ENTRY}
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 - "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: check file against vault_list_memory_files (a name longer than the filesystem allows fails here); otherwise ask the vault's owner to check the folder
 
-Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact). An empty match returns { entries: [], total: 0, on_or_after }.`,
+Returns: Without on_or_after, raw markdown with the properties block stripped, or an empty string when no memory files exist yet. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact). An empty match returns { entries: [], total: 0, on_or_after }.`,
       inputSchema: {
         file: z
           .string()
@@ -178,7 +178,7 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
       title: "List Memory Files",
       description: `Discovery tool — lists ${config.memoryDir}/ memory files with each file's heading outline, per-section entry counts, and leading callout. An entry is a dated bullet line ("- **YYYY-MM-DD**: text"). Does NOT return actual entries.
 
-Example: vault_list_memory_files() returns [{ file: "Principles", title: "Principles", bytes: 2048, entry_policy: "append-only", leading_callout: null, headings: [{ level: 2, text: "Decision heuristics (newest first)", entry_count: 12 }] }, ...]
+Example: vault_list_memory_files()
 
 When to use: ${discoveryPurpose}${whenToolEnabledText("vault_delete_memory", ", and each file's entry_policy to check before pruning entries")}.${whenToolEnabledText("vault_memory_recall", " To find entries by topic instead, use vault_memory_recall.")}
 

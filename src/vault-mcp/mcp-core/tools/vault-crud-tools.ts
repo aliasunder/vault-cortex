@@ -651,7 +651,11 @@ When to use: Targeted text changes within a single location — fixing typos, up
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places.
-- new_text: non-empty new_text replaces the match exactly. A deletion (new_text="") that leaves text on its line is written exactly as asked. One that empties its line never doubles blank lines: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one; at the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n"). So include the line break in old_text to remove a table row or list item, or the empty line left behind splits the table or list. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
+- new_text: a non-empty value replaces the match exactly. For a deletion (new_text=""):
+  - When text remains on the line, it is written exactly as asked.
+  - When the line empties, blank lines never double: the text above and below is separated by the wider of the two runs of empty lines that stood there, and by at least one. At the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n").
+  - To remove a table row or list item, include its line break in old_text, or the empty line left behind splits the table or list.
+  - Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 - replace_all_occurrences: set true for deliberate bulk renames or term replacements.
 
 Errors:
@@ -857,7 +861,10 @@ When to use: Replacing a block you have already read — a table row, callout, o
 
 Parameters:
 - end_anchor is searched at or after the start line and must be unique among those lines. If start_anchor and end_anchor match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
-- content: line breaks at its start or end merge with the note's empty lines on that side, keeping the wider run (at the note's end, content's trailing line breaks count one fewer). So content can widen a gap but never narrow it: content with no line break at either end keeps the gaps as they were, and content ending in one ("| X |\\n") leaves an empty line after it, which splits a table. Content made only of line breaks joins both sides into one gap. Empty lines inside content are written as given. Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
+- content's line breaks:
+  - A line break at its start or end merges with the note's empty lines on that side, keeping the wider run, so content can widen a gap but never narrow it. At the note's end, its trailing line breaks count one fewer.
+  - Content ending in a line break ("| X |\\n") leaves an empty line after it, which splits a table; content made only of line breaks joins both sides into one gap.
+  - Empty lines inside content and elsewhere in the note are kept as written, and a line holding only spaces or tabs counts as text, not as an empty line.
 
 Errors:
 - "note not found" — ${noteNotFoundVerifyRemedy}
@@ -956,7 +963,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are kept as written, and CRLF line breaks are saved as LF.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are kept as written, and CRLF line breaks are saved as LF. A failed save leaves the note unchanged.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
