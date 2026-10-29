@@ -133,7 +133,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .enum(["asc", "desc"])
           .optional()
           .describe(
-            'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within the cascade of a date sort (see sort_by), each field uses its own default; an explicit value overrides all fields uniformly.',
+            'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. When a date sort cascades (see sort_by), each field uses its own default direction; an explicit value overrides all fields uniformly.',
           ),
       },
     },
@@ -520,7 +520,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
 - description is the current text, and block_id and heading reflect the task after the update; block_id is omitted when the task has none, heading when the task sits above the first heading.
 - subtasks lists each checklist item add_subtasks wrote as { line, description } (omitted when none were added); checklist items are written without a block_id, so line is the handle for a follow-up update.
 - next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has.
-- changes lists every field applied as "field: before → after", with "(none)" for an absent value; a 🏁 delete is listed as "on_completion: task removed (🏁 delete)", or "on_completion: task and N children removed (🏁 delete)" when nested lines went with it. An add_subtasks change appears as "subtasks", its two sides checklist-item counts, and a spawn adds "next_occurrence: (none) → line N".
+- changes lists every field applied as "field: before → after", with "(none)" for an absent value; a 🏁 delete is listed as "on_completion: task removed (🏁 delete)", or "on_completion: task and N children removed (🏁 delete)" when lines nested under the task are removed too. An add_subtasks change appears as "subtasks", its two sides checklist-item counts, and a spawn adds "next_occurrence: (none) → line N".
 - advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted (see Obsidian syntax above), a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text, or a finite rule with no occurrences left).
 - on_completion_applied is "delete", present only when the effective on_completion was delete (already on the task or set in the same call) and the task was transitioned to done.`,
       inputSchema: {
