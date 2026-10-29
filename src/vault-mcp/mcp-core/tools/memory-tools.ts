@@ -339,6 +339,9 @@ ${recallReturnsLead} In keyword-only mode search_mode is always "fts" and rerank
     "vault_replace_in_note",
     " via vault_replace_in_note",
   )
+  const scopeCalloutReplaceInstruction = isToolEnabled("vault_replace_in_note")
+    ? "use vault_replace_in_note to replace"
+    : "replace"
   const updateMemoryAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_write_note",
@@ -443,7 +446,7 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
             // Nudge the caller to author the scope callout the new file was
             // seeded with, so the file self-documents what belongs in it.
             case "created-file":
-              return `${confirmation}. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
+              return `${confirmation}. Created a new memory file with a placeholder scope callout — ${scopeCalloutReplaceInstruction} its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
             case "created-section":
             case "appended":
               return confirmation

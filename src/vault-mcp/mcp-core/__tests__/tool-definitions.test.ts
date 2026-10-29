@@ -888,9 +888,9 @@ describe("vault_update_memory handler", () => {
   /** The registered handler over a real temp vault holding one memory file,
    *  so it exercises the actual memory store — the global harness registers
    *  against a nonexistent path. */
-  const setupUpdateMemoryHandler = async (): Promise<
-    (args: Record<string, unknown>) => Promise<unknown>
-  > => {
+  const setupUpdateMemoryHandler = async (
+    configEnv: Record<string, string> = {},
+  ): Promise<(args: Record<string, unknown>) => Promise<unknown>> => {
     const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-memory-"))
     onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
     await mkdir(join(tempVault, "About Me"), { recursive: true })
@@ -905,7 +905,7 @@ describe("vault_update_memory handler", () => {
       vaultPath: tempVault,
       search: {} as SearchIndex,
       logger,
-      config: loadConfig({}),
+      config: loadConfig(configEnv),
     })
     const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
     const updateMemoryCall = registeredCalls.find(
@@ -958,6 +958,21 @@ describe("vault_update_memory handler", () => {
         {
           type: "text",
           text: 'Added entry to About Me/Health.md → ## Sleep. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn\'t)" placeholder with what the file contains, so other agents know what it is for.',
+        },
+      ],
+    })
+  })
+
+  it("names no editing tool in the new-file nudge when vault_replace_in_note is disabled", async () => {
+    const updateMemory = await setupUpdateMemoryHandler({ DISABLED_TOOLS: "vault_replace_in_note" })
+
+    expect(
+      await updateMemory({ file: "Health", section: "Sleep", entry: "Aims for 8 hours" }),
+    ).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Added entry to About Me/Health.md → ## Sleep. Created a new memory file with a placeholder scope callout — replace its "(describe what belongs in this file — and what doesn\'t)" placeholder with what the file contains, so other agents know what it is for.',
         },
       ],
     })
