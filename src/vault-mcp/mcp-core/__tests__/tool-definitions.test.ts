@@ -2058,7 +2058,7 @@ describe("vault_find_orphans live folder defaults", () => {
     expect(parametersSection).toBe(
       [
         '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
-        "- limit applies after exclusions and sorting by most recently modified; nothing in the response signals truncation.",
+        "- limit applies after exclusions and sorting; nothing in the response signals truncation.",
       ].join("\n"),
     )
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(

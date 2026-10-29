@@ -467,9 +467,10 @@ Returns: JSON array of note metadata sorted by most recently modified, then by p
     TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
     {
       title: "List Property Keys",
-      description: `Discover all property keys in the vault with note counts and sample values.
+      description: `Discover all property keys in the vault with note counts and sample values, without reading individual notes.
 
 Example: vault_list_property_keys() returns [{ key: "tags", count: 342, sample_values: ["session-log", "project"] }, ...]
+Example: vault_list_property_keys({ folder: "Projects" }) — the keys used under Projects/ only
 
 When to use: Discovering what properties exist before searching by property. Good first step for vault orientation${whenToolEnabledText("vault_list_tags", " alongside vault_list_tags")}.${listPropertyKeysAlternativesLine}
 
@@ -735,7 +736,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
       title: "Get Outgoing Links",
-      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes, not links inside text cards. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it. A broken link's path is its target text without any #heading or |alias.
+      description: `Find all notes and files a given note or canvas links to. For notes: [[wikilinks]], [markdown](links), ![[embeds]], and wikilinks inside frontmatter properties (e.g. related:). For canvas files: file nodes, not links inside text cards. Links inside code blocks are ignored; self-links are included. Each target is listed once, however often the note links to it. A broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded.
 
 Example: vault_get_outgoing_links({ path: "Projects/vault-cortex.md" })
 Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
@@ -745,7 +746,7 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 Parameters:
 - path: a note or canvas created or moved in the last few seconds is not found yet.
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". The title field is null for files and broken links. The daily_note_forward_ref flag is true on a broken link into the vault's daily notes folder — a daily note not yet created, not genuine breakage — and false otherwise. The bytes field is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". The title field is null for files and broken links. The daily_note_forward_ref flag is true on a broken link into the vault's daily notes folder — a daily note not yet created, not genuine breakage — and false otherwise, including when the daily notes folder is the vault root or blank. The bytes field is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
@@ -827,7 +828,7 @@ When to use: Vault maintenance — surfacing notes to integrate into the graph.$
 
 Parameters:
 - exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.${orphanDefaultsText.dailyFolderLine}
-- limit applies after exclusions and sorting by most recently modified; nothing in the response signals truncation.
+- limit applies after exclusions and sorting; nothing in the response signals truncation.
 
 Behavior: A file change takes a few seconds to appear here, so a link written moments ago may not count yet.
 
