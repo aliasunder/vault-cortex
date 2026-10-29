@@ -1602,14 +1602,13 @@ describe("vault_memory_recall handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(requireTextContent(result)) as {
-      entries: unknown[]
-      total: number
-      truncated: boolean
-    }
-    expect(payload.entries).toEqual([])
-    expect(payload.total).toBe(0)
-    expect(payload.truncated).toBe(false)
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      entries: [],
+      total: 0,
+      truncated: false,
+      search_mode: "fts",
+      reranked: false,
+    })
   })
 })
 
