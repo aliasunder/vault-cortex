@@ -1122,6 +1122,10 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
         returns: `Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<.trash/ path>)" when the note landed in .trash/.`,
       }
 
+  const protectedPathRemedy = isToolEnabled("vault_delete_memory")
+    ? "use vault_delete_memory for memory entries"
+    : "ask the vault owner to delete it in Obsidian"
+
   registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
@@ -1140,7 +1144,7 @@ Parameters:
 - prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. Pruning is best-effort: a folder that can't be removed never fails the call.
 
 Errors:
-- "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
+- "cannot delete protected path" — the path sits under a protected folder; ${protectedPathRemedy}
 ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 ${CONCURRENT_WRITE_RETRY_ERROR_ENTRY}
