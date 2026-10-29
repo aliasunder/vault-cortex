@@ -502,7 +502,7 @@ Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-ta
 When to use: Any change to an existing task.${whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks first to get identification fields (path + block_id or line).")}${whenToolEnabledText("vault_create_task", " For creating a new task, use vault_create_task instead.")}
 
 Parameters:
-- Exactly one of block_id or line is required to identify the task. A Kanban sub-task this server created has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line.
+- Exactly one of block_id or line is required to identify the task. A Kanban sub-task this server created has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line.${whenToolEnabledText("vault_list_tasks", " After a write, wait a few seconds for the listing to catch up.")}
 - At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
 - status side effects:
   Kanban: "done" moves the card and everything nested under it to the done lane (the lane whose first line is **Complete**, else the heading "Done", exact case), leaving nested checkboxes as they are; a sub-task stays under its parent.

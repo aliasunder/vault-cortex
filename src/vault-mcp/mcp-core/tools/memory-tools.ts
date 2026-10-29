@@ -58,7 +58,7 @@ export const registerMemoryTools = ({
     ? "call vault_list_memory_files to discover valid names"
     : "check file's spelling and letter case"
   const memoryFileNameCheckRemedy = listMemoryFilesEnabled
-    ? "check file against vault_list_memory_files"
+    ? "check file against vault_list_memory_files and shorten an over-long name"
     : "check file's spelling and length"
 
   // The memory store wraps a failed read without the Node error's code, so the
