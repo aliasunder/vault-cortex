@@ -5,6 +5,11 @@ import type { Request, Response, NextFunction } from "express"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
+import {
+  BODY_TAG_PARSE_TIMEOUT_MS,
+  createBodyTagParser,
+  type BodyTagParser,
+} from "./search/body-tag-parser.js"
 import { createEmbedder } from "./search/embedder.js"
 import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
@@ -45,14 +50,33 @@ export const createErrorMiddleware =
 
 /**
  * SIGTERM handler that drains in-flight requests before exiting, so a write
- * can't be interrupted mid-flight. `close()` stops accepting new connections
- * and waits for active requests to finish; the fallback forces exit if a
- * connection hangs the drain longer than `forceExitMs`.
+ * can't be interrupted mid-flight.
+ * - The body-tag parser closes first, which stops the background body-tag
+ *   pass, so the pass writes nothing to the index while requests drain.
+ * - `httpServer.close()` stops accepting new connections and waits for active
+ *   requests to finish.
+ * - The fallback forces exit if a connection hangs the drain longer than
+ *   `forceExitMs`.
  */
 export const createShutdownHandler =
-  (httpServer: { close: (callback: () => void) => void }, forceExitMs = 10_000): (() => void) =>
+  ({
+    httpServer,
+    bodyTagParser,
+    forceExitMs = 10_000,
+  }: {
+    httpServer: { close: (callback: () => void) => void }
+    bodyTagParser: Pick<BodyTagParser, "close">
+    forceExitMs?: number
+  }): (() => void) =>
   (): void => {
     logger.info("SIGTERM received, draining")
+
+    // Detached on purpose: the drain doesn't wait for it, and exiting ends the
+    // worker either way
+    bodyTagParser.close().catch((error: unknown) => {
+      logger.warn("body-tag parser did not close cleanly", { error: describeError(error) })
+    })
+
     httpServer.close(() => {
       logger.info("drained, exiting")
       process.exit(0)
@@ -151,11 +175,19 @@ const startServer = async (): Promise<void> => {
   // Before the watcher starts, so its template writes are not held and re-read.
   await bootstrapMemoryIfEnabled(config, vaultPath)
 
-  // watchVaultAndBuildIndex also returns the rebuild's embedding promise. Startup
-  // does not wait for it, so the server takes requests while the embedding pass
-  // is still running, and rebuildFromVault logs an embedding failure itself.
+  // Lives until SIGTERM, when the shutdown handler closes it
+  const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
+
+  // Startup takes only the note count and leaves the rebuild's embedding and
+  // body-tag passes running, so the server takes requests while they run;
+  // rebuildFromVault logs either pass's failure itself.
   const { count } = await watchVaultAndBuildIndex(
-    { vaultPath, search, watcherOptions: { usePolling: config.windowsBindMount } },
+    {
+      vaultPath,
+      search,
+      bodyTagParser,
+      watcherOptions: { usePolling: config.windowsBindMount },
+    },
     logger,
   )
   logger.info("initial index built", { notesIndexedByRebuild: count })
@@ -231,7 +263,7 @@ const startServer = async (): Promise<void> => {
   // read-only server never modifies the vault, so neither runs.
   const trashBookkeepingEnabled = !config.readOnlyMode && !config.obsidianSyncEnabled
 
-  process.on("SIGTERM", createShutdownHandler(httpServer))
+  process.on("SIGTERM", createShutdownHandler({ httpServer, bodyTagParser }))
 
   // Orphan purge: drops rows whose .trash/ entry is gone — runs once at
   // boot regardless of TRASH_RETENTION_DAYS.

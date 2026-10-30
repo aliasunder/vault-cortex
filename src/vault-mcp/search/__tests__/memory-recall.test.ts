@@ -3,6 +3,7 @@ vi.mock("sqlite-vec", { spy: true })
 import { createSearchIndex } from "../search-index.js"
 import { sigmoid, type Reranker } from "../reranker.js"
 import { logger } from "../../../logger.js"
+import { withBodyTags } from "./body-tag-test-helpers.js"
 
 const DIMENSIONS = 384
 
@@ -83,7 +84,7 @@ const createRecallIndex = async (options?: {
   for (const [fileName, content] of Object.entries(files)) {
     const filePath = `About Me/${fileName}.md`
     const sourceVersion = index.upsertNote(
-      { filePath, rawContent: content, fileStat: { mtimeMs: 1000, size: 100 } },
+      withBodyTags({ filePath, rawContent: content, fileStat: { mtimeMs: 1000, size: 100 } }),
       logger,
     )
     await index.embedNote({ sourceVersion, notePath: filePath, rawContent: content }, logger)
@@ -335,11 +336,11 @@ describe("memoryRecall", () => {
     for (const [fileName, content] of Object.entries(DEFAULT_FILES)) {
       const filePath = `About Me/${fileName}.md`
       const sourceVersion = index.upsertNote(
-        {
+        withBodyTags({
           filePath,
           rawContent: content,
           fileStat: { mtimeMs: 1000, size: 100 },
-        },
+        }),
         logger,
       )
       await index.embedNote({ sourceVersion, notePath: filePath, rawContent: content }, logger)
@@ -498,11 +499,11 @@ describe("memoryRecall", () => {
       const filePath = `About Me/${fileName}.md`
       const content = `# ${fileName}\n\n## Working style (newest first)\n\n- **2026-07-02**: Pacing beats crunch on ${topicMarker}.\n`
       const sourceVersion = index.upsertNote(
-        {
+        withBodyTags({
           filePath,
           rawContent: content,
           fileStat: { mtimeMs: 1000, size: 100 },
-        },
+        }),
         logger,
       )
       await index.embedNote({ sourceVersion, notePath: filePath, rawContent: content }, logger)
@@ -547,11 +548,11 @@ describe("memoryRecall", () => {
     ).join("\n")
     const content = `# Ledger\n\n## Working style (newest first)\n\n${fillerEntries}\n- **2026-07-02**: Pacing beats crunch on alpha-topic.\n- **2026-07-02**: Pacing beats crunch on beta-topic.\n`
     const ledgerNoteSourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Ledger.md",
         rawContent: content,
         fileStat: { mtimeMs: 1000, size: 500 },
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -686,11 +687,15 @@ describe("memoryRecall", () => {
     // The reranker must receive file-prefixed documents matching the
     // embedding format — a regression that drops the file name from
     // the reranker input silently degrades relevance scoring.
-    const rerankerDocuments = vi.mocked(moderateReranker.rerankPairs).mock.calls[0]?.[1]
-    expect(rerankerDocuments).toBeDefined()
-    for (const document of rerankerDocuments ?? []) {
-      expect(document).toMatch(/^Communication > /)
-    }
+    expect(moderateReranker.rerankPairs).toHaveBeenCalledTimes(1)
+    expect(moderateReranker.rerankPairs).toHaveBeenCalledWith(
+      "how I like agents to communicate with me",
+      [
+        "Communication > Style (newest first)\n- **2026-07-01**: Direct feedback preferred over diplomatic hedging.",
+        "Communication > Style (newest first)\n- **2026-06-15**: Structured status updates help me track progress.",
+        "Communication > Unrelated (newest first)\n- **2026-03-01**: Office supplies were restocked on schedule.",
+      ],
+    )
   })
 
   it("boosts entries from a file whose name matches the query topic", async () => {

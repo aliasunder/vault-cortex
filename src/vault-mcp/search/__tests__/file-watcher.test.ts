@@ -25,6 +25,8 @@ import type { SearchIndex } from "../search-index.js"
 import { watchVaultAndBuildIndex } from "../file-watcher.js"
 import { atomicWriteFile } from "../../vault-operations/vault-filesystem.js"
 import { logger } from "../../../logger.js"
+import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
+import type { BodyTagParser } from "../body-tag-parser.js"
 
 // Auto-spy chokidar: spy: true keeps the real implementation, so the
 // integration tests below watch real temp dirs, while the "watch options" suite
@@ -49,15 +51,44 @@ type WatcherOptions = NonNullable<Parameters<typeof watchVaultAndBuildIndex>[0][
 const startWatcherWithoutRebuild = async (
   target: Readonly<{ vaultPath: string; search: SearchIndex }>,
   watcherOptions?: WatcherOptions,
+  bodyTagParser: BodyTagParser = inProcessBodyTagParser,
 ): Promise<void> => {
   vi.spyOn(target.search, "rebuildFromVault").mockResolvedValue({
     count: 0,
     embedding: Promise.resolve(),
+    bodyTags: Promise.resolve(),
   })
   await watchVaultAndBuildIndex(
-    { ...target, ...(watcherOptions ? { watcherOptions } : {}) },
+    { ...target, ...(watcherOptions ? { watcherOptions } : {}), bodyTagParser },
     logger,
   )
+}
+
+/** A body-tag parser that holds its first request until `releaseFirstParse()`,
+ *  standing in for a note that parses slowly, and answers later requests at
+ *  once. `firstParseSignal` resolves with that request's abort signal once it
+ *  arrives. */
+const createParserHoldingFirstRequest = () => {
+  const { promise: firstParseHeld, resolve: resolveFirstParse } = Promise.withResolvers<undefined>()
+  const releaseFirstParse = (): void => resolveFirstParse(undefined)
+  const { promise: firstParseSignal, resolve: reportFirstParse } = Promise.withResolvers<
+    AbortSignal | undefined
+  >()
+  // Flips once, when the first request arrives
+  let firstRequestSeen = false
+
+  const bodyTagParser: BodyTagParser = {
+    parse: async (params, parseLogger) => {
+      if (firstRequestSeen) return inProcessBodyTagParser.parse(params, parseLogger)
+
+      firstRequestSeen = true
+      reportFirstParse(params.signal)
+      await firstParseHeld
+      return inProcessBodyTagParser.parse(params, parseLogger)
+    },
+    close: async () => undefined,
+  }
+  return { bodyTagParser, releaseFirstParse, firstParseSignal }
 }
 
 /** Poll until a condition is met, with timeout. */
@@ -131,6 +162,99 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       await waitFor(() => index.fullTextSearch({ query: "savedopal" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "savedopal" }, logger)
       expect(results.map((result) => result.path)).toEqual(["saved.md"])
+    },
+  )
+
+  it(
+    "leaves no row for a note deleted while its body tags were parsing",
+    { timeout: 15000 },
+    async () => {
+      const { bodyTagParser, releaseFirstParse, firstParseSignal } =
+        createParserHoldingFirstRequest()
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: index },
+        { stabilityThreshold: 200, pollInterval: 50 },
+        bodyTagParser,
+      )
+
+      await writeFile(join(vault, "race.md"), "racing content #race\n", "utf8")
+      const heldParseSignal = await firstParseSignal
+      await unlink(join(vault, "race.md"))
+      // The removal aborts the held parse, which shows the delete was handled
+      // while the parse was still pending
+      await waitFor(() => heldParseSignal?.aborted === true)
+      releaseFirstParse()
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      expect(index.fullTextSearch({ query: "racing" }, logger)).toEqual([])
+      expect(index.searchByTag({ tag: "race" }, logger)).toEqual([])
+    },
+  )
+
+  it(
+    "keeps a newer edit when an older read's body tags finish parsing later",
+    { timeout: 15000 },
+    async () => {
+      const { bodyTagParser, releaseFirstParse, firstParseSignal } =
+        createParserHoldingFirstRequest()
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: index },
+        { stabilityThreshold: 200, pollInterval: 50 },
+        bodyTagParser,
+      )
+
+      await writeFile(join(vault, "edit.md"), "firstversion #one\n", "utf8")
+      const heldParseSignal = await firstParseSignal
+      await writeFile(join(vault, "edit.md"), "secondversion #two\n", "utf8")
+      await waitFor(() => index.fullTextSearch({ query: "secondversion" }, logger).length > 0)
+      releaseFirstParse()
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      expect(heldParseSignal?.aborted).toBe(true)
+      expect(index.fullTextSearch({ query: "firstversion" }, logger)).toEqual([])
+      expect(
+        index
+          .searchByTag({ tag: "two" }, logger)
+          .map(({ path, body_tags }) => ({ path, body_tags })),
+      ).toEqual([{ path: "edit.md", body_tags: ["two"] }])
+    },
+  )
+
+  it.each([
+    { outcome: "closed", label: "the server's shutdown closed the parser" },
+    { outcome: "unavailable", label: "the body-tag worker cannot start" },
+  ] as const)(
+    "indexes an edit and keeps the note's stored body tags when $label",
+    { timeout: 15000 },
+    async ({ outcome }) => {
+      // Flips once, after the first version is indexed with its tags
+      let parserStopped = false
+      const bodyTagParser: BodyTagParser = {
+        parse: async (params, parseLogger) => {
+          if (parserStopped) return { outcome }
+          return inProcessBodyTagParser.parse(params, parseLogger)
+        },
+        close: async () => undefined,
+      }
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: index },
+        { stabilityThreshold: 200, pollInterval: 50 },
+        bodyTagParser,
+      )
+
+      await writeFile(join(vault, "stopped.md"), "firstversion #kept\n", "utf8")
+      await waitFor(() => index.searchByTag({ tag: "kept" }, logger).length > 0)
+      parserStopped = true
+      // A tag candidate, so the real parser would hand this edit to the worker
+      // instead of answering "no-candidate" itself
+      await writeFile(join(vault, "stopped.md"), "secondversion #changed\n", "utf8")
+      await waitFor(() => index.fullTextSearch({ query: "secondversion" }, logger).length > 0)
+
+      expect(
+        index
+          .searchByTag({ tag: "kept" }, logger)
+          .map(({ path, body_tags }) => ({ path, body_tags })),
+      ).toEqual([{ path: "stopped.md", body_tags: ["kept"] }])
     },
   )
 
@@ -710,7 +834,11 @@ describe("file watcher — obsolete events and embedding queues", () => {
         edges: [],
       })
     search.upsertNote(
-      { filePath: "target.md", rawContent: "targetamber", fileStat: { mtimeMs: 1000, size: 11 } },
+      withBodyTags({
+        filePath: "target.md",
+        rawContent: "targetamber",
+        fileStat: { mtimeMs: 1000, size: 11 },
+      }),
       logger,
     )
     search.upsertNonMdFile("board.canvas", 100)
@@ -1079,6 +1207,57 @@ describe("file watcher — obsolete events and embedding queues", () => {
       expect(database.prepare(`SELECT path, content FROM ${sourceTable}`).all()).toEqual([
         { path: fileName, content: "newopal" },
       ])
+    },
+  )
+
+  it("parses no body tags for a note read that a newer change superseded", async () => {
+    const { testVault, fire } = await createControlledWatcher()
+    const filePath = join(testVault, "note.md")
+    await writeFile(filePath, "oldquartz #old")
+    const parseSpy = vi.spyOn(inProcessBodyTagParser, "parse")
+    onTestFinished(() => parseSpy.mockRestore())
+    const delayedRead = await delayFirstRead(filePath)
+    const olderChange = fire("change", "note.md")
+    await delayedRead.entered
+    await writeFile(filePath, "newopal #new")
+    await fire("change", "note.md")
+    delayedRead.release()
+    await olderChange
+
+    expect(parseSpy).toHaveBeenCalledTimes(1)
+    expect(parseSpy).toHaveBeenCalledWith(
+      { notePath: "note.md", body: "newopal #new", signal: expect.any(AbortSignal) },
+      logger,
+    )
+  })
+
+  it.each([
+    { outcome: "over-limit", label: "passes the limit" },
+    { outcome: "failed", label: "fails" },
+  ] as const)(
+    "indexes a changed note without its stored body tags when its body-tag parse $label",
+    async ({ outcome }) => {
+      const { testVault, search, fire } = await createControlledWatcher()
+      await writeFile(join(testVault, "note.md"), "firstversion #stored")
+      await fire("add", "note.md")
+      expect(search.searchByTag({ tag: "stored" }, logger).map((note) => note.path)).toEqual([
+        "note.md",
+      ])
+      await writeFile(join(testVault, "note.md"), "slowjasper #slow")
+      const parseSpy = vi.spyOn(inProcessBodyTagParser, "parse").mockResolvedValueOnce({ outcome })
+      onTestFinished(() => parseSpy.mockRestore())
+
+      await fire("change", "note.md")
+
+      expect(parseSpy).toHaveBeenCalledExactlyOnceWith(
+        { notePath: "note.md", body: "slowjasper #slow", signal: expect.any(AbortSignal) },
+        logger,
+      )
+      expect(
+        search
+          .fullTextSearch({ query: "slowjasper" }, logger)
+          .map(({ path, body_tags }) => ({ path, body_tags })),
+      ).toEqual([{ path: "note.md", body_tags: undefined }])
     },
   )
 
@@ -1519,7 +1698,11 @@ const gateRootListing = async (testVault: string) => {
   return { reached: reached.promise, release: () => release.resolve(undefined) }
 }
 
-describe("watchVaultAndBuildIndex — changes during startup", () => {
+// These tests write and read up to 40 real files. In a full parallel run on
+// macOS the largest batch takes over 4 seconds, close to vitest's 5-second default.
+const HELD_BATCH_TIMEOUT = { timeout: 15000 }
+
+describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOUT, () => {
   /** A controlled watcher whose startup rebuild waits for finishRebuild, unless
    *  realRebuild is set. The database lives outside the vault, so its own files
    *  never appear among the held changes. */
@@ -1550,7 +1733,11 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     })
     for (const [fileName, content] of Object.entries(setup?.seedNotes ?? {})) {
       search.upsertNote(
-        { filePath: fileName, rawContent: content, fileStat: { mtimeMs: 0, size: content.length } },
+        withBodyTags({
+          filePath: fileName,
+          rawContent: content,
+          fileStat: { mtimeMs: 0, size: content.length },
+        }),
         logger,
       )
     }
@@ -1559,7 +1746,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     if (setup?.rebuild !== "real") {
       vi.spyOn(search, "rebuildFromVault").mockImplementation(async () => {
         await rebuildGate.promise
-        return { count: 0, embedding: Promise.resolve() }
+        return { count: 0, embedding: Promise.resolve(), bodyTags: Promise.resolve() }
       })
     }
     await setup?.beforeStart?.(testVault)
@@ -1576,7 +1763,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       ...(newDirectoryRescanDelay ? { newDirectoryRescanDelay } : {}),
     }
     const startup = watchVaultAndBuildIndex(
-      { vaultPath: testVault, search, watcherOptions },
+      { vaultPath: testVault, search, watcherOptions, bodyTagParser: inProcessBodyTagParser },
       logger,
     )
     watcher.emit("ready")
@@ -1958,7 +2145,11 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     await fire("change", "locked.md")
     await fire("change", "fine.md")
     finishRebuild()
-    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
+    await expect(startup).resolves.toEqual({
+      count: 0,
+      embedding: expect.any(Promise),
+      bodyTags: expect.any(Promise),
+    })
 
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
       path: "locked.md",
@@ -2011,7 +2202,11 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
 
     await fire("unlink", "gone.md")
     finishRebuild()
-    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
+    await expect(startup).resolves.toEqual({
+      count: 0,
+      embedding: expect.any(Promise),
+      bodyTags: expect.any(Promise),
+    })
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
       "failed to apply the changes held during startup",
       { error: "[Error]: controlled batch failure" },
@@ -2765,6 +2960,7 @@ describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCH
           vaultPath: testVault,
           search,
           watcherOptions: { stabilityThreshold: 100, pollInterval: 25 },
+          bodyTagParser: inProcessBodyTagParser,
         },
         logger,
       )
@@ -2991,7 +3187,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
       const rebuildGate = Promise.withResolvers<undefined>()
       vi.spyOn(index, "rebuildFromVault").mockImplementation(async () => {
         await rebuildGate.promise
-        return { count: 0, embedding: Promise.resolve() }
+        return { count: 0, embedding: Promise.resolve(), bodyTags: Promise.resolve() }
       })
       // Resolves when the rescan reaches the missed file, whether it holds the
       // change (the intended path) or indexes it at once (a broken hold), so the
@@ -3016,7 +3212,12 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
       })
       const { fireAddDir } = installFakeChokidar({})
       const startup = watchVaultAndBuildIndex(
-        { vaultPath: vault, search: index, watcherOptions: RESCAN_TEST_OPTIONS },
+        {
+          vaultPath: vault,
+          search: index,
+          watcherOptions: RESCAN_TEST_OPTIONS,
+          bodyTagParser: inProcessBodyTagParser,
+        },
         logger,
       )
       await vi.waitFor(() => {
@@ -3063,6 +3264,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
         filePath: "new-folder/missed.md",
         rawContent: "missed sibling note\n",
         fileStat: { mtimeMs: expect.any(Number), size: 20 },
+        bodyTags: [],
       },
       logger,
     )
@@ -3232,6 +3434,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
           filePath: "new-folder/settled.md",
           rawContent: "settled beside a cycle\n",
           fileStat: { mtimeMs: expect.any(Number), size: 23 },
+          bodyTags: [],
         },
         logger,
       )
@@ -3270,6 +3473,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
         filePath: "new-folder/settled.md",
         rawContent: "settled beside a broken link\n",
         fileStat: { mtimeMs: expect.any(Number), size: 29 },
+        bodyTags: [],
       },
       logger,
     )

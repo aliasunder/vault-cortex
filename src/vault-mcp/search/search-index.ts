@@ -36,8 +36,18 @@ import {
   buildFtsMetadataText,
   escapeLikeWildcards,
   foldTag,
+  NOTE_METADATA_COLUMNS,
+  parseStringArray,
 } from "./search-helpers.js"
-import { parseNoteSkippingUnreadableBlock } from "../obsidian-markdown/frontmatter.js"
+import {
+  parseNoteSkippingUnreadableBlock,
+  splitPropertiesBlock,
+} from "../obsidian-markdown/frontmatter.js"
+import {
+  bodyTagsFromParseResult,
+  type BodyTagParser,
+  type BodyTagParseResult,
+} from "./body-tag-parser.js"
 import * as queries from "./search-queries.js"
 import { hybridSearch } from "./hybrid-search.js"
 
@@ -103,6 +113,8 @@ export type SearchResult = {
   snippet: string
   score: number
   tags: string[]
+  /** The `#tags` written in a note's body, each spelling once; absent when there are none. */
+  body_tags?: string[]
   folder: string
   type: string | null
   created?: string
@@ -123,6 +135,8 @@ export type NoteMetadata = {
   path: string
   title: string
   tags: string[]
+  /** The `#tags` written in the body, each spelling once; absent when there are none. */
+  body_tags?: string[]
   related: string[]
   folder: string
   type: string | null
@@ -169,6 +183,8 @@ export type NoteRow = {
   path: string
   title: string
   tags: string
+  /** JSON array of every body-tag occurrence, in Obsidian's order. */
+  body_tags: string
   related: string
   folder: string
   type: string | null
@@ -343,6 +359,32 @@ export type OutgoingLinkEntry = {
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
 
+/** rebuildFromVault returns the indexed note count and the two passes that
+ *  finish after it returns. Each pass logs its own failure, so a caller may
+ *  leave either promise unawaited. */
+export type RebuildResult = {
+  count: number
+  embedding: Promise<void>
+  bodyTags: Promise<void>
+}
+
+/** A note's stored body tags, or none when the stored value is damaged: the
+ *  note's next parse replaces it, and throwing here would fail every startup
+ *  and the watcher's write of the note. */
+const readStoredBodyTags = (
+  params: { bodyTagsJson: string; path: string },
+  logger: Logger,
+): string[] => {
+  const { bodyTagsJson, path } = params
+
+  try {
+    return parseStringArray(bodyTagsJson)
+  } catch (error) {
+    logger.warn("ignored damaged stored body tags", { path, error: describeError(error) })
+    return []
+  }
+}
+
 // ── Factory ─────────────────────────────────────────────────────
 
 export const createSearchIndex = (
@@ -422,7 +464,8 @@ export const createSearchIndex = (
       properties  TEXT,
       leading_callout TEXT,
       bytes       INTEGER NOT NULL DEFAULT 0,
-      kanban_done_lanes TEXT
+      kanban_done_lanes TEXT,
+      body_tags   TEXT NOT NULL DEFAULT '[]'
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -609,6 +652,11 @@ export const createSearchIndex = (
   if (!noteColumns.some((column) => column.name === "kanban_done_lanes")) {
     db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
   }
+  // The default lets an older image, rolled back onto a database this version
+  // migrated, keep writing notes: its upsert does not name this column
+  if (!noteColumns.some((column) => column.name === "body_tags")) {
+    db.exec(`ALTER TABLE notes ADD COLUMN body_tags TEXT NOT NULL DEFAULT '[]'`)
+  }
 
   // Same idempotent migration for tasks: depth/parent columns for sub-task
   // tracking.
@@ -659,8 +707,8 @@ export const createSearchIndex = (
   // Each returned statement retains its compiled SQL; preparing inside an
   // operation would compile it again on every invocation.
   const upsertNotesStmt = db.prepare(`
-    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes, body_tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
   const insertFtsStmt = db.prepare(
@@ -692,6 +740,13 @@ export const createSearchIndex = (
     `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
   const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(`SELECT path FROM notes`)
+  const selectAllBodyTagsStmt = db.prepare<[], { path: string; body_tags: string }>(
+    `SELECT path, body_tags FROM notes`,
+  )
+  const updateBodyTagsStmt = db.prepare(`UPDATE notes SET body_tags = ? WHERE path = ?`)
+  const selectBodyTagsStmt = db.prepare<[string], { body_tags: string }>(
+    `SELECT body_tags FROM notes WHERE path = ?`,
+  )
 
   /** Canvas saves share this catalog until a committed note write or rebuild changes it. */
   let cachedCanvasNotePaths: readonly string[] | undefined
@@ -1098,9 +1153,7 @@ export const createSearchIndex = (
 
   /** Metadata lookup for notes found only via vector search. */
   const selectNoteMetadataStmt = db.prepare<[string], NoteRow>(
-    `SELECT path, title, tags, related, folder, type, created, mtime,
-            properties, leading_callout, bytes
-     FROM notes WHERE path = ?`,
+    `SELECT ${NOTE_METADATA_COLUMNS} FROM notes WHERE path = ?`,
   )
 
   /** Resolves a wikilink target to a known non-markdown file path, or null
@@ -1479,17 +1532,22 @@ export const createSearchIndex = (
   // combined with INSERT OR REPLACE cause FTS5 corruption.
 
   /** Indexes a note and returns its source version, a token embedNote checks so that an embed
-   *  of this content is dropped once a later write replaces it. Pass it with the same content. */
+   *  of this content is dropped once a later write replaces it. Pass it with the same content.
+   *  - `bodyTags` are the tags a body-tag parser found in the text after the properties block.
+   *    The parser runs off the main thread, so the caller parses before calling.
+   *  - `bodyTags: "keep-stored"` keeps the tags stored for the path (none for a new path),
+   *    for a caller whose parse ended "unavailable" or "closed". */
   const upsertNote = (
     params: {
       filePath: string
       rawContent: string
       fileStat: { mtimeMs: number; size: number }
+      bodyTags: ReadonlyArray<string> | "keep-stored"
       skipLinks?: boolean
     },
     logger: Logger,
   ): symbol => {
-    const { filePath, rawContent, fileStat } = params
+    const { filePath, rawContent, fileStat, bodyTags } = params
     const skipLinks = params.skipLinks ?? false
     const {
       data: frontmatter,
@@ -1520,6 +1578,15 @@ export const createSearchIndex = (
     }
     const kanbanDoneLanes = getKanbanDoneLanes()
 
+    const getBodyTagsToStore = (): ReadonlyArray<string> => {
+      if (bodyTags !== "keep-stored") return bodyTags
+
+      const storedRow = selectBodyTagsStmt.get(filePath)
+      return storedRow
+        ? readStoredBodyTags({ bodyTagsJson: storedRow.body_tags, path: filePath }, logger)
+        : []
+    }
+
     const note = {
       path: filePath,
       title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
@@ -1537,6 +1604,7 @@ export const createSearchIndex = (
       leading_callout: leadingCallout ? JSON.stringify(leadingCallout) : null,
       bytes: fileStat.size,
       kanban_done_lanes: kanbanDoneLanes,
+      body_tags: JSON.stringify(getBodyTagsToStore()),
     }
 
     const metadataText = buildFtsMetadataText(frontmatter)
@@ -1573,6 +1641,7 @@ export const createSearchIndex = (
         note.leading_callout,
         note.bytes,
         note.kanban_done_lanes,
+        note.body_tags,
       )
       insertFtsStmt.run(note.path, note.title, note.content, metadataText)
 
@@ -2096,26 +2165,40 @@ export const createSearchIndex = (
   }
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
-   * Returns the note count and a background embedding promise.
+   * Returns the note count and the background embedding and body-tag passes.
    * - No source write may run while it does. A source write is an upsert or remove call
    *   that changes the tables this clears; one that lands during its reads is replaced by
    *   the older content it read.
    * - The file watcher is the only caller that makes source writes at runtime, and
    *   watchVaultAndBuildIndex holds it until this returns; a new runtime caller must go
    *   through that hold.
-   * - The returned embedding promise rejects if the background pass fails. This function
-   *   already logs that failure, so a caller may leave the promise unawaited. */
+   * - Each returned pass promise rejects if its pass fails. This function already logs
+   *   that failure, so a caller may leave the promises unawaited. */
   const rebuildFromVault = async (
-    params: { vaultPath: string },
+    params: { vaultPath: string; bodyTagParser: BodyTagParser },
     logger: Logger,
-  ): Promise<{ count: number; embedding: Promise<void> }> => {
-    const { vaultPath } = params
+  ): Promise<RebuildResult> => {
+    const { vaultPath, bodyTagParser } = params
+
     // Embedding work that outlived its source can leave vectors whose chunk or
     // memory entry is gone. They would take nearest-neighbour slots from live
     // vectors, so they are dropped before anything else.
     const orphanNoteVectorsRemoved = deleteOrphanNoteVectorsStmt?.run().changes ?? 0
     const orphanFileVectorsRemoved = deleteOrphanFileVectorsStmt?.run().changes ?? 0
     const orphanMemoryVectorsRemoved = deleteOrphanMemoryVectorsStmt?.run().changes ?? 0
+
+    // Each note keeps the body tags stored before this rebuild until the
+    // background pass parses it again, so a tag search right after a restart
+    // still finds them
+    const storedBodyTags = new Map(
+      selectAllBodyTagsStmt
+        .all()
+        .map((row) => [
+          row.path,
+          readStoredBodyTags({ bodyTagsJson: row.body_tags, path: row.path }, logger),
+        ]),
+    )
+
     sourceVersions.clear()
     cachedCanvasNotePaths = undefined
     db.exec("DELETE FROM notes_fts")
@@ -2313,7 +2396,9 @@ export const createSearchIndex = (
     // because parseNoteSkippingUnreadableBlock reads the body without it.
     const skippedNotePaths = new Set<string>()
 
-    const notesForEmbedding: Array<{
+    // The note versions this rebuild wrote, for the background embedding and
+    // body-tag passes; each pass skips a note a later write replaced
+    const indexedNoteSources: Array<{
       relativePath: string
       content: string
       sourceVersion: symbol
@@ -2338,12 +2423,13 @@ export const createSearchIndex = (
                 filePath: note.relativePath,
                 rawContent: note.content,
                 fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
+                bodyTags: storedBodyTags.get(note.relativePath) ?? [],
                 skipLinks: true,
               },
               logger,
             )
 
-            notesForEmbedding.push({
+            indexedNoteSources.push({
               relativePath: note.relativePath,
               content: note.content,
               sourceVersion,
@@ -2520,7 +2606,7 @@ export const createSearchIndex = (
             let chunksEmbedded = 0
             let entriesEmbedded = 0
             let embedErrors = 0
-            for (const note of notesForEmbedding) {
+            for (const note of indexedNoteSources) {
               const noteVersionIsCurrent = isCurrentSourceVersion(
                 { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
                 logger,
@@ -2640,7 +2726,7 @@ export const createSearchIndex = (
             }
 
             logger.info("embedding pass complete", {
-              notes: notesForEmbedding.length,
+              notes: indexedNoteSources.length,
               chunksEmbedded,
               ...(entriesEmbedded > 0 ? { entriesEmbedded } : {}),
               ...(embedErrors > 0 ? { embedErrors } : {}),
@@ -2653,7 +2739,86 @@ export const createSearchIndex = (
       logger.error("embedding pass failed", { error: describeError(err) })
     })
 
-    return { count: indexedNotes.length, embedding: embeddingPromise }
+    // The body-tag pass also runs in the background, so startup never waits on
+    // the parser. It awaits each note's parse before queuing the next, and the
+    // parser takes queued notes in order, so a note the file watcher parses
+    // waits behind at most one note of this pass.
+    const bodyTagPromise = (async () => {
+      const passStart = performance.now()
+      // Each note's parse outcome, or "superseded" when a later write replaced
+      // the version this rebuild wrote
+      const noteResults: Array<BodyTagParseResult["outcome"] | "superseded"> = []
+      const updatedPaths: string[] = []
+
+      for (const note of indexedNoteSources) {
+        if (sourceVersions.get(note.relativePath) !== note.sourceVersion) {
+          noteResults.push("superseded")
+          continue
+        }
+
+        const { body } = splitPropertiesBlock(note.content)
+        const parseResult = await bodyTagParser.parse({ notePath: note.relativePath, body }, logger)
+
+        // The server's shutdown handler closes the parser, and the pass stops with it
+        if (parseResult.outcome === "closed") {
+          logger.info("body-tag pass stopped because the parser closed", {
+            notes: indexedNoteSources.length,
+            notesReached: noteResults.length,
+          })
+          return
+        }
+
+        // A worker that cannot start says nothing about the notes, so the pass
+        // stops, and every note it has not reached keeps the tags stored before
+        // the restart. The parser has already logged why.
+        if (parseResult.outcome === "unavailable") {
+          logger.warn("body-tag pass stopped because the body-tag worker could not start", {
+            notes: indexedNoteSources.length,
+            notesReached: noteResults.length,
+          })
+          return
+        }
+
+        // Checked again after the parse, with no await before the write, so a
+        // write or removal during the parse wins
+        if (sourceVersions.get(note.relativePath) !== note.sourceVersion) {
+          noteResults.push("superseded")
+          continue
+        }
+
+        noteResults.push(parseResult.outcome)
+        const bodyTagsJson = JSON.stringify(bodyTagsFromParseResult(parseResult))
+        const storedBodyTagsJson = JSON.stringify(storedBodyTags.get(note.relativePath) ?? [])
+
+        // Pass 1 wrote the stored tags into this note's row, so only a change
+        // needs a write
+        if (bodyTagsJson !== storedBodyTagsJson) {
+          updateBodyTagsStmt.run(bodyTagsJson, note.relativePath)
+          updatedPaths.push(note.relativePath)
+        }
+        await setImmediateAsync()
+      }
+
+      const countNoteResults = (result: (typeof noteResults)[number]): number => {
+        return noteResults.filter((noteResult) => noteResult === result).length
+      }
+      logger.info("body-tag pass complete", {
+        notes: indexedNoteSources.length,
+        parsed: countNoteResults("parsed"),
+        withoutCandidate: countNoteResults("no-candidate"),
+        overLimit: countNoteResults("over-limit"),
+        failed: countNoteResults("failed"),
+        superseded: countNoteResults("superseded"),
+        updated: updatedPaths.length,
+        durationMs: Math.round(performance.now() - passStart),
+      })
+    })()
+
+    bodyTagPromise.catch((error) => {
+      logger.error("body-tag pass failed", { error: describeError(error) })
+    })
+
+    return { count: indexedNotes.length, embedding: embeddingPromise, bodyTags: bodyTagPromise }
   }
 
   // ── Trash entries (retention-sweep bookkeeping) ──────────────

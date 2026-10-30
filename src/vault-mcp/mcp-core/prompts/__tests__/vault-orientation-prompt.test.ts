@@ -16,6 +16,7 @@ import {
   createSearchIndex,
   logger,
 } from "./prompt-test-harness.js"
+import { withBodyTags } from "../../../search/__tests__/body-tag-test-helpers.js"
 
 vi.mock("../../../vault-operations/daily-notes.js", { spy: true })
 
@@ -58,11 +59,11 @@ describe("vault-orientation live orphan folders", () => {
     paths.forEach((filePath, index) => {
       const rawContent = options.noteContents?.[filePath] ?? ""
       search.upsertNote(
-        {
+        withBodyTags({
           filePath,
           rawContent,
           fileStat: { mtimeMs: 10000 - index, size: Buffer.byteLength(rawContent) },
-        },
+        }),
         logger,
       )
     })
@@ -493,19 +494,19 @@ describe("vault-orientation handler", () => {
     const search = createSearchIndex(":memory:")
     // Two notes that link to each other — no orphans
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "a.md",
         rawContent: "# A\n\n[[b]].\n",
         fileStat: { mtimeMs: 1000, size: 50 },
-      },
+      }),
       logger,
     )
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "b.md",
         rawContent: "# B\n\n[[a]].\n",
         fileStat: { mtimeMs: 2000, size: 50 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)
@@ -534,11 +535,11 @@ describe("vault-orientation handler", () => {
     for (let noteIndex = 0; noteIndex < 21; noteIndex++) {
       const extra = noteIndex === 0 ? "rare: yes\n" : ""
       search.upsertNote(
-        {
+        withBodyTags({
           filePath: `note-${noteIndex}.md`,
           rawContent: `---\ntitle: Note ${noteIndex}\n${extra}---\n# Note\n`,
           fileStat: { mtimeMs: noteIndex * 1000, size: 50 },
-        },
+        }),
         logger,
       )
     }
@@ -582,19 +583,19 @@ describe("vault-orientation handler", () => {
     await mkdir(join(vault, "About Me"), { recursive: true })
     const search = createSearchIndex(":memory:")
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "a.md",
         rawContent: "# A\n\n[[b]].\n",
         fileStat: { mtimeMs: 1000, size: 50 },
-      },
+      }),
       logger,
     )
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "b.md",
         rawContent: "# B\n\n[[a]].\n",
         fileStat: { mtimeMs: 2000, size: 50 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)
@@ -621,11 +622,11 @@ describe("vault-orientation handler", () => {
     await mkdir(join(vault, "About Me"), { recursive: true })
     const search = createSearchIndex(":memory:")
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "note.md",
         rawContent: "# Note\n\n[[missing]] and [[also-missing]].\n",
         fileStat: { mtimeMs: 1000, size: 50 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)
@@ -755,11 +756,11 @@ describe("vault-orientation full prompt output", () => {
     const search = createSearchIndex(":memory:")
     // Only alpha.md is indexed, so tags/properties/recent are deterministic.
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Notes/alpha.md",
         rawContent: ALPHA_MD,
         fileStat: { mtimeMs: 1000, size: 100 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)

@@ -80,6 +80,26 @@ export const nestedTagLikePattern = (input: string): string => {
   return `${escapeLikeWildcards(normalizeTagQuery(input))}/%`
 }
 
+/**
+ * SQL condition that one requested tag holds for a note row aliased `n`: the
+ * tag `predicate` matches a value of the tags property or of the body tags.
+ * - The condition is parenthesised, so a caller can AND one per requested tag.
+ * - `predicate` must contain exactly one `?`, and `conditionParams` repeats
+ *   `boundValue` once per column.
+ */
+export const noteHasTagCondition = (params: {
+  predicate: string
+  boundValue: string
+}): { condition: string; conditionParams: string[] } => {
+  const { predicate, boundValue } = params
+  return {
+    condition:
+      `(EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${predicate})` +
+      ` OR EXISTS (SELECT 1 FROM json_each(n.body_tags) WHERE ${predicate}))`,
+    conditionParams: [boundValue, boundValue],
+  }
+}
+
 // ── Stored row integrity ───────────────────────────────────────
 
 /** A stored index row cannot be read back: a JSON column that is not JSON or
@@ -116,12 +136,12 @@ const storedMtimeToIso = (mtimeMs: number): string => {
   }
 }
 
-// ── JSON column parsers (private) ──────────────────────────────
+// ── JSON column parsers ────────────────────────────────────────
 
-/** Parses a JSON column that must contain a string array (tags, related,
- *  depends_on). Throws on corruption — these columns are serialized by the
- *  indexer, so a non-array value indicates index corruption. */
-const parseStringArray = (json: string): string[] => {
+/** Parses a JSON column that must contain a string array (tags, body_tags,
+ *  related, depends_on, kanban_done_lanes). The indexer writes these columns,
+ *  so any other value throws as index corruption. */
+export const parseStringArray = (json: string): string[] => {
   const parsed = parseJsonColumn(json)
 
   if (!Array.isArray(parsed) || !parsed.every(isString)) {
@@ -208,11 +228,25 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
 
 // ── Row mappers ────────────────────────────────────────────────
 
+/** A result's `body_tags` field: each stored spelling once, in first-seen
+ *  order, or no field when the note has none. The column keeps every
+ *  occurrence, because `listAllTags` in `search-queries.ts` counts them. */
+const bodyTagsField = (bodyTagsJson: string): { body_tags?: string[] } => {
+  const uniqueBodyTags = [...new Set(parseStringArray(bodyTagsJson))]
+  return uniqueBodyTags.length > 0 ? { body_tags: uniqueBodyTags } : {}
+}
+
+/** The `notes` table columns that rowToMetadata reads. Every query that
+ *  returns note metadata selects them, so a new column is added in one place. */
+export const NOTE_METADATA_COLUMNS =
+  "path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes"
+
 /** Transforms a raw SQLite row (JSON strings) into a typed NoteMetadata object. */
 export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   path: row.path,
   title: row.title,
   tags: parseStringArray(row.tags),
+  ...bodyTagsField(row.body_tags),
   related: parseStringArray(row.related),
   folder: row.folder,
   type: row.type,
@@ -260,7 +294,7 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
 export const noteRowToSearchResult = (params: {
   row: Pick<
     NoteRow,
-    "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime" | "bytes"
+    "path" | "title" | "tags" | "body_tags" | "folder" | "type" | "created" | "mtime" | "bytes"
   > & {
     leading_callout?: string | null
   }
@@ -273,6 +307,7 @@ export const noteRowToSearchResult = (params: {
   snippet: params.snippet,
   score: params.score,
   tags: parseStringArray(params.row.tags),
+  ...bodyTagsField(params.row.body_tags),
   folder: params.row.folder,
   type: params.row.type,
   kind: "note",
@@ -368,7 +403,8 @@ export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters):
   if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
 
   if (filters.tags) {
-    const noteTags = parseStringArray(note.tags)
+    // A requested tag may be in the tags property or written in the body
+    const noteTags = [...parseStringArray(note.tags), ...parseStringArray(note.body_tags)]
     const foldedQueries = filters.tags.map(normalizeTagQuery)
     const everyQueryMatches = foldedQueries.every((foldedQuery) => {
       return noteTags.some((storedTag) => tagMatchesQuery({ storedTag, foldedQuery }))

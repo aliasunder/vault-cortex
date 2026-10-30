@@ -199,16 +199,22 @@ describe("createShutdownHandler", () => {
     vi.restoreAllMocks()
   })
 
-  it("closes the server and exits 0 once draining completes", () => {
+  const createClosingParser = () => ({ close: vi.fn(async () => undefined) })
+
+  it("closes the body-tag parser and the server, and exits 0 once draining completes", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     onTestFinished(() => exitSpy.mockRestore())
     // close() that immediately invokes its callback = drain completes at once.
     const close = vi.fn((callback: () => void) => callback())
+    const bodyTagParser = createClosingParser()
 
-    createShutdownHandler({ close })()
+    createShutdownHandler({ httpServer: { close }, bodyTagParser })()
 
+    expect(bodyTagParser.close).toHaveBeenCalledOnce()
+    // The parser closes first, so the background pass stops before the drain
+    expect(bodyTagParser.close).toHaveBeenCalledBefore(close)
     expect(close).toHaveBeenCalledOnce()
-    expect(exitSpy).toHaveBeenCalledWith(0)
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(0)
   })
 
   it("forces exit 1 if the drain does not finish within the timeout", () => {
@@ -217,11 +223,48 @@ describe("createShutdownHandler", () => {
     // close() that never invokes its callback = drain hangs.
     const close = vi.fn()
 
-    createShutdownHandler({ close }, 10_000)()
+    // Not the 10-second default, so the test fails if forceExitMs is ignored
+    createShutdownHandler({
+      httpServer: { close },
+      bodyTagParser: createClosingParser(),
+      forceExitMs: 5_000,
+    })()
 
+    vi.advanceTimersByTime(4_999)
     expect(exitSpy).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(10_000)
-    expect(exitSpy).toHaveBeenCalledWith(1)
+    vi.advanceTimersByTime(1)
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
+  })
+
+  it("forces exit 1 after 10 seconds when no timeout is given", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+    onTestFinished(() => exitSpy.mockRestore())
+    const close = vi.fn()
+
+    createShutdownHandler({ httpServer: { close }, bodyTagParser: createClosingParser() })()
+
+    vi.advanceTimersByTime(9_999)
+    expect(exitSpy).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
+  })
+
+  it("logs a body-tag parser that fails to close and still drains", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+    onTestFinished(() => exitSpy.mockRestore())
+    const close = vi.fn((callback: () => void) => callback())
+    const bodyTagParser = {
+      close: vi.fn(async () => Promise.reject(new Error("terminate failed"))),
+    }
+
+    createShutdownHandler({ httpServer: { close }, bodyTagParser })()
+    // Settles the rejected close without reaching the force-exit timer
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith("body-tag parser did not close cleanly", {
+      error: "[Error]: terminate failed",
+    })
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(0)
   })
 })
 

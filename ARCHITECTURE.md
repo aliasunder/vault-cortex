@@ -225,11 +225,13 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 `limit`, `snippet_tokens`, and `include_leading_callout` sit beside `query`, outside `filters`: they set how many results come back and what each result carries.
 
-`vault_search_by_tag` matches a frontmatter tag and every tag nested under it (`project` matches `project/a/b` but not `projects`), or the tag alone with `exact: true`. It returns the most recently modified notes first, up to `limit` (default 20).
+`vault_search_by_tag` matches a tag in the `tags` property or written as `#tag` in the body, and every tag nested under it (`project` matches `project/a/b` but not `projects`), or the tag alone with `exact: true`. It returns the most recently modified notes first, up to `limit` (default 20).
+
+Every tag query reads both tag columns (see **Body tags column** below): `vault_search_by_tag`, `vault_list_tags`, the `tags` filter on `vault_search` and its JavaScript mirror for vector-only results, and the untagged count in `vaultStats`. `vault_list_tasks`' `tag` filter keeps the Tasks plugin's own task-line grammar.
 
 Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tags` filter on `vault_search`) ignores letter case and, unless `exact: true` is set on `vault_search_by_tag`, matches nested tags the same way. Both sides of a comparison are folded with `toLowerCase()`, the rule Obsidian's Tags view groups spellings by. A leading `#` on an input is dropped, and an input that is only `#` is rejected.
 
-`vault_list_tags` merges spellings that differ only in letter case into one entry. The entry shows the spelling with the most occurrences, where a repeat within one note counts again, and its count is the number of notes carrying any of the spellings.
+`vault_list_tags` counts property tags and body tags together, as Obsidian's Tags view does, and merges spellings that differ only in letter case into one entry. The entry shows the spelling with the most occurrences across both, where a repeat within one note counts again, and its count is the number of notes carrying any of the spellings in either place.
 
 `vault_recent_notes` sorts by `sort_by` — `"created"` or `"modified"` (default `"modified"`).
 
@@ -245,6 +247,12 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 **Promoted properties:** Five frontmatter keys — `title`, `tags` (the first key so spelled in any letter case), `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`).
 
 - **Tags column:** holds the tags Obsidian's Tags view shows for the note, read by `obsidian-markdown/tags.ts` from the first key spelled `tags` in any letter case. A text value is one tag, so `tags: a, b` gives no tags, because a tag name cannot contain `,`. A list keeps its text entries. Each entry loses a leading `#` and a trailing `/`, and only names Obsidian accepts as tags are kept (no spaces, none of the punctuation Obsidian rejects such as `,`, `:` or `+`, and not digits only).
+- **Body tags column:** not a property, but stored beside them. `body_tags` holds every `#tag` written in the body, one entry per occurrence, as Obsidian's Tags view shows it (one trailing `/` removed, then the tags column's name test). Results return it as `body_tags` beside `tags`, each spelling once and absent when there are none, so a caller can tell the property, which `vault_update_properties` edits, from tags written in the text.
+  - **Parser:** `obsidian-markdown/body-tags.ts` walks the tree that `obsidian-remark-parser.ts` builds: [remark-parse 8.0.3](https://github.com/remarkjs/remark/tree/remark-parse%408.0.3/packages/remark-parse), the parser Obsidian's metadata cache forked, with Obsidian's syntax (tags, wikilinks, highlights, `%%` comments, math, footnotes, callouts, block IDs) added as tokenizers. So a `#` inside code, a wikilink, a link destination, a URL or math is not a tag, while one in a Markdown link's text or right after another inline token is. remark-parse is pinned to that version; AGENTS.md → "Upgrading remark-parse" re-checks the parser against Obsidian's own.
+  - **Worker:** remark-parse 8, like Obsidian's parser, slows quadratically on long paragraphs full of `_`, `[` or `=`, so `search/body-tag-parser.ts` runs the parser in a worker thread, one note at a time. A note still parsing after `BODY_TAG_PARSE_TIMEOUT_MS` (2 seconds, in `search/body-tag-parser.ts`) is indexed without body tags and logged as an error; the main thread keeps answering requests while a note parses.
+  - **Startup:** the rebuild writes each note with the body tags stored before it ran, and the server starts answering without waiting for the parser. A background pass then parses every note again, one at a time, so a note the watcher parses waits behind at most one note of the pass; it writes only tags that changed, and its `body-tag pass complete` log line counts the outcomes. Until the pass reaches a note, a tag query sees the tags stored for its path before the restart; on a first index, it sees none.
+  - **When the parser stops:** the pass stops when the worker cannot start, and on SIGTERM, when the server closes the parser before draining requests. Every note then keeps its stored tags. A note the watcher re-indexes keeps its stored tags too, unless the parser is still open and a fresh worker starts for that note. While the parser is open, a re-indexed note whose body holds no `#` followed by a tag-name character gets no tags: every tag starts that way, and the check needs no worker.
+  - **Write order:** the background pass writes a note's tags only while the rebuild's version of that note is still current, so a watcher write or removal during its parse wins. The file watcher checks its event before and after the parse: a note read that a newer event replaced is never parsed, a delete or newer edit during a slow parse wins, and a newer event aborts a parse still waiting in the queue.
 - **Other properties:** every unpromoted key lives in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
 - **Listing values:** `vault_list_property_values`, and the `sample_values` in `vault_list_property_keys`, count each value by the text the tool returns. The number `1` and the text `"1"` both return `"1"`, so they share one count; the text `"1.0"` keeps its own. Counting happens before `limit` and sample selection apply, and each item of a list property counts on its own.
 - **Matching a value:** `vault_search_by_property` matches text exactly. A value written as a whole, finite number in [YAML 1.2 core schema](https://yaml.org/spec/1.2.2/#1032-tag-resolution) form (`4`, `-0.5`, `1e3`, `0x1F`, `0o17`) also matches stored numbers equal to it as [JavaScript numbers](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number#number_encoding). So `"04"` matches the number `4` and the text `"04"`, but not the text `"4"`. Checkbox values match only `"1"` and `"0"`.
@@ -503,11 +511,12 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 runs in the background:
+**Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 and the body-tag pass run in the background:
 
-1. **Pass 1** — index notes (FTS5 + metadata)
+1. **Pass 1** — index notes (FTS5 + metadata), each with the body tags stored before the rebuild
 2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
 3. **Pass 3 (background)** — embed notes, then file content. Until a note's vectors exist, search finds it by keyword only
+4. **Body-tag pass (background)** — parse each note's body tags again in the body-tag worker thread and write the ones that changed (see **Body tags column**)
 
 **Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
 
@@ -564,8 +573,10 @@ flowchart TD
     P2 --> FC[Index File Content\ncanvas + PDF + text → FTS5]
     FC --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
     P3 --> P3F[Embed File Content\nchunk → hash → embed → store]
+    FC --> BTP[Body-Tag Pass\nparse in worker → write changed tags]
 
-    FW[File Watcher\nchokidar] --> |.md add/change| UP[upsertNote]
+    FW[File Watcher\nchokidar] --> |.md add/change| BT[Parse Body Tags\nworker thread]
+    BT --> UP[upsertNote]
     UP --> FTS[Update FTS5]
     UP --> LK[Update Links]
     UP --> EM[embedAndStoreChunks]
@@ -600,17 +611,19 @@ flowchart TD
 
 ### Module decomposition
 
-The search query and indexing layer is split into seven modules (the embedding pipeline and file watcher are described above):
+The search query and indexing layer is split into nine modules (the embedding pipeline and file watcher are described above):
 
-| Module              | Responsibility                                                                                                                                                                                                                                                                                                             |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`, `upsertFileContent`, `removeFileContent`), embedder + reranker wiring                                                                                                                         |
-| `search-queries.ts` | `SearchQueryContext` + 16 query methods — `fullTextSearch`, `memoryRecall`, `searchByTag`, `searchByFolder`, `listTasks`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
-| `hybrid-search.ts`  | `hybridSearch` — runs the note FTS, note vector, file-content FTS, and file-content vector legs, fuses them with RRF, applies cross-encoder reranking; falls back to FTS-only when no embeddings are available                                                                                                             |
-| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), filters (`noteMatchesSearchFilters`), tag comparison (`foldTag`, `NESTED_TAG_PREDICATE`), snippet construction                                                                            |
-| `fts-query.ts`      | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                                               |
-| `rrf.ts`            | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                                            |
-| `reranker.ts`       | Cross-encoder factory (`createReranker`, ms-marco-MiniLM-L-6-v2) + position-aware score blending (`blendScores`, `normalizeScores`)                                                                                                                                                                                        |
+| Module               | Responsibility                                                                                                                                                                                                                                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search-index.ts`    | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`, `upsertFileContent`, `removeFileContent`), embedder + reranker wiring                                                                                                                         |
+| `search-queries.ts`  | `SearchQueryContext` + 16 query methods — `fullTextSearch`, `memoryRecall`, `searchByTag`, `searchByFolder`, `listTasks`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
+| `hybrid-search.ts`   | `hybridSearch` — runs the note FTS, note vector, file-content FTS, and file-content vector legs, fuses them with RRF, applies cross-encoder reranking; falls back to FTS-only when no embeddings are available                                                                                                             |
+| `search-helpers.ts`  | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), filters (`noteMatchesSearchFilters`), tag comparison (`foldTag`, `NESTED_TAG_PREDICATE`), snippet construction                                                                            |
+| `fts-query.ts`       | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                                               |
+| `rrf.ts`             | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                                            |
+| `reranker.ts`        | Cross-encoder factory (`createReranker`, ms-marco-MiniLM-L-6-v2) + position-aware score blending (`blendScores`, `normalizeScores`)                                                                                                                                                                                        |
+| `body-tag-parser.ts` | `createBodyTagParser` — queues notes for the body-tag worker one at a time, enforces `BODY_TAG_PARSE_TIMEOUT_MS`, replaces a worker that crashes or passes the limit, and reports each note's outcome (`BodyTagParseResult`)                                                                                               |
+| `body-tag-worker.ts` | Worker-thread entry — runs `parseBodyTags` (`obsidian-markdown/body-tags.ts`) on each body the parser posts and answers with the tags or the parser's error                                                                                                                                                                |
 
 Write concerns (index mutations) are separated from read concerns (queries) and pure logic (helpers, RRF). `search-index.ts` remains the factory — it binds query functions to the database via a `SearchQueryContext` closure.
 

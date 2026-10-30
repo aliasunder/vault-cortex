@@ -13,6 +13,8 @@ import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 import { statOrNull } from "../../../utils/fs.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
+import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
+import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
 vi.mock("node:fs/promises", { spy: true })
 vi.mock("../../../utils/fs.js", { spy: true })
@@ -75,11 +77,11 @@ const seedEmbeddingSource = (
   params: { notePath: string; rawContent: string },
 ): symbol => {
   return searchIndex.upsertNote(
-    {
+    withBodyTags({
       filePath: params.notePath,
       rawContent: params.rawContent,
       fileStat: { mtimeMs: 1000, size: Buffer.byteLength(params.rawContent) },
-    },
+    }),
     logger,
   )
 }
@@ -108,7 +110,7 @@ const createEmbeddingRaceIndex = async (sourceKind: "note" | "file") => {
     const params = { filePath: path, rawContent: content, fileStat: testStat(1000) }
 
     return sourceKind === "note"
-      ? searchIndex.upsertNote(params, logger)
+      ? searchIndex.upsertNote(withBodyTags(params), logger)
       : searchIndex.upsertFileContent(params, logger)
   }
   const embed = (content: string, sourceVersion: symbol): Promise<void> => {
@@ -178,11 +180,11 @@ const seedPropertyNotes = (
 ): void => {
   for (const note of notes) {
     propertyIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: note.filePath,
         rawContent: `---\n${note.frontmatter}\n---\nsearchable body\n`,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
   }
@@ -308,7 +310,7 @@ describe("schema creation", () => {
   it("creates a searchable index with notes and FTS tables", () => {
     const isolatedIndex = createSearchIndex(":memory:")
     isolatedIndex.upsertNote(
-      { filePath: "test.md", rawContent: "# Test\n", fileStat: testStat(1000) },
+      withBodyTags({ filePath: "test.md", rawContent: "# Test\n", fileStat: testStat(1000) }),
       logger,
     )
     const results = isolatedIndex.fullTextSearch({ query: "Test" }, logger)
@@ -336,19 +338,19 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // Reverse-alphabetical insertion — without the path tie-break, equal
     // bm25 scores return in insertion order and zzz.md would rank first.
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "zzz.md",
         rawContent: IDENTICAL_NOTE,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "aaa.md",
         rawContent: IDENTICAL_NOTE,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -359,19 +361,19 @@ describe("equal-score tie-breaking in retrieval legs", () => {
   it("orders equal-mtime folder listings by path regardless of insertion order", () => {
     const tieIndex = createSearchIndex(":memory:")
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "docs/zzz.md",
         rawContent: IDENTICAL_NOTE,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "docs/aaa.md",
         rawContent: IDENTICAL_NOTE,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -384,8 +386,14 @@ describe("equal-score tie-breaking in retrieval legs", () => {
   /** Two same-mtime notes sharing content, zzz.md inserted first. */
   const createReverseInsertedPair = (rawContent: string): SearchIndex => {
     const tieIndex = createSearchIndex(":memory:")
-    tieIndex.upsertNote({ filePath: "zzz.md", rawContent, fileStat: testStat(1000) }, logger)
-    tieIndex.upsertNote({ filePath: "aaa.md", rawContent, fileStat: testStat(1000) }, logger)
+    tieIndex.upsertNote(
+      withBodyTags({ filePath: "zzz.md", rawContent, fileStat: testStat(1000) }),
+      logger,
+    )
+    tieIndex.upsertNote(
+      withBodyTags({ filePath: "aaa.md", rawContent, fileStat: testStat(1000) }),
+      logger,
+    )
     return tieIndex
   }
 
@@ -427,27 +435,27 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // sample-values sub-query decides their order.
     const tieIndex = createSearchIndex(":memory:")
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "a.md",
         rawContent: "---\nstatus: zzz-status\n---\n\n# A\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "b.md",
         rawContent: "---\nstatus: aaa-status\n---\n\n# B\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "c.md",
         rawContent: "---\nstatus: mmm-status\n---\n\n# C\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = tieIndex.listPropertyKeys({}, logger)
@@ -472,20 +480,20 @@ describe("equal-score tie-breaking in retrieval legs", () => {
   it("orders same-title backlinks by source path", () => {
     const tieIndex = createSearchIndex(":memory:")
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "Target.md",
         rawContent: "# Target\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const linkingNote = "---\ntitle: Same Title\n---\n\n[[Target]]\n"
     tieIndex.upsertNote(
-      { filePath: "zzz.md", rawContent: linkingNote, fileStat: testStat(1000) },
+      withBodyTags({ filePath: "zzz.md", rawContent: linkingNote, fileStat: testStat(1000) }),
       logger,
     )
     tieIndex.upsertNote(
-      { filePath: "aaa.md", rawContent: linkingNote, fileStat: testStat(1000) },
+      withBodyTags({ filePath: "aaa.md", rawContent: linkingNote, fileStat: testStat(1000) }),
       logger,
     )
 
@@ -503,19 +511,19 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     const middayMtime = DateTime.fromISO("2026-06-15T12:00:00").toMillis()
     const tieIndex = createSearchIndex(":memory:")
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "zzz.md",
         rawContent: IDENTICAL_NOTE,
         fileStat: testStat(middayMtime),
-      },
+      }),
       logger,
     )
     tieIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "aaa.md",
         rawContent: IDENTICAL_NOTE,
         fileStat: testStat(middayMtime),
-      },
+      }),
       logger,
     )
 
@@ -569,11 +577,11 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // keys — whichever way a vec0 build returns tied distances.
     for (const notePath of ["mmm.md", "zzz.md", "aaa.md"]) {
       const sourceVersion = tieIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       await tieIndex.embedNote(
@@ -625,11 +633,11 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // in-folder statement's ordering keys, not which statement ran.
     for (const notePath of ["docs/mmm.md", "docs/zzz.md", "other/out.md", "docs/aaa.md"]) {
       const sourceVersion = tieIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       await tieIndex.embedNote(
@@ -699,11 +707,11 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "hhh.md",
     ]) {
       const sourceVersion = tieIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       await tieIndex.embedNote(
@@ -767,11 +775,11 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "docs/hhh.md",
     ]) {
       const sourceVersion = tieIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: notePath,
           rawContent: IDENTICAL_NOTE,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       await tieIndex.embedNote(
@@ -831,11 +839,11 @@ describe("equal-score tie-breaking in retrieval legs", () => {
 describe("leading callout", () => {
   it("surfaces a note's leading callout in discovery results", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Me.md",
         rawContent: NOTE_WITH_CALLOUT,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
@@ -848,11 +856,11 @@ describe("leading callout", () => {
 
   it("returns callout null for a note without a leading callout", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/plain.md",
         rawContent: NOTE_MINIMAL,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = index.searchByFolder({ folder: "notes" }, logger)
@@ -861,11 +869,11 @@ describe("leading callout", () => {
 
   it("omits the callout from fullTextSearch by default, includes it on request", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Me.md",
         rawContent: NOTE_WITH_CALLOUT,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -904,11 +912,11 @@ describe("leading callout", () => {
     const warmIndex = createSearchIndex(dbPath)
     expect(() => {
       warmIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "About Me/Me.md",
           rawContent: NOTE_WITH_CALLOUT,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
     }).not.toThrow()
@@ -935,11 +943,11 @@ describe("leading callout", () => {
     const warmIndex = createSearchIndex(dbPath)
     expect(() => warmIndex.upsertNonMdFile("photo.png", 77)).not.toThrow()
     warmIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "![[photo.png]]",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(warmIndex.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -958,11 +966,11 @@ describe("leading callout", () => {
 describe("bytes", () => {
   it("surfaces file size in bytes in discovery results", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/sized.md",
         rawContent: NOTE_MINIMAL,
         fileStat: testStat(1000, 42),
-      },
+      }),
       logger,
     )
     const results = index.searchByFolder({ folder: "notes" }, logger)
@@ -971,11 +979,11 @@ describe("bytes", () => {
 
   it("includes bytes in full text search results", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "sized.md",
         rawContent: "searchable content\n",
         fileStat: testStat(1000, 256),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch({ query: "searchable" }, logger)
@@ -984,11 +992,11 @@ describe("bytes", () => {
 
   it("includes bytes in recent notes results", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "recent.md",
         rawContent: "---\ntitle: R\n---\nbody\n",
         fileStat: testStat(5000, 128),
-      },
+      }),
       logger,
     )
     const results = index.recentNotes({}, logger)
@@ -997,11 +1005,11 @@ describe("bytes", () => {
 
   it("stores and retrieves a bytes value of 0", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/zero.md",
         rawContent: "body\n",
         fileStat: testStat(1000, 0),
-      },
+      }),
       logger,
     )
     const results = index.searchByFolder({ folder: "notes" }, logger)
@@ -1012,11 +1020,11 @@ describe("bytes", () => {
 describe("upsertNote", () => {
   it("indexes a note with full frontmatter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Principles.md",
         rawContent: NOTE_WITH_FRONTMATTER,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch({ query: "burnout" }, logger)
@@ -1028,11 +1036,11 @@ describe("upsertNote", () => {
 
   it("extracts title from frontmatter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Principles.md",
         rawContent: NOTE_WITH_FRONTMATTER,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
@@ -1041,11 +1049,11 @@ describe("upsertNote", () => {
 
   it("falls back to filename for title when no frontmatter title", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/random.md",
         rawContent: NOTE_MINIMAL,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = index.searchByFolder({ folder: "notes" }, logger)
@@ -1060,12 +1068,12 @@ describe("upsertNote", () => {
     // links to a different note, so a body link can never cover the
     // frontmatter one.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Meetings/Q3 plan.md",
         rawContent:
           '---\ntitle: Meeting: Q3 plan\ntags: [meeting]\nrelated: ["[[Roadmap]]"]\n---\nAgenda for the quokka launch.\n\n- [ ] Book the room\n\nSee [[Budget]].\n',
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1094,20 +1102,20 @@ describe("upsertNote", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "plan.md",
         rawContent: "---\ntitle: Plan\ntags: [plan]\n---\nolder amber text\n\n- [ ] Old task\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "plan.md",
         rawContent: "---\ntitle: Meeting: Q3 plan\n---\nnewer opal text\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
 
@@ -1122,11 +1130,11 @@ describe("upsertNote", () => {
   it("stores folder as first path segment", () => {
     // Nested two levels deep, so the first segment differs from the parent folder.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Archive/Principles.md",
         rawContent: NOTE_WITH_FRONTMATTER,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = index.searchByFolder({ folder: "About Me" }, logger)
@@ -1135,19 +1143,19 @@ describe("upsertNote", () => {
 
   it("stores created as null when the frontmatter value is not an ISO date", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "dated.md",
         rawContent: "---\ncreated: 2026-01-15\n---\nbody\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "undated.md",
         rawContent: "---\ncreated: next week\n---\nbody\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1164,19 +1172,19 @@ describe("upsertNote", () => {
 
   it("stores the file name as title and null as type when those values are not text", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "text-values.md",
         rawContent: "---\ntitle: Plan\ntype: meeting\n---\nbody\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "non-text-values.md",
         rawContent: "---\ntitle: 2024\ntype: [meeting]\n---\nbody\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1193,11 +1201,11 @@ describe("upsertNote", () => {
 
   it("stores empty folder for root-level notes", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "root.md",
         rawContent: NOTE_MINIMAL,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const recent = index.recentNotes({}, logger)
@@ -1206,19 +1214,19 @@ describe("upsertNote", () => {
 
   it("updates existing note on re-index", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "test.md",
         rawContent: "---\ntitle: V1\n---\nold\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "test.md",
         rawContent: "---\ntitle: V2\n---\nnew content\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch({ query: "new content" }, logger)
@@ -1228,11 +1236,11 @@ describe("upsertNote", () => {
 
   it("handles notes with no frontmatter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "bare.md",
         rawContent: "Just plain text\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch({ query: "plain text" }, logger)
@@ -1242,11 +1250,11 @@ describe("upsertNote", () => {
 
   it("normalizes tags to array when given as string", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "t.md",
         rawContent: "---\ntags: single-tag\n---\nbody\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const tags = index.listAllTags({}, logger)
@@ -1261,11 +1269,11 @@ describe("upsertNote", () => {
     { label: "the tags under a Tags key", frontmatter: "Tags: [x]", stored: ["x"] },
   ])("stores $label", ({ frontmatter, stored }) => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tagged.md",
         rawContent: `---\n${frontmatter}\n---\nbody\n`,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1308,12 +1316,12 @@ describe("upsertNote", () => {
       statusRegistry,
     })
     registryIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "tasks.md",
         rawContent:
           "---\ntitle: Tasks\n---\n\n- [D] Deployed task\n- [>] Forwarded ref\n- [ ] Normal task\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1356,11 +1364,11 @@ describe("upsertNote atomicity", () => {
     const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
     const atomicIndex = createSearchIndex(":memory:")
     atomicIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "atomic/target.md",
         rawContent: ATOMIC_NOTE_VERSION_A,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1371,11 +1379,11 @@ describe("upsertNote atomicity", () => {
     taskInsertPoison.arm()
     expect(() => {
       atomicIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "atomic/target.md",
           rawContent: ATOMIC_NOTE_VERSION_B,
           fileStat: testStat(2000),
-        },
+        }),
         logger,
       )
     }).toThrow(taskInsertPoison.message)
@@ -1398,11 +1406,11 @@ describe("upsertNote atomicity", () => {
     const linkInsertPoison = installStatementPoison("INSERT OR IGNORE INTO links")
     const atomicIndex = createSearchIndex(":memory:")
     atomicIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "atomic/target.md",
         rawContent: ATOMIC_NOTE_VERSION_A,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1414,11 +1422,11 @@ describe("upsertNote atomicity", () => {
     linkInsertPoison.arm()
     expect(() => {
       atomicIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "atomic/target.md",
           rawContent: ATOMIC_NOTE_VERSION_B,
           fileStat: testStat(2000),
-        },
+        }),
         logger,
       )
     }).toThrow(linkInsertPoison.message)
@@ -1444,22 +1452,22 @@ describe("upsertNote atomicity", () => {
     // so the target note's empty results can't pass vacuously (fullTextSearch
     // catches SQL errors and returns []).
     atomicIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "atomic/control.md",
         rawContent: "Control body about flamingos.\n",
         fileStat: testStat(500),
-      },
+      }),
       logger,
     )
 
     taskInsertPoison.arm()
     expect(() => {
       atomicIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "atomic/target.md",
           rawContent: ATOMIC_NOTE_VERSION_A,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
     }).toThrow(taskInsertPoison.message)
@@ -1493,11 +1501,11 @@ describe("upsertNote atomicity", () => {
 describe("removeNote", () => {
   it("removes an indexed note", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "test.md",
         rawContent: "# Removable\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.removeNote("test.md")
@@ -1519,11 +1527,11 @@ describe("removeNote atomicity", () => {
     const taskDeletePoison = installStatementPoison("DELETE FROM tasks")
     const atomicIndex = createSearchIndex(":memory:")
     atomicIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "atomic/target.md",
         rawContent: ATOMIC_NOTE_VERSION_A,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1547,28 +1555,28 @@ describe("removeNote atomicity", () => {
 describe("fullTextSearch", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Principles.md",
         rawContent: NOTE_WITH_FRONTMATTER,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/notes.md",
         rawContent:
           "---\ntitle: Project Notes\ntype: project\ntags: [project]\n---\n\nMeeting notes about the vault project\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/random.md",
         rawContent: NOTE_MINIMAL,
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
   })
@@ -1646,11 +1654,11 @@ describe("fullTextSearch", () => {
 
   it("does not match a sibling folder whose name starts with the folder filter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "ProjectsOld/old.md",
         rawContent: "---\ntitle: Old\n---\n\nOld meeting notes\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch(
@@ -1676,19 +1684,19 @@ describe("fullTextSearch", () => {
 
   it("matches a tags filter by a parent tag in any letter case, not a longer tag", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/child.md",
         rawContent: "---\ntags: [Project/child]\n---\n\nMeeting notes about the child\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/decoy.md",
         rawContent: "---\ntags: [projects]\n---\n\nMeeting notes about the decoy\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
 
@@ -1727,11 +1735,11 @@ describe("fullTextSearch", () => {
 
   it("handles porter stemming", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "stem.md",
         rawContent: "The runners were running quickly\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch({ query: "run" }, logger)
@@ -1747,11 +1755,11 @@ describe("fullTextSearch", () => {
 
   it("multi-word query does not require exact phrase adjacency", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "spread.md",
         rawContent: "The word alpha appears here. Much later, beta shows up.\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch({ query: "alpha beta" }, logger)
@@ -1761,19 +1769,19 @@ describe("fullTextSearch", () => {
 
   it("exact phrase match with quotes", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "phrase.md",
         rawContent: "Learn machine learning today\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "separate.md",
         rawContent: "The machine was broken. Learning was slow.\n",
         fileStat: testStat(5001),
-      },
+      }),
       logger,
     )
     const phraseResults = index.fullTextSearch({ query: '"machine learning"' }, logger)
@@ -1789,11 +1797,11 @@ describe("fullTextSearch", () => {
 
   it("hyphenated query matches content containing the hyphenated term", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "project.md",
         rawContent: "The flux-capacitor enables time travel\n",
         fileStat: testStat(6000),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch({ query: "flux-capacitor" }, logger)
@@ -1803,19 +1811,19 @@ describe("fullTextSearch", () => {
 
   it("dotted query matches content containing the dotted term", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "directories.md",
         rawContent: "Submitted the listing to mcpservers.org yesterday\n",
         fileStat: testStat(6001),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "unrelated.md",
         rawContent: "The mcpservers registry has no org field\n",
         fileStat: testStat(6002),
-      },
+      }),
       logger,
     )
     const results = index.fullTextSearch({ query: "mcpservers.org" }, logger)
@@ -1865,28 +1873,28 @@ Replace the rotted posts on the north side.
 describe("metadata search", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "garden/layout.md",
         rawContent: NOTE_WITH_TAXONOMY,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "garden/fence.md",
         rawContent: NOTE_WITH_PRIORITY,
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "garden/notes.md",
         rawContent:
           "---\ntitle: Soil Notes\ntype: reference\ntags: [compost]\n---\n\nAmend with gypsum before planting season.\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
   })
@@ -1957,11 +1965,11 @@ describe("metadata search", () => {
 
     const warmIndex = createSearchIndex(dbPath)
     warmIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "garden/layout.md",
         rawContent: NOTE_WITH_TAXONOMY,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1974,27 +1982,27 @@ describe("metadata search", () => {
 describe("searchByTag", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "a.md",
         rawContent: "---\ntags: [project/vault-mcp, self]\n---\nbody\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "b.md",
         rawContent: "---\ntags: [project/other]\n---\nbody\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "c.md",
         rawContent: "---\ntags: [unrelated]\n---\nbody\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
   })
@@ -2006,19 +2014,19 @@ describe("searchByTag", () => {
 
   it("prefix match needs a / after the tag, so projects and my-project do not match", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [projects]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "e.md",
         rawContent: "---\ntags: [my-project]\n---\nbody\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
 
@@ -2028,11 +2036,11 @@ describe("searchByTag", () => {
 
   it('matches notes tagged project when the tag has a leading "#", but not a trailing "/"', () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [project]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     // The bare tag finds d.md, so the empty "/" result below comes from the
@@ -2047,11 +2055,11 @@ describe("searchByTag", () => {
 
   it("treats a stored tag that ends in a slash as itself and as nested under its parent", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [foo//]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
 
@@ -2066,29 +2074,29 @@ describe("searchByTag", () => {
 
   it("ignores letter case in both modes, with Projects and my-project as decoys", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [Project]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "e.md",
         rawContent: "---\ntags: [project]\n---\nbody\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     // The decoys sit in a note of their own, so a match on either one would
     // add f.md to the results
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "f.md",
         rawContent: "---\ntags: [Projects, my-project]\n---\nbody\n",
         fileStat: testStat(6000),
-      },
+      }),
       logger,
     )
 
@@ -2105,11 +2113,11 @@ describe("searchByTag", () => {
 
   it("folds the query the way it folds stored tags, so a capital sharp s finds a small one", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [ß, Straße]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
 
@@ -2119,11 +2127,11 @@ describe("searchByTag", () => {
 
   it("folds a stored non-ASCII tag in prefix mode, where LIKE alone ignores only ASCII case", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [Ärger/Alt]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
 
@@ -2145,11 +2153,11 @@ describe("searchByTag", () => {
 
   it("exact match returns the tag itself, not tags nested under it", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [project]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
 
@@ -2164,12 +2172,12 @@ describe("searchByTag", () => {
 
   it("returns each match's full metadata, with tags other than the matched one", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/plan.md",
         rawContent:
           "---\ntags: [project/alpha, planning]\ntype: plan\ncreated: 2026-01-15\nrelated: [Roadmap]\nstatus: active\n---\n> [!info] Scope\n> Next quarter.\n\nBody.\n",
         fileStat: testStat(4000, 321),
-      },
+      }),
       logger,
     )
 
@@ -2203,21 +2211,21 @@ describe("searchByTag", () => {
 
   it("prefix match treats LIKE wildcards in the tag as literal characters", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [a_b/child]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     // Without escaping, LIKE 'a_b/%' would also match this tag — the "_"
     // wildcard matches the "x" in "axb".
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "e.md",
         rawContent: "---\ntags: [axb/child]\n---\nbody\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
 
@@ -2229,27 +2237,27 @@ describe("searchByTag", () => {
 describe("searchByFolder", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Principles.md",
         rawContent: NOTE_WITH_FRONTMATTER,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/sub/deep.md",
         rawContent: "---\ntitle: Deep\n---\nbody\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/notes.md",
         rawContent: "---\ntitle: P\n---\nbody\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
   })
@@ -2283,11 +2291,11 @@ describe("searchByFolder", () => {
 
   it("does not match a sibling folder whose name starts with the folder's name", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "ProjectsOld/old.md",
         rawContent: "---\ntitle: Old\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const results = index.searchByFolder({ folder: "Projects" }, logger)
@@ -2320,19 +2328,19 @@ describe("searchByFolder", () => {
 describe("listAllTags", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Principles.md",
         rawContent: NOTE_WITH_FRONTMATTER,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "a.md",
         rawContent: "---\ntags: [principles, work]\n---\nbody\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
   })
@@ -2348,27 +2356,27 @@ describe("listAllTags", () => {
 
   it("merges spellings that differ in letter case under the most-used spelling, counting notes", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "b.md",
         rawContent: "---\ntags: [work]\n---\nbody\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "c.md",
         rawContent: "---\ntags: [Work, Work, Work]\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "d.md",
         rawContent: "---\ntags: [WORK]\n---\nbody\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
 
@@ -2383,11 +2391,11 @@ describe("listAllTags", () => {
 
   it("breaks a spelling tie by binary order and counts a note with both spellings once", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "b.md",
         rawContent: "---\ntags: [tie, Tie]\n---\nbody\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
 
@@ -2404,11 +2412,11 @@ describe("listAllTags", () => {
   it("adds no tag for a mapping-valued tags property", () => {
     const tagsBefore = index.listAllTags({}, logger)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "mapped.md",
         rawContent: "---\ntags:\n  project: true\n---\nmappedbody\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
 
@@ -2421,11 +2429,11 @@ describe("listAllTags", () => {
 
   it("handles notes with no tags", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "bare.md",
         rawContent: "no tags\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
     const tags = index.listAllTags({}, logger)
@@ -2439,27 +2447,27 @@ describe("listAllTags", () => {
 describe("recentNotes", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "old.md",
         rawContent: "---\ncreated: 2025-01-01\n---\nold\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "new.md",
         rawContent: "---\ncreated: 2026-05-01\n---\nnew\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "no-created.md",
         rawContent: "no date\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
   })
@@ -2534,27 +2542,27 @@ No custom properties.
 describe("listPropertyKeys", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/active.md",
         rawContent: NOTE_WITH_STATUS,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/done.md",
         rawContent: NOTE_WITH_DIFFERENT_STATUS,
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/plain.md",
         rawContent: NOTE_WITH_NO_CUSTOM_PROPS,
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
   })
@@ -2583,11 +2591,11 @@ describe("listPropertyKeys", () => {
   it("returns at most 3 sample values", () => {
     for (let i = 0; i < 5; i++) {
       index.upsertNote(
-        {
+        withBodyTags({
           filePath: `extra/n${i}.md`,
           rawContent: `---\nvariety: value-${i}\n---\nbody\n`,
           fileStat: testStat(4000 + i),
-        },
+        }),
         logger,
       )
     }
@@ -2626,11 +2634,11 @@ describe("listPropertyKeys", () => {
 
   it("sample_values are scoped to the folder filter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Other/other.md",
         rawContent: "---\nstatus: blocked\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
@@ -2651,11 +2659,11 @@ describe("listPropertyKeys", () => {
 
   it("does not match a sibling folder whose name starts with the folder's name", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "ProjectsOld/old.md",
         rawContent: "---\nstatus: blocked\narchived_on: 2026-01-01\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
@@ -2672,11 +2680,11 @@ describe("listPropertyKeys", () => {
     const reviewedValues = ["true", "false", "", "true"]
     reviewedValues.forEach((reviewedValue, noteNumber) => {
       propertyIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: `note-${noteNumber}.md`,
           rawContent: `---\nreviewed: ${reviewedValue}\n---\nbody\n`,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
     })
@@ -2691,11 +2699,11 @@ describe("listPropertyKeys", () => {
     const topicLists = ["[alpha, beta]", "[alpha]", "[gamma]", "[gamma]", "[delta]"]
     topicLists.forEach((topicList, noteNumber) => {
       propertyIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: `note-${noteNumber}.md`,
           rawContent: `---\ntopics: ${topicList}\n---\nbody\n`,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
     })
@@ -2710,27 +2718,27 @@ describe("listPropertyKeys", () => {
 describe("listPropertyValues", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/active.md",
         rawContent: NOTE_WITH_STATUS,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/done.md",
         rawContent: NOTE_WITH_DIFFERENT_STATUS,
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/plain.md",
         rawContent: NOTE_WITH_NO_CUSTOM_PROPS,
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
   })
@@ -2773,11 +2781,11 @@ describe("listPropertyValues", () => {
 
   it("respects folder filter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Other/excluded.md",
         rawContent: "---\nstatus: blocked\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const values = index.listPropertyValues({ key: "status", folder: "Projects" }, logger)
@@ -2793,11 +2801,11 @@ describe("listPropertyValues", () => {
 
   it("does not match a sibling folder whose name starts with the folder's name", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "ProjectsOld/old.md",
         rawContent: "---\nstatus: blocked\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const values = index.listPropertyValues({ key: "status", folder: "Projects" }, logger)
@@ -2833,11 +2841,11 @@ describe("listPropertyValues", () => {
     const reviewedValues = ["true", "1", "false", ""]
     reviewedValues.forEach((reviewedValue, noteNumber) => {
       propertyIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: `note-${noteNumber}.md`,
           rawContent: `---\nreviewed: ${reviewedValue}\n---\nbody\n`,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
     })
@@ -2854,27 +2862,27 @@ describe("listPropertyValues", () => {
 describe("searchByProperty", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/active.md",
         rawContent: NOTE_WITH_STATUS,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/done.md",
         rawContent: NOTE_WITH_DIFFERENT_STATUS,
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/plain.md",
         rawContent: NOTE_WITH_NO_CUSTOM_PROPS,
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
   })
@@ -2917,11 +2925,11 @@ describe("searchByProperty", () => {
 
   it("respects folder filter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Other/also-active.md",
         rawContent: "---\nstatus: in-progress\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const results = index.searchByProperty(
@@ -2934,11 +2942,11 @@ describe("searchByProperty", () => {
 
   it("does not match a sibling folder whose name starts with the folder filter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "ProjectsOld/old.md",
         rawContent: "---\nstatus: in-progress\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const results = index.searchByProperty(
@@ -2950,11 +2958,11 @@ describe("searchByProperty", () => {
 
   it("ignores ASCII letter case in the folder filter", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Other/also-active.md",
         rawContent: "---\nstatus: in-progress\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const results = index.searchByProperty(
@@ -2966,11 +2974,11 @@ describe("searchByProperty", () => {
 
   it("respects limit", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/another.md",
         rawContent: "---\nstatus: in-progress\n---\nbody\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
     const results = index.searchByProperty(
@@ -2982,11 +2990,11 @@ describe("searchByProperty", () => {
 
   it("finds notes by YAML date property (normalized from Date object)", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "dated.md",
         rawContent: "---\ndue: 2026-05-13\n---\nbody\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     const results = index.searchByProperty({ key: "due", value: "2026-05-13" }, logger)
@@ -2999,11 +3007,11 @@ describe("searchByProperty", () => {
     const rankValues = ["1", '"1"', "true", "0", "false", '"2"']
     rankValues.forEach((rankValue, noteNumber) => {
       propertyIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: `note-${noteNumber}.md`,
           rawContent: `---\nrank: ${rankValue}\n---\nbody\n`,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
     })
@@ -3030,41 +3038,41 @@ describe("property keys containing JSON path syntax", () => {
 
   const seedPathSyntaxNotes = (): void => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/path-syntax-keys.md",
         rawContent:
           '---\na.b: dotted-value\n"k[0]": bracket-value\nplain: shared\n---\nsearchable body\n',
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Carries both requested values under other keys, so a query that
     // ignores the key would still match it.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/decoy-other-keys.md",
         rawContent:
           "---\nother: dotted-value\nanother: bracket-value\nplain: shared\n---\nsearchable body\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/decoy-no-keys.md",
         rawContent: "---\nplain: shared\n---\nsearchable body\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
     // Matches the search text but carries none of the filtered keys, so a
     // filter that stops constraining results would let it through.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "notes/decoy-unfiltered.md",
         rawContent: "---\nunrelated: x\n---\nsearchable body\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
   }
@@ -3122,19 +3130,19 @@ describe("property keys containing JSON path syntax", () => {
 
   it("array values under a dotted key are enumerated and matched", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/array-under-dotted-key.md",
         rawContent: "---\nc.d:\n  - one\n  - two\n---\nbody\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/decoy-scalar-dotted-key.md",
         rawContent: "---\nc.d: three\n---\nbody\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
 
@@ -3149,19 +3157,19 @@ describe("property keys containing JSON path syntax", () => {
 
   it("fullTextSearch's properties filter matches a list property by any element", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/co-authored.md",
         rawContent: "---\nauthors:\n  - Alice\n  - Bob\n---\nsearchable body\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/solo.md",
         rawContent: "---\nauthors:\n  - Carol\n---\nsearchable body\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
 
@@ -3175,11 +3183,11 @@ describe("property keys containing JSON path syntax", () => {
 
   it("fullTextSearch's properties filter compares values by exact type", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/rated.md",
         rawContent: "---\nrating: 4\n---\nsearchable body\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -3243,11 +3251,11 @@ describe("property keys containing JSON path syntax", () => {
 
     for (const note of propertyNotes) {
       propertyIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: note.path,
           rawContent: `---\n${note.key}: ${note.value}\n---\n${note.body}\n`,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
     }
@@ -3262,19 +3270,19 @@ describe("property keys containing JSON path syntax", () => {
 
   it("fullTextSearch's properties filter matches a boolean value", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/published.md",
         rawContent: "---\npublished: true\n---\nsearchable body\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/draft.md",
         rawContent: "---\npublished: false\n---\nsearchable body\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
 
@@ -3668,7 +3676,11 @@ describe("numeric property search", () => {
       { filePath: "b-text.md", frontmatter: 'rank: "4.0"' },
     ])
     propertyIndex.upsertNote(
-      { filePath: "newest.md", rawContent: "---\nrank: 4\n---\nbody\n", fileStat: testStat(2000) },
+      withBodyTags({
+        filePath: "newest.md",
+        rawContent: "---\nrank: 4\n---\nbody\n",
+        fileStat: testStat(2000),
+      }),
       logger,
     )
 
@@ -3806,7 +3818,10 @@ describe("rebuildFromVault bounded I/O", () => {
       const search = createSearchIndex(dbPath, undefined, undefined, { fileToolsEnabled: true })
       const database = new Database(dbPath, { readonly: true })
       openDatabases.push(database)
-      const rebuilding = search.rebuildFromVault({ vaultPath }, logger)
+      const rebuilding = search.rebuildFromVault(
+        { vaultPath, bodyTagParser: inProcessBodyTagParser },
+        logger,
+      )
       pendingRebuilds.push(rebuilding)
       await boundReached.promise
       await setImmediateAsync()
@@ -3879,7 +3894,10 @@ describe("rebuildFromVault bounded I/O", () => {
     const search = createSearchIndex(dbPath, undefined, undefined, { fileToolsEnabled: true })
     const database = new Database(dbPath, { readonly: true })
     openDatabases.push(database)
-    const rebuilding = search.rebuildFromVault({ vaultPath }, logger)
+    const rebuilding = search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     pendingRebuilds.push(rebuilding)
     await boundReached.promise
     await setImmediateAsync()
@@ -3939,7 +3957,10 @@ describe("rebuildFromVault filesystem failures", () => {
       statSpy.mockRestore()
       warnSpy.mockRestore()
     })
-    const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await rebuilt.embedding
 
     expect(rebuilt.count).toBe(1)
@@ -3951,7 +3972,11 @@ describe("rebuildFromVault filesystem failures", () => {
       search.fullTextSearch({ query: "healthyamber" }, logger).map((entry) => entry.path),
     ).toEqual(["healthy.md"])
     search.upsertNote(
-      { filePath: "source.md", rawContent: "![[image.png]]", fileStat: testStat(1000) },
+      withBodyTags({
+        filePath: "source.md",
+        rawContent: "![[image.png]]",
+        fileStat: testStat(1000),
+      }),
       logger,
     )
     expect(
@@ -3960,10 +3985,17 @@ describe("rebuildFromVault filesystem failures", () => {
         .map((link) => ({ path: link.path, exists: link.exists })),
     ).toEqual([{ path: "image.png", exists: false }])
     statSpy.mockRestore()
-    const recovered = await search.rebuildFromVault({ vaultPath }, logger)
+    const recovered = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await recovered.embedding
     search.upsertNote(
-      { filePath: "source.md", rawContent: "![[image.png]]", fileStat: testStat(1000) },
+      withBodyTags({
+        filePath: "source.md",
+        rawContent: "![[image.png]]",
+        fileStat: testStat(1000),
+      }),
       logger,
     )
     expect(
@@ -3995,7 +4027,10 @@ describe("rebuildFromVault filesystem failures", () => {
         readSpy.mockRestore()
         warnSpy.mockRestore()
       })
-      const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+      const rebuilt = await search.rebuildFromVault(
+        { vaultPath, bodyTagParser: inProcessBodyTagParser },
+        logger,
+      )
       await rebuilt.embedding
 
       expect(rebuilt.count).toBe(1)
@@ -4028,7 +4063,10 @@ describe("rebuildFromVault filesystem failures", () => {
       extractSpy.mockRestore()
       warnSpy.mockRestore()
     })
-    const rebuilt = await search.rebuildFromVault({ vaultPath }, logger)
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await rebuilt.embedding
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable PDF during rebuild", {
       path: "broken.pdf",
@@ -4041,7 +4079,10 @@ describe("rebuildFromVault filesystem failures", () => {
       ),
     ).toEqual(["healthy.md"])
     expect((await search.hybridSearch({ query: "recoveredopal" }, logger)).results).toEqual([])
-    const recovered = await search.rebuildFromVault({ vaultPath }, logger)
+    const recovered = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await recovered.embedding
     expect(
       (await search.hybridSearch({ query: "recoveredopal" }, logger)).results.map(
@@ -4070,12 +4111,18 @@ describe("rebuildFromVault", () => {
   })
 
   it("indexes all visible .md files", async () => {
-    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     expect(count).toBe(2)
   })
 
   it("skips hidden directories", async () => {
-    const { count: indexedCount } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count: indexedCount } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     expect(indexedCount).toBe(2)
     const hidden = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hidden).toHaveLength(0)
@@ -4083,20 +4130,26 @@ describe("rebuildFromVault", () => {
 
   it("clears existing data before rebuilding", async () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "stale.md",
         rawContent: "stale content\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     const results = index.fullTextSearch({ query: "stale" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("makes indexed notes searchable", async () => {
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     const results = index.fullTextSearch({ query: "burnout" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("About Me/Principles.md")
@@ -4111,7 +4164,10 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
 
-    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     // Two fixture notes from beforeEach plus this one: a skipped note would leave 2
     expect(count).toBe(3)
@@ -4142,7 +4198,10 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "tasked.md"), "tasked body text\n\n- [ ] A task\n", "utf8")
 
     taskInsertPoison.arm()
-    const { count } = await poisonedIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await poisonedIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     taskInsertPoison.disarm()
 
     expect(count).toBe(2)
@@ -4168,7 +4227,10 @@ describe("rebuildFromVault", () => {
     )
 
     taskInsertPoison.arm()
-    const { count } = await poisonedIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await poisonedIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     taskInsertPoison.disarm()
 
     expect(count).toBe(2)
@@ -4193,7 +4255,10 @@ describe("rebuildFromVault", () => {
     onTestFinished(() => warnSpy.mockRestore())
     await writeFile(join(vaultDir, "linker.md"), "See [[alpha]], then [[beta]].\n", "utf8")
 
-    const { count } = await linkFailureIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await linkFailureIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     // The note's Pass 1 rows are committed, so it counts as indexed and stays searchable
     expect(count).toBe(3)
@@ -4243,7 +4308,10 @@ describe("rebuildFromVault", () => {
       "# Opinions\n\n## Code patterns (newest first)\n\n- **2026-08-01**: Named over positional.\n\n## Follow-ups\n\n- [ ] Revisit naming\n",
       "utf8",
     )
-    const firstBuild = await memoryIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const firstBuild = await memoryIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await firstBuild.embedding
     const rowsAfterFirstBuild = selectStoredRows()
     // The first build stored rows for the note, so keeping them below is not vacuous.
@@ -4268,7 +4336,10 @@ describe("rebuildFromVault", () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
     taskInsertPoison.arm()
-    const secondBuild = await memoryIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const secondBuild = await memoryIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     taskInsertPoison.disarm()
     await secondBuild.embedding
 
@@ -4289,7 +4360,10 @@ describe("rebuildFromVault", () => {
   ])("indexes a note whose properties block holds $label", async ({ content }) => {
     await writeFile(join(vaultDir, "kept.md"), content, "utf8")
 
-    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     // Two fixture notes from beforeEach plus this one: a skipped note would leave 2
     expect(count).toBe(3)
@@ -4303,7 +4377,10 @@ describe("rebuildFromVault", () => {
       "--- start-multi-column: ExampleRegion1\ncolumn snippet text\n\n--- end-multi-column\n",
       "utf8",
     )
-    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     expect(count).toBe(3)
     // The plugin line stays in the indexed content — it would vanish if
     // it were parsed as frontmatter
@@ -4324,7 +4401,10 @@ describe("rebuildFromVault", () => {
     const brokenContent = "---\ntitle: [unclosed\n---\nbroken body text\n"
     await writeFile(join(vaultDir, "broken.md"), brokenContent, "utf8")
     await writeFile(join(vaultDir, "linker.md"), "# Linker\n\nSee [[broken]].\n", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     // The note is in the notes table, so the link resolves to it; the title
     // is the file name because the block's title was not read
     expect(index.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([
@@ -4349,7 +4429,10 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "z-target.md"), "# Z Target\n\nBody.\n", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     const backlinks = index.getBacklinks({ path: "z-target.md" }, logger)
     expect(backlinks).toHaveLength(1)
     expect(backlinks[0]?.path).toBe("a-source.md")
@@ -4362,7 +4445,10 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "Trip Route.canvas"), "{}", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -4382,7 +4468,10 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "photo.png"), "png-bytes", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     // Results order by target, so "genuinely-missing" sorts first.
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -4414,7 +4503,10 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "canvases/Dashboard.canvas"), "{}", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -4435,7 +4527,10 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "views/Inventory.base"), "filters: []\n", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -4452,7 +4547,10 @@ describe("rebuildFromVault", () => {
     await mkdir(join(vaultDir, "other"), { recursive: true })
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[views/Inventory]].\n", "utf8")
     await writeFile(join(vaultDir, "other/Inventory.canvas"), "{}", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
@@ -4464,7 +4562,10 @@ describe("rebuildFromVault", () => {
     await mkdir(join(vaultDir, "foo/aXb"), { recursive: true })
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[a_b/c]].\n", "utf8")
     await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
@@ -4477,7 +4578,10 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "Route.canvas"), "{}", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -4493,7 +4597,10 @@ describe("rebuildFromVault", () => {
   it("skips non-md files in hidden directories", async () => {
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[config]].\n", "utf8")
     await writeFile(join(vaultDir, ".obsidian/config.json"), "{}", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
@@ -4505,7 +4612,10 @@ describe("rebuildFromVault", () => {
       "utf8",
     )
     await writeFile(join(vaultDir, "photo.png"), "binary", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
@@ -4521,7 +4631,10 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "Report.md"), "# Report\n\nNote content.\n", "utf8")
     await writeFile(join(vaultDir, "Report.pdf"), "binary", "utf8")
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[Report]].\n", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
@@ -4538,7 +4651,10 @@ describe("rebuildFromVault", () => {
     await mkdir(join(vaultDir, "photos"), { recursive: true })
     await writeFile(join(vaultDir, "source.md"), "# Source\n\n![[sunset.png]]\n", "utf8")
     await writeFile(join(vaultDir, "photos", "Sunset.png"), "binary", "utf8")
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
@@ -4557,7 +4673,10 @@ describe("rebuildFromVault", () => {
     )
     await symlink("real/original.md", join(vaultDir, "linked.md"))
 
-    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     expect(count).toBe(4)
 
     const results = index.fullTextSearch({ query: "symlink target content" }, logger)
@@ -4572,7 +4691,10 @@ describe("rebuildFromVault", () => {
     await symlink("boards/real-board.canvas", join(vaultDir, "Board.canvas"))
     await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[Board]].\n", "utf8")
 
-    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toEqual([
@@ -4592,7 +4714,10 @@ describe("rebuildFromVault", () => {
     await writeFile(join(outsideDir, "external.md"), "# External\n\nExternal content.\n", "utf8")
     await symlink(join(outsideDir, "external.md"), join(vaultDir, "linked-external.md"))
 
-    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     expect(count).toBe(3)
 
     const results = index.fullTextSearch({ query: "external content" }, logger)
@@ -4605,7 +4730,10 @@ describe("rebuildFromVault", () => {
     await symlink("root.md", join(vaultDir, "valid-link.md"))
     await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
 
-    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
 
     const results = index.fullTextSearch({ query: "burnout" }, logger)
@@ -4620,7 +4748,10 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "realdir/inner.md"), "inner\n", "utf8")
     await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
 
-    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
 
     const results = index.fullTextSearch({ query: "inner" }, logger)
@@ -4635,35 +4766,35 @@ describe("getBacklinks", () => {
     // hub links to spoke-a and spoke-b; spoke-a links back to hub.
     // upsertNote re-resolves stale targets, so ordering doesn't matter.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "hub.md",
         rawContent: "# Hub\n\nLinks to [[spoke-a]] and [[spoke-b]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "spoke-a.md",
         rawContent: "# Spoke A\n\nLinks back to [[hub]].\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "spoke-b.md",
         rawContent: "# Spoke B\n\nNo backlink.\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "island.md",
         rawContent: "# Island\n\nNo links at all.\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
   })
@@ -4700,19 +4831,19 @@ describe("getOutgoingLinks", () => {
   beforeEach(() => {
     // source links to target-exists (will be resolved) and NonExistent (unresolved)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[target-exists]] and [[NonExistent]].\n",
         fileStat: testStat(1000, 11),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "target-exists.md",
         rawContent: "---\ntitle: Target\n---\n\n# Target\n\nBody.\n",
         fileStat: testStat(2000, 222),
-      },
+      }),
       logger,
     )
   })
@@ -4750,11 +4881,11 @@ describe("getOutgoingLinks", () => {
     "flags daily note forward-refs with folder %s",
     (dailyNotesFolder) => {
       index.upsertNote(
-        {
+        withBodyTags({
           filePath: "Daily Notes/2026-06-24.md",
           rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
 
@@ -4785,11 +4916,11 @@ describe("getOutgoingLinks", () => {
 
   it("returns empty for notes with no outgoing links", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "lonely.md",
         rawContent: "# Lonely\n\nNo links.\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
     const links = index.getOutgoingLinks({ path: "lonely.md" }, logger)
@@ -4800,36 +4931,36 @@ describe("getOutgoingLinks", () => {
 describe("findOrphans", () => {
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "hub.md",
         rawContent: "# Hub\n\n[[connected]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "connected.md",
         rawContent: "# Connected\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/orphan.md",
         rawContent:
           "---\ntitle: Orphan\ntype: project\ntags: [project]\n---\n\n# Orphan\n\nNobody links here.\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Daily Notes/2026-05-13.md",
         rawContent: "---\ntitle: 2026-05-13\n---\n\n# Daily\n",
         fileStat: testStat(4000),
-      },
+      }),
       logger,
     )
   })
@@ -4936,11 +5067,11 @@ describe("findOrphans", () => {
 
   it("does not exclude a sibling folder whose name starts with an excluded folder", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "ProjectsOld/old.md",
         rawContent: "# Old\n\nNobody links here either.\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     const orphans = index.findOrphans({ excludeFolders: ["Projects"] }, logger)
@@ -4958,11 +5089,11 @@ describe("findOrphans", () => {
 
   it("counts links from notes in an excluded folder as incoming links", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Templates/project.md",
         rawContent: "# Template\n\nSee [[Projects/orphan]].\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     const orphans = index.findOrphans({ excludeFolders: ["Templates"] }, logger)
@@ -4989,11 +5120,11 @@ describe("findOrphans", () => {
 
   it("treats self-linking notes as orphans", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "self-ref.md",
         rawContent: "# Self\n\nLinks to [[self-ref]].\n",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     const orphans = index.findOrphans({}, logger)
@@ -5005,19 +5136,19 @@ describe("findOrphans", () => {
 describe("forward reference resolution", () => {
   it("resolves backlinks when target is indexed after source", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\nLinks to [[target]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "target.md",
         rawContent: "# Target\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
 
@@ -5032,23 +5163,23 @@ describe("forward reference resolution", () => {
     // this is the common incremental case. Body has no link → only the
     // frontmatter edge is under test.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent:
           '---\ntitle: Source\nrelated: ["[[folder/target]]"]\n---\n\n# Source\n\nProse only.\n',
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Target absent → link stored unresolved → no backlink yet.
     expect(index.getBacklinks({ path: "folder/target.md" }, logger)).toHaveLength(0)
 
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "folder/target.md",
         rawContent: "# Target\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const backlinks = index.getBacklinks({ path: "folder/target.md" }, logger)
@@ -5061,21 +5192,21 @@ describe("forward reference resolution", () => {
     // doesn't exist yet. Re-resolution must re-run with the link's own source so
     // the relative form upgrades, not just basename/full-path forms.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Areas/Work/early.md",
         rawContent: "# Early\n\nLinks to [[../Health/later]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getBacklinks({ path: "Areas/Health/later.md" }, logger)).toHaveLength(0)
 
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Areas/Health/later.md",
         rawContent: "# Later\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const backlinks = index.getBacklinks({ path: "Areas/Health/later.md" }, logger)
@@ -5088,19 +5219,19 @@ describe("forward reference resolution", () => {
     // elsewhere must neither capture the link nor evict it from the unresolved
     // set before the intended target exists.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Areas/Work/early.md",
         rawContent: "# Early\n\nLinks to [[../Health/later]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Health/later.md",
         rawContent: "# Decoy\n\nBody.\n",
         fileStat: testStat(1500),
-      },
+      }),
       logger,
     )
     // The decoy's write swept the unresolved set; the link must not have
@@ -5108,11 +5239,11 @@ describe("forward reference resolution", () => {
     expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toHaveLength(0)
 
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Areas/Health/later.md",
         rawContent: "# Later\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const backlinks = index.getBacklinks({ path: "Areas/Health/later.md" }, logger)
@@ -5128,20 +5259,20 @@ describe("frontmatter links in the graph", () => {
 
   it("surfaces a frontmatter-only target in getOutgoingLinks", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "session.md",
         rawContent:
           '---\ntitle: Session\nrelated: ["[[task-board]]"]\n---\n\n# Session\n\nProse with no links.\n',
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "task-board.md",
         rawContent: "# Task Board\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const links = index.getOutgoingLinks({ path: "session.md" }, logger)
@@ -5153,20 +5284,20 @@ describe("frontmatter links in the graph", () => {
 
   it("surfaces a frontmatter-only source in getBacklinks", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "session.md",
         rawContent:
           '---\ntitle: Session\nrelated: ["[[task-board]]"]\n---\n\n# Session\n\nProse with no links.\n',
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "task-board.md",
         rawContent: "# Task Board\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const backlinks = index.getBacklinks({ path: "task-board.md" }, logger)
@@ -5176,28 +5307,28 @@ describe("frontmatter links in the graph", () => {
 
   it("does not flag a frontmatter-referenced note as an orphan, but still flags a truly unreferenced one", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "referencer.md",
         rawContent:
           '---\ntitle: Referencer\nrelated: ["[[referenced]]"]\n---\n\n# Referencer\n\nNo body links.\n',
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "referenced.md",
         rawContent: "# Referenced\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "true-orphan.md",
         rawContent: "# True Orphan\n\nNobody links here.\n",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
     const orphanPaths = index.findOrphans({}, logger).map((orphan) => orphan.path)
@@ -5209,20 +5340,20 @@ describe("frontmatter links in the graph", () => {
 
   it("counts a target linked from both body and frontmatter as a single edge", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "double.md",
         rawContent:
           '---\ntitle: Double\nrelated: ["[[shared]]"]\n---\n\n# Double\n\nAlso links [[shared]] in the body.\n',
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "shared.md",
         rawContent: "# Shared\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const backlinks = index.getBacklinks({ path: "shared.md" }, logger)
@@ -5237,19 +5368,19 @@ describe("relative links (path from current file)", () => {
   // "../Health/target"; the target is indexed first so it exists at link time.
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Areas/Health/target.md",
         rawContent: "# Target\n\nBody.\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Areas/Work/note.md",
         rawContent: "# Note\n\nLinks to [[../Health/target]].\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
   })
@@ -5279,19 +5410,19 @@ describe("relative links (path from current file)", () => {
 describe("brokenLinkCount", () => {
   it("returns 0 when all link targets exist", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[target]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "target.md",
         rawContent: "# Target\n\nBody.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
@@ -5299,11 +5430,11 @@ describe("brokenLinkCount", () => {
 
   it("counts links to non-existent notes", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[missing-a]] and [[missing-b]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(2)
@@ -5311,19 +5442,19 @@ describe("brokenLinkCount", () => {
 
   it("counts only broken links, not resolved ones", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[exists]] and [[missing]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "exists.md",
         rawContent: "# Exists\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
@@ -5331,19 +5462,19 @@ describe("brokenLinkCount", () => {
 
   it("does not count escaped-pipe wikilinks as broken when the target note exists", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "dashboard.md",
         rawContent: "| Link |\n| --- |\n| [[sessions/log-a\\|log-a]] |\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "sessions/log-a.md",
         rawContent: "# Log A\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const outgoing = index.getOutgoingLinks({ path: "dashboard.md" }, logger)
@@ -5358,11 +5489,11 @@ describe("brokenLinkCount", () => {
     index.upsertNonMdFile("photo.png", 100)
     index.upsertNonMdFile("report.pdf", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![[photo.png]] and [[report.pdf]] and [[real-note]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
@@ -5382,11 +5513,11 @@ describe("brokenLinkCount", () => {
   it("excludes extensionless targets after upsertNonMdFile registers the file", () => {
     index.upsertNonMdFile("Trip Route.canvas", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[Trip Route]] and [[missing]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
@@ -5402,11 +5533,11 @@ describe("brokenLinkCount", () => {
 
   it("upsertNonMdFile re-resolves previously unresolved links to non-md paths", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[Route]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
@@ -5423,11 +5554,11 @@ describe("brokenLinkCount", () => {
   it("removeNonMdFile makes previously resolved file links broken again", () => {
     index.upsertNonMdFile("Route.canvas", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[Route]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
@@ -5444,12 +5575,12 @@ describe("brokenLinkCount", () => {
     "excludes daily forward references with folder %s and retains sibling-folder failures",
     (dailyNotesFolder) => {
       index.upsertNote(
-        {
+        withBodyTags({
           filePath: "Daily Notes/2026-06-24.md",
           rawContent:
             "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]] and [[Daily Notes Extra/missing]].\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       expect(index.brokenLinkCount({ dailyNotesFolder }, logger)).toEqual({
@@ -5462,11 +5593,11 @@ describe("brokenLinkCount", () => {
 
   it("excludes .md-suffixed forward-reference targets", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Daily Notes/2026-06-24.md",
         rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25.md|Tomorrow >>]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(0)
@@ -5474,11 +5605,11 @@ describe("brokenLinkCount", () => {
 
   it("still counts broken links outside the daily note folder", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[missing-a]] and [[missing-b]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(2)
@@ -5486,11 +5617,11 @@ describe("brokenLinkCount", () => {
 
   it("excludes all broken links under the daily notes folder, not just dates", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[Daily Notes/random-text]] and [[missing]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const result = index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger)
@@ -5500,11 +5631,11 @@ describe("brokenLinkCount", () => {
 
   it("counts all broken links when no daily note exclusion is set", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Daily Notes/2026-06-24.md",
         rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(2)
@@ -5517,11 +5648,11 @@ describe("markdown-style links to non-md targets", () => {
   it("resolves a markdown image embed as a file", () => {
     index.upsertNonMdFile("pics/photo.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![photo](pics/photo.png) and [[genuinely-missing]].\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // The broken control link proves link indexing ran — without it, a broken
@@ -5551,11 +5682,11 @@ describe("markdown-style links to non-md targets", () => {
   it("resolves a markdown link to a PDF as a file", () => {
     index.upsertNonMdFile("papers/report.pdf", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\nSee [the paper](papers/report.pdf).\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5573,11 +5704,11 @@ describe("markdown-style links to non-md targets", () => {
   it("percent-decodes a markdown file path with folders and spaces", () => {
     index.upsertNonMdFile("Trip Photos/pic 1.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![shot](Trip%20Photos/pic%201.png)\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5594,19 +5725,19 @@ describe("markdown-style links to non-md targets", () => {
 
   it("percent-decodes a markdown link to a note with spaces end-to-end", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "My Note.md",
         rawContent: "# My Note\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[link](My%20Note.md)\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5624,19 +5755,19 @@ describe("markdown-style links to non-md targets", () => {
 
   it("keeps markdown links to .md notes resolving with the target stored as written", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/target.md",
         rawContent: "# Target\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[t](Projects/target.md)\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5653,19 +5784,19 @@ describe("markdown-style links to non-md targets", () => {
 
   it("resolves an extensionless markdown link like a wikilink", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Some Note.md",
         rawContent: "# Some Note\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[team notes](Some%20Note)\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5682,11 +5813,11 @@ describe("markdown-style links to non-md targets", () => {
 
   it("counts a markdown link to a missing file as broken with the target as written", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![x](missing.png)\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5704,12 +5835,12 @@ describe("markdown-style links to non-md targets", () => {
 
   it("does not index scheme-prefixed markdown targets as links", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent:
           "# Source\n\n[o](obsidian://open?vault=v) [z](zotero://select/items/123) [f](ftp://host/file.pdf) [u](HTTPS://x.com/a.png) [[Control]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // The Control wikilink proves link indexing ran — without it, both
@@ -5732,11 +5863,11 @@ describe("file targets written with extensions", () => {
   it("resolves a wikilink embed by basename when the file lives in a subfolder", () => {
     index.upsertNonMdFile("attachments/photo.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![[photo.png]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5755,11 +5886,11 @@ describe("file targets written with extensions", () => {
   it("resolves a markdown embed by basename when the file lives in a subfolder", () => {
     index.upsertNonMdFile("attachments/photo.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![diagram](photo.png)\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5778,11 +5909,11 @@ describe("file targets written with extensions", () => {
   it("resolves a relative file link against the source note's folder", () => {
     index.upsertNonMdFile("assets/photo.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "A/note.md",
         rawContent: "# Note\n\n![x](../assets/photo.png)\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "A/note.md" }, logger)).toEqual([
@@ -5801,11 +5932,11 @@ describe("file targets written with extensions", () => {
   it("resolves a folder-qualified target with extension by path suffix", () => {
     index.upsertNonMdFile("deep/sub/photo.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n[[sub/photo.png]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5825,11 +5956,11 @@ describe("file targets written with extensions", () => {
     index.upsertNonMdFile("bb/photo.png", 100)
     index.upsertNonMdFile("a/photo.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![[photo.png]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5851,11 +5982,11 @@ describe("file targets written with extensions", () => {
     index.upsertNonMdFile("photo.png.canvas", 100)
     index.upsertNonMdFile("a/photo.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![[photo.png]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5876,11 +6007,11 @@ describe("file targets written with extensions", () => {
     // Trip Route.canvas. The stem tiers are a fallback, not dead code.
     index.upsertNonMdFile("photo.png.canvas", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![[photo.png]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -5898,11 +6029,11 @@ describe("file targets written with extensions", () => {
   it("does not resolve a basename whose extension differs from the file's", () => {
     index.upsertNonMdFile("attachments/photo.jpg", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![[photo.png]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // The suffix match is on the full filename, not the extension-stripped
@@ -5922,11 +6053,11 @@ describe("file targets written with extensions", () => {
 
   it("upsertNonMdFile re-resolves a previously unresolved with-extension target", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![[photo.png]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
@@ -5962,11 +6093,11 @@ describe("file targets written with extensions", () => {
     ({ target, filePath }) => {
       const assetIndex = createSearchIndex(":memory:")
       assetIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Projects/source.md",
           rawContent: `![[${target}]]\n![[unrelated.png]]`,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       assetIndex.upsertNonMdFile("elsewhere/decoy.png", 42)
@@ -6006,11 +6137,11 @@ describe("file targets written with extensions", () => {
     // LIKE wildcard it would match (1 satisfies _), giving a false resolution.
     index.upsertNonMdFile("img/photo1final.png", 100)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "source.md",
         rawContent: "# Source\n\n![[photo_final.png]]\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.getOutgoingLinks({ path: "source.md" }, logger)).toEqual([
@@ -6034,27 +6165,27 @@ describe("modifiedOnDate", () => {
 
   beforeEach(() => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "today-note.md",
         rawContent: "---\ntitle: Today\n---\n# Today\n",
         fileStat: testStat(midday),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "today-late.md",
         rawContent: "---\ntitle: Today Late\n---\n# Late\n",
         fileStat: testStat(lateEvening),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tomorrow-note.md",
         rawContent: "---\ntitle: Tomorrow\n---\n# Tomorrow\n",
         fileStat: testStat(nextDayMorning),
-      },
+      }),
       logger,
     )
   })
@@ -6088,19 +6219,19 @@ describe("modifiedOnDate", () => {
 describe("vaultStats", () => {
   it("returns correct total note count", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "a.md",
         rawContent: "---\ntags: [one]\nstatus: active\n---\n# A\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "b.md",
         rawContent: "---\ntags: [two]\n---\n# B\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const stats = index.vaultStats({}, logger)
@@ -6109,19 +6240,19 @@ describe("vaultStats", () => {
 
   it("counts untagged notes", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tagged.md",
         rawContent: "---\ntags: [one]\n---\n# Tagged\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "untagged.md",
         rawContent: "# Untagged\n\nNo frontmatter.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const stats = index.vaultStats({}, logger)
@@ -6130,19 +6261,19 @@ describe("vaultStats", () => {
 
   it("counts notes without frontmatter properties", () => {
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "with-props.md",
         rawContent: "---\nstatus: active\n---\n# Props\n",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "no-props.md",
         rawContent: "# Bare\n\nNo frontmatter at all.\n",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const stats = index.vaultStats({}, logger)
@@ -6434,11 +6565,11 @@ It has multiple sentences to verify chunking works correctly.
       const noEmbedIndex = createSearchIndex(":memory:")
 
       noEmbedIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "test.md",
           rawContent: NOTE_FOR_EMBEDDING,
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
 
@@ -6470,7 +6601,7 @@ It has multiple sentences to verify chunking works correctly.
       )
 
       const { count, embedding } = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir },
+        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
         logger,
       )
       await embedding
@@ -6496,7 +6627,7 @@ It has multiple sentences to verify chunking works correctly.
 
       const warnSpy = vi.spyOn(logger, "warn")
       const { count, embedding } = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir },
+        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
         logger,
       )
       await embedding
@@ -6534,7 +6665,10 @@ It has multiple sentences to verify chunking works correctly.
         "Comprehensive deployment guide covering infrastructure setup.",
       )
 
-      const { embedding } = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+      const { embedding } = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        logger,
+      )
       await embedding
 
       const inspectDb = new Database(dbPath, { readonly: true })
@@ -6569,7 +6703,10 @@ It has multiple sentences to verify chunking works correctly.
 
       await writeFile(join(vaultDir, "ephemeral.txt"), "Transient file body.")
 
-      const firstRebuild = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+      const firstRebuild = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        logger,
+      )
       await firstRebuild.embedding
 
       const inspectDb = new Database(dbPath, { readonly: true })
@@ -6585,7 +6722,10 @@ It has multiple sentences to verify chunking works correctly.
       expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(1)
 
       await rm(join(vaultDir, "ephemeral.txt"))
-      const secondRebuild = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+      const secondRebuild = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        logger,
+      )
       await secondRebuild.embedding
 
       expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(0)
@@ -6615,35 +6755,35 @@ Shared datefilter content for boundary tests.
   const indexWithCreatedDates = (): SearchIndex => {
     const dateIndex = createSearchIndex(":memory:")
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "early.md",
         rawContent: noteCreatedOn("2026-03-09"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "middle.md",
         rawContent: noteCreatedOn("2026-03-10"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "late.md",
         rawContent: noteCreatedOn("2026-03-11"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "undated.md",
         rawContent: NOTE_WITHOUT_CREATED,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     return dateIndex
@@ -6703,21 +6843,21 @@ Shared datefilter content for boundary tests.
   it("created.on matches on the calendar day of a created value with a time component", () => {
     const dateIndex = createSearchIndex(":memory:")
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "timed.md",
         rawContent: noteCreatedOn("2026-03-10T23:45:00"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // A neighbor on the adjacent day proves the filter actually ran —
     // without it, an ignored filter would return the same single result
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "next-day.md",
         rawContent: noteCreatedOn("2026-03-11T00:15:00"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const results = dateIndex.fullTextSearch(
@@ -6779,27 +6919,27 @@ Shared datefilter content for mtime boundary tests.
   const indexWithModifiedTimes = (): SearchIndex => {
     const dateIndex = createSearchIndex(":memory:")
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "day-before.md",
         rawContent: noteModifiedAt("Day before"),
         fileStat: testStat(DateTime.fromISO("2026-06-14T23:59:00").toMillis()),
-      },
+      }),
       logger,
     )
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "during.md",
         rawContent: noteModifiedAt("During"),
         fileStat: testStat(DateTime.fromISO("2026-06-15T12:00:00").toMillis()),
-      },
+      }),
       logger,
     )
     dateIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "day-after.md",
         rawContent: noteModifiedAt("Day after"),
         fileStat: testStat(DateTime.fromISO("2026-06-16T00:30:00").toMillis()),
-      },
+      }),
       logger,
     )
     return dateIndex
@@ -6961,11 +7101,11 @@ describe("canvas note catalog reuse", () => {
     const scans = observeCatalogScans()
     const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
     search.upsertNote(
-      { filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) },
+      withBodyTags({ filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) }),
       logger,
     )
     search.upsertNote(
-      { filePath: "Decoy.md", rawContent: "decoyquartz", fileStat: testStat(1000) },
+      withBodyTags({ filePath: "Decoy.md", rawContent: "decoyquartz", fileStat: testStat(1000) }),
       logger,
     )
     scans.mockClear()
@@ -6987,7 +7127,7 @@ describe("canvas note catalog reuse", () => {
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
     search.upsertNote(
-      { filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) },
+      withBodyTags({ filePath: "Target.md", rawContent: "targetamber", fileStat: testStat(1000) }),
       logger,
     )
     scans.mockClear()
@@ -7000,7 +7140,11 @@ describe("canvas note catalog reuse", () => {
     expect(scans).toHaveBeenCalledTimes(1)
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
     search.upsertNote(
-      { filePath: "Target.md", rawContent: "recreatedopal", fileStat: testStat(2000) },
+      withBodyTags({
+        filePath: "Target.md",
+        rawContent: "recreatedopal",
+        fileStat: testStat(2000),
+      }),
       logger,
     )
     scans.mockClear()
@@ -7018,11 +7162,11 @@ describe("canvas note catalog reuse", () => {
     poison.arm()
     expect(() =>
       search.upsertNote(
-        {
+        withBodyTags({
           filePath: "Target.md",
           rawContent: "- [ ] task that triggers poison",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       ),
     ).toThrow(new Error(poison.message))
@@ -7041,7 +7185,10 @@ describe("canvas note catalog reuse", () => {
     for (const canvasName of canvasNames)
       await writeFile(join(directory, canvasName), canvasWithTarget("Target"))
     const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
-    const rebuilt = await search.rebuildFromVault({ vaultPath: directory }, logger)
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await rebuilt.embedding
     expect(rebuilt.count).toBe(2)
     expect(scans).toHaveBeenCalledTimes(1)
@@ -7061,7 +7208,11 @@ describe("canvas note catalog reuse", () => {
     await writeFile(join(directory, "failed.canvas"), canvasWithTarget("Target"))
     const search = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled: true })
     search.upsertNote(
-      { filePath: "Existing.md", rawContent: "existingquartz", fileStat: testStat(1000) },
+      withBodyTags({
+        filePath: "Existing.md",
+        rawContent: "existingquartz",
+        fileStat: testStat(1000),
+      }),
       logger,
     )
     saveCanvas(search, "Existing")
@@ -7073,15 +7224,21 @@ describe("canvas note catalog reuse", () => {
     vi.spyOn(rebuildLogger, "warn").mockImplementation(() => {
       throw failure
     })
-    await expect(search.rebuildFromVault({ vaultPath: directory }, rebuildLogger)).rejects.toThrow(
-      failure,
-    )
+    await expect(
+      search.rebuildFromVault(
+        { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+        rebuildLogger,
+      ),
+    ).rejects.toThrow(failure)
     search.upsertNonMdFile("Target.canvas", 100)
     scans.mockClear()
     saveCanvas(search, "Target")
     expect(scans).toHaveBeenCalledTimes(1)
     expect(outgoingPaths(search)).toEqual(["Target.canvas"])
-    const recovered = await search.rebuildFromVault({ vaultPath: directory }, logger)
+    const recovered = await search.rebuildFromVault(
+      { vaultPath: directory, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await recovered.embedding
     saveCanvas(search, "Target")
     expect(outgoingPaths(search)).toEqual(["Target.md"])
@@ -7095,7 +7252,7 @@ describe("canvas file content and links", () => {
       const canvasIndex = createSearchIndex(":memory:", undefined, undefined, { fileToolsEnabled })
       for (const notePath of ["Notes/Plan.md", "Notes/Route.md", "deep/Plan.md"]) {
         canvasIndex.upsertNote(
-          { filePath: notePath, rawContent: "targetamber", fileStat: testStat(1000) },
+          withBodyTags({ filePath: notePath, rawContent: "targetamber", fileStat: testStat(1000) }),
           logger,
         )
       }
@@ -7256,11 +7413,11 @@ describe("canvas file content and links", () => {
         fileToolsEnabled: true,
       })
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Diagrams/System/plan.md",
           rawContent: "# Plan\n\nThe architecture deployment plan.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       fileIndex.upsertNonMdFile("Diagrams/System/arch.canvas", 500)
@@ -7289,11 +7446,11 @@ describe("canvas file content and links", () => {
         fileToolsEnabled: true,
       })
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Projects/vault-cortex.md",
           rawContent: "# vault-cortex\n\nMain project note.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
@@ -7314,11 +7471,11 @@ describe("canvas file content and links", () => {
         fileToolsEnabled: true,
       })
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Projects/vault-cortex.md",
           rawContent: "# vault-cortex\n\nProject note.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
@@ -7358,11 +7515,11 @@ describe("canvas file content and links", () => {
         fileToolsEnabled: true,
       })
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Projects/vault-cortex.md",
           rawContent: "# vault-cortex\n\nProject note.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
@@ -7386,11 +7543,11 @@ describe("canvas file content and links", () => {
   describe("without fileToolsEnabled", () => {
     it("canvas links are extracted even without fileToolsEnabled", () => {
       index.upsertNote(
-        {
+        withBodyTags({
           filePath: "Projects/vault-cortex.md",
           rawContent: "# vault-cortex\n\nProject note.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       index.upsertNonMdFile("Diagrams/arch.canvas", 500)
@@ -7428,11 +7585,11 @@ describe("canvas file content and links", () => {
         fileToolsEnabled: true,
       })
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Projects/vault-cortex.md",
           rawContent: "# vault-cortex\n\nProject note.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       fileIndex.upsertNonMdFile("Diagrams/text-only.canvas", 200)
@@ -7455,11 +7612,11 @@ describe("canvas file content and links", () => {
         fileToolsEnabled: true,
       })
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Notes/overview.md",
           rawContent: "# Overview\n\nSee [[Diagrams/arch.canvas]] for the diagram.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
@@ -7500,11 +7657,11 @@ describe("canvas file content and links", () => {
         edges: [],
       })
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Notes/architecture.md",
           rawContent: "# Architecture\n\nOverview.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       fileIndex.upsertNonMdFile("data/export.json", 200)
@@ -7629,11 +7786,11 @@ describe("canvas file content and links", () => {
       })
       // Seed a note that matches the tag filter
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Projects/plan.md",
           rawContent: "---\ntags: [project]\n---\n# Plan\n\nArchitecture overview.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       // Seed a canvas with matching text content
@@ -7661,11 +7818,11 @@ describe("canvas file content and links", () => {
         fileToolsEnabled: true,
       })
       fileIndex.upsertNote(
-        {
+        withBodyTags({
           filePath: "Projects/plan.md",
           rawContent: "---\ntype: reference\n---\n# Plan\n\nArchitecture overview.\n",
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
@@ -7873,7 +8030,10 @@ describe("committed embedding source versions", () => {
     await writeFile(join(vaultPath, "queued.txt"), "Old file snapshot.")
     const model = Promise.withResolvers<Float32Array>()
     fixture.embedder.embedText.mockImplementationOnce(() => model.promise)
-    const { embedding } = await fixture.searchIndex.rebuildFromVault({ vaultPath }, logger)
+    const { embedding } = await fixture.searchIndex.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     expect(fixture.embedder.embedText).toHaveBeenCalledTimes(1)
     const secondMtime = fixture.inspect
       .prepare<[], { mtime: number }>("SELECT mtime FROM notes WHERE path = 'b.md'")
@@ -7886,7 +8046,11 @@ describe("committed embedding source versions", () => {
       throw new Error("rebuild sources missing")
     fixture.searchIndex.removeNote("a.md")
     const noteVersion = fixture.searchIndex.upsertNote(
-      { filePath: "b.md", rawContent: "New current note.", fileStat: testStat(secondMtime) },
+      withBodyTags({
+        filePath: "b.md",
+        rawContent: "New current note.",
+        fileStat: testStat(secondMtime),
+      }),
       logger,
     )
     const fileVersion = fixture.searchIndex.upsertFileContent(
@@ -7936,11 +8100,11 @@ describe("committed embedding source versions", () => {
       memoryDir: "About Me",
     })
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Old.md",
         rawContent: "## Practices\n\n- **2026-07-01**: Old memory entry.",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const inspect = new Database(join(dir, "index.db"), { readonly: true })
@@ -7952,7 +8116,9 @@ describe("committed embedding source versions", () => {
     onTestFinished(() => debugSpy.mockRestore())
     poison.arm()
 
-    await expect(index.rebuildFromVault({ vaultPath }, logger)).rejects.toThrow(poison.message)
+    await expect(
+      index.rebuildFromVault({ vaultPath, bodyTagParser: inProcessBodyTagParser }, logger),
+    ).rejects.toThrow(poison.message)
     expect(debugSpy).toHaveBeenCalledWith("indexed note", {
       path: "new.md",
       bytes: 31,
@@ -7966,7 +8132,10 @@ describe("committed embedding source versions", () => {
     expect(embedder.embedBatch).not.toHaveBeenCalled()
 
     poison.disarm()
-    const recovered = await index.rebuildFromVault({ vaultPath }, logger)
+    const recovered = await index.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await recovered.embedding
     expect(recovered.count).toBe(1)
     expect(embedder.embedText).toHaveBeenCalledTimes(1)
@@ -8000,7 +8169,10 @@ describe("committed embedding source versions", () => {
       fileToolsEnabled: true,
       memoryDir: "About Me",
     })
-    const initial = await index.rebuildFromVault({ vaultPath }, logger)
+    const initial = await index.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await initial.embedding
     const inspect = new Database(dbPath)
     sqliteVec.load(inspect)
@@ -8058,7 +8230,10 @@ describe("committed embedding source versions", () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
     onTestFinished(() => infoSpy.mockRestore())
 
-    const rebuilt = await index.rebuildFromVault({ vaultPath }, logger)
+    const rebuilt = await index.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await rebuilt.embedding
     for (const store of retainedStores) {
       expect(inspect.prepare(`SELECT * FROM ${store.parentTable} ORDER BY id`).all()).toEqual(
@@ -8084,7 +8259,10 @@ describe("committed embedding source versions", () => {
     expect(embedder.embedBatch).not.toHaveBeenCalled()
 
     infoSpy.mockClear()
-    const repeated = await index.rebuildFromVault({ vaultPath }, logger)
+    const repeated = await index.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await repeated.embedding
     expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
       count: 2,
@@ -8551,7 +8729,10 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     // change trashedAt.
     vi.setSystemTime(trashTime.plus({ days: 1 }).toMillis())
 
-    await trashIndex.rebuildFromVault({ vaultPath: emptyVault }, logger)
+    await trashIndex.rebuildFromVault(
+      { vaultPath: emptyVault, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
 
     expect(trashIndex.getTrashEntry(".trash/survivor.md")).toEqual({
       trashPath: ".trash/survivor.md",
@@ -8586,11 +8767,11 @@ describe("TOC source-path forwarding at the embed call sites", () => {
     const doneContent = Array.from({ length: 300 }, (_, wordIndex) => `done${wordIndex}`).join(" ")
     const noteContent = `## Active\n${activeContent}\n\n## Done\n${doneContent}`
     const originalSourceVersion = forwardingIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "Folder Alpha/Sub/TASKS.md",
         rawContent: noteContent,
         fileStat: { mtimeMs: 1000, size: 100 },
-      },
+      }),
       logger,
     )
     await forwardingIndex.embedNote(
@@ -8650,5 +8831,586 @@ describe("TOC source-path forwarding at the embed call sites", () => {
       `data\nSection: Notes\n\n${notesContent}`,
       "Folder Alpha > data.csv\n\nMetrics\nNotes",
     ])
+  })
+})
+
+describe("body tags", () => {
+  /** Indexes notes into a fresh in-memory index, with the body tags indexing
+   *  would pass, and returns it. */
+  const createIndexWithNotes = (notes: ReadonlyArray<{ path: string; content: string }>) => {
+    const bodyTagIndex = createSearchIndex(":memory:")
+    for (const [position, note] of notes.entries()) {
+      bodyTagIndex.upsertNote(
+        withBodyTags({
+          filePath: note.path,
+          rawContent: note.content,
+          fileStat: testStat(1000 * (position + 1)),
+        }),
+        logger,
+      )
+    }
+    return bodyTagIndex
+  }
+
+  it("finds a note whose tag is only in its body, for the name, any letter case, a leading # and its parent", () => {
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "body-only.md", content: "Planning #area/x today\n" },
+      { path: "decoy-longer.md", content: "Planning #area/xy today\n" },
+    ])
+    const pathsFor = (tag: string, exact?: boolean): string[] => {
+      return bodyTagIndex.searchByTag({ tag, exact }, logger).map((note) => note.path)
+    }
+
+    expect(pathsFor("area/x")).toEqual(["body-only.md"])
+    expect(pathsFor("AREA/X")).toEqual(["body-only.md"])
+    expect(pathsFor("#area/x")).toEqual(["body-only.md"])
+    expect(pathsFor("area")).toEqual(["decoy-longer.md", "body-only.md"])
+    expect(pathsFor("area", true)).toEqual([])
+  })
+
+  it("does not find a tag written only inside code, a wikilink or a URL", () => {
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "hidden.md", content: "Code ` #x` and [[note#x]] and https://site.test/#x\n" },
+      { path: "visible.md", content: "A real #x\n" },
+    ])
+
+    const results = bodyTagIndex.searchByTag({ tag: "x" }, logger)
+
+    expect(results.map((note) => note.path)).toEqual(["visible.md"])
+  })
+
+  it("filters full-text search by a body tag, and by one property tag and one body tag together", () => {
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "both.md", content: "---\ntags: [prop]\n---\nstandup notes #body\n" },
+      { path: "property-only.md", content: "---\ntags: [prop]\n---\nstandup notes\n" },
+      { path: "body-only.md", content: "standup notes #body\n" },
+      { path: "decoy.md", content: "standup notes #bodys\n" },
+    ])
+    const pathsFor = (tags: string[]): string[] => {
+      const results = bodyTagIndex.fullTextSearch({ query: "standup", filters: { tags } }, logger)
+      return results.map((result) => result.path).toSorted()
+    }
+
+    expect(pathsFor(["body"])).toEqual(["body-only.md", "both.md"])
+    expect(pathsFor(["prop", "body"])).toEqual(["both.md"])
+  })
+
+  it("counts a note with a tag in both places once, and shows the spelling used most across both", () => {
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "both.md", content: "---\ntags: [Topic]\n---\n#topic, #topic and #topic again\n" },
+      { path: "property.md", content: "---\ntags: [Topic]\n---\nbody\n" },
+    ])
+
+    const tagCounts = bodyTagIndex.listAllTags({}, logger)
+
+    expect(tagCounts).toEqual([{ tag: "topic", count: 2 }])
+  })
+
+  it("keeps the tags stored for a note's path when given keep-stored", () => {
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "kept.md", content: "firstversion #kept\n" },
+    ])
+
+    bodyTagIndex.upsertNote(
+      {
+        filePath: "kept.md",
+        rawContent: "secondversion\n",
+        fileStat: testStat(2000),
+        bodyTags: "keep-stored",
+      },
+      logger,
+    )
+
+    const editedNotes = bodyTagIndex.fullTextSearch({ query: "secondversion" }, logger)
+
+    expect(editedNotes.map(({ path, body_tags }) => ({ path, body_tags }))).toEqual([
+      { path: "kept.md", body_tags: ["kept"] },
+    ])
+  })
+
+  it("stores no body tags for a new path given keep-stored, even when its text has one", () => {
+    // Another path's stored tags, which the new path must not take
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "other.md", content: "firstversion #other\n" },
+    ])
+
+    bodyTagIndex.upsertNote(
+      {
+        filePath: "new.md",
+        rawContent: "secondversion #new\n",
+        fileStat: testStat(2000),
+        bodyTags: "keep-stored",
+      },
+      logger,
+    )
+
+    const newNotes = bodyTagIndex.fullTextSearch({ query: "secondversion" }, logger)
+
+    expect(newNotes.map(({ path, body_tags }) => ({ path, body_tags }))).toEqual([
+      { path: "new.md", body_tags: undefined },
+    ])
+  })
+
+  it("stores no body tags given keep-stored when the stored value is damaged, with a warning", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "body-tags-keep-stored-"))
+    onTestFinished(() => rm(databaseDir, { recursive: true }))
+    const databasePath = join(databaseDir, "index.db")
+    const bodyTagIndex = createSearchIndex(databasePath)
+    bodyTagIndex.upsertNote(
+      withBodyTags({
+        filePath: "kept.md",
+        rawContent: "firstversion #kept\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    const damagingConnection = new Database(databasePath)
+    onTestFinished(() => {
+      damagingConnection.close()
+    })
+    const damageStatement = damagingConnection.prepare(
+      "UPDATE notes SET body_tags = ? WHERE path = ?",
+    )
+    expect(damageStatement.run("[oops", "kept.md").changes).toBe(1)
+    const upsertLogger = { ...logger, warn: vi.fn() }
+
+    bodyTagIndex.upsertNote(
+      {
+        filePath: "kept.md",
+        rawContent: "secondversion\n",
+        fileStat: testStat(2000),
+        bodyTags: "keep-stored",
+      },
+      upsertLogger,
+    )
+
+    expect(upsertLogger.warn).toHaveBeenCalledExactlyOnceWith("ignored damaged stored body tags", {
+      path: "kept.md",
+      error: "[IndexIntegrityError]: JSON column is not JSON: [oops",
+    })
+    expect(
+      damagingConnection.prepare("SELECT body_tags FROM notes WHERE path = ?").get("kept.md"),
+    ).toEqual({ body_tags: "[]" })
+    expect(
+      bodyTagIndex
+        .fullTextSearch({ query: "secondversion" }, logger)
+        .map(({ path, body_tags }) => ({ path, body_tags })),
+    ).toEqual([{ path: "kept.md", body_tags: undefined }])
+  })
+
+  it("counts a note whose only tag is in its body as tagged", () => {
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "body-only.md", content: "Note #tagged\n" },
+      { path: "untagged.md", content: "Nothing here\n" },
+    ])
+
+    expect(bodyTagIndex.vaultStats({}, logger)).toEqual({
+      totalNotes: 2,
+      untaggedNotes: 1,
+      noPropertiesNotes: 2,
+    })
+  })
+
+  it("returns body_tags with each spelling once, keeps tags as the property, and leaves body_tags out when there are none", () => {
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "both.md", content: "---\ntags: [prop]\n---\n#b #a #b #B\n" },
+      { path: "property-only.md", content: "---\ntags: [prop]\n---\nbody\n" },
+    ])
+
+    const results = bodyTagIndex.searchByTag({ tag: "prop" }, logger)
+
+    expect(results.map(({ path, tags, body_tags }) => ({ path, tags, body_tags }))).toEqual([
+      { path: "property-only.md", tags: ["prop"], body_tags: undefined },
+      { path: "both.md", tags: ["prop"], body_tags: ["b", "a", "B"] },
+    ])
+    expect(Object.hasOwn(results[0] ?? {}, "body_tags")).toBe(false)
+  })
+
+  /** A vault folder holding the given notes, removed when the test finishes. */
+  const createVaultWithNotes = async (notes: Readonly<Record<string, string>>) => {
+    const vaultDir = await mkdtemp(join(tmpdir(), "body-tags-rebuild-"))
+    onTestFinished(() => rm(vaultDir, { recursive: true }))
+    for (const [fileName, content] of Object.entries(notes)) {
+      await writeFile(join(vaultDir, fileName), content, "utf8")
+    }
+    return vaultDir
+  }
+
+  /** A body-tag parser whose answer for each note waits until the test calls
+   *  `answer(path, result)`, so a test can act while a parse is pending.
+   *  `requestedPaths` lists each note the pass asked for, in order. */
+  const createHeldParser = () => {
+    const pendingAnswers = new Map<string, (result: BodyTagParseResult) => void>()
+    const requestedPaths: string[] = []
+    const bodyTagParser: BodyTagParser = {
+      parse: ({ notePath }) => {
+        requestedPaths.push(notePath)
+        const { promise, resolve } = Promise.withResolvers<BodyTagParseResult>()
+        pendingAnswers.set(notePath, resolve)
+        return promise
+      },
+      close: async () => undefined,
+    }
+    const answer = (notePath: string, result: BodyTagParseResult): void => {
+      const resolveParse = pendingAnswers.get(notePath)
+
+      if (!resolveParse) throw new Error(`no parse is pending for ${notePath}`)
+      resolveParse(result)
+    }
+    return { bodyTagParser, requestedPaths, answer }
+  }
+
+  const pathsTaggedIn = (index: SearchIndex, tag: string): string[] => {
+    return index.searchByTag({ tag }, logger).map((note) => note.path)
+  }
+
+  it("fills body tags in the background pass, writes only changed ones, and logs the counts per outcome", async () => {
+    const vaultDir = await createVaultWithNotes({
+      "parsed.md": "Kept #kept\n",
+      "slow.md": "Slow #lost\n",
+      "plain.md": "No candidate\n",
+    })
+    const stubParser: BodyTagParser = {
+      parse: async ({ notePath }) => {
+        if (notePath === "slow.md") return { outcome: "over-limit" }
+        if (notePath === "plain.md") return { outcome: "no-candidate" }
+        return { outcome: "parsed", tags: ["kept"] }
+      },
+      close: async () => undefined,
+    }
+    const rebuildLogger = { ...logger, info: vi.fn() }
+    const rebuildIndex = createSearchIndex(":memory:")
+
+    const { bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: stubParser },
+      rebuildLogger,
+    )
+    await bodyTags
+
+    expect(pathsTaggedIn(rebuildIndex, "kept")).toEqual(["parsed.md"])
+    expect(pathsTaggedIn(rebuildIndex, "lost")).toEqual([])
+    expect(
+      rebuildIndex.fullTextSearch({ query: "slow" }, logger).map((result) => result.path),
+    ).toEqual(["slow.md"])
+    expect(rebuildLogger.info).toHaveBeenCalledWith("rebuilt index", {
+      count: 3,
+      totalBytes: 35,
+      orphanNoteVectorsRemoved: 0,
+      orphanFileVectorsRemoved: 0,
+      orphanMemoryVectorsRemoved: 0,
+    })
+    // Only parsed.md's tags differ from the empty ones a first index starts with
+    expect(rebuildLogger.info).toHaveBeenCalledWith("body-tag pass complete", {
+      notes: 3,
+      parsed: 1,
+      withoutCandidate: 1,
+      overLimit: 1,
+      failed: 0,
+      superseded: 0,
+      updated: 1,
+      // Elapsed time varies per run
+      durationMs: expect.any(Number),
+    })
+  })
+
+  it("returns before any note's body tags are parsed", async () => {
+    const vaultDir = await createVaultWithNotes({ "waiting.md": "Waiting #held\n" })
+    const { bodyTagParser, requestedPaths, answer } = createHeldParser()
+    const rebuildIndex = createSearchIndex(":memory:")
+
+    const { count, bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser },
+      logger,
+    )
+
+    expect(count).toBe(1)
+    expect(requestedPaths).toEqual(["waiting.md"])
+    expect(pathsTaggedIn(rebuildIndex, "held")).toEqual([])
+    answer("waiting.md", { outcome: "parsed", tags: ["held"] })
+    await bodyTags
+    expect(pathsTaggedIn(rebuildIndex, "held")).toEqual(["waiting.md"])
+  })
+
+  it("keeps each note's stored body tags through a later rebuild until the note is parsed again", async () => {
+    const vaultDir = await createVaultWithNotes({ "kept.md": "Old #stored\n" })
+    const rebuildIndex = createSearchIndex(":memory:")
+    const firstRebuild = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await firstRebuild.bodyTags
+    await writeFile(join(vaultDir, "kept.md"), "New #fresh\n", "utf8")
+    const { bodyTagParser, answer } = createHeldParser()
+
+    const secondRebuild = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser },
+      logger,
+    )
+
+    expect(pathsTaggedIn(rebuildIndex, "stored")).toEqual(["kept.md"])
+    answer("kept.md", { outcome: "parsed", tags: ["fresh"] })
+    await secondRebuild.bodyTags
+    expect(pathsTaggedIn(rebuildIndex, "stored")).toEqual([])
+    expect(pathsTaggedIn(rebuildIndex, "fresh")).toEqual(["kept.md"])
+  })
+
+  it("leaves a note alone when a later write replaced it while its body tags were parsing", async () => {
+    const vaultDir = await createVaultWithNotes({ "edited.md": "Before #stale\n" })
+    const { bodyTagParser, answer } = createHeldParser()
+    const rebuildLogger = { ...logger, info: vi.fn() }
+    const rebuildIndex = createSearchIndex(":memory:")
+    const { bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser },
+      rebuildLogger,
+    )
+
+    rebuildIndex.upsertNote(
+      withBodyTags({
+        filePath: "edited.md",
+        rawContent: "After #fresh\n",
+        fileStat: testStat(5000),
+      }),
+      logger,
+    )
+    answer("edited.md", { outcome: "parsed", tags: ["stale"] })
+    await bodyTags
+
+    expect(pathsTaggedIn(rebuildIndex, "fresh")).toEqual(["edited.md"])
+    expect(pathsTaggedIn(rebuildIndex, "stale")).toEqual([])
+    expect(rebuildLogger.info).toHaveBeenCalledWith("body-tag pass complete", {
+      notes: 1,
+      parsed: 0,
+      withoutCandidate: 0,
+      overLimit: 0,
+      failed: 0,
+      superseded: 1,
+      updated: 0,
+      durationMs: expect.any(Number),
+    })
+  })
+
+  it("stops the pass and keeps every note's stored tags when the worker cannot start", async () => {
+    const vaultDir = await createVaultWithNotes({
+      "first.md": "One #a\n",
+      "second.md": "Two #b\n",
+    })
+    const rebuildIndex = createSearchIndex(":memory:")
+    const firstRebuild = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await firstRebuild.bodyTags
+    const unavailableParser: BodyTagParser = {
+      parse: vi.fn(async () => ({ outcome: "unavailable" as const })),
+      close: async () => undefined,
+    }
+    const rebuildLogger = { ...logger, warn: vi.fn() }
+
+    const secondRebuild = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: unavailableParser },
+      rebuildLogger,
+    )
+    await secondRebuild.bodyTags
+
+    expect(unavailableParser.parse).toHaveBeenCalledTimes(1)
+    expect(pathsTaggedIn(rebuildIndex, "a")).toEqual(["first.md"])
+    expect(pathsTaggedIn(rebuildIndex, "b")).toEqual(["second.md"])
+    expect(rebuildLogger.warn).toHaveBeenCalledTimes(1)
+    expect(rebuildLogger.warn).toHaveBeenCalledWith(
+      "body-tag pass stopped because the body-tag worker could not start",
+      { notes: 2, notesReached: 0 },
+    )
+  })
+
+  it("stops the pass when the parser closes", async () => {
+    const vaultDir = await createVaultWithNotes({
+      "first.md": "One #a\n",
+      "second.md": "Two #b\n",
+    })
+    const closedParser: BodyTagParser = {
+      parse: vi.fn(async () => ({ outcome: "closed" as const })),
+      close: async () => undefined,
+    }
+    const rebuildLogger = { ...logger, info: vi.fn() }
+    const rebuildIndex = createSearchIndex(":memory:")
+
+    const { bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: closedParser },
+      rebuildLogger,
+    )
+    await bodyTags
+
+    expect(closedParser.parse).toHaveBeenCalledTimes(1)
+    expect(pathsTaggedIn(rebuildIndex, "a")).toEqual([])
+    // Only the rebuild's own line and the stop line, so no "complete" line either
+    expect(rebuildLogger.info).toHaveBeenCalledTimes(2)
+    expect(rebuildLogger.info).toHaveBeenCalledWith("rebuilt index", {
+      count: 2,
+      totalBytes: 14,
+      orphanNoteVectorsRemoved: 0,
+      orphanFileVectorsRemoved: 0,
+      orphanMemoryVectorsRemoved: 0,
+    })
+    expect(rebuildLogger.info).toHaveBeenCalledWith(
+      "body-tag pass stopped because the parser closed",
+      { notes: 2, notesReached: 0 },
+    )
+  })
+
+  it("does not parse a note removed before the pass reached it", async () => {
+    const vaultDir = await createVaultWithNotes({
+      "first.md": "One #a\n",
+      "second.md": "Two #b\n",
+    })
+    const firstParseGate = Promise.withResolvers<undefined>()
+    const requestedPaths: string[] = []
+    const gatedParser: BodyTagParser = {
+      parse: async ({ notePath }) => {
+        requestedPaths.push(notePath)
+        if (notePath === "first.md") await firstParseGate.promise
+        return { outcome: "parsed", tags: [notePath === "first.md" ? "a" : "b"] }
+      },
+      close: async () => undefined,
+    }
+    const rebuildLogger = { ...logger, info: vi.fn() }
+    const rebuildIndex = createSearchIndex(":memory:")
+    const { bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: gatedParser },
+      rebuildLogger,
+    )
+
+    rebuildIndex.removeNote("second.md")
+    firstParseGate.resolve(undefined)
+    await bodyTags
+
+    expect(requestedPaths).toEqual(["first.md"])
+    expect(pathsTaggedIn(rebuildIndex, "a")).toEqual(["first.md"])
+    expect(rebuildLogger.info).toHaveBeenCalledWith("body-tag pass complete", {
+      notes: 2,
+      parsed: 1,
+      withoutCandidate: 0,
+      overLimit: 0,
+      failed: 0,
+      superseded: 1,
+      updated: 1,
+      durationMs: expect.any(Number),
+    })
+  })
+
+  it("logs the pass's failure and rejects its promise when a parse throws", async () => {
+    const vaultDir = await createVaultWithNotes({ "note.md": "Note #a\n" })
+    const throwingParser: BodyTagParser = {
+      parse: async () => {
+        throw new Error("parser defect")
+      },
+      close: async () => undefined,
+    }
+    const rebuildLogger = { ...logger, error: vi.fn() }
+    const rebuildIndex = createSearchIndex(":memory:")
+
+    const { count, bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: throwingParser },
+      rebuildLogger,
+    )
+
+    expect(count).toBe(1)
+    await expect(bodyTags).rejects.toThrow(new Error("parser defect"))
+    expect(rebuildLogger.error).toHaveBeenCalledExactlyOnceWith("body-tag pass failed", {
+      error: "[Error]: parser defect",
+    })
+  })
+
+  it.each([
+    {
+      label: "not JSON",
+      storedValue: "[oops",
+      expectedWarning: [
+        "ignored damaged stored body tags",
+        { path: "kept.md", error: "[IndexIntegrityError]: JSON column is not JSON: [oops" },
+      ],
+    },
+    {
+      label: "JSON but not a list of names",
+      storedValue: '{"tag":"stored"}',
+      expectedWarning: [
+        "ignored damaged stored body tags",
+        {
+          path: "kept.md",
+          error: '[IndexIntegrityError]: expected string[] from JSON column, got: {"tag":"stored"}',
+        },
+      ],
+    },
+    {
+      label: "a list holding a value that is not a name",
+      storedValue: '["stored",1]',
+      expectedWarning: [
+        "ignored damaged stored body tags",
+        {
+          path: "kept.md",
+          error: '[IndexIntegrityError]: expected string[] from JSON column, got: ["stored",1]',
+        },
+      ],
+    },
+  ])(
+    "reads stored body tags that are $label as none, with a warning, and keeps the note readable",
+    async ({ storedValue, expectedWarning }) => {
+      const vaultDir = await createVaultWithNotes({ "kept.md": "Kept #stored\n" })
+      const databaseDir = await mkdtemp(join(tmpdir(), "body-tags-stored-"))
+      onTestFinished(() => rm(databaseDir, { recursive: true }))
+      const databasePath = join(databaseDir, "index.db")
+      const rebuildIndex = createSearchIndex(databasePath)
+      const firstRebuild = await rebuildIndex.rebuildFromVault(
+        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        logger,
+      )
+      await firstRebuild.bodyTags
+      const damagingConnection = new Database(databasePath)
+      damagingConnection
+        .prepare("UPDATE notes SET body_tags = ? WHERE path = ?")
+        .run(storedValue, "kept.md")
+      damagingConnection.close()
+      const rebuildLogger = { ...logger, warn: vi.fn() }
+      // Held, so the reads below see the row the rebuild wrote before the pass
+      const { bodyTagParser, requestedPaths } = createHeldParser()
+
+      await rebuildIndex.rebuildFromVault({ vaultPath: vaultDir, bodyTagParser }, rebuildLogger)
+
+      expect(requestedPaths).toEqual(["kept.md"])
+      expect(rebuildLogger.warn).toHaveBeenCalledExactlyOnceWith(...expectedWarning)
+      expect(
+        rebuildIndex
+          .fullTextSearch({ query: "kept" }, logger)
+          .map(({ path, body_tags }) => ({ path, body_tags })),
+      ).toEqual([{ path: "kept.md", body_tags: undefined }])
+    },
+  )
+
+  it("adds the body_tags column to an older database, reading its existing notes as having none", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "body-tags-migration-"))
+    onTestFinished(() => rm(databaseDir, { recursive: true }))
+    const databasePath = join(databaseDir, "index.db")
+    // A notes table from before body tags, holding one note
+    const legacyDatabase = new Database(databasePath)
+    legacyDatabase.exec(`
+      CREATE TABLE notes (
+        path TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, related TEXT,
+        folder TEXT, type TEXT, created TEXT, mtime INTEGER, properties TEXT
+      );
+      INSERT INTO notes VALUES ('old.md', 'Old', 'old body', '[]', '[]', '', NULL, NULL, 1000, '{}');
+    `)
+    legacyDatabase.close()
+
+    const migratedIndex = createSearchIndex(databasePath)
+
+    expect(migratedIndex.vaultStats({}, logger)).toEqual({
+      totalNotes: 1,
+      untaggedNotes: 1,
+      noPropertiesNotes: 1,
+    })
+    expect(
+      migratedIndex
+        .recentNotes({}, logger)
+        .map(({ path, tags, body_tags }) => ({ path, tags, body_tags })),
+    ).toEqual([{ path: "old.md", tags: [], body_tags: undefined }])
   })
 })

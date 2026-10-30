@@ -12,10 +12,10 @@
  *     queries verbatim (research notes, session logs) would otherwise match
  *     their own documentation. Reruns reuse the snapshot via
  *     --reuse-snapshot so every configuration sees an identical corpus.
- *  2. Build the search index with real ONNX models and await the full
- *     background embedding pass — scoring a partially embedded index
- *     measures indexing order, not ranking. Any embedding error fails
- *     the run.
+ *  2. Build the search index with real ONNX models and await the embedding
+ *     pass, because scoring a partially embedded index measures indexing
+ *     order, not ranking. Any embedding error fails the run. No query or
+ *     score reads body tags, so the body-tag pass is stopped at once.
  *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
  *  4. Run every judgment query at each --limits value, reporting the rank
  *     of the first expected result, file pollution in the top 5 (or the
@@ -62,6 +62,10 @@ import type { Logger } from "../src/logger.js"
 import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
 import { createReranker } from "../src/vault-mcp/search/reranker.js"
 import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
+import {
+  BODY_TAG_PARSE_TIMEOUT_MS,
+  createBodyTagParser,
+} from "../src/vault-mcp/search/body-tag-parser.js"
 
 // ── Counting logger ────────────────────────────────────────────
 
@@ -217,7 +221,17 @@ const main = async (): Promise<void> => {
   } else {
     console.log("rebuilding index (FTS + embedding — this takes minutes)…")
     const rebuildStartMs = performance.now()
-    const { count, embedding } = await search.rebuildFromVault({ vaultPath: snapshotDir }, logger)
+    const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
+    const { count, embedding, bodyTags } = await search.rebuildFromVault(
+      { vaultPath: snapshotDir, bodyTagParser },
+      logger,
+    )
+
+    // No eval query or score reads body tags, so closing the parser stops the
+    // background body-tag pass after at most one note
+    await bodyTagParser.close()
+    await bodyTags
+
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
     await embedding
