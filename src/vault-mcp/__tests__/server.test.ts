@@ -236,6 +236,19 @@ describe("createShutdownHandler", () => {
     expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
   })
 
+  it("forces exit 1 after 10 seconds when no timeout is given", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+    onTestFinished(() => exitSpy.mockRestore())
+    const close = vi.fn()
+
+    createShutdownHandler({ httpServer: { close }, bodyTagParser: createClosingParser() })()
+
+    vi.advanceTimersByTime(9_999)
+    expect(exitSpy).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1)
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
+  })
+
   it("logs a body-tag parser that fails to close and still drains", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     onTestFinished(() => exitSpy.mockRestore())

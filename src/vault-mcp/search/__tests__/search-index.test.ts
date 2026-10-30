@@ -8906,7 +8906,7 @@ describe("body tags", () => {
     expect(tagCounts).toEqual([{ tag: "topic", count: 2 }])
   })
 
-  it("keeps the tags stored for a note's path when given keep-stored, and stores none for a new path", () => {
+  it("keeps the tags stored for a note's path when given keep-stored", () => {
     const bodyTagIndex = createIndexWithNotes([
       { path: "kept.md", content: "firstversion #kept\n" },
     ])
@@ -8920,22 +8920,82 @@ describe("body tags", () => {
       },
       logger,
     )
-    bodyTagIndex.upsertNote(
-      {
-        filePath: "new.md",
-        rawContent: "secondversion #new\n",
-        fileStat: testStat(3000),
-        bodyTags: "keep-stored",
-      },
-      logger,
-    )
 
     const editedNotes = bodyTagIndex.fullTextSearch({ query: "secondversion" }, logger)
 
     expect(editedNotes.map(({ path, body_tags }) => ({ path, body_tags }))).toEqual([
       { path: "kept.md", body_tags: ["kept"] },
-      { path: "new.md" },
     ])
+  })
+
+  it("stores no body tags for a new path given keep-stored, even when its text has one", () => {
+    // Another path's stored tags, which the new path must not take
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "other.md", content: "firstversion #other\n" },
+    ])
+
+    bodyTagIndex.upsertNote(
+      {
+        filePath: "new.md",
+        rawContent: "secondversion #new\n",
+        fileStat: testStat(2000),
+        bodyTags: "keep-stored",
+      },
+      logger,
+    )
+
+    const newNotes = bodyTagIndex.fullTextSearch({ query: "secondversion" }, logger)
+
+    expect(newNotes.map(({ path, body_tags }) => ({ path, body_tags }))).toEqual([
+      { path: "new.md", body_tags: undefined },
+    ])
+  })
+
+  it("stores no body tags given keep-stored when the stored value is damaged, with a warning", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "body-tags-keep-stored-"))
+    onTestFinished(() => rm(databaseDir, { recursive: true }))
+    const databasePath = join(databaseDir, "index.db")
+    const bodyTagIndex = createSearchIndex(databasePath)
+    bodyTagIndex.upsertNote(
+      withBodyTags({
+        filePath: "kept.md",
+        rawContent: "firstversion #kept\n",
+        fileStat: testStat(1000),
+      }),
+      logger,
+    )
+    const damagingConnection = new Database(databasePath)
+    onTestFinished(() => {
+      damagingConnection.close()
+    })
+    const damageStatement = damagingConnection.prepare(
+      "UPDATE notes SET body_tags = ? WHERE path = ?",
+    )
+    expect(damageStatement.run("[oops", "kept.md").changes).toBe(1)
+    const upsertLogger = { ...logger, warn: vi.fn() }
+
+    bodyTagIndex.upsertNote(
+      {
+        filePath: "kept.md",
+        rawContent: "secondversion\n",
+        fileStat: testStat(2000),
+        bodyTags: "keep-stored",
+      },
+      upsertLogger,
+    )
+
+    expect(upsertLogger.warn).toHaveBeenCalledExactlyOnceWith("ignored damaged stored body tags", {
+      path: "kept.md",
+      error: "[IndexIntegrityError]: JSON column is not JSON: [oops",
+    })
+    expect(
+      damagingConnection.prepare("SELECT body_tags FROM notes WHERE path = ?").get("kept.md"),
+    ).toEqual({ body_tags: "[]" })
+    expect(
+      bodyTagIndex
+        .fullTextSearch({ query: "secondversion" }, logger)
+        .map(({ path, body_tags }) => ({ path, body_tags })),
+    ).toEqual([{ path: "kept.md", body_tags: undefined }])
   })
 
   it("counts a note whose only tag is in its body as tagged", () => {

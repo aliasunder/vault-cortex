@@ -1229,26 +1229,35 @@ describe("file watcher — obsolete events and embedding queues", () => {
     )
   })
 
-  it("indexes a changed note without body tags when its body-tag parse passes the limit", async () => {
-    const { testVault, search, fire } = await createControlledWatcher()
-    await writeFile(join(testVault, "note.md"), "slowjasper #slow")
-    const parseSpy = vi
-      .spyOn(inProcessBodyTagParser, "parse")
-      .mockResolvedValueOnce({ outcome: "over-limit" })
-    onTestFinished(() => parseSpy.mockRestore())
+  it.each([
+    { outcome: "over-limit", label: "passes the limit" },
+    { outcome: "failed", label: "fails" },
+  ] as const)(
+    "indexes a changed note without its stored body tags when its body-tag parse $label",
+    async ({ outcome }) => {
+      const { testVault, search, fire } = await createControlledWatcher()
+      await writeFile(join(testVault, "note.md"), "firstversion #stored")
+      await fire("add", "note.md")
+      expect(search.searchByTag({ tag: "stored" }, logger).map((note) => note.path)).toEqual([
+        "note.md",
+      ])
+      await writeFile(join(testVault, "note.md"), "slowjasper #slow")
+      const parseSpy = vi.spyOn(inProcessBodyTagParser, "parse").mockResolvedValueOnce({ outcome })
+      onTestFinished(() => parseSpy.mockRestore())
 
-    await fire("add", "note.md")
+      await fire("change", "note.md")
 
-    expect(parseSpy).toHaveBeenCalledExactlyOnceWith(
-      { notePath: "note.md", body: "slowjasper #slow", signal: expect.any(AbortSignal) },
-      logger,
-    )
-    expect(
-      search
-        .fullTextSearch({ query: "slowjasper" }, logger)
-        .map(({ path, body_tags }) => ({ path, body_tags })),
-    ).toEqual([{ path: "note.md", body_tags: undefined }])
-  })
+      expect(parseSpy).toHaveBeenCalledExactlyOnceWith(
+        { notePath: "note.md", body: "slowjasper #slow", signal: expect.any(AbortSignal) },
+        logger,
+      )
+      expect(
+        search
+          .fullTextSearch({ query: "slowjasper" }, logger)
+          .map(({ path, body_tags }) => ({ path, body_tags })),
+      ).toEqual([{ path: "note.md", body_tags: undefined }])
+    },
+  )
 
   it("keeps the newer event active when an older handler finishes first", async () => {
     const { testVault, database, fire } = await createControlledWatcher()
