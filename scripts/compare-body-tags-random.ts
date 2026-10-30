@@ -15,6 +15,7 @@
  *   the server indexes a note without body tags after two seconds.
  * - It exits 1 when any document disagrees.
  */
+import { createHash } from "node:crypto"
 import { readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -306,13 +307,15 @@ for (const [index, document] of documents.entries()) {
   })
 }
 
-// Each distinct shrunk input once, as records the vector generator takes
+// Each distinct shrunk input once, as records the vector generator takes. A
+// label carries a hash of its input, not a case number, because the generator
+// rejects a label an earlier run already added to the fixture
 if (options.out) {
   const distinctInputs = [...new Set(disagreements.map(({ input }) => input))]
-  const records = distinctInputs.map((input, position) => ({
-    label: `random comparison, seed ${options.seed}, case ${position + 1}`,
-    input,
-  }))
+  const records = distinctInputs.map((input) => {
+    const inputHash = createHash("sha256").update(input).digest("hex").slice(0, 12)
+    return { label: `random comparison, seed ${options.seed}, input ${inputHash}`, input }
+  })
   writeFileSync(options.out, `${JSON.stringify(records, null, 2)}\n`)
 }
 

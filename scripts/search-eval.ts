@@ -228,7 +228,7 @@ const main = async (): Promise<void> => {
     )
 
     // No eval query or score reads body tags, so closing the parser stops the
-    // background body-tag pass at its first note
+    // background body-tag pass after at most one note
     await bodyTagParser.close()
     await bodyTags
 
