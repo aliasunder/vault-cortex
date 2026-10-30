@@ -2769,8 +2769,8 @@ export const createSearchIndex = (
         }
 
         // A worker that cannot start says nothing about the notes, so the pass
-        // stops and every note keeps the tags stored before the restart. The
-        // parser has already logged why.
+        // stops, and every note it has not reached keeps the tags stored before
+        // the restart. The parser has already logged why.
         if (parseResult.outcome === "unavailable") {
           logger.warn("body-tag pass stopped because the body-tag worker could not start", {
             notes: indexedNoteSources.length,

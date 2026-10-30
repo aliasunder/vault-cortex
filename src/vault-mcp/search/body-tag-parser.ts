@@ -10,7 +10,8 @@ import { describeError } from "../../utils/describe-error.js"
  *    index the note with none.
  *  - "unavailable" (the worker could not start) and "closed" (the server is
  *    shutting down) say nothing about the note, so the index keeps its stored tags.
- *  - "dropped" comes only with a newer event for the note, whose own read replaces it. */
+ *  - "dropped" comes only with a newer event for the note, whose own read or
+ *    removal replaces it. */
 export type BodyTagParseResult =
   | { outcome: "parsed"; tags: string[] }
   | { outcome: "no-candidate" }
@@ -91,7 +92,8 @@ const WORKER_ENTRY = new URL(
  * - A worker that fails to start resolves the note "unavailable" and logs an
  *   error; the next note tries a fresh worker.
  * - A queued note whose signal aborted resolves "dropped" without parsing.
- * - `close()` resolves every pending note "closed" and starts no new worker.
+ * - `close()` resolves every pending note "closed" and starts no new worker. A
+ *   later parse resolves "closed" too, even for a body with no tag candidate.
  */
 export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParser => {
   const { timeoutMs } = params
