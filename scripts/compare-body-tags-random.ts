@@ -227,6 +227,15 @@ if (!workerPath) {
   process.exit(2)
 }
 
+const documentCount = Number(options.documents)
+const seed = Number(options.seed)
+
+// A value Number() cannot read would otherwise run zero documents and pass
+if (!Number.isSafeInteger(documentCount) || documentCount < 1 || !Number.isSafeInteger(seed)) {
+  console.error("--documents must be a whole number above 0, and --seed a whole number")
+  process.exit(2)
+}
+
 const readObsidianTags = loadObsidianTagOracle(workerPath)
 
 /** Our tags for a note, split from its properties block as indexing splits it;
@@ -270,10 +279,10 @@ const shrinkDisagreement = (noteText: string): string => {
   return dropRuns(fewerLines, Math.max(1, Math.floor(fewerLines.length / 4)))
 }
 
-const random = createRandom(Number(options.seed))
+const random = createRandom(seed)
 const documents = options["repo-markdown"]
   ? listRepoMarkdown().map((path) => injectTagCandidates(readFileSync(path, "utf8"), random))
-  : Array.from({ length: Number(options.documents) }, () => generateDocument(random))
+  : Array.from({ length: documentCount }, () => generateDocument(random))
 
 const disagreements: Array<{ input: string; obsidian: string[]; ours: string[] }> = []
 const slowDocuments: Array<{ index: number; milliseconds: number }> = []

@@ -223,6 +223,28 @@ describe("createBodyTagParser", () => {
     expect(latestWorker()).not.toBe(failedWorker)
   })
 
+  it("settles a note failed and logs it when the worker cannot be created, then starts one for the next note", async () => {
+    const parser = createTestParser(10_000)
+    const requestLogger = createErrorLogger()
+    // Node throws from the Worker constructor itself when it cannot create the
+    // thread, such as under a container's process limit. A function expression,
+    // because an arrow function cannot be called with `new`
+    vi.mocked(Worker).mockImplementationOnce(function () {
+      throw new Error("thread creation failed")
+    })
+
+    const failedResult = await parser.parse({ notePath: "a.md", body: "#alpha" }, requestLogger)
+    const nextResult = await parser.parse({ notePath: "next.md", body: "#after" }, logger)
+
+    expect(failedResult).toEqual({ outcome: "failed" })
+    expect(requestLogger.error).toHaveBeenCalledTimes(1)
+    expect(requestLogger.error).toHaveBeenCalledWith(
+      "body-tag worker failed to start; note indexed without body tags",
+      { path: "a.md", error: "[Error]: thread creation failed" },
+    )
+    expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
+  })
+
   // The warm-up was request 0, so the slow note is request 1
   it.each([
     {

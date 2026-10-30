@@ -134,12 +134,13 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
   }
 
   /** The ready worker, starting one when there is none; null when it fails to
-   *  start, which is a defect in the build, not in the note. `job` names the
-   *  note the failure is logged against. */
+   *  start, which is a fault in the build or the host, not in the note. `job`
+   *  names the note the failure is logged against. */
   const getReadyWorker = async (job: ParseJob): Promise<Worker | null> => {
-    workerReady ??= startWorker()
-
+    // Inside the try, because the Worker constructor itself throws when Node
+    // cannot create the thread
     try {
+      workerReady ??= startWorker()
       return await workerReady
     } catch (error) {
       await discardWorker()
