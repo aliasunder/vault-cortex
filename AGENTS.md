@@ -1216,7 +1216,8 @@ decision, not a drift fix.
 Obsidian's syntax as tokenizers in `obsidian-remark-parser.ts`. The pin is
 excluded from Dependabot, and 8.0.3 is the last 8.x release, so an advisory
 anywhere in its dependency tree is answered with an `overrides` entry, as
-`trim` is.
+`trim` is. `knip.json` lists remark-parse under `ignoreDependencies`, because
+the parser loads it through `createRequire`, which knip does not trace.
 
 NEVER open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
 editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`.

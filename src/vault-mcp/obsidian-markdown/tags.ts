@@ -1,13 +1,15 @@
-// ── Frontmatter tags, read the way Obsidian's Tags view reads them ──────────
+// ── Tag names and frontmatter tags, as Obsidian's Tags view reads them ──────
 
 /**
  * The regex character class of one tag-name character, as Obsidian 1.14.4
  * tests every tag name (its `getTags` and property editor) and ends a body
- * tag: no whitespace, no character from the General Punctuation
- * (U+2000–U+206F) or Supplemental Punctuation (U+2E00–U+2E7F) blocks, and
- * none of the listed ASCII punctuation, so `_`, `-`, `/`, letters, digits,
- * emoji and other Unicode pass. The body-tag tokenizer builds on the same
- * class, so the two cannot drift.
+ * tag. It excludes:
+ * - whitespace;
+ * - the General Punctuation (U+2000–U+206F) and Supplemental Punctuation
+ *   (U+2E00–U+2E7F) blocks;
+ * - the ASCII characters ' ! " # $ % & ( ) * + , . : ; < = > ? @ [ \ ] ^ ` { | } ~
+ * So `_`, `-`, `/`, letters, digits, emoji and other Unicode pass. The
+ * body-tag tokenizer builds on the same class, so the two cannot drift.
  */
 export const TAG_NAME_CHARACTER_CLASS =
   "[^\\u2000-\\u206F\\u2E00-\\u2E7F'!\"#$%&()*+,.:;<=>?@^`{|}~[\\]\\\\\\s]"
@@ -58,7 +60,8 @@ const tagNameOf = (entry: string): string => {
 /**
  * The tags Obsidian's Tags view shows for a note's properties, as bare names
  * in document order. A repeated tag is kept once per occurrence, because
- * `listAllTags` picks the spelling it shows by occurrence count. Reproduces
+ * `listAllTags` in `search-queries.ts` picks the spelling it shows by
+ * occurrence count. Reproduces
  * Obsidian 1.14.4's `parseFrontMatterTags` followed by `getTags`'s name test:
  * - the first key spelled `tags` in any letter case is read;
  * - a text value is one entry and a list keeps its text elements, trimmed;

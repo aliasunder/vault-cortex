@@ -249,7 +249,7 @@ Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tag
 - **Tags column:** holds the tags Obsidian's Tags view shows for the note, read by `obsidian-markdown/tags.ts` from the first key spelled `tags` in any letter case. A text value is one tag, so `tags: a, b` gives no tags, because a tag name cannot contain `,`. A list keeps its text entries. Each entry loses a leading `#` and a trailing `/`, and only names Obsidian accepts as tags are kept (no spaces, none of the punctuation Obsidian rejects such as `,`, `:` or `+`, and not digits only).
 - **Body tags column:** not a property, but stored beside them. `body_tags` holds every `#tag` written in the body, one entry per occurrence, as Obsidian's Tags view shows it (one trailing `/` removed, then the tags column's name test). Results return it as `body_tags` beside `tags`, each spelling once and absent when there are none, so a caller can tell the property, which `vault_update_properties` edits, from tags written in the text.
   - **Parser:** `obsidian-markdown/body-tags.ts` walks the tree that `obsidian-remark-parser.ts` builds: [remark-parse 8.0.3](https://github.com/remarkjs/remark/tree/remark-parse%408.0.3/packages/remark-parse), the parser Obsidian's metadata cache forked, with Obsidian's syntax (tags, wikilinks, highlights, `%%` comments, math, footnotes, callouts, block IDs) added as tokenizers. So a `#` inside code, a link, a URL or math is not a tag, and one after another inline token is. remark-parse is pinned to that version; AGENTS.md → "Upgrading remark-parse" re-checks the parser against Obsidian's own.
-  - **Worker:** remark-parse 8, like Obsidian's parser, slows quadratically on long paragraphs full of `_`, `[` or `=`, so `search/body-tag-parser.ts` runs the parser in a worker thread, one note at a time. A note still parsing after 2 seconds is indexed without body tags and logged as an error; the main thread keeps answering requests while a note parses.
+  - **Worker:** remark-parse 8, like Obsidian's parser, slows quadratically on long paragraphs full of `_`, `[` or `=`, so `search/body-tag-parser.ts` runs the parser in a worker thread, one note at a time. A note still parsing after `BODY_TAG_PARSE_TIMEOUT_MS` (2 seconds, set in `server.ts`) is indexed without body tags and logged as an error; the main thread keeps answering requests while a note parses.
   - **Startup:** the rebuild writes each note with the body tags stored before it ran, and the server starts answering without waiting for the parser. A background pass then parses every note again, one at a time, so a note the watcher parses waits behind at most one note of the pass; it writes only tags that changed, and its `body-tag pass complete` log line counts the outcomes. Until the pass reaches a note, a tag query sees the note's tags from before the restart; on a first index, it sees none.
   - **Write order:** the background pass writes a note's tags only while the rebuild's version of that note is still current, so a watcher write or removal during its parse wins. The file watcher checks its event before and after the parse: a note read that a newer event replaced is never parsed, a delete or newer edit during a slow parse wins, and a newer event aborts a parse still waiting in the queue.
 - **Other properties:** every unpromoted key lives in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
@@ -510,11 +510,12 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 runs in the background:
+**Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 and the body-tag pass run in the background:
 
-1. **Pass 1** — index notes (FTS5 + metadata)
+1. **Pass 1** — index notes (FTS5 + metadata), each with the body tags stored before the rebuild
 2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
 3. **Pass 3 (background)** — embed notes, then file content. Until a note's vectors exist, search finds it by keyword only
+4. **Body-tag pass (background)** — parse each note's body tags again in the body-tag worker thread and write the ones that changed (see **Body tags column**)
 
 **Startup order:** `watchVaultAndBuildIndex` starts the file watcher before the rebuild, so a change that lands while the rebuild reads the vault is neither missed nor replaced by the rebuild's older read:
 
@@ -571,8 +572,10 @@ flowchart TD
     P2 --> FC[Index File Content\ncanvas + PDF + text → FTS5]
     FC --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
     P3 --> P3F[Embed File Content\nchunk → hash → embed → store]
+    FC --> BTP[Body-Tag Pass\nparse in worker → write changed tags]
 
-    FW[File Watcher\nchokidar] --> |.md add/change| UP[upsertNote]
+    FW[File Watcher\nchokidar] --> |.md add/change| BT[Parse Body Tags\nworker thread]
+    BT --> UP[upsertNote]
     UP --> FTS[Update FTS5]
     UP --> LK[Update Links]
     UP --> EM[embedAndStoreChunks]

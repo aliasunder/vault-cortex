@@ -45,7 +45,15 @@ export const registerSearchTools = ({
 
   // Different tools edit the two tag fields, so every description that
   // returns notes says which field is which
-  const tagsFieldsText = `tags (the tags property${whenToolEnabledText("vault_update_properties", ", which vault_update_properties edits")}), body_tags (the #tags written in the note's text, each spelling once${whenToolEnabledText("vault_replace_in_note", ", edited as text with vault_replace_in_note")}; absent when there are none)`
+  const tagsPropertyEditorClause = whenToolEnabledText(
+    "vault_update_properties",
+    ", which vault_update_properties edits",
+  )
+  const bodyTagsEditorClause = whenToolEnabledText(
+    "vault_replace_in_note",
+    ", edited as text with vault_replace_in_note",
+  )
+  const tagsFieldsText = `tags (the tags property${tagsPropertyEditorClause}), body_tags (the #tags written in the note's text, each spelling once${bodyTagsEditorClause}; absent when there are none)`
 
   const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })

@@ -651,8 +651,8 @@ export const createSearchIndex = (
   if (!noteColumns.some((column) => column.name === "kanban_done_lanes")) {
     db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
   }
-  // The default keeps an older image's upsert, which names its columns and
-  // not this one, working against a database this version created
+  // The default lets an older image, rolled back onto a database this version
+  // migrated, keep writing notes: its upsert does not name this column
   if (!noteColumns.some((column) => column.name === "body_tags")) {
     db.exec(`ALTER TABLE notes ADD COLUMN body_tags TEXT NOT NULL DEFAULT '[]'`)
   }
@@ -1531,8 +1531,9 @@ export const createSearchIndex = (
 
   /** Indexes a note and returns its source version, a token embedNote checks so that an embed
    *  of this content is dropped once a later write replaces it. Pass it with the same content.
-   *  `bodyTags` are the body's tags from a body-tag parser, which runs off the main thread, so
-   *  the caller parses before calling and this function never does. */
+   *  `bodyTags` are the tags a body-tag parser found in the text after the properties block.
+   *  The parser runs off the main thread, so the caller parses before calling and this
+   *  function never does. */
   const upsertNote = (
     params: {
       filePath: string
@@ -2724,8 +2725,9 @@ export const createSearchIndex = (
     })
 
     // The body-tag pass also runs in the background, so startup never waits on
-    // the parser. It parses one note at a time, so a note the file watcher
-    // parses waits behind at most one note of this pass.
+    // the parser. It awaits each note's parse before queuing the next, and the
+    // parser takes queued notes in order, so a note the file watcher parses
+    // waits behind at most one note of this pass.
     const bodyTagPromise = (async () => {
       const passStart = performance.now()
       // Each note's parse outcome, or "superseded" when a later write replaced
@@ -2756,6 +2758,8 @@ export const createSearchIndex = (
         const bodyTagsJson = JSON.stringify(bodyTagsFromParseResult(parseResult))
         const storedBodyTagsJson = JSON.stringify(storedBodyTags.get(note.relativePath) ?? [])
 
+        // Pass 1 wrote the stored tags into this note's row, so only a change
+        // needs a write
         if (bodyTagsJson !== storedBodyTagsJson) {
           updateBodyTagsStmt.run(bodyTagsJson, note.relativePath)
           updatedPaths.push(note.relativePath)

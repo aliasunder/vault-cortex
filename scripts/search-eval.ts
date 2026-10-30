@@ -12,10 +12,10 @@
  *     queries verbatim (research notes, session logs) would otherwise match
  *     their own documentation. Reruns reuse the snapshot via
  *     --reuse-snapshot so every configuration sees an identical corpus.
- *  2. Build the search index with real ONNX models and await the full
- *     background embedding pass — scoring a partially embedded index
- *     measures indexing order, not ranking. Any embedding error fails
- *     the run.
+ *  2. Build the search index with real ONNX models and await its two
+ *     background passes. Tag filters read the body tags one pass writes,
+ *     and scoring a partially embedded index measures indexing order, not
+ *     ranking. Any embedding error fails the run.
  *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
  *  4. Run every judgment query at each --limits value, reporting the rank
  *     of the first expected result, file pollution in the top 5 (or the

@@ -16,9 +16,9 @@ const isParseRequest = (message: unknown): message is ParseRequest => {
   return "body" in message && typeof message.body === "string"
 }
 
-if (!parentPort) throw new Error("body-tag-worker.ts must run as a worker thread")
-
 const port = parentPort
+
+if (!port) throw new Error("body-tag-worker.ts must run as a worker thread")
 
 port.on("message", (message: unknown) => {
   if (!isParseRequest(message)) return

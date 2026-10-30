@@ -3,7 +3,8 @@
  * compare `parseBodyTags` with Obsidian instead of with itself.
  *
  * Run as `tsx scripts/generate-body-tag-vectors.ts <worker.js> <obsidian-version> [new-inputs.json]`,
- * with the version `obsidian version` reports for the app the worker came from.
+ * with the version of the Obsidian app the worker came from (the `<version>` in
+ * the `obsidian-<version>.asar` it was extracted from).
  * It reads every input already in the fixture, adds any new `{ label, input }`
  * records (labels must be unique), asks Obsidian's worker for each input's
  * tags (`scripts/obsidian-tag-oracle.ts`), and rewrites the fixture with the

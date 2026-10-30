@@ -11,6 +11,8 @@
  * - Each disagreement is shrunk to a short input and printed with both answers;
  *   `--out <file>` also writes each distinct one as a `{ label, input }`
  *   record, ready to pass to `scripts/generate-body-tag-vectors.ts`.
+ * - `slowDocuments` lists each document `parseBodyTags` took over a second on;
+ *   the server indexes a note without body tags after two seconds.
  * - It exits 1 when any document disagrees.
  */
 import { readdirSync, readFileSync, writeFileSync } from "node:fs"
@@ -170,12 +172,17 @@ const pick = <Item>(items: ReadonlyArray<Item>, random: () => number): Item => {
 
 /** One random note, sometimes opening with a properties block. */
 const generateDocument = (random: () => number): string => {
-  const pieceCount = 3 + Math.floor(random() * (random() < 0.15 ? 400 : 60))
+  // Drawn in this order so that a seed keeps generating the same documents
+  const pieceCountShare = random()
+  const isLongNote = random() < 0.15
+  const pieceCount = 3 + Math.floor(pieceCountShare * (isLongNote ? 400 : 60))
   const pieces = Array.from({ length: pieceCount }, () => {
     return `${pick(FRAGMENTS, random)}${pick(SEPARATORS, random)}`
   })
   const body = pieces.join("").slice(0, 4_000)
-  return random() < 0.1 ? `---\ntags: [p]\n---\n${body}` : body
+  const hasPropertiesBlock = random() < 0.1
+
+  return hasPropertiesBlock ? `---\ntags: [p]\n---\n${body}` : body
 }
 
 /** This repo's Markdown files, outside dependency and build folders. */

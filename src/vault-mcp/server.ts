@@ -83,8 +83,8 @@ const GLOB_CHARS = /[*?[]/
 
 /** How long one note's body tags may take to parse before the note is indexed
  *  without them. Normal notes parse in about a millisecond, so only a
- *  pathological note reaches it, and each such note adds at most this to the
- *  startup rebuild. */
+ *  pathological note reaches it, and each such note delays the notes queued
+ *  behind it by at most this. */
 const BODY_TAG_PARSE_TIMEOUT_MS = 2_000
 
 const startServer = async (): Promise<void> => {
@@ -161,9 +161,9 @@ const startServer = async (): Promise<void> => {
   // Lives for the process; its worker is unref'd, so exiting needs no close()
   const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
 
-  // watchVaultAndBuildIndex also returns the rebuild's embedding and body-tag
-  // passes. Startup waits for neither, so the server takes requests while they
-  // run, and rebuildFromVault logs either pass's failure itself.
+  // Startup takes only the note count and leaves the rebuild's embedding and
+  // body-tag passes running, so the server takes requests while they run;
+  // rebuildFromVault logs either pass's failure itself.
   const { count } = await watchVaultAndBuildIndex(
     {
       vaultPath,

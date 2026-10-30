@@ -158,10 +158,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    */
   const currentEvents = new Map<string, symbol>()
 
-  /** Each path's body-tag parse still waiting in the parser's queue. A newer
-   *  event or a removal for the path aborts it, because its result would be
-   *  dropped as superseded anyway, so a slow note saved repeatedly is parsed
-   *  once instead of once per save. */
+  /** Each path's body-tag parse that has not finished. A newer event or a
+   *  removal for the path aborts it, because its result would be dropped as
+   *  superseded anyway. An abort skips a parse still waiting in the parser's
+   *  queue and leaves a running one to finish, so of the saves that land
+   *  during one slow parse, only the latest is parsed next. */
   const pendingBodyTagParses = new Map<string, AbortController>()
 
   /** Aborts a path's pending body-tag parse, when there is one. */
@@ -325,6 +326,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           return null
         }
       }
+
       const readNoteBodyTags = async (content: string): Promise<string[]> => {
         const parseController = new AbortController()
         pendingBodyTagParses.set(relativePath, parseController)
@@ -348,11 +350,14 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
       const noteSource = await readNoteSource()
 
-      // A newer event or a removal during the read would drop this parse's result
+      // A newer event or a removal during the read would drop the parse's
+      // result, so this check runs before parsing
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
 
       // Parsed before the second token check, with no await between that check
-      // and the write, so a delete or newer event that lands during a slow parse wins
+      // and the write, so a delete or newer event that lands during a slow parse wins.
+      // An aborted parse returns no tags, but every abort comes with such an event,
+      // so that check discards it
       const bodyTags = noteSource ? await readNoteBodyTags(noteSource.content) : []
 
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }

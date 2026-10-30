@@ -229,7 +229,7 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
 
 /** A result's `body_tags` field: each stored spelling once, in first-seen
  *  order, or no field when the note has none. The column keeps every
- *  occurrence, because listAllTags counts them. */
+ *  occurrence, because `listAllTags` in `search-queries.ts` counts them. */
 const bodyTagsField = (bodyTagsJson: string): { body_tags?: string[] } => {
   const uniqueBodyTags = [...new Set(parseStringArray(bodyTagsJson))]
   return uniqueBodyTags.length > 0 ? { body_tags: uniqueBodyTags } : {}

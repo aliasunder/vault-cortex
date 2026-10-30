@@ -73,6 +73,9 @@ export const loadObsidianTagOracle = (workerPath: string): ((noteText: string) =
   return (noteText) => {
     lastReply = undefined
     const noteBytes = new TextEncoder().encode(noteText).buffer
+
+    // The worker's own message format, not a documented API, so a new
+    // Obsidian release can change it
     handleMessage({ data: { metadataCache: noteBytes } })
 
     if (!isWorkerReply(lastReply)) {

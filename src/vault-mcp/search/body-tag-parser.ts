@@ -46,8 +46,8 @@ const isWorkerReply = (message: unknown): message is WorkerReply => {
   if (message.kind === "ready") return true
   if (!("requestId" in message) || typeof message.requestId !== "number") return false
   if (message.kind === "failed") return "reason" in message && typeof message.reason === "string"
-  if (message.kind !== "parsed" || !("tags" in message) || !Array.isArray(message.tags))
-    return false
+  if (message.kind !== "parsed") return false
+  if (!("tags" in message) || !Array.isArray(message.tags)) return false
   return message.tags.every((tag: unknown) => typeof tag === "string")
 }
 
@@ -128,7 +128,8 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
   }
 
   /** The ready worker, starting one when there is none; null when it fails to
-   *  start, which is a defect in the build, not in the note. */
+   *  start, which is a defect in the build, not in the note. `job` names the
+   *  note the failure is logged against. */
   const getReadyWorker = async (job: ParseJob): Promise<Worker | null> => {
     workerReady ??= startWorker()
 
@@ -163,7 +164,8 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
 
       // A worker that dies on an uncaught error, such as running out of
       // memory, emits "error" before "exit"; with no listener, Node rethrows
-      // it on the main thread and the server exits
+      // it on the main thread and the server exits. The worker is already
+      // stopping, so it is dropped without terminate()
       const handleWorkerError = (error: Error): void => {
         worker = null
         workerReady = null
@@ -206,7 +208,9 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
       }
 
       const handleTimeout = async (): Promise<void> => {
-        // A reply landing while the worker stops must not settle the job "parsed"
+        // A reply landing while the worker stops must not settle the job
+        // "parsed". handleWorkerError stays attached, for the crash its
+        // comment describes
         readyWorker.off("message", handleReply)
         readyWorker.off("exit", handleExit)
         job.logger.error("body-tag parsing passed its time limit; indexed without body tags", {
@@ -226,6 +230,7 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
       readyWorker.on("message", handleReply)
       readyWorker.once("exit", handleExit)
       readyWorker.once("error", handleWorkerError)
+
       // setTimeout ignores the returned promise; handleTimeout settles the job
       // in its finally block, so it has no failure left to report
       const limitTimer = setTimeout(() => void handleTimeout(), timeoutMs)
