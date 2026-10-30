@@ -307,17 +307,15 @@ const scanItemLine = (
   if (!indentedByItem) {
     const bullet = readBulletMarker(value, index, commonmark)
 
-    // Without a bullet the line's own start is returned, so index and size
-    // stay where the indent left them
+    // Without a bullet, size keeps the indent's width; the line's own start
+    // is returned as its index
     if (bullet) {
       const markerWidth = bullet.markerIndex + 1 - index
 
       currentMarker = bullet.marker
       index += markerWidth
       size += markerWidth
-    }
 
-    if (currentMarker) {
       const character = value.charAt(index)
 
       if (character === TAB) {

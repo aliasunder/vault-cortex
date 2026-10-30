@@ -364,9 +364,9 @@ const deletionTokenizer = createDelimitedSpanTokenizer("~~", {
 
 // ── Math ───────────────────────────────────────────────────────────────────
 
-/** The index of the next unescaped `needle` at or after `fromIndex`, or -1.
- *  A backslash hides the character after it, so `\$` never closes math. */
-const indexOfUnescaped = (value: string, needle: string, fromIndex: number): number => {
+/** The index of the next unescaped `searchText` at or after `fromIndex`, or
+ *  -1. A backslash hides the character after it, so `\$` never closes math. */
+const indexOfUnescaped = (value: string, searchText: string, fromIndex: number): number => {
   // The scan jumps past each escape pair, so its index is mutable parser state.
   let index = fromIndex
 
@@ -378,7 +378,7 @@ const indexOfUnescaped = (value: string, needle: string, fromIndex: number): num
       continue
     }
 
-    if (value.startsWith(needle, index)) return index
+    if (value.startsWith(searchText, index)) return index
 
     index += 1
   }
