@@ -209,7 +209,7 @@ describe("splitIntoLines", () => {
     expect(splitIntoLines("")).toEqual([""])
   })
 
-  it("keeps a last line that holds only a CR as an empty line, like a final LF", () => {
+  it("splits a closing CR like an LF, so a last line holding only a CR stays as an empty line", () => {
     expect(splitIntoLines("a\n\r")).toEqual(["a", "", ""])
   })
 
@@ -621,7 +621,7 @@ describe("pageTextByLines", () => {
     })
   })
 
-  it("counts a last line that holds only a CR as an empty line, as for a final LF", () => {
+  it("counts a last line that holds only a CR as an empty line, as if the CR were an LF", () => {
     expect(pageTextByLines({ text: "a\nb\n\r", path: "note.md" })).toEqual({
       text: "a\nb\n",
       lineWindow: { startLine: 1, endLine: 3, totalLines: 3 },
