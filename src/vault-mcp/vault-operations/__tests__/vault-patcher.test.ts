@@ -1553,10 +1553,10 @@ ${doneItems.join("\n")}
   })
 
   it("append to Done survives a stray %% in card text that toggles comment state", async () => {
-    // A card containing a stray `%%` in its text (e.g. `100%%`) used to flip
-    // the parser's comment state. The actual `%% kanban:settings` opener was
-    // then misinterpreted as a closer, and the trailing block was not
-    // detected — so append landed AFTER it.
+    // A stray `%%` in a card's text (e.g. `100%%`) must not toggle the
+    // parser's comment state. If it did, the `%% kanban:settings` opener would
+    // read as a closer, the settings block would go undetected, and the append
+    // would land below it.
     const content = `---
 kanban-plugin: board
 ---
@@ -1794,36 +1794,60 @@ describe("patchNote — insert_before", () => {
 // ── Frontmatter preservation ────────────────────────────────────
 
 describe("frontmatter preservation", () => {
-  const operations = ["append", "prepend", "replace", "insert_before"] as const
-
-  it.each(
-    operations.map((op) => ({
-      name: op,
-      op,
-      heading: op === "append" || op === "prepend" ? undefined : "Active",
-      includeChildren: op === "replace" ? true : undefined,
-    })),
-  )(
-    "$name keeps the properties block as written and modifies body",
-    async ({ op, heading, includeChildren }) => {
+  // NOTE_WITH_SECTIONS writes `tags: [test]` in flow style, so a whole-note
+  // check also catches a properties block rewritten in another YAML style.
+  it.each([
+    {
+      label: "append",
+      operation: "append",
+      heading: undefined,
+      includeChildren: undefined,
+      expectedNote: `${NOTE_WITH_SECTIONS}marker\n`,
+    },
+    {
+      label: "prepend",
+      operation: "prepend",
+      heading: undefined,
+      includeChildren: undefined,
+      expectedNote: NOTE_WITH_SECTIONS.replace(
+        "---\n\n# Main Title",
+        "---\nmarker\n\n# Main Title",
+      ),
+    },
+    {
+      label: "replace",
+      operation: "replace",
+      heading: "Active",
+      includeChildren: true,
+      expectedNote: NOTE_WITH_SECTIONS.replace(
+        "## Active\n- [ ] Task A\n- [ ] Task B\n\n### Subtasks\n- [ ] Sub-task 1\n\n",
+        "## Active\nmarker\n",
+      ),
+    },
+    {
+      label: "insert_before",
+      operation: "insert_before",
+      heading: "Active",
+      includeChildren: undefined,
+      expectedNote: NOTE_WITH_SECTIONS.replace("## Active\n", "marker\n## Active\n"),
+    },
+  ] as const)(
+    "$label keeps the properties block as written and edits the body",
+    async ({ operation, heading, includeChildren, expectedNote }) => {
       await writeTestNote("note.md", NOTE_WITH_SECTIONS)
       await patchNote(
         {
           vaultPath: vault,
           path: "note.md",
-          operation: op,
-          content: `marker-${op}`,
+          operation,
+          content: "marker",
           heading,
           includeChildren,
         },
         logger,
       )
-      const updated = await readTestNote("note.md")
-      const writtenBlock = "---\ntitle: Test Note\ntags: [test]\n---\n"
 
-      expect(updated.slice(0, writtenBlock.length)).toBe(writtenBlock)
-      // Body was actually modified
-      expect(updated).toContain(`marker-${op}`)
+      expect(await readTestNote("note.md")).toBe(expectedNote)
     },
   )
 
@@ -2028,8 +2052,9 @@ describe("body edits keep the properties block as written", () => {
     },
     {
       tool: "deleteSpan",
-      edit: (path: string) =>
-        deleteSpan({ vaultPath: vault, path, startAnchor: "old line" }, logger),
+      edit: (path: string) => {
+        return deleteSpan({ vaultPath: vault, path, startAnchor: "old line" }, logger)
+      },
       editedBody: "keep line\n",
     },
     {
@@ -2455,10 +2480,7 @@ Keep this. Remove this. Keep this too.
       },
       logger,
     )
-    const updated = await readTestNote("note.md")
-    expect(updated).toContain("title: Test Note")
-    expect(updated).toContain("tags:")
-    expect(updated).toContain("Task Alpha")
+    expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS.replace("Task A", "Task Alpha"))
   })
 
   it("is case-sensitive", async () => {
@@ -3265,14 +3287,10 @@ describe("concurrent writes (exclusive lock)", () => {
     ])
 
     expect(first.status).toBe("fulfilled")
-    expect(second).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(second).toEqual({
+      status: "rejected",
+      reason: new Error("concurrent write in progress"),
+    })
   })
 
   it("rejects the second write when replaceInNote and patchNote target the same note", async () => {
@@ -3304,14 +3322,10 @@ describe("concurrent writes (exclusive lock)", () => {
     ])
 
     expect(first.status).toBe("fulfilled")
-    expect(second).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(second).toEqual({
+      status: "rejected",
+      reason: new Error("concurrent write in progress"),
+    })
   })
 
   it("rejects the second write when deleteSpan and patchNote target the same note", async () => {
@@ -3342,14 +3356,10 @@ describe("concurrent writes (exclusive lock)", () => {
     ])
 
     expect(first.status).toBe("fulfilled")
-    expect(second).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(second).toEqual({
+      status: "rejected",
+      reason: new Error("concurrent write in progress"),
+    })
   })
 })
 
@@ -3926,14 +3936,10 @@ line two
       ),
     ])
     expect(first.status).toBe("fulfilled")
-    expect(second).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(second).toEqual({
+      status: "rejected",
+      reason: new Error("concurrent write in progress"),
+    })
   })
 })
 
@@ -4883,14 +4889,10 @@ duplicate beta
       ),
     ])
     expect(first.status).toBe("fulfilled")
-    expect(second).toEqual(
-      expect.objectContaining({
-        status: "rejected",
-        reason: expect.objectContaining({
-          message: "concurrent write in progress",
-        }),
-      }),
-    )
+    expect(second).toEqual({
+      status: "rejected",
+      reason: new Error("concurrent write in progress"),
+    })
   })
 })
 
