@@ -56,6 +56,7 @@ const startWatcherWithoutRebuild = async (
   vi.spyOn(target.search, "rebuildFromVault").mockResolvedValue({
     count: 0,
     embedding: Promise.resolve(),
+    bodyTags: Promise.resolve(),
   })
   await watchVaultAndBuildIndex(
     { ...target, ...(watcherOptions ? { watcherOptions } : {}), bodyTagParser },
@@ -1677,7 +1678,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     if (setup?.rebuild !== "real") {
       vi.spyOn(search, "rebuildFromVault").mockImplementation(async () => {
         await rebuildGate.promise
-        return { count: 0, embedding: Promise.resolve() }
+        return { count: 0, embedding: Promise.resolve(), bodyTags: Promise.resolve() }
       })
     }
     await setup?.beforeStart?.(testVault)
@@ -2076,7 +2077,11 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
     await fire("change", "locked.md")
     await fire("change", "fine.md")
     finishRebuild()
-    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
+    await expect(startup).resolves.toEqual({
+      count: 0,
+      embedding: expect.any(Promise),
+      bodyTags: expect.any(Promise),
+    })
 
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith("failed to process file change", {
       path: "locked.md",
@@ -2129,7 +2134,11 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
 
     await fire("unlink", "gone.md")
     finishRebuild()
-    await expect(startup).resolves.toEqual({ count: 0, embedding: expect.any(Promise) })
+    await expect(startup).resolves.toEqual({
+      count: 0,
+      embedding: expect.any(Promise),
+      bodyTags: expect.any(Promise),
+    })
     expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
       "failed to apply the changes held during startup",
       { error: "[Error]: controlled batch failure" },
@@ -3110,7 +3119,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
       const rebuildGate = Promise.withResolvers<undefined>()
       vi.spyOn(index, "rebuildFromVault").mockImplementation(async () => {
         await rebuildGate.promise
-        return { count: 0, embedding: Promise.resolve() }
+        return { count: 0, embedding: Promise.resolve(), bodyTags: Promise.resolve() }
       })
       // Resolves when the rescan reaches the missed file, whether it holds the
       // change (the intended path) or indexes it at once (a broken hold), so the

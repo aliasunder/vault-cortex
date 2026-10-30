@@ -357,6 +357,33 @@ export type OutgoingLinkEntry = {
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
 
+/** rebuildFromVault returns the indexed note count and the two passes that
+ *  finish after it returns. Each pass logs its own failure, so a caller may
+ *  leave either promise unawaited. */
+export type RebuildResult = {
+  count: number
+  embedding: Promise<void>
+  bodyTags: Promise<void>
+}
+
+const isStringArray = (value: unknown): value is string[] => {
+  return Array.isArray(value) && value.every((element) => typeof element === "string")
+}
+
+/** A note's body tags as stored before a rebuild; a value that is not a JSON
+ *  string array reads as none, since the background pass replaces it anyway. */
+const readStoredBodyTags = (params: { json: string; path: string }, logger: Logger): string[] => {
+  const { json, path } = params
+
+  try {
+    const storedValue: unknown = JSON.parse(json)
+    return isStringArray(storedValue) ? storedValue : []
+  } catch (error) {
+    logger.warn("ignored stored body tags that are not JSON", { path, error: describeError(error) })
+    return []
+  }
+}
+
 // ── Factory ─────────────────────────────────────────────────────
 
 export const createSearchIndex = (
@@ -712,6 +739,10 @@ export const createSearchIndex = (
     `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
   const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(`SELECT path FROM notes`)
+  const selectAllBodyTagsStmt = db.prepare<[], { path: string; body_tags: string }>(
+    `SELECT path, body_tags FROM notes`,
+  )
+  const updateBodyTagsStmt = db.prepare(`UPDATE notes SET body_tags = ? WHERE path = ?`)
 
   /** Canvas saves share this catalog until a committed note write or rebuild changes it. */
   let cachedCanvasNotePaths: readonly string[] | undefined
@@ -2121,19 +2152,19 @@ export const createSearchIndex = (
   }
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
-   * Returns the note count and a background embedding promise.
+   * Returns the note count and the background embedding and body-tag passes.
    * - No source write may run while it does. A source write is an upsert or remove call
    *   that changes the tables this clears; one that lands during its reads is replaced by
    *   the older content it read.
    * - The file watcher is the only caller that makes source writes at runtime, and
    *   watchVaultAndBuildIndex holds it until this returns; a new runtime caller must go
    *   through that hold.
-   * - The returned embedding promise rejects if the background pass fails. This function
-   *   already logs that failure, so a caller may leave the promise unawaited. */
+   * - Each returned pass promise rejects if its pass fails. This function already logs
+   *   that failure, so a caller may leave the promises unawaited. */
   const rebuildFromVault = async (
     params: { vaultPath: string; bodyTagParser: BodyTagParser },
     logger: Logger,
-  ): Promise<{ count: number; embedding: Promise<void> }> => {
+  ): Promise<RebuildResult> => {
     const { vaultPath, bodyTagParser } = params
     // Embedding work that outlived its source can leave vectors whose chunk or
     // memory entry is gone. They would take nearest-neighbour slots from live
@@ -2141,6 +2172,17 @@ export const createSearchIndex = (
     const orphanNoteVectorsRemoved = deleteOrphanNoteVectorsStmt?.run().changes ?? 0
     const orphanFileVectorsRemoved = deleteOrphanFileVectorsStmt?.run().changes ?? 0
     const orphanMemoryVectorsRemoved = deleteOrphanMemoryVectorsStmt?.run().changes ?? 0
+    // Each note keeps the body tags stored before this rebuild until the
+    // background pass parses it again, so a tag search right after a restart
+    // still finds them
+    const storedBodyTags = new Map(
+      selectAllBodyTagsStmt
+        .all()
+        .map((row) => [
+          row.path,
+          readStoredBodyTags({ json: row.body_tags, path: row.path }, logger),
+        ]),
+    )
     sourceVersions.clear()
     cachedCanvasNotePaths = undefined
     db.exec("DELETE FROM notes_fts")
@@ -2332,39 +2374,15 @@ export const createSearchIndex = (
     })
     const noteContents = noteContentResults.filter((entry) => entry !== null)
 
-    // Body tags are parsed here, before the write transaction, because the
-    // parser runs in a worker thread and the transaction cannot await
-    const parseNoteBodyTags = async (
-      note: RebuildFileContent,
-    ): Promise<{ relativePath: string; parseResult: BodyTagParseResult }> => {
-      const { body } = splitPropertiesBlock(note.content)
-      const parseResult = await bodyTagParser.parse({ notePath: note.relativePath, body }, logger)
-      return { relativePath: note.relativePath, parseResult }
-    }
-    const bodyTagParseStart = performance.now()
-    const bodyTagParses = await mapWithConcurrency({
-      items: noteContents,
-      concurrency: INDEXING_FILE_READ_CONCURRENCY,
-      mapper: parseNoteBodyTags,
-    })
-    const bodyTagParseMs = Math.round(performance.now() - bodyTagParseStart)
-    const bodyTagsByPath = new Map(
-      bodyTagParses.map(({ relativePath, parseResult }) => [
-        relativePath,
-        bodyTagsFromParseResult(parseResult),
-      ]),
-    )
-    const countBodyTagOutcome = (outcome: BodyTagParseResult["outcome"]): number => {
-      return bodyTagParses.filter(({ parseResult }) => parseResult.outcome === outcome).length
-    }
-
     // Notes whose Pass 1 index write throws are skipped with a warning instead
     // of aborting the rebuild — one note must never prevent the server from
     // starting. An unreadable properties block is not such a failure,
     // because parseNoteSkippingUnreadableBlock reads the body without it.
     const skippedNotePaths = new Set<string>()
 
-    const notesForEmbedding: Array<{
+    // The note versions this rebuild wrote, for the background embedding and
+    // body-tag passes; each pass skips a note a later write replaced
+    const indexedNoteSources: Array<{
       relativePath: string
       content: string
       sourceVersion: symbol
@@ -2389,13 +2407,13 @@ export const createSearchIndex = (
                 filePath: note.relativePath,
                 rawContent: note.content,
                 fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
-                bodyTags: bodyTagsByPath.get(note.relativePath) ?? [],
+                bodyTags: storedBodyTags.get(note.relativePath) ?? [],
                 skipLinks: true,
               },
               logger,
             )
 
-            notesForEmbedding.push({
+            indexedNoteSources.push({
               relativePath: note.relativePath,
               content: note.content,
               sourceVersion,
@@ -2524,11 +2542,6 @@ export const createSearchIndex = (
     logger.info("rebuilt index", {
       count: indexedNotes.length,
       totalBytes,
-      bodyTagsParsed: countBodyTagOutcome("parsed"),
-      bodyTagsWithoutCandidate: countBodyTagOutcome("no-candidate"),
-      bodyTagsOverLimit: countBodyTagOutcome("over-limit"),
-      bodyTagsFailed: countBodyTagOutcome("failed"),
-      bodyTagParseMs,
       orphanNoteVectorsRemoved,
       orphanFileVectorsRemoved,
       orphanMemoryVectorsRemoved,
@@ -2577,7 +2590,7 @@ export const createSearchIndex = (
             let chunksEmbedded = 0
             let entriesEmbedded = 0
             let embedErrors = 0
-            for (const note of notesForEmbedding) {
+            for (const note of indexedNoteSources) {
               const noteVersionIsCurrent = isCurrentSourceVersion(
                 { sourcePath: note.relativePath, sourceVersion: note.sourceVersion },
                 logger,
@@ -2697,7 +2710,7 @@ export const createSearchIndex = (
             }
 
             logger.info("embedding pass complete", {
-              notes: notesForEmbedding.length,
+              notes: indexedNoteSources.length,
               chunksEmbedded,
               ...(entriesEmbedded > 0 ? { entriesEmbedded } : {}),
               ...(embedErrors > 0 ? { embedErrors } : {}),
@@ -2710,7 +2723,66 @@ export const createSearchIndex = (
       logger.error("embedding pass failed", { error: describeError(err) })
     })
 
-    return { count: indexedNotes.length, embedding: embeddingPromise }
+    // The body-tag pass also runs in the background, so startup never waits on
+    // the parser. It parses one note at a time, so a note the file watcher
+    // parses waits behind at most one note of this pass.
+    const bodyTagPromise = (async () => {
+      const passStart = performance.now()
+      // Each note's parse outcome, or "superseded" when a later write replaced
+      // the version this rebuild wrote
+      const noteResults: Array<BodyTagParseResult["outcome"] | "superseded"> = []
+      const updatedPaths: string[] = []
+
+      for (const note of indexedNoteSources) {
+        if (sourceVersions.get(note.relativePath) !== note.sourceVersion) {
+          noteResults.push("superseded")
+          continue
+        }
+
+        const { body } = splitPropertiesBlock(note.content)
+        const parseResult = await bodyTagParser.parse({ notePath: note.relativePath, body }, logger)
+
+        // The parser closes only when the server stops, and the pass stops with it
+        if (parseResult.outcome === "closed") break
+
+        // Checked again after the parse, with no await before the write, so a
+        // write or removal during the parse wins
+        if (sourceVersions.get(note.relativePath) !== note.sourceVersion) {
+          noteResults.push("superseded")
+          continue
+        }
+
+        noteResults.push(parseResult.outcome)
+        const bodyTagsJson = JSON.stringify(bodyTagsFromParseResult(parseResult))
+        const storedBodyTagsJson = JSON.stringify(storedBodyTags.get(note.relativePath) ?? [])
+
+        if (bodyTagsJson !== storedBodyTagsJson) {
+          updateBodyTagsStmt.run(bodyTagsJson, note.relativePath)
+          updatedPaths.push(note.relativePath)
+        }
+        await setImmediateAsync()
+      }
+
+      const countNoteResults = (result: (typeof noteResults)[number]): number => {
+        return noteResults.filter((noteResult) => noteResult === result).length
+      }
+      logger.info("body-tag pass complete", {
+        notes: indexedNoteSources.length,
+        parsed: countNoteResults("parsed"),
+        withoutCandidate: countNoteResults("no-candidate"),
+        overLimit: countNoteResults("over-limit"),
+        failed: countNoteResults("failed"),
+        superseded: countNoteResults("superseded"),
+        updated: updatedPaths.length,
+        durationMs: Math.round(performance.now() - passStart),
+      })
+    })()
+
+    bodyTagPromise.catch((error) => {
+      logger.error("body-tag pass failed", { error: describeError(error) })
+    })
+
+    return { count: indexedNotes.length, embedding: embeddingPromise, bodyTags: bodyTagPromise }
   }
 
   // ── Trash entries (retention-sweep bookkeeping) ──────────────

@@ -13,7 +13,7 @@ import {
   INDEXING_FILE_READ_CONCURRENCY,
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
-import type { SearchIndex } from "./search-index.js"
+import type { RebuildResult, SearchIndex } from "./search-index.js"
 import { bodyTagsFromParseResult, type BodyTagParser } from "./body-tag-parser.js"
 import { splitPropertiesBlock } from "../obsidian-markdown/frontmatter.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
@@ -1052,24 +1052,21 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
  * reads anything and holds every change until the rebuild returns, so a change
  * landing mid-rebuild is applied after it instead of being missed or replaced
  * by the rebuild's older read. Resolves with the rebuild's result (the note
- * count and its background embedding promise) once the batch over the held
- * changes commits its index writes, or at heldChangesDeadline if it takes
- * longer; the rest then apply in the background.
+ * count and its background embedding and body-tag passes) once the batch over
+ * the held changes commits its index writes, or at heldChangesDeadline if it
+ * takes longer; the rest then apply in the background.
  */
 export const watchVaultAndBuildIndex = async (
   params: WatchVaultParams,
   logger: Logger,
-): Promise<{ count: number; embedding: Promise<void> }> => {
+): Promise<RebuildResult> => {
   const { vaultPath, search, bodyTagParser, watcherOptions } = params
   const holdingWatcher = startHoldingWatcher(params, logger)
   await holdingWatcher.ready
 
   // A failed rebuild closes the watcher rather than leave it holding every
   // later change; the caller sees the rebuild's error.
-  const rebuildIndexOrCloseWatcher = async (): Promise<{
-    count: number
-    embedding: Promise<void>
-  }> => {
+  const rebuildIndexOrCloseWatcher = async (): Promise<RebuildResult> => {
     try {
       return await search.rebuildFromVault({ vaultPath, bodyTagParser }, logger)
     } catch (error) {

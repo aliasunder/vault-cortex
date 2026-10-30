@@ -13,6 +13,7 @@ import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 import { statOrNull } from "../../../utils/fs.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
+import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
 vi.mock("node:fs/promises", { spy: true })
@@ -150,16 +151,6 @@ const createEmbeddingRaceIndex = async (sourceKind: "note" | "file") => {
 }
 
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
-/** The body-tag fields of the `rebuilt index` log line for a rebuild whose two
- *  notes hold no tag candidate. The parse time varies per run. */
-const NO_BODY_TAG_COUNTS = {
-  bodyTagsParsed: 0,
-  bodyTagsWithoutCandidate: 2,
-  bodyTagsOverLimit: 0,
-  bodyTagsFailed: 0,
-  bodyTagParseMs: expect.any(Number),
-}
-
 const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
   mtimeMs,
   size,
@@ -8260,7 +8251,6 @@ describe("committed embedding source versions", () => {
     expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
       count: 2,
       totalBytes: 71,
-      ...NO_BODY_TAG_COUNTS,
       orphanNoteVectorsRemoved: 2,
       orphanFileVectorsRemoved: 2,
       orphanMemoryVectorsRemoved: 2,
@@ -8277,7 +8267,6 @@ describe("committed embedding source versions", () => {
     expect(infoSpy).toHaveBeenCalledWith("rebuilt index", {
       count: 2,
       totalBytes: 71,
-      ...NO_BODY_TAG_COUNTS,
       orphanNoteVectorsRemoved: 0,
       orphanFileVectorsRemoved: 0,
       orphanMemoryVectorsRemoved: 0,
@@ -8945,48 +8934,187 @@ describe("body tags", () => {
     expect(Object.hasOwn(results[0] ?? {}, "body_tags")).toBe(false)
   })
 
-  it("indexes a note without body tags when its parse does not finish, and logs the counts per outcome", async () => {
+  /** A vault folder holding the given notes, removed when the test finishes. */
+  const createVaultWithNotes = async (notes: Readonly<Record<string, string>>) => {
     const vaultDir = await mkdtemp(join(tmpdir(), "body-tags-rebuild-"))
     onTestFinished(() => rm(vaultDir, { recursive: true }))
-    await writeFile(join(vaultDir, "parsed.md"), "Kept #kept\n", "utf8")
-    await writeFile(join(vaultDir, "slow.md"), "Slow #lost\n", "utf8")
-    await writeFile(join(vaultDir, "plain.md"), "No candidate\n", "utf8")
-    const stubParser = {
-      parse: async ({ notePath }: { notePath: string }) => {
-        if (notePath === "slow.md") return { outcome: "over-limit" as const }
-        if (notePath === "plain.md") return { outcome: "no-candidate" as const }
-        return { outcome: "parsed" as const, tags: ["kept"] }
+    for (const [fileName, content] of Object.entries(notes)) {
+      await writeFile(join(vaultDir, fileName), content, "utf8")
+    }
+    return vaultDir
+  }
+
+  /** A body-tag parser whose answer for each note waits until the test calls
+   *  `answer(path, result)`, so a test can act while a parse is pending.
+   *  `requestedPaths` lists each note the pass asked for, in order. */
+  const createHeldParser = () => {
+    const pendingAnswers = new Map<string, (result: BodyTagParseResult) => void>()
+    const requestedPaths: string[] = []
+    const bodyTagParser: BodyTagParser = {
+      parse: ({ notePath }) => {
+        requestedPaths.push(notePath)
+        const { promise, resolve } = Promise.withResolvers<BodyTagParseResult>()
+        pendingAnswers.set(notePath, resolve)
+        return promise
+      },
+      close: async () => undefined,
+    }
+    const answer = (notePath: string, result: BodyTagParseResult): void => {
+      const resolveParse = pendingAnswers.get(notePath)
+
+      if (!resolveParse) throw new Error(`no parse is pending for ${notePath}`)
+      resolveParse(result)
+    }
+    return { bodyTagParser, requestedPaths, answer }
+  }
+
+  const pathsTaggedIn = (index: SearchIndex, tag: string): string[] => {
+    return index.searchByTag({ tag }, logger).map((note) => note.path)
+  }
+
+  it("fills body tags after the rebuild returns, writes only changed ones, and logs the counts per outcome", async () => {
+    const vaultDir = await createVaultWithNotes({
+      "parsed.md": "Kept #kept\n",
+      "slow.md": "Slow #lost\n",
+      "plain.md": "No candidate\n",
+    })
+    const stubParser: BodyTagParser = {
+      parse: async ({ notePath }) => {
+        if (notePath === "slow.md") return { outcome: "over-limit" }
+        if (notePath === "plain.md") return { outcome: "no-candidate" }
+        return { outcome: "parsed", tags: ["kept"] }
       },
       close: async () => undefined,
     }
     const rebuildLogger = { ...logger, info: vi.fn() }
     const rebuildIndex = createSearchIndex(":memory:")
 
-    await rebuildIndex.rebuildFromVault(
+    const { bodyTags } = await rebuildIndex.rebuildFromVault(
       { vaultPath: vaultDir, bodyTagParser: stubParser },
       rebuildLogger,
     )
+    await bodyTags
 
-    const pathsTagged = (tag: string): string[] => {
-      return rebuildIndex.searchByTag({ tag }, logger).map((note) => note.path)
-    }
-    expect(pathsTagged("kept")).toEqual(["parsed.md"])
-    expect(pathsTagged("lost")).toEqual([])
+    expect(pathsTaggedIn(rebuildIndex, "kept")).toEqual(["parsed.md"])
+    expect(pathsTaggedIn(rebuildIndex, "lost")).toEqual([])
     expect(
       rebuildIndex.fullTextSearch({ query: "slow" }, logger).map((result) => result.path),
     ).toEqual(["slow.md"])
     expect(rebuildLogger.info).toHaveBeenCalledWith("rebuilt index", {
       count: 3,
       totalBytes: 35,
-      bodyTagsParsed: 1,
-      bodyTagsWithoutCandidate: 1,
-      bodyTagsOverLimit: 1,
-      bodyTagsFailed: 0,
-      // Elapsed time varies per run
-      bodyTagParseMs: expect.any(Number),
       orphanNoteVectorsRemoved: 0,
       orphanFileVectorsRemoved: 0,
       orphanMemoryVectorsRemoved: 0,
     })
+    // Only parsed.md's tags differ from the empty ones a first index starts with
+    expect(rebuildLogger.info).toHaveBeenCalledWith("body-tag pass complete", {
+      notes: 3,
+      parsed: 1,
+      withoutCandidate: 1,
+      overLimit: 1,
+      failed: 0,
+      superseded: 0,
+      updated: 1,
+      // Elapsed time varies per run
+      durationMs: expect.any(Number),
+    })
+  })
+
+  it("returns before any note's body tags are parsed", async () => {
+    const vaultDir = await createVaultWithNotes({ "waiting.md": "Waiting #held\n" })
+    const { bodyTagParser, requestedPaths, answer } = createHeldParser()
+    const rebuildIndex = createSearchIndex(":memory:")
+
+    const { count, bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser },
+      logger,
+    )
+
+    expect(count).toBe(1)
+    expect(requestedPaths).toEqual(["waiting.md"])
+    expect(pathsTaggedIn(rebuildIndex, "held")).toEqual([])
+    answer("waiting.md", { outcome: "parsed", tags: ["held"] })
+    await bodyTags
+    expect(pathsTaggedIn(rebuildIndex, "held")).toEqual(["waiting.md"])
+  })
+
+  it("keeps each note's stored body tags through a later rebuild until the note is parsed again", async () => {
+    const vaultDir = await createVaultWithNotes({ "kept.md": "Old #stored\n" })
+    const rebuildIndex = createSearchIndex(":memory:")
+    const firstRebuild = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await firstRebuild.bodyTags
+    await writeFile(join(vaultDir, "kept.md"), "New #fresh\n", "utf8")
+    const { bodyTagParser, answer } = createHeldParser()
+
+    const secondRebuild = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser },
+      logger,
+    )
+
+    expect(pathsTaggedIn(rebuildIndex, "stored")).toEqual(["kept.md"])
+    answer("kept.md", { outcome: "parsed", tags: ["fresh"] })
+    await secondRebuild.bodyTags
+    expect(pathsTaggedIn(rebuildIndex, "stored")).toEqual([])
+    expect(pathsTaggedIn(rebuildIndex, "fresh")).toEqual(["kept.md"])
+  })
+
+  it("leaves a note alone when a later write replaced it while its body tags were parsing", async () => {
+    const vaultDir = await createVaultWithNotes({ "edited.md": "Before #stale\n" })
+    const { bodyTagParser, answer } = createHeldParser()
+    const rebuildLogger = { ...logger, info: vi.fn() }
+    const rebuildIndex = createSearchIndex(":memory:")
+    const { bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser },
+      rebuildLogger,
+    )
+
+    rebuildIndex.upsertNote(
+      withBodyTags({
+        filePath: "edited.md",
+        rawContent: "After #fresh\n",
+        fileStat: testStat(5000),
+      }),
+      logger,
+    )
+    answer("edited.md", { outcome: "parsed", tags: ["stale"] })
+    await bodyTags
+
+    expect(pathsTaggedIn(rebuildIndex, "fresh")).toEqual(["edited.md"])
+    expect(pathsTaggedIn(rebuildIndex, "stale")).toEqual([])
+    expect(rebuildLogger.info).toHaveBeenCalledWith("body-tag pass complete", {
+      notes: 1,
+      parsed: 0,
+      withoutCandidate: 0,
+      overLimit: 0,
+      failed: 0,
+      superseded: 1,
+      updated: 0,
+      durationMs: expect.any(Number),
+    })
+  })
+
+  it("stops the pass when the parser closes", async () => {
+    const vaultDir = await createVaultWithNotes({
+      "first.md": "One #a\n",
+      "second.md": "Two #b\n",
+    })
+    const closedParser: BodyTagParser = {
+      parse: vi.fn(async () => ({ outcome: "closed" as const })),
+      close: async () => undefined,
+    }
+    const rebuildIndex = createSearchIndex(":memory:")
+
+    const { bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: closedParser },
+      logger,
+    )
+    await bodyTags
+
+    expect(closedParser.parse).toHaveBeenCalledTimes(1)
+    expect(pathsTaggedIn(rebuildIndex, "a")).toEqual([])
   })
 })

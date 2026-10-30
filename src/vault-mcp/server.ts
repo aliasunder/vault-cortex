@@ -161,9 +161,9 @@ const startServer = async (): Promise<void> => {
   // Lives for the process; its worker is unref'd, so exiting needs no close()
   const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
 
-  // watchVaultAndBuildIndex also returns the rebuild's embedding promise. Startup
-  // does not wait for it, so the server takes requests while the embedding pass
-  // is still running, and rebuildFromVault logs an embedding failure itself.
+  // watchVaultAndBuildIndex also returns the rebuild's embedding and body-tag
+  // passes. Startup waits for neither, so the server takes requests while they
+  // run, and rebuildFromVault logs either pass's failure itself.
   const { count } = await watchVaultAndBuildIndex(
     {
       vaultPath,

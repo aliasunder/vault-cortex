@@ -220,10 +220,12 @@ const main = async (): Promise<void> => {
     const rebuildStartMs = performance.now()
     // The server's 2 s per-note limit, so the eval indexes what production does
     const bodyTagParser = createBodyTagParser({ timeoutMs: 2_000 })
-    const { count, embedding } = await search.rebuildFromVault(
+    const { count, embedding, bodyTags } = await search.rebuildFromVault(
       { vaultPath: snapshotDir, bodyTagParser },
       logger,
     )
+    // Tag filters read body tags, which the rebuild fills in the background
+    await bodyTags
     await bodyTagParser.close()
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
