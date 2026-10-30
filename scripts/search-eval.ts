@@ -226,10 +226,12 @@ const main = async (): Promise<void> => {
       { vaultPath: snapshotDir, bodyTagParser },
       logger,
     )
+
     // No eval query or score reads body tags, so closing the parser stops the
     // background body-tag pass at its first note
     await bodyTagParser.close()
     await bodyTags
+
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
     await embedding

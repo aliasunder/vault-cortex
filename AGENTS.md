@@ -1238,9 +1238,9 @@ Obsidian ships a new release:
    and rewrites each expected answer.
 3. Run `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/body-tags.test.ts`
    and `npm run compare:body-tags -- <dir>/worker.js --documents 300000 --out disagreements.json`.
-4. When the comparison finds disagreements, pass `disagreements.json` (each
-   shrunk input as a `{ label, input }` record) as the third argument to step
-   2's command, then fix the parser until every row passes.
+4. When the comparison finds disagreements, `disagreements.json` holds each
+   shrunk input as a `{ label, input }` record. Pass that file as the third
+   argument to step 2's command, then fix the parser until every row passes.
 
 For a one-off question, `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`
 prints Obsidian's raw tags and listed names for each input.
