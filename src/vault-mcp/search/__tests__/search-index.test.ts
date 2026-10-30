@@ -12,6 +12,7 @@ import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "..
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 import { statOrNull } from "../../../utils/fs.js"
+import { describeError } from "../../../utils/describe-error.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
 import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
@@ -8972,7 +8973,7 @@ describe("body tags", () => {
     return index.searchByTag({ tag }, logger).map((note) => note.path)
   }
 
-  it("fills body tags after the rebuild returns, writes only changed ones, and logs the counts per outcome", async () => {
+  it("fills body tags in the background pass, writes only changed ones, and logs the counts per outcome", async () => {
     const vaultDir = await createVaultWithNotes({
       "parsed.md": "Kept #kept\n",
       "slow.md": "Slow #lost\n",
@@ -9130,5 +9131,158 @@ describe("body tags", () => {
       "body-tag pass stopped because the parser closed",
       { notes: 2, notesReached: 0 },
     )
+  })
+
+  it("does not parse a note removed before the pass reached it", async () => {
+    const vaultDir = await createVaultWithNotes({
+      "first.md": "One #a\n",
+      "second.md": "Two #b\n",
+    })
+    const firstParseGate = Promise.withResolvers<undefined>()
+    const requestedPaths: string[] = []
+    const gatedParser: BodyTagParser = {
+      parse: async ({ notePath }) => {
+        requestedPaths.push(notePath)
+        if (notePath === "first.md") await firstParseGate.promise
+        return { outcome: "parsed", tags: [notePath === "first.md" ? "a" : "b"] }
+      },
+      close: async () => undefined,
+    }
+    const rebuildLogger = { ...logger, info: vi.fn() }
+    const rebuildIndex = createSearchIndex(":memory:")
+    const { bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: gatedParser },
+      rebuildLogger,
+    )
+
+    rebuildIndex.removeNote("second.md")
+    firstParseGate.resolve(undefined)
+    await bodyTags
+
+    expect(requestedPaths).toEqual(["first.md"])
+    expect(pathsTaggedIn(rebuildIndex, "a")).toEqual(["first.md"])
+    expect(rebuildLogger.info).toHaveBeenCalledWith("body-tag pass complete", {
+      notes: 2,
+      parsed: 1,
+      withoutCandidate: 0,
+      overLimit: 0,
+      failed: 0,
+      superseded: 1,
+      updated: 1,
+      durationMs: expect.any(Number),
+    })
+  })
+
+  it("logs the pass's failure and rejects its promise when a parse throws", async () => {
+    const vaultDir = await createVaultWithNotes({ "note.md": "Note #a\n" })
+    const throwingParser: BodyTagParser = {
+      parse: async () => {
+        throw new Error("parser defect")
+      },
+      close: async () => undefined,
+    }
+    const rebuildLogger = { ...logger, error: vi.fn() }
+    const rebuildIndex = createSearchIndex(":memory:")
+
+    const { count, bodyTags } = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: throwingParser },
+      rebuildLogger,
+    )
+
+    expect(count).toBe(1)
+    await expect(bodyTags).rejects.toThrow(new Error("parser defect"))
+    expect(rebuildLogger.error).toHaveBeenCalledExactlyOnceWith("body-tag pass failed", {
+      error: "[Error]: parser defect",
+    })
+  })
+
+  /** describeError's text for the error JSON.parse throws on `text`. */
+  const describeJsonParseError = (text: string): string => {
+    try {
+      JSON.parse(text)
+    } catch (error) {
+      return describeError(error)
+    }
+    throw new Error(`${text} is valid JSON`)
+  }
+
+  it.each([
+    {
+      label: "not JSON",
+      storedValue: "[oops",
+      expectedWarning: [
+        "ignored stored body tags that are not JSON",
+        { path: "kept.md", error: describeJsonParseError("[oops") },
+      ],
+    },
+    {
+      label: "JSON but not a list of names",
+      storedValue: '{"tag":"stored"}',
+      expectedWarning: [
+        "ignored stored body tags that are not a list of names",
+        { path: "kept.md" },
+      ],
+    },
+  ])(
+    "reads stored body tags that are $label as none, with a warning, and keeps the note readable",
+    async ({ storedValue, expectedWarning }) => {
+      const vaultDir = await createVaultWithNotes({ "kept.md": "Kept #stored\n" })
+      const databaseDir = await mkdtemp(join(tmpdir(), "body-tags-stored-"))
+      onTestFinished(() => rm(databaseDir, { recursive: true }))
+      const databasePath = join(databaseDir, "index.db")
+      const rebuildIndex = createSearchIndex(databasePath)
+      const firstRebuild = await rebuildIndex.rebuildFromVault(
+        { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+        logger,
+      )
+      await firstRebuild.bodyTags
+      const damagingConnection = new Database(databasePath)
+      damagingConnection
+        .prepare("UPDATE notes SET body_tags = ? WHERE path = ?")
+        .run(storedValue, "kept.md")
+      damagingConnection.close()
+      const rebuildLogger = { ...logger, warn: vi.fn() }
+      // Held, so the reads below see the row the rebuild wrote before the pass
+      const { bodyTagParser, requestedPaths } = createHeldParser()
+
+      await rebuildIndex.rebuildFromVault({ vaultPath: vaultDir, bodyTagParser }, rebuildLogger)
+
+      expect(requestedPaths).toEqual(["kept.md"])
+      expect(rebuildLogger.warn).toHaveBeenCalledExactlyOnceWith(...expectedWarning)
+      expect(
+        rebuildIndex
+          .fullTextSearch({ query: "kept" }, logger)
+          .map(({ path, body_tags }) => ({ path, body_tags })),
+      ).toEqual([{ path: "kept.md", body_tags: undefined }])
+    },
+  )
+
+  it("adds the body_tags column to an older database, reading its existing notes as having none", async () => {
+    const databaseDir = await mkdtemp(join(tmpdir(), "body-tags-migration-"))
+    onTestFinished(() => rm(databaseDir, { recursive: true }))
+    const databasePath = join(databaseDir, "index.db")
+    // A notes table from before body tags, holding one note
+    const legacyDatabase = new Database(databasePath)
+    legacyDatabase.exec(`
+      CREATE TABLE notes (
+        path TEXT PRIMARY KEY, title TEXT, content TEXT, tags TEXT, related TEXT,
+        folder TEXT, type TEXT, created TEXT, mtime INTEGER, properties TEXT
+      );
+      INSERT INTO notes VALUES ('old.md', 'Old', 'old body', '[]', '[]', '', NULL, NULL, 1000, '{}');
+    `)
+    legacyDatabase.close()
+
+    const migratedIndex = createSearchIndex(databasePath)
+
+    expect(migratedIndex.vaultStats({}, logger)).toEqual({
+      totalNotes: 1,
+      untaggedNotes: 1,
+      noPropertiesNotes: 1,
+    })
+    expect(
+      migratedIndex
+        .recentNotes({}, logger)
+        .map(({ path, tags, body_tags }) => ({ path, tags, body_tags })),
+    ).toEqual([{ path: "old.md", tags: [], body_tags: undefined }])
   })
 })

@@ -73,9 +73,11 @@ describe("hasTagCandidate", () => {
     expect(hasTagCandidate("# heading #")).toBe(false)
   })
 
-  it.each(vectors)("agrees with a full parse on $label", ({ input, expected }) => {
+  it.each(vectors)("keeps every tag Obsidian finds in $label", ({ input, expected }) => {
     const body = parseNoteSkippingUnreadableBlock(input).content
+    // A body without a candidate is never parsed, so it gets no tags
+    const tagsAfterShortcut = hasTagCandidate(body) ? expected : []
 
-    if (!hasTagCandidate(body)) expect(expected).toEqual([])
+    expect(tagsAfterShortcut).toEqual(expected)
   })
 })

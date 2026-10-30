@@ -1,3 +1,4 @@
+import { setImmediate as setImmediateAsync } from "node:timers/promises"
 import { Worker } from "node:worker_threads"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { logger } from "../../../logger.js"
@@ -155,7 +156,7 @@ describe("createBodyTagParser", () => {
 
     const crashingParse = parser.parse({ notePath: "slow.md", body: SLOW_BODY }, requestLogger)
     // One turn lets the parser post the note to its ready worker
-    await new Promise((resolveTurn) => setImmediate(resolveTurn))
+    await setImmediateAsync()
     const crashedWorker = latestWorker()
     onTestFinished(async () => {
       await crashedWorker.terminate()
@@ -174,6 +175,74 @@ describe("createBodyTagParser", () => {
     )
     expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
     expect(latestWorker()).not.toBe(crashedWorker)
+  })
+
+  it("settles a note failed and logs it when its worker exits mid-parse, then parses the next note in a fresh worker", async () => {
+    const parser = createTestParser(10_000)
+    const requestLogger = createErrorLogger()
+    await warmUp(parser)
+
+    const exitingParse = parser.parse({ notePath: "slow.md", body: SLOW_BODY }, requestLogger)
+    // One turn lets the parser post the note to its ready worker
+    await setImmediateAsync()
+    const exitedWorker = latestWorker()
+    // Stopped from outside the parser, which a terminated worker reports as exit code 1
+    await exitedWorker.terminate()
+    const exitResult = await exitingParse
+    const nextResult = await parser.parse({ notePath: "next.md", body: "#after" }, logger)
+
+    expect(exitResult).toEqual({ outcome: "failed" })
+    expect(requestLogger.error).toHaveBeenCalledTimes(1)
+    expect(requestLogger.error).toHaveBeenCalledWith(
+      "body-tag worker exited while parsing a note; indexed without body tags",
+      { path: "slow.md", exitCode: 1 },
+    )
+    expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
+    expect(latestWorker()).not.toBe(exitedWorker)
+  })
+
+  it("settles a note failed and logs it when its worker fails to start, then starts a fresh worker for the next note", async () => {
+    const parser = createTestParser(10_000)
+    const requestLogger = createErrorLogger()
+
+    const startingParse = parser.parse({ notePath: "a.md", body: "#alpha" }, requestLogger)
+    const failedWorker = latestWorker()
+    // A worker whose entry cannot load reports "error" before it is ready
+    failedWorker.emit("error", new Error("cannot load the worker entry"))
+    const startResult = await startingParse
+    const nextResult = await parser.parse({ notePath: "next.md", body: "#after" }, logger)
+
+    expect(startResult).toEqual({ outcome: "failed" })
+    expect(requestLogger.error).toHaveBeenCalledTimes(1)
+    expect(requestLogger.error).toHaveBeenCalledWith(
+      "body-tag worker failed to start; note indexed without body tags",
+      { path: "a.md", error: "[Error]: cannot load the worker entry" },
+    )
+    expect(vi.mocked(failedWorker.postMessage)).not.toHaveBeenCalled()
+    expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
+    expect(latestWorker()).not.toBe(failedWorker)
+  })
+
+  // The warm-up was request 0, so the slow note is request 1
+  it.each([
+    {
+      label: "a reply for another request",
+      reply: { kind: "parsed", requestId: 99, tags: ["stale"] },
+    },
+    {
+      label: "a reply whose tags are not all names",
+      reply: { kind: "parsed", requestId: 1, tags: ["stale", 7] },
+    },
+  ])("ignores $label and waits for the note's own reply", async ({ reply }) => {
+    const parser = createTestParser(50)
+    await warmUp(parser)
+
+    const slowParse = parser.parse({ notePath: "slow.md", body: SLOW_BODY }, createErrorLogger())
+    // One turn lets the parser post the note to its ready worker
+    await setImmediateAsync()
+    latestWorker().emit("message", reply)
+
+    expect(await slowParse).toEqual({ outcome: "over-limit" })
   })
 
   it("settles a note closed without logging when close() stops its worker during start-up", async () => {
@@ -228,6 +297,14 @@ describe("createBodyTagParser", () => {
 
     const activeParse = parser.parse({ notePath: "slow.md", body: SLOW_BODY }, requestLogger)
     const queuedParse = parser.parse({ notePath: "queued.md", body: "#queued" }, logger)
+    // One turn lets the parser post the slow note, so close() stops a worker
+    // that is parsing it rather than one the note has not reached yet
+    await setImmediateAsync()
+    // The warm-up was request 0
+    expect(vi.mocked(latestWorker().postMessage)).toHaveBeenLastCalledWith({
+      requestId: 1,
+      body: SLOW_BODY,
+    })
     await parser.close()
     const afterClose = await parser.parse({ notePath: "late.md", body: "#late" }, logger)
 
