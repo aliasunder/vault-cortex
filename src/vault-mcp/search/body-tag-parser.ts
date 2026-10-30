@@ -34,7 +34,8 @@ export type BodyTagParser = {
  *  behind it by at most this. */
 export const BODY_TAG_PARSE_TIMEOUT_MS = 2_000
 
-/** The tags a parse result gives the index, which are none unless it parsed. */
+/** A parse result's tags, which are none unless it parsed. Callers handle
+ *  "unavailable" and "closed" before this, because those keep the stored tags. */
 export const bodyTagsFromParseResult = (result: BodyTagParseResult): string[] => {
   return result.outcome === "parsed" ? result.tags : []
 }

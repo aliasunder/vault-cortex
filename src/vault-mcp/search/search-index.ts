@@ -368,9 +368,9 @@ export type RebuildResult = {
   bodyTags: Promise<void>
 }
 
-/** A note's body tags as stored before a rebuild, or none when the stored value
- *  is damaged: the background pass replaces it anyway, and throwing here would
- *  fail every startup. */
+/** A note's stored body tags, or none when the stored value is damaged: the
+ *  note's next parse replaces it, and throwing here would fail every startup
+ *  and the watcher's write of the note. */
 const readStoredBodyTags = (
   params: { bodyTagsJson: string; path: string },
   logger: Logger,
@@ -1535,8 +1535,8 @@ export const createSearchIndex = (
    *  of this content is dropped once a later write replaces it. Pass it with the same content.
    *  - `bodyTags` are the tags a body-tag parser found in the text after the properties block.
    *    The parser runs off the main thread, so the caller parses before calling.
-   *  - `"keep-stored"` keeps the tags stored for the path (none for a new path), for a
-   *    caller whose parse said nothing about the note. */
+   *  - `bodyTags: "keep-stored"` keeps the tags stored for the path (none for a new path),
+   *    for a caller whose parse ended "unavailable" or "closed". */
   const upsertNote = (
     params: {
       filePath: string

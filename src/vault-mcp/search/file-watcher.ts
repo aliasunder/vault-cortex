@@ -371,9 +371,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       // A worker that cannot start, or a parser the server's shutdown closed,
       // says nothing about the note, so the note keeps its stored tags, as it
       // does in the startup pass
-      const parseSaysNothing =
+      const keepStoredTags =
         parseResult.outcome === "unavailable" || parseResult.outcome === "closed"
-      const bodyTags = parseSaysNothing ? "keep-stored" : bodyTagsFromParseResult(parseResult)
+      const bodyTags = keepStoredTags ? "keep-stored" : bodyTagsFromParseResult(parseResult)
 
       const sourceVersion = search.upsertNote(
         {
