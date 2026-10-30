@@ -32,6 +32,10 @@ import type { ToolResult } from "./test-harness.js"
 
 vi.setConfig({ testTimeout: 15_000 })
 
+// Background work in a spawned server (the body-tag pass, the trash sweep) can
+// take longer than vi.waitFor's default one second on a loaded runner
+const SPAWNED_SERVER_WAIT = { timeout: 10_000 }
+
 it("indexes newly bootstrapped memory templates before accepting requests", async () => {
   const server = await startServer(await freePort(), { MEMORY_DIR: "Fresh Memory" })
   onTestFinished(server.cleanup)
@@ -338,7 +342,7 @@ describe("default config", () => {
             body_tags: ["fixture-body", "fixture-heading", "fixture-comment"],
           },
         ])
-      })
+      }, SPAWNED_SERVER_WAIT)
     })
 
     it("vault_list_tags counts tags written in note bodies, and not one inside code", async () => {
@@ -353,7 +357,7 @@ describe("default config", () => {
           { tag: "fixture-comment", count: 1 },
           { tag: "fixture-heading", count: 1 },
         ])
-      })
+      }, SPAWNED_SERVER_WAIT)
     })
 
     it("vault_list_tags", async () => {
@@ -2378,7 +2382,7 @@ describe("trash retention sweep gating", () => {
 
     await vi.waitFor(() => {
       expect(server.stdout()).toContain(SWEEP_LOG_MARKER)
-    })
+    }, SPAWNED_SERVER_WAIT)
   }, 30_000)
 
   it.each([

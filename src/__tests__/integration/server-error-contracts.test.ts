@@ -23,6 +23,10 @@ import { runsAsRoot } from "../runs-as-root.js"
 
 vi.setConfig({ testTimeout: 15_000 })
 
+// A spawned server's log line can land well after the tool result on a loaded
+// runner, so waits on it get more than vi.waitFor's default one second
+const SERVER_LOG_WAIT = { timeout: 10_000 }
+
 const expectToolError = (result: ToolResult, expectedSubstring: string): void => {
   expect(result.isError).toBe(true)
   expect(textContent(result)).toContain(expectedSubstring)
@@ -2873,7 +2877,7 @@ describe("cannot read trash config", () => {
         ),
         readFailureLog: loggedReadFailure,
       }
-    })
+    }, SERVER_LOG_WAIT)
 
     // The delete's own tool_call line carries the context the warning must
     // share. The type checks keep that comparison from passing on undefined.
@@ -2990,7 +2994,7 @@ describe("cannot read daily notes config", () => {
         ),
         readFailureLog: loggedReadFailure,
       }
-    })
+    }, SERVER_LOG_WAIT)
 
     expect(typeof deleteCallLog?.requestId).toBe("number")
     expect({
