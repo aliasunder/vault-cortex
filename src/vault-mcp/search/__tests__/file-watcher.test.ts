@@ -1171,6 +1171,27 @@ describe("file watcher — obsolete events and embedding queues", () => {
     },
   )
 
+  it("parses no body tags for a note read that a newer change superseded", async () => {
+    const { testVault, fire } = await createControlledWatcher()
+    const filePath = join(testVault, "note.md")
+    await writeFile(filePath, "oldquartz #old")
+    const parseSpy = vi.spyOn(inProcessBodyTagParser, "parse")
+    onTestFinished(() => parseSpy.mockRestore())
+    const delayedRead = await delayFirstRead(filePath)
+    const olderChange = fire("change", "note.md")
+    await delayedRead.entered
+    await writeFile(filePath, "newopal #new")
+    await fire("change", "note.md")
+    delayedRead.release()
+    await olderChange
+
+    expect(parseSpy).toHaveBeenCalledTimes(1)
+    expect(parseSpy).toHaveBeenCalledWith(
+      { notePath: "note.md", body: "newopal #new", signal: expect.any(AbortSignal) },
+      logger,
+    )
+  })
+
   it("keeps the newer event active when an older handler finishes first", async () => {
     const { testVault, database, fire } = await createControlledWatcher()
     const filePath = join(testVault, "note.md")

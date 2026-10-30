@@ -1,8 +1,22 @@
+import { Worker } from "node:worker_threads"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { logger } from "../../../logger.js"
 import { createBodyTagParser, type BodyTagParser } from "../body-tag-parser.js"
 import { createSearchIndex } from "../search-index.js"
 import { withBodyTags } from "./body-tag-test-helpers.js"
+
+// Real workers throughout. The spy lets a test reach the worker the parser
+// started, to deliver a crash or a reply at a moment a real worker cannot be
+// made to choose
+vi.mock("node:worker_threads", { spy: true })
+
+/** The worker the parser started most recently. */
+const latestWorker = (): Worker => {
+  const startedWorker = vi.mocked(Worker).mock.instances.at(-1)
+
+  if (!startedWorker) throw new Error("the parser started no worker")
+  return startedWorker
+}
 
 /** A paragraph remark-parse 8 takes seconds on (its emphasis scan is
  *  quadratic in runs of intraword `_`), ending in a tag so the no-candidate
@@ -72,6 +86,32 @@ describe("createBodyTagParser", () => {
     expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
   })
 
+  it("keeps a note over-limit when its reply arrives while the worker is stopping", async () => {
+    const parser = createTestParser(50)
+    const requestLogger = createErrorLogger()
+    await warmUp(parser)
+    const slowWorker = latestWorker()
+    const postedRequestIds: number[] = []
+    // The module spy already wraps these methods, so each "Once" override's
+    // inner call falls through to the real method
+    vi.mocked(slowWorker.postMessage).mockImplementationOnce((request: { requestId: number }) => {
+      postedRequestIds.push(request.requestId)
+      slowWorker.postMessage(request)
+    })
+    vi.mocked(slowWorker.terminate).mockImplementationOnce(() => {
+      // A reply already on its way when the limit fires
+      for (const requestId of postedRequestIds) {
+        slowWorker.emit("message", { kind: "parsed", requestId, tags: ["late"] })
+      }
+      return slowWorker.terminate()
+    })
+
+    const slowResult = await parser.parse({ notePath: "slow.md", body: SLOW_BODY }, requestLogger)
+
+    expect(postedRequestIds).toHaveLength(1)
+    expect(slowResult).toEqual({ outcome: "over-limit" })
+  })
+
   it("gives notes queued behind a slow one their tags, because the limit starts when a note is posted", async () => {
     const parser = createTestParser(300)
     await warmUp(parser)
@@ -106,6 +146,61 @@ describe("createBodyTagParser", () => {
       { path: "deep.md", error: "[RangeError]: Maximum call stack size exceeded" },
     )
     expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
+  })
+
+  it("settles a note failed and logs it when its worker crashes, without stopping the main thread", async () => {
+    const parser = createTestParser(10_000)
+    const requestLogger = createErrorLogger()
+    await warmUp(parser)
+
+    const crashingParse = parser.parse({ notePath: "slow.md", body: SLOW_BODY }, requestLogger)
+    // One turn lets the parser post the note to its ready worker
+    await new Promise((resolveTurn) => setImmediate(resolveTurn))
+    const crashedWorker = latestWorker()
+    onTestFinished(async () => {
+      await crashedWorker.terminate()
+    })
+    // Emitting "error" with no listener throws here, as Node would on the
+    // main thread for a worker that ran out of memory
+    crashedWorker.emit("error", new RangeError("out of memory"))
+    const crashResult = await crashingParse
+    const nextResult = await parser.parse({ notePath: "next.md", body: "#after" }, logger)
+
+    expect(crashResult).toEqual({ outcome: "failed" })
+    expect(requestLogger.error).toHaveBeenCalledTimes(1)
+    expect(requestLogger.error).toHaveBeenCalledWith(
+      "body-tag worker failed while parsing a note; indexed without body tags",
+      { path: "slow.md", error: "[RangeError]: out of memory" },
+    )
+    expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
+    expect(latestWorker()).not.toBe(crashedWorker)
+  })
+
+  it("settles a note closed without logging when close() stops its worker during start-up", async () => {
+    const parser = createBodyTagParser({ timeoutMs: 10_000 })
+    const requestLogger = createErrorLogger()
+
+    const startingParse = parser.parse({ notePath: "a.md", body: "#alpha" }, requestLogger)
+    await parser.close()
+
+    expect(await startingParse).toEqual({ outcome: "closed" })
+    expect(requestLogger.error).not.toHaveBeenCalled()
+  })
+
+  it("posts nothing to a worker that reports ready after close() has stopped it", async () => {
+    const parser = createBodyTagParser({ timeoutMs: 10_000 })
+    const requestLogger = createErrorLogger()
+
+    const startingParse = parser.parse({ notePath: "a.md", body: "#alpha" }, requestLogger)
+    const startingWorker = latestWorker()
+    const closing = parser.close()
+    // The ready message arrives after terminate() starts but before "exit"
+    startingWorker.emit("message", { kind: "ready" })
+    await closing
+
+    expect(await startingParse).toEqual({ outcome: "closed" })
+    expect(vi.mocked(startingWorker.postMessage)).not.toHaveBeenCalled()
+    expect(requestLogger.error).not.toHaveBeenCalled()
   })
 
   it("drops a queued note whose signal aborted before it started", async () => {

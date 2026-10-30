@@ -72,8 +72,9 @@ const WORKER_ENTRY = new URL(
  * - A note's limit starts when it is posted to a worker that reported ready, so
  *   queue wait and worker start-up never count against it.
  * - Past the limit, the worker is terminated and the note resolves
- *   "over-limit"; a parser throw or a worker exit resolves "failed". Each logs
- *   an error naming the note, and the next note gets a fresh worker.
+ *   "over-limit"; a parser throw, a worker crash or a worker exit resolves
+ *   "failed". Each logs an error naming the note, and the next note gets a
+ *   fresh worker.
  * - A queued note whose signal aborted resolves "dropped" without parsing.
  * - `close()` resolves every pending note "closed" and starts no new worker.
  */
@@ -134,11 +135,14 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
     try {
       return await workerReady
     } catch (error) {
+      await discardWorker()
+
+      // close() terminates a starting worker, which is not a failure to log
+      if (closed) return null
       job.logger.error("body-tag worker failed to start; note indexed without body tags", {
         path: job.notePath,
         error: describeError(error),
       })
-      await discardWorker()
       return null
     }
   }
@@ -153,7 +157,21 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
         clearTimeout(limitTimer)
         readyWorker.off("message", handleReply)
         readyWorker.off("exit", handleExit)
+        readyWorker.off("error", handleWorkerError)
         resolveOutcome(result)
+      }
+
+      // A worker that dies on an uncaught error, such as running out of
+      // memory, emits "error" before "exit"; with no listener, Node rethrows
+      // it on the main thread and the server exits
+      const handleWorkerError = (error: Error): void => {
+        worker = null
+        workerReady = null
+        job.logger.error("body-tag worker failed while parsing a note; indexed without body tags", {
+          path: job.notePath,
+          error: describeError(error),
+        })
+        finish({ outcome: "failed" })
       }
 
       const handleReply = (message: unknown): void => {
@@ -188,6 +206,8 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
       }
 
       const handleTimeout = async (): Promise<void> => {
+        // A reply landing while the worker stops must not settle the job "parsed"
+        readyWorker.off("message", handleReply)
         readyWorker.off("exit", handleExit)
         job.logger.error("body-tag parsing passed its time limit; indexed without body tags", {
           path: job.notePath,
@@ -205,6 +225,7 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
 
       readyWorker.on("message", handleReply)
       readyWorker.once("exit", handleExit)
+      readyWorker.once("error", handleWorkerError)
       // setTimeout ignores the returned promise; handleTimeout settles the job
       // in its finally block, so it has no failure left to report
       const limitTimer = setTimeout(() => void handleTimeout(), timeoutMs)
@@ -230,10 +251,17 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
       }
 
       const readyWorker = await getReadyWorker(job)
-      const result = readyWorker
-        ? await parseInWorker(job, readyWorker)
-        : { outcome: "failed" as const }
-      job.settle(result)
+
+      // close() during start-up already terminated the worker, ready or not
+      if (closed) {
+        job.settle({ outcome: "closed" })
+        break
+      }
+      if (!readyWorker) {
+        job.settle({ outcome: "failed" })
+        continue
+      }
+      job.settle(await parseInWorker(job, readyWorker))
     }
     draining = false
   }

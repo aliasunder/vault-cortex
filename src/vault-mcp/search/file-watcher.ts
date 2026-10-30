@@ -347,8 +347,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       }
 
       const noteSource = await readNoteSource()
-      // Parsed before the token check, with no await between that check and the
-      // write, so a delete or newer event that lands during a slow parse wins
+
+      // A newer event or a removal during the read would drop this parse's result
+      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+
+      // Parsed before the second token check, with no await between that check
+      // and the write, so a delete or newer event that lands during a slow parse wins
       const bodyTags = noteSource ? await readNoteBodyTags(noteSource.content) : []
 
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
