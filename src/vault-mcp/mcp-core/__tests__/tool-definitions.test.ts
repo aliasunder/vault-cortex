@@ -213,16 +213,27 @@ describe("registerTools", () => {
   })
 
   it("vault_replace_in_note description clarifies in-place scope", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_REPLACE_IN_NOTE)
-    expect(config.description).toContain("in place")
-    expect(config.description).toContain("vault_read_note")
+    // A single location in the opener, and relocation across headings routed
+    // to vault_patch_note
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(
+      [
+        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text="").',
+        'To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text). To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span. To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
+      ].join("\n"),
+    )
   })
 
   it("vault_read_note documents the outline response on the outline parameter", () => {
     // The only guard against this drifting from the actual response shape.
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     expect(config.inputSchema?.shape.outline?.description).toBe(
-      "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+      "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
     )
   })
 
@@ -246,25 +257,34 @@ describe("registerTools", () => {
   })
 
   it("vault_patch_note description routes a section-above-first-heading insert to insert_before", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
-    expect(config.description).toContain(
-      "To start a new section above the note's current first heading, use insert_before on that heading, not a no-heading prepend.",
+    const prependEntry = findDescriptionLine({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      linePrefix: "- prepend:",
+    })
+    expect(prependEntry).toBe(
+      "- prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading: a no-heading prepend whose content starts with a heading nests any content above the first heading inside the new section.",
     )
   })
 
   it("vault_patch_note description does not list the displacement advisory as an error", () => {
     // Agents treat Errors: as failure modes — a successful write described
     // there would prompt a needless retry or abort.
-    const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
-    const description = requireDescription(config, TOOL_NAMES.VAULT_PATCH_NOTE)
     const errorsSection = extractDescriptionSection({
       registeredCalls: calls,
       toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
       startMarker: "Errors:",
       endMarker: "Obsidian syntax:",
     })
-    expect(errorsSection).not.toContain("becomes the new section's body")
-    expect(description).toContain("becomes the new section's body")
+    const returnsLine = findDescriptionLine({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      linePrefix: "Returns:",
+    })
+    expect(errorsSection).not.toContain("nest")
+    expect(returnsLine).toBe(
+      'Returns: Confirmation message — "Applied <operation> to <path> → <target>", where target is the matched heading (e.g. "## Active") or "file body" for a no-heading append/prepend. A no-heading prepend that nested existing content under an inserted heading adds a sentence naming the content\'s size and any call that would have avoided it.',
+    )
   })
 
   it("vault_update_task description does not list the no-next-occurrence advisory as an error", () => {
@@ -290,11 +310,14 @@ describe("registerTools", () => {
   })
 
   it("vault_update_memory description documents the duplicate no-op contract", () => {
-    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_MEMORY)
-    // Assert the full contract fragment — a bare "idempotent" check would
-    // also pass on a reworded "not idempotent" description.
-    expect(config.description).toContain(
-      "Idempotent — an exact duplicate (same date + text in the same section) is a no-op",
+    // The whole opener, so a reworded "is not a no-op" can't pass
+    const opener = findDescriptionLine({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
+      linePrefix: "Append a dated entry",
+    })
+    expect(opener).toBe(
+      "Append a dated entry to a section of a memory file in About Me/. An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in frontmatter (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries with vault_delete_memory is expected maintenance.",
     )
   })
 
@@ -316,7 +339,7 @@ describe("registerTools", () => {
       linePrefix: '- "ambiguous: N entries match …"',
     })
     expect(ambiguousEntry).toBe(
-      '- "ambiguous: N entries match …" — more than one identical bullet exists in the section. Remove the extra copy with vault_delete_span (pass first_match: true — identical lines make every anchor ambiguous) or a manual edit, then retry.',
+      '- "ambiguous: N entries match …" — remove the extra copy with vault_delete_span (first_match: true) or a manual edit, then retry.',
     )
   })
 
@@ -888,9 +911,9 @@ describe("vault_update_memory handler", () => {
   /** The registered handler over a real temp vault holding one memory file,
    *  so it exercises the actual memory store — the global harness registers
    *  against a nonexistent path. */
-  const setupUpdateMemoryHandler = async (): Promise<
-    (args: Record<string, unknown>) => Promise<unknown>
-  > => {
+  const setupUpdateMemoryHandler = async (
+    configEnv: Record<string, string> = {},
+  ): Promise<(args: Record<string, unknown>) => Promise<unknown>> => {
     const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-memory-"))
     onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
     await mkdir(join(tempVault, "About Me"), { recursive: true })
@@ -905,7 +928,7 @@ describe("vault_update_memory handler", () => {
       vaultPath: tempVault,
       search: {} as SearchIndex,
       logger,
-      config: loadConfig({}),
+      config: loadConfig(configEnv),
     })
     const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
     const updateMemoryCall = registeredCalls.find(
@@ -958,6 +981,21 @@ describe("vault_update_memory handler", () => {
         {
           type: "text",
           text: 'Added entry to About Me/Health.md → ## Sleep. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn\'t)" placeholder with what the file contains, so other agents know what it is for.',
+        },
+      ],
+    })
+  })
+
+  it("names no editing tool in the new-file nudge when vault_replace_in_note is disabled", async () => {
+    const updateMemory = await setupUpdateMemoryHandler({ DISABLED_TOOLS: "vault_replace_in_note" })
+
+    expect(
+      await updateMemory({ file: "Health", section: "Sleep", entry: "Aims for 8 hours" }),
+    ).toEqual({
+      content: [
+        {
+          type: "text",
+          text: 'Added entry to About Me/Health.md → ## Sleep. Created a new memory file with a placeholder scope callout — replace its "(describe what belongs in this file — and what doesn\'t)" placeholder with what the file contains, so other agents know what it is for.',
         },
       ],
     })
@@ -1184,15 +1222,15 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder limits results to notes:",
     resultFields:
-      "results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes",
+      "results array (path, title, snippet, score, tags, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes",
     kindSentence:
-      'The kind field is "note" for markdown notes or "file" for non-markdown content (.canvas, .pdf, .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".pdf").',
+      'The kind field is "note" for markdown notes or "file" for non-markdown content; file results also carry extension (e.g. ".pdf").',
   }
   const NOTE_ONLY_WORDING = {
     searchedScope: "search across vault notes",
     filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
     resultFields:
-      "results array (path, title, snippet, score, tags, folder, type, kind, created, modified, bytes",
+      "results array (path, title, snippet, score, tags, folder (top-level folder), type, kind, created, modified, bytes",
     kindSentence: 'The kind field is always "note".',
   }
 
@@ -1260,17 +1298,17 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do; the note stays put',
   ]
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
-    '- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable; ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
+    '- "cannot read daily notes config from .obsidian/daily-notes.json" — ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
 
   it("lists the trash-move and trash-setting errors when the server does not sync", () => {
     expect(deleteNoteErrors({})).toBe(
       [
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
-        '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies ("Plan 1.md" … "Plan 100.md"); ask the vault owner to clear old copies, then retry',
+        '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies; ask the vault owner to clear old copies, then retry',
         '- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
         ...DELETE_FAILURE_ENTRIES,
-        '- "cannot read trash config from .obsidian/app.json" — the file exists but can\'t be read or parsed; ask the vault owner to repair it, then retry',
+        '- "cannot read trash config from .obsidian/app.json" — ask the vault owner to repair it, then retry',
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -1379,8 +1417,8 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
 
     expect(openerAndReturnsLines(description)).toEqual({
       opener:
-        'Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.',
-      returns: `${RECALL_RETURNS_LEAD} The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker's relevance cut was applied.`,
+        'Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to any-term keyword matching instead of returning nothing.',
+      returns: `${RECALL_RETURNS_LEAD} search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.`,
     })
   })
 
@@ -1389,7 +1427,7 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
 
     expect(openerAndReturnsLines(description)).toEqual({
       opener:
-        'Recall memory entries about a topic — entry-granular keyword retrieval across ALL About Me/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.',
+        'Recall memory entries about a topic — entry-granular keyword retrieval across ALL About Me/ files and ALL time. Returns the matching dated entries, up to limit, sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching instead of returning nothing.',
       returns: `${RECALL_RETURNS_LEAD} In keyword-only mode search_mode is always "fts" and reranked always false.`,
     })
     expect(description).not.toContain("hybrid")
@@ -1581,18 +1619,16 @@ describe("vault_memory_recall handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(requireTextContent(result)) as {
-      entries: Array<{ file: string; date: string }>
-      total: number
-      truncated: boolean
-      search_mode: string
-    }
     // Three entries match "mutation"; limit: 2 must reach the query
     // layer (the truncation is only observable if the mapping worked).
-    expect(payload.total).toBe(3)
-    expect(payload.truncated).toBe(true)
-    expect(payload.entries).toHaveLength(2)
-    expect(payload.search_mode).toBe("fts")
+    // Which two come back is a ranking detail, not the limit under test.
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      entries: [expect.any(Object), expect.any(Object)],
+      total: 3,
+      truncated: true,
+      search_mode: "fts",
+      reranked: false,
+    })
   })
 
   it("returns an empty evidence set for a no-match query, not an error", async () => {
@@ -1602,14 +1638,13 @@ describe("vault_memory_recall handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(requireTextContent(result)) as {
-      entries: unknown[]
-      total: number
-      truncated: boolean
-    }
-    expect(payload.entries).toEqual([])
-    expect(payload.total).toBe(0)
-    expect(payload.truncated).toBe(false)
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      entries: [],
+      total: 0,
+      truncated: false,
+      search_mode: "fts",
+      reranked: false,
+    })
   })
 })
 
@@ -2003,7 +2038,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. The defaults\' daily notes folder is the one vault_get_daily_note\'s path starts with; when it is the vault root or blank, the defaults hold no daily folder.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. The defaults\' daily notes folder is the one vault_get_daily_note\'s path starts with.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -2019,11 +2054,11 @@ describe("vault_find_orphans live folder defaults", () => {
     // daily-folder line can't pass as "left out"
     const parametersSection = toolConfig.description
       ?.split("\nParameters:\n")[1]
-      ?.split("\n\nErrors:")[0]
+      ?.split("\n\nBehavior:")[0]
     expect(parametersSection).toBe(
       [
         '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
-        "- limit applies after exclusions and sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.",
+        "- limit applies after exclusions and sorting; nothing in the response signals truncation.",
       ].join("\n"),
     )
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -2949,11 +2984,9 @@ describe("DISABLED_TOOLS", () => {
       '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_LEAD} The defaults' daily notes folder is the one vault_get_daily_note's path starts with; when it is the vault root or blank, the defaults hold no daily folder.`,
+      `${ENTRY_LEAD} The defaults' daily notes folder is the one vault_get_daily_note's path starts with.`,
     )
-    expect(excludeFoldersEntry("vault_get_daily_note")).toBe(
-      `${ENTRY_LEAD} When the vault's daily notes folder is the vault root or blank, the defaults hold no daily folder.`,
-    )
+    expect(excludeFoldersEntry("vault_get_daily_note")).toBe(ENTRY_LEAD)
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
@@ -2964,7 +2997,16 @@ describe("DISABLED_TOOLS", () => {
       ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     )
     const description = listFilesCall?.[1].description
-    expect(description).toContain("BEFORE calling vault_get_memory.")
+
+    expect(
+      findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+        linePrefix: "When to use:",
+      }),
+    ).toBe(
+      "When to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory. To find entries by topic instead, use vault_memory_recall.",
+    )
     expect(description).not.toContain("vault_update_memory")
     expect(description).not.toContain("pruning entries")
   })
@@ -2981,8 +3023,14 @@ describe("DISABLED_TOOLS", () => {
     )
     const description = listFilesCall?.[1].description
 
-    expect(description).toContain(
-      "When to use: Discovering what memory files and sections exist — and what each file is for. Always call this first",
+    expect(
+      findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+        linePrefix: "When to use:",
+      }),
+    ).toBe(
+      "When to use: Discovering what memory files and sections exist — and what each file is for. To find entries by topic instead, use vault_memory_recall.",
     )
     expect(description).not.toContain("BEFORE calling")
   })
@@ -3003,21 +3051,93 @@ describe("DISABLED_TOOLS", () => {
         linePrefix: "Returns:",
       }),
     ).toBe(
-      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. The search_mode value is "hybrid" when vector matching contributed and "fts" when the entries came from keyword matching alone — including the any-term fallback; reranked is true when the reranker\'s relevance cut was applied.',
+      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.',
     )
     expect(description).not.toContain("feed directly into")
   })
+
+  it.each([
+    { toolName: TOOL_NAMES.VAULT_LIST_FILES, disabledTool: "vault_read_file" },
+    { toolName: TOOL_NAMES.VAULT_GET_DAILY_NOTE, disabledTool: "vault_recent_notes" },
+    { toolName: TOOL_NAMES.VAULT_GET_MEMORY, disabledTool: "vault_memory_recall" },
+    { toolName: TOOL_NAMES.VAULT_LIST_MEMORY_FILES, disabledTool: "vault_memory_recall" },
+    { toolName: TOOL_NAMES.VAULT_DELETE_MEMORY, disabledTool: "vault_delete_note" },
+    { toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY, disabledTool: "vault_delete_memory" },
+    { toolName: TOOL_NAMES.VAULT_LIST_TAGS, disabledTool: "vault_list_property_values" },
+    { toolName: TOOL_NAMES.VAULT_READ_FILE, disabledTool: "vault_read_note" },
+    { toolName: TOOL_NAMES.VAULT_READ_FILE, disabledTool: "vault_get_outgoing_links" },
+    { toolName: TOOL_NAMES.VAULT_READ_FILE, disabledTool: "vault_list_files" },
+    { toolName: TOOL_NAMES.VAULT_READ_FILE, disabledTool: "vault_search" },
+    { toolName: TOOL_NAMES.VAULT_LIST_FILES, disabledTool: "vault_get_outgoing_links" },
+  ])("$toolName names $disabledTool only while it is served", ({ toolName, disabledTool }) => {
+    const describeTool = (disabledTools: string): string | undefined => {
+      const registeredCalls = registerWithConfig({ DISABLED_TOOLS: disabledTools })
+      return registeredCalls.find(([registeredName]) => registeredName === toolName)?.[1]
+        .description
+    }
+
+    expect(describeTool("")).toContain(disabledTool)
+    expect(describeTool(disabledTool)).not.toContain(disabledTool)
+  })
+
+  it("no served tool's text names a tool DISABLED_TOOLS turned off", () => {
+    // The input schema as JSON Schema carries every .describe() text, nested
+    // objects included, the way a client receives it.
+    const collectServedText = ([toolName, toolConfig]: RegisterToolCall): string => {
+      if (!toolConfig.inputSchema) throw new Error(`tool ${toolName} registered without a schema`)
+
+      const schemaText = JSON.stringify(z.toJSONSchema(toolConfig.inputSchema))
+      return `${requireDescription(toolConfig, toolName)}\n${schemaText}`
+    }
+
+    // Each entry reads "naming tool -> disabled tool"; \b keeps vault_search
+    // from matching inside vault_search_by_tag.
+    const findToolsNaming = (disabledTool: string): string[] => {
+      const disabledToolPattern = new RegExp(`\\b${disabledTool}\\b`)
+      const namingCalls = registerWithConfig({ DISABLED_TOOLS: disabledTool }).filter(
+        (registeredCall) => disabledToolPattern.test(collectServedText(registeredCall)),
+      )
+      return namingCalls.map(([namingTool]) => `${namingTool} -> ${disabledTool}`)
+    }
+
+    expect(ALL_TOOL_NAMES.flatMap(findToolsNaming)).toEqual([])
+  })
+
+  const listFilesWhenToUse = (disabledTools: string): string | undefined => {
+    return findDescriptionLine({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_LIST_FILES,
+      linePrefix: "When to use:",
+    })
+  }
+
+  it("vault_list_files contrasts itself with the note discovery tools while all three are served", () => {
+    expect(listFilesWhenToUse("")).toBe(
+      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
+    )
+  })
+
+  it.each(["vault_list_notes", "vault_search_by_folder", "vault_search"])(
+    "vault_list_files falls back to its plain purpose when %s is disabled",
+    (disabledTool) => {
+      expect(listFilesWhenToUse(disabledTool)).toBe(
+        "When to use: discovering what files exist before reading them with vault_read_file. This is the discovery surface for every file that is not a markdown note. For the files one specific note links to, prefer vault_get_outgoing_links.",
+      )
+    },
+  )
 
   it("names only the surviving consumer when vault_get_memory alone is disabled", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_get_memory",
     })
-    const recallCall = registeredCalls.find(
-      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
-    )
-
-    expect(recallCall?.[1].description).toContain(
-      "file and section feed directly into vault_delete_memory.",
+    expect(
+      findDescriptionLine({
+        registeredCalls,
+        toolName: TOOL_NAMES.VAULT_MEMORY_RECALL,
+        linePrefix: "Returns:",
+      }),
+    ).toBe(
+      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.',
     )
   })
 
@@ -3277,7 +3397,7 @@ describe("DISABLED_TOOLS", () => {
     })
     expect(whenToUse).toBe(
       [
-        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.',
+        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text="").',
         'To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span. To relocate content between headings, use vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.',
       ].join("\n"),
     )
@@ -3296,21 +3416,21 @@ describe("DISABLED_TOOLS", () => {
       startMarker: '- "start anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); check the fragment\'s letter case and spacing',
+        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; check the fragment\'s letter case and spacing',
     },
     {
       toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
       startMarker: '- "start anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "start anchor not found" / "end anchor not found" — no line contains the fragment (for end_anchor, none at or after the start line); check the fragment\'s letter case and spacing',
+        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; check the fragment\'s letter case and spacing',
     },
     {
       toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
       startMarker: '- "anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "anchor not found" — fragment not on any line; check the fragment\'s letter case and spacing',
+        '- "anchor not found" — fragment not on any body line; check the fragment\'s letter case and spacing',
     },
   ])(
     "$toolName's not-found entry keeps a remedy without vault_read_note",
@@ -3348,38 +3468,44 @@ describe("DISABLED_TOOLS", () => {
     expect(ambiguousHeadingEntry).toBe(expectedEntry)
   })
 
+  const WRITE_NOTE_WHEN_TO_USE =
+    "When to use: Creating a new note, or replacing a whole note's body."
+  const WRITE_NOTE_PROPERTIES_LINE =
+    "Prefer vault_update_properties for property-only edits (no body round-trip)."
+  const WRITE_NOTE_MEMORY_LINE =
+    "Prefer vault_update_memory for appending dated entries to About Me/ memory files."
+
   it.each([
     {
       label: "names both partial-edit tools while they are served",
       disabledTools: "",
-      expectedEntry:
-        '- "note already exists" — set overwrite: true to replace it, or use vault_patch_note or vault_replace_in_note for partial edits',
+      partialEditLine: "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
     },
     {
       label: "names only vault_patch_note when vault_replace_in_note is disabled",
       disabledTools: "vault_replace_in_note",
-      expectedEntry:
-        '- "note already exists" — set overwrite: true to replace it, or use vault_patch_note for partial edits',
+      partialEditLine: "Prefer vault_patch_note to change part of a note.",
     },
     {
       label: "names only vault_replace_in_note when vault_patch_note is disabled",
       disabledTools: "vault_patch_note",
-      expectedEntry:
-        '- "note already exists" — set overwrite: true to replace it, or use vault_replace_in_note for partial edits',
+      partialEditLine: "Prefer vault_replace_in_note to change part of a note.",
     },
-    {
-      label: "offers only overwrite when both partial-edit tools are disabled",
-      disabledTools: "vault_patch_note,vault_replace_in_note",
-      expectedEntry: '- "note already exists" — set overwrite: true to replace it',
-    },
-  ])("vault_write_note's already-exists entry $label", ({ disabledTools, expectedEntry }) => {
-    const alreadyExistsEntry = extractDescriptionSection({
+  ])("vault_write_note's partial-edit routing $label", ({ disabledTools, partialEditLine }) => {
+    const whenToUse = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_WRITE_NOTE,
-      startMarker: '- "note already exists"',
-      endMarker: '\n- "path must end',
+      startMarker: "When to use:",
+      endMarker: "\n\nErrors:",
     })
-    expect(alreadyExistsEntry).toBe(expectedEntry)
+    expect(whenToUse).toBe(
+      [
+        WRITE_NOTE_WHEN_TO_USE,
+        partialEditLine,
+        WRITE_NOTE_PROPERTIES_LINE,
+        WRITE_NOTE_MEMORY_LINE,
+      ].join("\n"),
+    )
   })
 
   it.each([
@@ -3411,27 +3537,30 @@ describe("DISABLED_TOOLS", () => {
     expect(routingLine).toBe(`the full note body.\n${expectedLine}`)
   })
 
-  const WRITE_NOTE_WHEN_TO_USE =
-    "When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body."
-  const WRITE_NOTE_PROPERTIES_LINE =
-    "Prefer vault_update_properties for property-only edits (no body round-trip)."
-  const WRITE_NOTE_MEMORY_LINE =
-    "Prefer vault_update_memory for appending dated entries to About Me/ memory files."
-
   it.each([
     {
-      label: "keeps both routing lines while their tools are served",
+      label: "keeps every routing line while its tools are served",
       disabledTools: "",
-      expectedLines: [WRITE_NOTE_WHEN_TO_USE, WRITE_NOTE_PROPERTIES_LINE, WRITE_NOTE_MEMORY_LINE],
+      expectedLines: [
+        WRITE_NOTE_WHEN_TO_USE,
+        "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
+        WRITE_NOTE_PROPERTIES_LINE,
+        WRITE_NOTE_MEMORY_LINE,
+      ],
     },
     {
       label: "drops the vault_update_properties line when that tool is disabled",
       disabledTools: "vault_update_properties",
-      expectedLines: [WRITE_NOTE_WHEN_TO_USE, WRITE_NOTE_MEMORY_LINE],
+      expectedLines: [
+        WRITE_NOTE_WHEN_TO_USE,
+        "Prefer vault_patch_note or vault_replace_in_note to change part of a note.",
+        WRITE_NOTE_MEMORY_LINE,
+      ],
     },
     {
-      label: "leaves only the when-to-use line when both routing tools are disabled",
-      disabledTools: "vault_update_properties,vault_update_memory",
+      label: "leaves only the when-to-use line when every routing tool is disabled",
+      disabledTools:
+        "vault_update_properties,vault_update_memory,vault_patch_note,vault_replace_in_note",
       expectedLines: [WRITE_NOTE_WHEN_TO_USE],
     },
   ])("vault_write_note's when-to-use $label", ({ disabledTools, expectedLines }) => {
@@ -3774,7 +3903,7 @@ describe("DISABLED_TOOLS", () => {
       toolName: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
       disabledTools: "vault_delete_span,vault_replace_span,vault_patch_note",
       expectedWhenToUse:
-        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.',
+        'When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text="").',
     },
   ])("$label", ({ toolName, disabledTools, expectedWhenToUse }) => {
     const whenToUse = extractDescriptionSection({

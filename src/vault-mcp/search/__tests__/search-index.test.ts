@@ -4874,6 +4874,20 @@ describe("findOrphans", () => {
     })
   })
 
+  it("accepts up to 994 excluded folders and refuses 995", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const createExcludeFolders = (count: number): string[] => {
+      return Array.from({ length: count }, (_, folderIndex) => `Folder${folderIndex}`)
+    }
+    const largestAccepted = createExcludeFolders(994)
+    const oneTooMany = createExcludeFolders(995)
+
+    expect(queryIndex.findOrphans({ excludeFolders: largestAccepted }, logger)).toEqual([])
+    expect(() => {
+      queryIndex.findOrphans({ excludeFolders: oneTooMany }, logger)
+    }).toThrow("too many excluded folders")
+  })
+
   it("propagates unrelated SQLite query failures unchanged", () => {
     const queryIndex = createSearchIndex(":memory:")
     const requestLogger = { ...logger, warn: vi.fn() }
@@ -7237,6 +7251,39 @@ describe("canvas file content and links", () => {
       })
     })
 
+    it("reports a file's full parent folder and a note's top-level folder", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Diagrams/System/plan.md",
+          rawContent: "# Plan\n\nThe architecture deployment plan.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/System/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/System/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+
+      const { results } = await fileIndex.hybridSearch({ query: "architecture deployment" }, logger)
+      const foldersByPath = results
+        .map(({ path, folder }) => ({ path, folder }))
+        .toSorted((left, right) => left.path.localeCompare(right.path))
+
+      expect(foldersByPath).toEqual([
+        { path: "Diagrams/System/arch.canvas", folder: "Diagrams/System" },
+        { path: "Diagrams/System/plan.md", folder: "Diagrams" },
+      ])
+    })
+
     it("canvas file-node references appear as backlinks", () => {
       const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
         fileToolsEnabled: true,
@@ -7259,7 +7306,7 @@ describe("canvas file content and links", () => {
         logger,
       )
       const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
-      expect(backlinks.map((backlink) => backlink.path)).toEqual(["Diagrams/arch.canvas"])
+      expect(backlinks).toEqual([{ path: "Diagrams/arch.canvas", title: "arch", bytes: 500 }])
     })
 
     it("canvas outgoing links show file-node targets", () => {

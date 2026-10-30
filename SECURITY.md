@@ -106,10 +106,10 @@ mechanism-level detail.
   index, OAuth database) remain.
 - `DISABLED_TOOLS` narrows the surface tool-by-tool — e.g. keep writes
   on but remove the delete tools. Same registration-time guarantee.
-- Availability-keyed cross-references in surviving descriptions and
-  prompts disappear automatically. A small number of durable API-level
-  references remain (e.g. error-section alternatives naming sibling
-  tools).
+- Cross-references in surviving descriptions and prompts are
+  availability-keyed and disappear with their target. A test disables
+  each tool in turn and checks that no served tool's description or
+  input schema still names it.
 - Unknown tool names stop the server at startup rather than silently
   disabling nothing.
 
