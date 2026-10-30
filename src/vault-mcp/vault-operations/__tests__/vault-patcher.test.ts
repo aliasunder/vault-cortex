@@ -434,7 +434,11 @@ describe("heading lookup", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(/Available headings:.*Active/)
+    ).rejects.toThrow(
+      new Error(
+        'heading not found: "Missing". Available headings: # Main Title, ## Active, ### Subtasks, ## Up Next, ## Done',
+      ),
+    )
   })
 
   it("errors on ambiguous heading", async () => {
@@ -2545,7 +2549,7 @@ Hello World.
         },
         logger,
       ),
-    ).rejects.toThrow(/x{80}…/)
+    ).rejects.toThrow(new Error(`text not found in "note.md": "${"x".repeat(80)}…"`))
   })
 
   it("collapses the blank-line run a deletion with empty new_text leaves behind", async () => {
