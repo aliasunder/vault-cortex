@@ -9098,6 +9098,39 @@ describe("body tags", () => {
     })
   })
 
+  it("stops the pass and keeps every note's stored tags when the worker cannot start", async () => {
+    const vaultDir = await createVaultWithNotes({
+      "first.md": "One #a\n",
+      "second.md": "Two #b\n",
+    })
+    const rebuildIndex = createSearchIndex(":memory:")
+    const firstRebuild = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await firstRebuild.bodyTags
+    const unavailableParser: BodyTagParser = {
+      parse: vi.fn(async () => ({ outcome: "unavailable" as const })),
+      close: async () => undefined,
+    }
+    const rebuildLogger = { ...logger, warn: vi.fn() }
+
+    const secondRebuild = await rebuildIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: unavailableParser },
+      rebuildLogger,
+    )
+    await secondRebuild.bodyTags
+
+    expect(unavailableParser.parse).toHaveBeenCalledTimes(1)
+    expect(pathsTaggedIn(rebuildIndex, "a")).toEqual(["first.md"])
+    expect(pathsTaggedIn(rebuildIndex, "b")).toEqual(["second.md"])
+    expect(rebuildLogger.warn).toHaveBeenCalledTimes(1)
+    expect(rebuildLogger.warn).toHaveBeenCalledWith(
+      "body-tag pass stopped because the body-tag worker could not start",
+      { notes: 2, notesReached: 0 },
+    )
+  })
+
   it("stops the pass when the parser closes", async () => {
     const vaultDir = await createVaultWithNotes({
       "first.md": "One #a\n",

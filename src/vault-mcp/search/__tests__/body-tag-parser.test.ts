@@ -201,7 +201,7 @@ describe("createBodyTagParser", () => {
     expect(latestWorker()).not.toBe(exitedWorker)
   })
 
-  it("settles a note failed and logs it when its worker fails to start, then starts a fresh worker for the next note", async () => {
+  it("settles a note unavailable and logs it when its worker fails to start, then starts a fresh worker for the next note", async () => {
     const parser = createTestParser(10_000)
     const requestLogger = createErrorLogger()
 
@@ -212,7 +212,7 @@ describe("createBodyTagParser", () => {
     const startResult = await startingParse
     const nextResult = await parser.parse({ notePath: "next.md", body: "#after" }, logger)
 
-    expect(startResult).toEqual({ outcome: "failed" })
+    expect(startResult).toEqual({ outcome: "unavailable" })
     expect(requestLogger.error).toHaveBeenCalledTimes(1)
     expect(requestLogger.error).toHaveBeenCalledWith(
       "body-tag worker failed to start; note indexed without body tags",
@@ -223,7 +223,7 @@ describe("createBodyTagParser", () => {
     expect(latestWorker()).not.toBe(failedWorker)
   })
 
-  it("settles a note failed and logs it when the worker cannot be created, then starts one for the next note", async () => {
+  it("settles a note unavailable and logs it when the worker cannot be created, then starts one for the next note", async () => {
     const parser = createTestParser(10_000)
     const requestLogger = createErrorLogger()
     // Node throws from the Worker constructor itself when it cannot create the
@@ -236,7 +236,7 @@ describe("createBodyTagParser", () => {
     const failedResult = await parser.parse({ notePath: "a.md", body: "#alpha" }, requestLogger)
     const nextResult = await parser.parse({ notePath: "next.md", body: "#after" }, logger)
 
-    expect(failedResult).toEqual({ outcome: "failed" })
+    expect(failedResult).toEqual({ outcome: "unavailable" })
     expect(requestLogger.error).toHaveBeenCalledTimes(1)
     expect(requestLogger.error).toHaveBeenCalledWith(
       "body-tag worker failed to start; note indexed without body tags",

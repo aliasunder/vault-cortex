@@ -6,12 +6,15 @@ import { hasTagCandidate } from "../obsidian-markdown/body-tags.js"
 import { describeError } from "../../utils/describe-error.js"
 
 /** How one note's body-tag parse ended. Only "parsed" carries tags; every
- *  other outcome means the note is indexed with no body tags. */
+ *  other outcome means the note is indexed with no body tags. "unavailable"
+ *  means the worker could not start, which says nothing about the note, so a
+ *  caller holding the note's earlier tags may keep them. */
 export type BodyTagParseResult =
   | { outcome: "parsed"; tags: string[] }
   | { outcome: "no-candidate" }
   | { outcome: "over-limit" }
   | { outcome: "failed" }
+  | { outcome: "unavailable" }
   | { outcome: "dropped" }
   | { outcome: "closed" }
 
@@ -81,6 +84,8 @@ const WORKER_ENTRY = new URL(
  *   "over-limit"; a parser throw, a worker crash or a worker exit resolves
  *   "failed". Each logs an error naming the note, and the next note gets a
  *   fresh worker.
+ * - A worker that fails to start resolves the note "unavailable" and logs an
+ *   error; the next note tries a fresh worker.
  * - A queued note whose signal aborted resolves "dropped" without parsing.
  * - `close()` resolves every pending note "closed" and starts no new worker.
  */
@@ -270,7 +275,7 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
         break
       }
       if (!readyWorker) {
-        job.settle({ outcome: "failed" })
+        job.settle({ outcome: "unavailable" })
         continue
       }
       job.settle(await parseInWorker(job, readyWorker))
