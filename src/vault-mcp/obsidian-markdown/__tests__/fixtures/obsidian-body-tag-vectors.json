@@ -1,5 +1,5 @@
 {
-  "source": "Obsidian 1.14.4 worker.js via scripts/obsidian-tag-oracle.ts, generated 2026-10-29",
+  "source": "Obsidian 1.14.4 worker.js via scripts/obsidian-tag-oracle.ts, generated 2026-10-30",
   "vectors": [
     {
       "label": "CRLF comment",
@@ -2425,6 +2425,116 @@
       "label": "random comparison, seed 31, case 16",
       "input": "||`\n|-|\n    #a",
       "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 1",
+      "input": " \t%%\n- <r>\n#f",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 2",
+      "input": " \t%%#a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 3",
+      "input": " \t%%#t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 4",
+      "input": "-|\n-|-\n    #-",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 5",
+      "input": " \t%%\n~~~ #t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 6",
+      "input": " \t%%\n>[! #i]",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 7",
+      "input": " \t%%\n<div>#a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 8",
+      "input": "[^1]:$\n $#b",
+      "expected": ["b"]
+    },
+    {
+      "label": "random comparison, seed 47, case 9",
+      "input": " \t%%\n\n    \\\\#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 10",
+      "input": "[r]:m\n \t%%\n$$\n#t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 11",
+      "input": " \t%%\n\n    #c",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 12",
+      "input": " \t%%\n```\n#T",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 13",
+      "input": " \t%%\n```\n#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 14",
+      "input": "><div\n \t%%[s]#g",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 15",
+      "input": "[^1]:\t\n]\n    ``` #x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 16",
+      "input": "[^1]:```\n     \n#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 17",
+      "input": "%%\n%% \t%%\n``` #a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 18",
+      "input": "[^1]:$\n $#c",
+      "expected": ["c"]
+    },
+    {
+      "label": "random comparison, seed 47, case 19",
+      "input": " \t%%\n%%<div>#u",
+      "expected": ["u"]
+    },
+    {
+      "label": "list lazy line, blank, four-space tag",
+      "input": "- a\nb\n\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "list lazy quote line then four-space tag",
+      "input": "- a\n> q\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "ordered list lazy line, blank, seven-space tag",
+      "input": "1. a\nb\n\n       #x",
+      "expected": ["x"]
     }
   ]
 }

@@ -455,19 +455,19 @@ const inlineCommentTokenizer: InlineTokenizer = withLocator(function (
   })
 }, indexOfLocator("%%"))
 
-/** Matches a line that opens a block comment: any indent, `%%`, and no
- *  other `%` on the line. A line with one (`%% a %%`, `%%#c%`) is read
- *  inline instead. The indent is unbounded because such a line still cuts a
- *  paragraph or list short at four spaces; at the block level, indented
- *  code is tried first and takes it. */
-const COMMENT_BLOCK_OPENER_RE = /^([ \t]*%%)[^%\n]*(?:\n|$)/
+/** Matches a line that opens a block comment: any number of spaces (never
+ *  a tab), `%%`, and no other `%` on the line. A line with another `%`
+ *  (`%% a %%`, `%%#c%`) is read inline instead. */
+const COMMENT_BLOCK_OPENER_RE = /^( *%%)[^%\n]*(?:\n|$)/
 
 /** A `%%` comment that opens a line. It runs to the next `%%` anywhere
  *  below, blank lines and other blocks included, or to the end of the
  *  document, and the rest of its closing line is left for the block
  *  tokenizers (an indented tail is code). Its text is read as inline
  *  content, so a `>` or fence inside it is text and a tag inside it counts.
- *  It cuts a paragraph, a list or a quote short. */
+ *  It cuts a paragraph, a list or a quote short, so a lazy `    %%#a` ends
+ *  a list and then reads as indented code, while ` \t%%#a` stays a lazy
+ *  line. */
 const commentBlockTokenizer: Tokenizer = function (eat, value, silent): TokenizerResult {
   const opener = COMMENT_BLOCK_OPENER_RE.exec(value)
   const openerText = opener?.[1]
@@ -491,24 +491,17 @@ const commentBlockTokenizer: Tokenizer = function (eat, value, silent): Tokenize
 
 // ── Tables ─────────────────────────────────────────────────────────────────
 
-/** Matches an alignment row's end as Obsidian requires it: a `|`, then
- *  only spaces and tabs. */
-const ALIGNMENT_ROW_END_RE = /\|[ \t]*$/
-
 /** remark's table tokenizer, limited to what Obsidian reads as a table: the
- *  alignment row ends with `|`, it starts with `|` exactly when the header
- *  row does, and so must each body row, the first that does not ending the
- *  table. So a `|` inside a wikilink or code span never makes a table on its
- *  own. */
+ *  alignment row starts with `|` exactly when the header row does, and so
+ *  must each body row, the first that does not ending the table. So a `|`
+ *  inside a wikilink or code span never makes a table on its own. remark's
+ *  own rule that every row needs a `|` after its first character stays. */
 const withMatchingPipeFrames = (table: Tokenizer): Tokenizer => {
   return function (eat, value, silent) {
     const [headerRow = "", alignmentRow = "", ...bodyRows] = value.split("\n")
     const headerLeadsWithPipe = headerRow.startsWith("|")
-    const framesAgree =
-      headerLeadsWithPipe === alignmentRow.startsWith("|") &&
-      ALIGNMENT_ROW_END_RE.test(alignmentRow)
 
-    if (!framesAgree) return undefined
+    if (headerLeadsWithPipe !== alignmentRow.startsWith("|")) return undefined
 
     const firstMismatchedRow = bodyRows.findIndex(
       (row) => row.startsWith("|") !== headerLeadsWithPipe,
@@ -546,26 +539,39 @@ const blockIdTokenizer: InlineTokenizer = withLocator(
 
 // ── Footnote definitions ───────────────────────────────────────────────────
 
-/** Matches a footnote definition's opener: up to three spaces, `[^label]:`
- *  with a label of one or more characters with no whitespace or `]`, and
- *  any spaces or tabs after the colon. */
-const FOOTNOTE_DEFINITION_RE = /^ {0,3}\[\^([^\s\]]+)\]:[ \t]*/
+/** Matches a footnote definition's opener: up to three spaces and
+ *  `[^label]:` with a label of one or more characters with no whitespace or
+ *  `]`. The whitespace after the colon is the first line's indent. */
+const FOOTNOTE_DEFINITION_RE = /^ {0,3}\[\^([^\s\]]+)\]:/
 
-/** The columns a continuation line must reach, and gives up. */
-const CONTINUATION_INDENT_COLUMNS = 4
+/** The columns of indent every definition line gives up, and a line after a
+ *  blank one must reach to continue. */
+const DEFINITION_INDENT_COLUMNS = 4
 
-type DefinitionLine = { line: string; content: string; indent: number }
+type DefinitionLine = {
+  line: string
+  /** The line with up to four columns of indent split off (` \t` reaches
+   *  them in two characters, `\t ` in one, `  ` gives up both). */
+  content: string
+  /** How many characters were split off. */
+  indent: number
+  /** True when the line's indent reaches four columns. */
+  fullyIndented: boolean
+}
 
-/** A definition line with the characters that reach four columns of indent
- *  split off (` \t` reaches them in two characters, `\t ` in one), or with
- *  no indent split off when its indent falls short. */
 const toDefinitionLine = (line: string): DefinitionLine => {
   const indentation = getIndentation(line)
-  const stop = indentation.stops[CONTINUATION_INDENT_COLUMNS]
-  const indent =
-    indentation.indent >= CONTINUATION_INDENT_COLUMNS && stop !== undefined ? stop + 1 : 0
+  const columns = Math.min(indentation.indent, DEFINITION_INDENT_COLUMNS)
+  const stop = indentation.stops[columns]
+  // A stop of 0 is a real position, so only a missing one means no indent
+  const indent = stop === undefined ? 0 : stop + 1
 
-  return { line, content: line.slice(indent), indent }
+  return {
+    line,
+    content: line.slice(indent),
+    indent,
+    fullyIndented: indentation.indent >= DEFINITION_INDENT_COLUMNS,
+  }
 }
 
 /** The blocks whose start ends a footnote definition's lazy lines, which is
@@ -586,26 +592,36 @@ const FOOTNOTE_DEFINITION_INTERRUPTORS: ReadonlyArray<InterruptRule> = [
 ]
 
 /** The lines of a footnote definition after its first:
- *  - an indented line (four spaces or a tab) continues it, blank lines
- *    between included;
- *  - an unindented line right after content continues it too, as a lazy
+ *  - a line indented four columns continues it, blank lines between
+ *    included, and a blank line is one with nothing after those columns
+ *    (`\t` is blank, five spaces are not);
+ *  - a line indented less continues it too right after content, as a lazy
  *    line continues a paragraph, unless one of the listed blocks starts
- *    there or the definition holds no content yet for it to continue;
- *  - an unindented line after a blank line ends it, and the blank lines
- *    stay with the definition (so `$$ #t` on its first line is a math
- *    block when a blank line follows). */
-const collectFootnoteContinuation = (
-  parser: RemarkParserMembers,
-  eat: Eat,
-  value: string,
-  firstLine: DefinitionLine,
-): DefinitionLine[] => {
+ *    there or the definition holds nothing yet for it to continue (even
+ *    whitespace after the colon counts);
+ *  - such a line after a blank line ends it, and the blank lines stay with
+ *    the definition (so `$$ #t` on its first line is a math block when a
+ *    blank line follows). */
+const collectFootnoteContinuation = ({
+  parser,
+  eat,
+  value,
+  firstLine,
+  firstLineHasText,
+}: {
+  parser: RemarkParserMembers
+  eat: Eat
+  value: string
+  firstLine: DefinitionLine
+  /** Whether anything, whitespace included, follows the first line's colon. */
+  firstLineHasText: boolean
+}): DefinitionLine[] => {
   const collected: DefinitionLine[] = []
   // Blank lines wait until the next line shows whether more content follows
   const pendingBlankLines: DefinitionLine[] = []
   // Lazy lines need content to continue, which the loop may add, so the
   // flag is mutable parser state
-  let hasContent = Boolean(firstLine.content.trim())
+  let hasContent = firstLineHasText
   // The scan walks line starts, so its index is mutable parser state
   let lineStart = firstLine.line.length + 1
 
@@ -613,18 +629,18 @@ const collectFootnoteContinuation = (
     const lineFeedIndex = value.indexOf("\n", lineStart)
     const lineEnd = lineFeedIndex === -1 ? value.length : lineFeedIndex
     const definitionLine = toDefinitionLine(value.slice(lineStart, lineEnd))
-    const { line, indent } = definitionLine
+    const { content, fullyIndented } = definitionLine
 
-    if (!line.trim()) {
+    if (!content) {
       pendingBlankLines.push(definitionLine)
       lineStart = lineEnd + 1
       continue
     }
 
-    if (indent === 0 && (!hasContent || pendingBlankLines.length > 0)) break
+    if (!fullyIndented && (!hasContent || pendingBlankLines.length > 0)) break
 
     const interrupted =
-      indent === 0 &&
+      !fullyIndented &&
       interrupt(FOOTNOTE_DEFINITION_INTERRUPTORS, parser.blockTokenizers, parser, [
         eat,
         value.slice(lineStart),
@@ -643,8 +659,8 @@ const collectFootnoteContinuation = (
 }
 
 /** A `[^label]:` footnote definition. Its content is read as blocks, as a
- *  list item's is, after the four-column indent of its continuation lines is
- *  removed. It does not interrupt a paragraph. */
+ *  list item's is, after each of its lines gives up at most four columns of
+ *  indent. It does not interrupt a paragraph. */
 const footnoteDefinitionTokenizer: Tokenizer = function (eat, value, silent): TokenizerResult {
   const opener = FOOTNOTE_DEFINITION_RE.exec(value)
   const label = opener?.[1]
@@ -654,12 +670,25 @@ const footnoteDefinitionTokenizer: Tokenizer = function (eat, value, silent): To
 
   const firstLineFeed = value.indexOf("\n")
   const firstLineText = value.slice(0, firstLineFeed === -1 ? value.length : firstLineFeed)
+  const textAfterColon = firstLineText.slice(opener[0].length)
+  // The text after the colon gives up indent like any other line, so
+  // `[^1]:\t\t#x` keeps one tab and holds indented code
+  const firstLineRest = toDefinitionLine(textAfterColon)
   const firstLine: DefinitionLine = {
+    ...firstLineRest,
     line: firstLineText,
-    content: firstLineText.slice(opener[0].length),
-    indent: opener[0].length,
+    indent: opener[0].length + firstLineRest.indent,
   }
-  const definitionLines = [firstLine, ...collectFootnoteContinuation(this, eat, value, firstLine)]
+  const definitionLines = [
+    firstLine,
+    ...collectFootnoteContinuation({
+      parser: this,
+      eat,
+      value,
+      firstLine,
+      firstLineHasText: textAfterColon.length > 0,
+    }),
+  ]
   const linesText = definitionLines.map((definitionLine) => definitionLine.line).join("\n")
   // The line feed after the last line belongs to the definition, so a `$$`
   // opener on that line is a math block whenever another line follows
