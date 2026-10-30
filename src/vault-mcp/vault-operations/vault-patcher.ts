@@ -583,9 +583,9 @@ const replaceInNote = async (
   // The body is matched with LF line breaks (readNoteForPatch splits it with
   // splitIntoLines), so old_text's `\r\n` breaks become `\n` too:
   // - text copied from a raw read of a CRLF note then matches;
-  // - replaceAll never empties a non-empty string, unlike splitIntoLines, which
-  //   strips a line's trailing `\r` and so would turn old_text "\r" into "", a
-  //   search text that matches at offset 0.
+  // - replaceAll converts only `\r\n`, so a `\r` that ends old_text stays a
+  //   carriage return; splitIntoLines would read it as a line break, and
+  //   old_text "\r" would then match every line break in the body.
   const searchText = oldText.replaceAll("\r\n", "\n")
 
   const lockPath = resolveSafePath(params.vaultPath, path)
@@ -607,15 +607,16 @@ const replaceInNote = async (
       ? body.split(searchText)
       : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + searchText.length)]
     const count = bodyParts.length - 1
-    // Split as patchNote, replaceSpan and insertAtAnchor split content: a `\r`
-    // the edit leaves before a line break is dropped, one inside a line stays
+    // Split as patchNote, replaceSpan and insertAtAnchor split content. A `\r`
+    // the edit leaves before a line break is dropped, one that ends the body
+    // ends a line, and one inside a line stays.
     const updatedLines = splitIntoLines(bodyParts.join(newText))
 
     // A deletion stacks the empty lines from both sides of each match into one
     // run, so that run is shrunk back. A replacement keeps new text between
     // them, and its line breaks are written where the caller put them. A
-    // new_text of "\r" is dropped before a line break, but is not a deletion
-    // the caller asked for.
+    // new_text of "\r" is dropped before a line break and ends a line at the
+    // end of the body, but is not a deletion the caller asked for.
     const isDeletion = newText === ""
     const writtenLines = isDeletion
       ? collapseEmptyLineRunsAtEdits({

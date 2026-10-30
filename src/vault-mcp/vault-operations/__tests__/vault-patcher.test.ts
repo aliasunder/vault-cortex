@@ -5074,7 +5074,7 @@ describe("Windows line breaks (CRLF)", () => {
     })
   })
 
-  // Only a CR followed by LF is a line break to convert; a CR inside a line is text
+  // A CR followed by LF, or one that ends the note, is a line break; a CR inside a line is text
   describe("lone carriage returns", () => {
     const LONE_CR_CONTENT = "X1\rX2"
 
