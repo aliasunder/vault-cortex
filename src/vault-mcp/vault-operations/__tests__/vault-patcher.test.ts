@@ -5090,8 +5090,8 @@ describe("Windows line breaks (CRLF)", () => {
       )
     })
 
-    // Every edit drops a carriage return that ends a line, but the line it
-    // sat on stays, and an append goes below it
+    // A CR that closes the note ends its last line, as in Obsidian's editor, so
+    // every edit keeps that line, written as an empty line
     it("patchNote appends below a last line that holds only a carriage return", async () => {
       await writeTestNote("note.md", "body\n\r")
       await patchNote(
@@ -5116,6 +5116,50 @@ describe("Windows line breaks (CRLF)", () => {
       )
 
       expect(await readTestNote("note.md")).toBe("## A\nx\n\n| 2 |\n")
+    })
+
+    it("patchNote prepend keeps a last line that holds only a carriage return", async () => {
+      await writeTestNote("note.md", "a\nb\n\r")
+      await patchNote(
+        { vaultPath: vault, path: "note.md", operation: "prepend", content: "x" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("x\na\nb\n\n")
+    })
+
+    it("replaceInNote keeps a last line that holds only a carriage return", async () => {
+      await writeTestNote("note.md", "a\nb\n\r")
+      await replaceInNote({ vaultPath: vault, path: "note.md", oldText: "a", newText: "z" }, logger)
+
+      expect(await readTestNote("note.md")).toBe("z\nb\n\n")
+    })
+
+    it("insertAtAnchor keeps a last line that holds only a carriage return", async () => {
+      await writeTestNote("note.md", "a\nb\n\r")
+      await insertAtAnchor(
+        { vaultPath: vault, path: "note.md", anchor: "a", position: "after", content: "x" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("a\nx\nb\n\n")
+    })
+
+    it("replaceSpan keeps a last line that holds only a carriage return", async () => {
+      await writeTestNote("note.md", "a\nb\n\r")
+      await replaceSpan(
+        { vaultPath: vault, path: "note.md", startAnchor: "a", content: "z" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("z\nb\n\n")
+    })
+
+    it("deleteSpan keeps a last line that holds only a carriage return", async () => {
+      await writeTestNote("note.md", "a\nb\n\r")
+      await deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "a" }, logger)
+
+      expect(await readTestNote("note.md")).toBe("b\n\n")
     })
 
     it("replaceInNote keeps a lone carriage return inside new_text", async () => {

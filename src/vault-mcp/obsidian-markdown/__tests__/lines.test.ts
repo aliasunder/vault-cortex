@@ -208,6 +208,14 @@ describe("splitIntoLines", () => {
   it("returns a single empty line for empty content", () => {
     expect(splitIntoLines("")).toEqual([""])
   })
+
+  it("keeps a last line that holds only a CR as an empty line, like a final LF", () => {
+    expect(splitIntoLines("a\n\r")).toEqual(["a", "", ""])
+  })
+
+  it("ends a line at a CR that closes the content", () => {
+    expect(splitIntoLines("a\r")).toEqual(["a", ""])
+  })
 })
 
 // ── advanceComment ──────────────────────────────────────────────
@@ -610,6 +618,13 @@ describe("pageTextByLines", () => {
       startLine: 4,
       endLine: 5,
       totalLines: 5,
+    })
+  })
+
+  it("counts a last line that holds only a CR as an empty line, as for a final LF", () => {
+    expect(pageTextByLines({ text: "a\nb\n\r", path: "note.md" })).toEqual({
+      text: "a\nb\n",
+      lineWindow: { startLine: 1, endLine: 3, totalLines: 3 },
     })
   })
 
