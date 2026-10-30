@@ -83,19 +83,19 @@ export const nestedTagLikePattern = (input: string): string => {
 /**
  * SQL condition that one requested tag holds for a note row aliased `n`: the
  * tag `predicate` matches a value of the tags property or of the body tags.
- * Parenthesised, so a caller can AND one per requested tag; the predicate's
- * parameters are returned twice, in placeholder order, one copy per column.
+ * Parenthesised, so a caller can AND one per requested tag. The predicate holds
+ * one `?`, and `boundValue` is returned twice, one copy per column.
  */
 export const noteHasTagCondition = (params: {
   predicate: string
-  predicateParams: ReadonlyArray<string>
+  boundValue: string
 }): { condition: string; conditionParams: string[] } => {
-  const { predicate, predicateParams } = params
+  const { predicate, boundValue } = params
   return {
     condition:
       `(EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${predicate})` +
       ` OR EXISTS (SELECT 1 FROM json_each(n.body_tags) WHERE ${predicate}))`,
-    conditionParams: [...predicateParams, ...predicateParams],
+    conditionParams: [boundValue, boundValue],
   }
 }
 

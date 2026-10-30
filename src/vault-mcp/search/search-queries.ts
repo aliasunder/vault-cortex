@@ -193,7 +193,7 @@ export const fullTextSearch = (
     for (const tag of params.filters.tags) {
       const { condition, conditionParams } = noteHasTagCondition({
         predicate: NESTED_TAG_PREDICATE,
-        predicateParams: [nestedTagLikePattern(tag)],
+        boundValue: nestedTagLikePattern(tag),
       })
       conditions.push(condition)
       queryParams.push(...conditionParams)
@@ -810,10 +810,7 @@ export const searchByTag = (
   const tagMatch = params.exact
     ? { predicate: "fold_tag(value) = ?", boundValue: normalizeTagQuery(params.tag) }
     : { predicate: NESTED_TAG_PREDICATE, boundValue: nestedTagLikePattern(params.tag) }
-  const { condition, conditionParams } = noteHasTagCondition({
-    predicate: tagMatch.predicate,
-    predicateParams: [tagMatch.boundValue],
-  })
+  const { condition, conditionParams } = noteHasTagCondition(tagMatch)
 
   const sql = `
     SELECT ${NOTE_METADATA_COLUMNS}
