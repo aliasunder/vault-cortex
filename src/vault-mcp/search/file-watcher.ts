@@ -105,6 +105,9 @@ type ChangeIndexResult =
   // A newer event or a removal for the same path replaced this read's token
   // before the read finished, so its content was dropped.
   | { status: "superseded" }
+  // The server is shutting down and has closed the body-tag parser, so the
+  // note's row was left as it was.
+  | { status: "parser-closed" }
   // A note's read, stat or index write failed, or a non-md file's stat or
   // asset-table write did; already logged. A non-md file whose content alone
   // could not be read, extracted or indexed is still "file-indexed".
@@ -327,7 +330,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         }
       }
 
-      const readNoteBodyTags = async (content: string): Promise<string[]> => {
+      /** The note's body tags, or null once the parser has closed. */
+      const readNoteBodyTags = async (content: string): Promise<string[] | null> => {
         const parseController = new AbortController()
         pendingBodyTagParses.set(relativePath, parseController)
 
@@ -340,7 +344,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
             },
             logger,
           )
-          return bodyTagsFromParseResult(parseResult)
+          return parseResult.outcome === "closed" ? null : bodyTagsFromParseResult(parseResult)
         } finally {
           if (pendingBodyTagParses.get(relativePath) === parseController) {
             pendingBodyTagParses.delete(relativePath)
@@ -362,6 +366,11 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
       if (!noteSource) return { status: "vanished" }
+
+      // The parser closes only when the server shuts down. A write with no body
+      // tags then would replace the stored ones, which the next startup keeps
+      // until its pass parses the note again
+      if (!bodyTags) return { status: "parser-closed" }
 
       const { content, fileStat } = noteSource
 
