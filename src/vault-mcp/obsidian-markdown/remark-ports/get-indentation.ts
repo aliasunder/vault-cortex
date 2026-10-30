@@ -51,6 +51,7 @@ export const getIndentation = (value: string): Indentation => {
 
     indent += size
 
+    // A tab reaches the next tab stop, so ` \t` is four columns, not five
     if (size > 1) indent = Math.floor(indent / size) * size
 
     while (lastIndent < indent) {

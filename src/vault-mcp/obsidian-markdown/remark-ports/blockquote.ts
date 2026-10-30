@@ -75,6 +75,14 @@ const skipSpacesAndTabs = (value: string, fromIndex: number): number => {
   return index
 }
 
+/** The index where a prefixed line's content starts: past the `>` at
+ *  `markerIndex` and the one optional space after it. */
+const skipQuotePrefix = (value: string, markerIndex: number): number => {
+  const afterMarker = markerIndex + 1
+
+  return value.charAt(afterMarker) === SPACE ? afterMarker + 1 : afterMarker
+}
+
 export const blockquote = function (
   this: RemarkParserMembers,
   eat: Eat,
@@ -101,9 +109,7 @@ export const blockquote = function (
     const nextIndex = lineFeedIndex === -1 ? length : lineFeedIndex
     const afterIndent = skipSpacesAndTabs(value, index)
     const prefixed = value.charAt(afterIndent) === GREATER_THAN
-    const afterMarker = afterIndent + 1
-    const contentStart = value.charAt(afterMarker) === SPACE ? afterMarker + 1 : afterMarker
-    const contentIndex = prefixed ? contentStart : startIndex
+    const contentIndex = prefixed ? skipQuotePrefix(value, afterIndent) : startIndex
     const content = value.slice(contentIndex, nextIndex)
 
     if (!prefixed && !content.trim()) break
@@ -165,6 +171,8 @@ const tokenizeQuoteContent = (
 
   if (bodyLines.length === 0) return { kind: "callout", nodes: [title] }
 
+  // The body starts on the line after the title, whose source offset only
+  // the parser's line table knows
   const bodyPoint = { line: now.line + 1, column: 1 }
   const bodyStart = { ...bodyPoint, offset: parser.toOffset(bodyPoint) }
   const body = bodyLines.map((quoteLine) => quoteLine.content).join(LINE_FEED)

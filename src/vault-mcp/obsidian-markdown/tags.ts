@@ -27,9 +27,12 @@ const TAGS_KEY_RE = /^tags$/i
 /** True for a property key Obsidian reads tags from: `tags` in any letter case. */
 export const isTagsKey = (key: string): boolean => TAGS_KEY_RE.test(key)
 
+/** True for a name made of ASCII digits only, which is never a tag. */
+export const isDigitsOnlyName = (name: string): boolean => DIGITS_ONLY_RE.test(name)
+
 /** True for a name that Obsidian's Tags view would list as a tag. */
 export const isObsidianTagName = (name: string): boolean =>
-  TAG_NAME_RE.test(name) && !DIGITS_ONLY_RE.test(name)
+  TAG_NAME_RE.test(name) && !isDigitsOnlyName(name)
 
 /** The raw value under the first key spelled `tags` in any letter case, the
  *  only key Obsidian reads: a later `Tags` key is ignored even if the first

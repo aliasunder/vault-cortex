@@ -27,7 +27,8 @@
  *   the like from an item before reading its content (a fence that follows
  *   such a marker is a code block, not text).
  * - `String.prototype.trim` and `String.prototype.repeat` replace the `trim`
- *   and `repeat-string` packages, and a character test replaces `is-decimal`.
+ *   and `repeat-string` packages, and a character test (`isAsciiDigit`,
+ *   exported for the Obsidian tokenizers) replaces `is-decimal`.
  * - The pedantic list-item path is dropped, because the parser never runs in
  *   pedantic mode.
  */
@@ -65,7 +66,7 @@ const TASK_ITEM_RE = /^\[(.)\][ \t]/
  *  the rest of the first line. */
 const BULLET_RE = /^([ \t]*)([*+-]|\d+[.)])( {1,4}(?! )| |\t|$|(?=\n))([^\n]*)/
 
-const isAsciiDigit = (character: string): boolean => character >= "0" && character <= "9"
+export const isAsciiDigit = (character: string): boolean => character >= "0" && character <= "9"
 
 type ListItemLines = {
   value: string[]
@@ -155,37 +156,46 @@ export const list = function (
     const previousEmpty = empty
 
     empty = !prefixed && !content.trim().length
+    // Every branch below either ends the list or moves on to the next line
+    index = nextIndex + 1
 
     if (indented && item) {
       item.value = item.value.concat(emptyLines, line)
       allLines = allLines.concat(emptyLines, line)
       emptyLines = []
-    } else if (prefixed) {
+      continue
+    }
+
+    if (prefixed) {
       if (emptyLines.length !== 0 && item) {
         spread = true
         item.value.push("")
-        item.trail = emptyLines.concat()
+        item.trail = [...emptyLines]
       }
 
       item = { value: [line], indent: scan.size, trail: [] }
       items.push(item)
       allLines = allLines.concat(emptyLines, line)
       emptyLines = []
-    } else if (empty) {
+      continue
+    }
+
+    if (empty) {
+      // Upstream's rule outside CommonMark mode, which this parser never
+      // leaves; kept so the port reads against its source
       if (previousEmpty && !commonmark) break
 
       emptyLines.push(line)
-    } else {
-      if (previousEmpty) break
-      if (interrupt(interruptors, tokenizers, this, [eat, line, true])) break
-      if (!item) break
-
-      item.value = item.value.concat(emptyLines, line)
-      allLines = allLines.concat(emptyLines, line)
-      emptyLines = []
+      continue
     }
 
-    index = nextIndex + 1
+    if (previousEmpty) break
+    if (interrupt(interruptors, tokenizers, this, [eat, line, true])) break
+    if (!item) break
+
+    item.value = item.value.concat(emptyLines, line)
+    allLines = allLines.concat(emptyLines, line)
+    emptyLines = []
   }
 
   const node = eat(allLines.join(LINE_FEED)).reset({
@@ -302,6 +312,8 @@ const scanItemLine = (
       const digits = readDigits(value, index)
       const afterDigits = value.charAt(index + digits.length)
 
+      // Without a marker the line's own start is returned, so this advance
+      // only matters when the digits turn out to be a bullet
       index += digits.length + 1
 
       if (digits && (afterDigits === DOT || (commonmark && afterDigits === RIGHT_PARENTHESIS))) {
@@ -324,6 +336,8 @@ const scanItemLine = (
           size += 1
         }
 
+        // Five or more spaces after the marker are one space of bullet
+        // spacing and then indented code, so the scan keeps only the first
         if (index === end && value.charAt(index) === SPACE) {
           index -= TAB_SIZE - 1
           size -= TAB_SIZE - 1
@@ -336,7 +350,8 @@ const scanItemLine = (
 
   if (currentMarker) return { nextIndex, size, index, currentMarker, indented: indentedByItem }
 
-  const indented = commonmark && item ? size >= item.indent || size > TAB_SIZE : indentedByItem
+  const indentedPastTabStop = Boolean(commonmark && item && size > TAB_SIZE)
+  const indented = indentedByItem || indentedPastTabStop
   const indentedByLeadingSpace = !commonmark && !indentedByItem && value.charAt(lineStart) === SPACE
 
   return {
@@ -388,13 +403,17 @@ const removeListItemBullet = (
     bulletMatch
   const bullet = bulletIndent + bulletMarker + bulletSpacing
   // The first nine numbered items may indent with one extra space, which is
-  // the case when the bullet did not get an extra final space
+  // the case when the bullet did not get an extra final space. `Number`
+  // reads `1.` but not `1)` or `-`, so only dot-marked items widen, as in
+  // remark's list.js; Obsidian agrees.
   const widenedMarker =
     Number(bulletMarker) < 10 && bullet.length % 2 === 1 ? SPACE + bulletMarker : bulletMarker
-  const maximum = bulletIndent + SPACE.repeat(widenedMarker.length) + bulletSpacing
-  const replaced = maximum + firstLineRest + value.slice(bulletText.length)
+  const bulletAsSpaces = bulletIndent + SPACE.repeat(widenedMarker.length) + bulletSpacing
+  const replaced = bulletAsSpaces + firstLineRest + value.slice(bulletText.length)
   const lines = replaced.split(LINE_FEED)
-  const trimmedLines = removeIndentation(replaced, getIndentation(maximum).indent).split(LINE_FEED)
+  const trimmedLines = removeIndentation(replaced, getIndentation(bulletAsSpaces).indent).split(
+    LINE_FEED,
+  )
 
   // The bullet was replaced by spaces above so that removeIndentation could
   // take matching indent off the lines below; the first line gets its own

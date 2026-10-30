@@ -40,7 +40,8 @@ const LINE_FEED = "\n"
  *  `value`, up to `maximum` columns, from every line. */
 export const removeIndentation = (value: string, maximum: number): string => {
   // A sentinel first line of `maximum` spaces caps the shared indent at
-  // `maximum`; it is dropped again before the lines are joined.
+  // `maximum`; its `!` keeps it from counting as blank, and it is dropped
+  // again before the lines are joined.
   const lines = [`${" ".repeat(maximum)}!`, ...value.split(LINE_FEED)]
   const indentations = lines.map(getIndentation)
   const contentIndents = lines.flatMap((line, index) => {

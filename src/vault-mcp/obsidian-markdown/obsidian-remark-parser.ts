@@ -17,7 +17,7 @@ import { createRequire } from "node:module"
 import { blockquote } from "./remark-ports/blockquote.js"
 import { getIndentation } from "./remark-ports/get-indentation.js"
 import { interrupt } from "./remark-ports/interrupt.js"
-import { list } from "./remark-ports/list.js"
+import { isAsciiDigit, list } from "./remark-ports/list.js"
 import {
   isRemarkParseModule,
   type Eat,
@@ -31,7 +31,7 @@ import {
   type Tokenizer,
   type TokenizerResult,
 } from "./remark-parse-types.js"
-import { TAG_NAME_CHARACTER_CLASS } from "./tags.js"
+import { isDigitsOnlyName, TAG_NAME_CHARACTER_CLASS } from "./tags.js"
 
 // remark-parse 8 is CommonJS with no `exports` map, and the compiled ESM
 // build resolves its internal files by `.js` path only, so a CommonJS
@@ -52,8 +52,6 @@ const RemarkParser = remarkParseModule.Parser
  *  em space, and a highlight may not open before one. */
 const WHITESPACE_RE = /\s/
 
-const isAsciiDigit = (character: string): boolean => character >= "0" && character <= "9"
-
 const isSpaceOrTab = (character: string): boolean => character === " " || character === "\t"
 
 /** The point `offset` characters after `point`, on the same line. */
@@ -69,6 +67,22 @@ const indexOfLocator = (needle: string): Locator => {
   }
 }
 
+/** A locator for a token that may start only after a certain character,
+ *  from a regex of that character followed by the token's start. The search
+ *  begins one character before `fromIndex`, so a token right at `fromIndex`
+ *  is found when the character before it fits. remark's text tokenizer is
+ *  the only caller of locators and always passes a `fromIndex` of 1, so the
+ *  search never starts before the value. */
+const locatorAfterCharacter = (tokenAfterCharacter: RegExp): Locator => {
+  return function (value, fromIndex) {
+    const searchStart = fromIndex - 1
+    const match = tokenAfterCharacter.exec(value.slice(searchStart))
+
+    // The match starts at the character before the token
+    return match ? searchStart + match.index + 1 : -1
+  }
+}
+
 const withLocator = (tokenizer: Tokenizer, locator: Locator): InlineTokenizer => {
   return Object.assign(tokenizer, { locator })
 }
@@ -78,10 +92,6 @@ const withLocator = (tokenizer: Tokenizer, locator: Locator): InlineTokenizer =>
 /** Matches a body tag at the start of the value: `#` and its name. */
 const TAG_RE = new RegExp(`^#(${TAG_NAME_CHARACTER_CLASS}+)`)
 
-/** Matches a name of ASCII digits only, which Obsidian does not read as a tag
- *  (`#1984` stays text, so a tag cannot start right after it either). */
-const DIGITS_ONLY_RE = /^\d+$/
-
 /** Matches a `#` that a tag may start at while text is being read: after a
  *  whitespace character, and followed by a tag-name character. A `#` right
  *  after other text (`foo#bar`) is text; a `#` at the start of the value is
@@ -89,22 +99,17 @@ const DIGITS_ONLY_RE = /^\d+$/
  *  matched there. */
 const TAG_AFTER_WHITESPACE_RE = new RegExp(`\\s#${TAG_NAME_CHARACTER_CLASS}`)
 
-const tagTokenizer: InlineTokenizer = withLocator(
-  function (eat, value, silent): TokenizerResult {
-    const match = TAG_RE.exec(value)
-    const tagName = match?.[1]
+const tagTokenizer: InlineTokenizer = withLocator(function (eat, value, silent): TokenizerResult {
+  const match = TAG_RE.exec(value)
+  const tagName = match?.[1]
 
-    if (!match || !tagName || DIGITS_ONLY_RE.test(tagName)) return undefined
-    if (silent) return true
+  // A name of digits only stays text, and text blocks the next tag, so
+  // `#1984#x` holds no tag at all
+  if (!match || !tagName || isDigitsOnlyName(tagName)) return undefined
+  if (silent) return true
 
-    return eat(match[0])({ type: "tag", value: tagName })
-  },
-  function (value, fromIndex) {
-    const match = TAG_AFTER_WHITESPACE_RE.exec(value.slice(fromIndex - 1))
-
-    return match ? fromIndex - 1 + match.index + 1 : -1
-  },
-)
+  return eat(match[0])({ type: "tag", value: tagName })
+}, locatorAfterCharacter(TAG_AFTER_WHITESPACE_RE))
 
 // ── Wikilinks and embeds ───────────────────────────────────────────────────
 
@@ -129,6 +134,8 @@ const wikilinkTokenizer: InlineTokenizer = withLocator(
   function (value, fromIndex) {
     const index = value.indexOf("[[", fromIndex)
 
+    // An embed's `!` sits one before the `[[`, which a locator may not
+    // report before `fromIndex`
     if (index > fromIndex && value.charAt(index - 1) === "!") return index - 1
     return index
   },
@@ -136,8 +143,8 @@ const wikilinkTokenizer: InlineTokenizer = withLocator(
 
 // ── Footnotes ──────────────────────────────────────────────────────────────
 
-/** Matches a footnote reference: a label of one or more characters with no
- *  whitespace or `]` (`[^a[b]` is one). */
+/** Matches a footnote reference, whose label is one or more characters
+ *  with no whitespace or `]` (`[^a[b]` is one). */
 const FOOTNOTE_REFERENCE_RE = /^\[\^([^\s\]]+)\]/
 
 const footnoteReferenceTokenizer: InlineTokenizer = withLocator(function (
@@ -190,16 +197,19 @@ const inlineFootnoteTokenizer: InlineTokenizer = withLocator(function (
 ): TokenizerResult {
   if (!value.startsWith("^[")) return undefined
 
-  const end = findBracketedSpanEnd(value, 1)
+  const openingBracketIndex = 1
+  const contentStart = openingBracketIndex + 1
+  const end = findBracketedSpanEnd(value, openingBracketIndex)
 
   if (end === -1) return undefined
   if (silent) return true
 
-  const content = value.slice(2, end - 1)
+  const closingBracketIndex = end - 1
+  const content = value.slice(contentStart, closingBracketIndex)
 
   return eat(value.slice(0, end))({
     type: "inlineFootnote",
-    children: this.tokenizeInline(content, advancePoint(eat.now(), 2)),
+    children: this.tokenizeInline(content, advancePoint(eat.now(), contentStart)),
   })
 }, indexOfLocator("^["))
 
@@ -241,8 +251,9 @@ const HIGHLIGHT_COLOUR_MARKERS = [
   "🟪",
 ]
 
-const findHighlightColourMarker = (content: string): string | undefined =>
-  HIGHLIGHT_COLOUR_MARKERS.find((marker) => content.startsWith(marker))
+const findHighlightColourMarker = (content: string): string | undefined => {
+  return HIGHLIGHT_COLOUR_MARKERS.find((marker) => content.startsWith(marker))
+}
 
 /** What sets `==highlight==` apart from `~~strikethrough~~`: a colour
  *  marker may open it, and `====` is no highlight, while `~~~~` is an empty
@@ -257,31 +268,36 @@ const createDelimitedSpanTokenizer = (
   delimiter: string,
   rules: DelimitedSpanRules,
 ): InlineTokenizer => {
+  const contentStart = delimiter.length
+
   return withLocator(function (eat, value, silent): TokenizerResult {
-    if (!value.startsWith(delimiter) || WHITESPACE_RE.test(value.charAt(2))) return undefined
+    if (!value.startsWith(delimiter) || WHITESPACE_RE.test(value.charAt(contentStart))) {
+      return undefined
+    }
 
     const closeIndex = findDelimitedSpanClose(value, delimiter)
+    const isEmpty = closeIndex === contentStart
 
     // An empty highlight fails outright rather than looking further on
-    if (closeIndex === -1 || (closeIndex === 2 && !rules.allowsEmptyContent)) return undefined
+    if (closeIndex === -1 || (isEmpty && !rules.allowsEmptyContent)) return undefined
     if (silent) return true
 
-    const content = value.slice(2, closeIndex)
+    const content = value.slice(contentStart, closeIndex)
     const colourMarker = rules.allowsColourMarker ? findHighlightColourMarker(content) : undefined
     const textStart = colourMarker ? colourMarker.length : 0
     const children = this.tokenizeInline(
       content.slice(textStart),
-      advancePoint(eat.now(), 2 + textStart),
+      advancePoint(eat.now(), contentStart + textStart),
     )
 
-    return eat(value.slice(0, closeIndex + 2))({ type: rules.type, children })
+    return eat(value.slice(0, closeIndex + delimiter.length))({ type: rules.type, children })
   }, indexOfLocator(delimiter))
 }
 
 const findDelimitedSpanClose = (value: string, delimiter: string): number => {
   // The scan resumes after each rejected closer, so its index is mutable
   // parser state.
-  let index = value.indexOf(delimiter, 2)
+  let index = value.indexOf(delimiter, delimiter.length)
 
   while (index !== -1) {
     if (!WHITESPACE_RE.test(value.charAt(index - 1))) return index
@@ -465,9 +481,10 @@ const COMMENT_BLOCK_OPENER_RE = /^( *%%)[^%\n]*(?:\n|$)/
  *  document, and the rest of its closing line is left for the block
  *  tokenizers (an indented tail is code). Its text is read as inline
  *  content, so a `>` or fence inside it is text and a tag inside it counts.
- *  It cuts a paragraph, a list or a quote short, so a lazy `    %%#a` ends
- *  a list and then reads as indented code, while ` \t%%#a` stays a lazy
- *  line. */
+ *  It cuts a paragraph, a list or a quote short, including through a lazy
+ *  line (one that continues a list item or quote without its marker or
+ *  indent): `    %%#a` ends a list and then reads as indented code, while
+ *  ` \t%%#a` stays a lazy line. */
 const commentBlockTokenizer: Tokenizer = function (eat, value, silent): TokenizerResult {
   const opener = COMMENT_BLOCK_OPENER_RE.exec(value)
   const openerText = opener?.[1]
@@ -491,24 +508,45 @@ const commentBlockTokenizer: Tokenizer = function (eat, value, silent): Tokenize
 
 // ── Tables ─────────────────────────────────────────────────────────────────
 
+/** The lines of `value` that a table may hold: the first two whatever they
+ *  are (header and alignment rows), then every line that starts with `|`
+ *  exactly when the header does, up to the first that does not. Lines are
+ *  read one at a time, so a long document is not split on every attempt. */
+const collectTableLines = (value: string): string[] => {
+  const lines: string[] = []
+  // The scan walks line starts and learns the header's framing from the
+  // first line, so both are mutable parser state
+  let lineStart = 0
+  let headerLeadsWithPipe = false
+
+  while (lineStart <= value.length) {
+    const lineFeedIndex = value.indexOf("\n", lineStart)
+    const lineEnd = lineFeedIndex === -1 ? value.length : lineFeedIndex
+    const line = value.slice(lineStart, lineEnd)
+    const isBodyRow = lines.length >= 2
+
+    if (lines.length === 0) headerLeadsWithPipe = line.startsWith("|")
+    if (isBodyRow && line.startsWith("|") !== headerLeadsWithPipe) break
+
+    lines.push(line)
+    lineStart = lineEnd + 1
+  }
+
+  return lines
+}
+
 /** remark's table tokenizer, limited to what Obsidian reads as a table: the
  *  alignment row starts with `|` exactly when the header row does, and so
  *  must each body row, the first that does not ending the table. So a `|`
  *  inside a wikilink or code span never makes a table on its own. remark's
  *  own rule that every row needs a `|` after its first character stays. */
-const withMatchingPipeFrames = (table: Tokenizer): Tokenizer => {
+const withLeadingPipesAgreeing = (table: Tokenizer): Tokenizer => {
   return function (eat, value, silent) {
-    const [headerRow = "", alignmentRow = "", ...bodyRows] = value.split("\n")
-    const headerLeadsWithPipe = headerRow.startsWith("|")
+    const [headerRow = "", alignmentRow = "", ...bodyRows] = collectTableLines(value)
 
-    if (headerLeadsWithPipe !== alignmentRow.startsWith("|")) return undefined
+    if (headerRow.startsWith("|") !== alignmentRow.startsWith("|")) return undefined
 
-    const firstMismatchedRow = bodyRows.findIndex(
-      (row) => row.startsWith("|") !== headerLeadsWithPipe,
-    )
-    const tableRows = firstMismatchedRow === -1 ? bodyRows : bodyRows.slice(0, firstMismatchedRow)
-
-    return table.call(this, eat, [headerRow, alignmentRow, ...tableRows].join("\n"), silent)
+    return table.call(this, eat, [headerRow, alignmentRow, ...bodyRows].join("\n"), silent)
   }
 }
 
@@ -521,21 +559,18 @@ const BLOCK_ID_RE = /^\^[A-Za-z0-9-]+(?=\n|$)/
 /** Matches a block ID in running text: the `^` must follow whitespace. */
 const BLOCK_ID_AFTER_WHITESPACE_RE = /\s\^[A-Za-z0-9-]+(?=\n|$)/
 
-const blockIdTokenizer: InlineTokenizer = withLocator(
-  function (eat, value, silent): TokenizerResult {
-    const match = BLOCK_ID_RE.exec(value)
+const blockIdTokenizer: InlineTokenizer = withLocator(function (
+  eat,
+  value,
+  silent,
+): TokenizerResult {
+  const match = BLOCK_ID_RE.exec(value)
 
-    if (!match) return undefined
-    if (silent) return true
+  if (!match) return undefined
+  if (silent) return true
 
-    return eat(match[0])({ type: "blockId", value: match[0].slice(1) })
-  },
-  function (value, fromIndex) {
-    const match = BLOCK_ID_AFTER_WHITESPACE_RE.exec(value.slice(fromIndex - 1))
-
-    return match ? fromIndex - 1 + match.index + 1 : -1
-  },
-)
+  return eat(match[0])({ type: "blockId", value: match[0].slice(1) })
+}, locatorAfterCharacter(BLOCK_ID_AFTER_WHITESPACE_RE))
 
 // ── Footnote definitions ───────────────────────────────────────────────────
 
@@ -625,6 +660,8 @@ const collectFootnoteContinuation = ({
   // The scan walks line starts, so its index is mutable parser state
   let lineStart = firstLine.line.length + 1
 
+  // `<=` so that a trailing line feed's empty line is visited and kept as
+  // a blank line of the definition
   while (lineStart <= value.length) {
     const lineFeedIndex = value.indexOf("\n", lineStart)
     const lineEnd = lineFeedIndex === -1 ? value.length : lineFeedIndex
@@ -637,10 +674,14 @@ const collectFootnoteContinuation = ({
       continue
     }
 
-    if (!fullyIndented && (!hasContent || pendingBlankLines.length > 0)) break
+    const isLazyLine = !fullyIndented
+    const followsBlankLine = pendingBlankLines.length > 0
+    const lazyLineEnds = isLazyLine && (!hasContent || followsBlankLine)
+
+    if (lazyLineEnds) break
 
     const interrupted =
-      !fullyIndented &&
+      isLazyLine &&
       interrupt(FOOTNOTE_DEFINITION_INTERRUPTORS, parser.blockTokenizers, parser, [
         eat,
         value.slice(lineStart),
@@ -649,8 +690,7 @@ const collectFootnoteContinuation = ({
 
     if (interrupted) break
 
-    collected.push(...pendingBlankLines, definitionLine)
-    pendingBlankLines.length = 0
+    collected.push(...pendingBlankLines.splice(0), definitionLine)
     hasContent = true
     lineStart = lineEnd + 1
   }
@@ -749,6 +789,10 @@ class ObsidianParser extends RemarkParser {
 
     this.setOptions({ commonmark: true, gfm: true })
 
+    const remarkDefinition = requireTokenizer(this.blockTokenizers, "definition")
+    const remarkTable = requireTokenizer(this.blockTokenizers, "table")
+    const remarkReference = requireTokenizer(this.inlineTokenizers, "reference")
+
     // Copies of remark's tables, so its prototype is never changed
     this.blockTokenizers = {
       ...this.blockTokenizers,
@@ -757,20 +801,22 @@ class ObsidianParser extends RemarkParser {
       mathBlock: mathBlockTokenizer,
       commentBlock: commentBlockTokenizer,
       footnoteDefinition: footnoteDefinitionTokenizer,
-      definition: withoutFootnoteDefinitions(requireTokenizer(this.blockTokenizers, "definition")),
-      table: withMatchingPipeFrames(requireTokenizer(this.blockTokenizers, "table")),
+      definition: withoutFootnoteDefinitions(remarkDefinition),
+      table: withLeadingPipesAgreeing(remarkTable),
     }
-    this.blockMethods = insertAfter(
-      insertAfter(this.blockMethods, "fencedCode", ["mathBlock", "commentBlock"]),
-      "html",
-      ["footnoteDefinition"],
-    )
+
+    const blockMethodsWithMath = insertAfter(this.blockMethods, "fencedCode", [
+      "mathBlock",
+      "commentBlock",
+    ])
+
+    this.blockMethods = insertAfter(blockMethodsWithMath, "html", ["footnoteDefinition"])
     this.inlineTokenizers = {
       ...this.inlineTokenizers,
       tag: tagTokenizer,
       wikilink: wikilinkTokenizer,
       footnoteReference: footnoteReferenceTokenizer,
-      reference: withoutFootnoteLabels(requireTokenizer(this.inlineTokenizers, "reference")),
+      reference: withoutFootnoteLabels(remarkReference),
       inlineFootnote: inlineFootnoteTokenizer,
       deletion: deletionTokenizer,
       highlight: highlightTokenizer,
@@ -778,15 +824,21 @@ class ObsidianParser extends RemarkParser {
       inlineComment: inlineCommentTokenizer,
       blockId: blockIdTokenizer,
     }
+
     // Wikilinks go before links so `[[a]](u)` is a wikilink, and footnote
     // references before references so `[^1]` is never a link reference
-    this.inlineMethods = insertAfter(
-      insertAfter(insertAfter(this.inlineMethods, "html", ["tag", "wikilink"]), "link", [
-        "footnoteReference",
-      ]),
-      "deletion",
-      ["highlight", "inlineMath", "inlineComment", "inlineFootnote", "blockId"],
-    )
+    const inlineMethodsWithTags = insertAfter(this.inlineMethods, "html", ["tag", "wikilink"])
+    const inlineMethodsWithFootnoteReferences = insertAfter(inlineMethodsWithTags, "link", [
+      "footnoteReference",
+    ])
+
+    this.inlineMethods = insertAfter(inlineMethodsWithFootnoteReferences, "deletion", [
+      "highlight",
+      "inlineMath",
+      "inlineComment",
+      "inlineFootnote",
+      "blockId",
+    ])
     // A comment block cuts a paragraph, a list or a quote's lazy lines
     // short; a math block cuts a paragraph or a quote short but not a list;
     // a footnote definition cuts nothing
@@ -801,9 +853,12 @@ const createParserFile = (text: string): ParserFile => ({
   fail: (reason) => {
     throw reason instanceof Error ? reason : new Error(reason)
   },
+  // remark's warnings (an entity it could not decode, say) describe the
+  // note, not a fault, and nothing reads them, so they are discarded
   message: () => undefined,
 })
 
 /** Parses a note body into remark's tree with Obsidian's syntax. */
-export const parseObsidianMarkdown = (body: string): ParsedNode =>
-  new ObsidianParser(body, createParserFile(body)).parse()
+export const parseObsidianMarkdown = (body: string): ParsedNode => {
+  return new ObsidianParser(body, createParserFile(body)).parse()
+}

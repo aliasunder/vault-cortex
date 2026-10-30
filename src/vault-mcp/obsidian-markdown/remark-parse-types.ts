@@ -108,6 +108,7 @@ type RemarkParserConstructor = new (doc: string, file: ParserFile) => RemarkPars
 export type RemarkParseModule = { Parser: RemarkParserConstructor }
 
 export const isRemarkParseModule = (value: unknown): value is RemarkParseModule => {
+  // remark-parse 8 exports its plugin function with `Parser` attached to it
   if (typeof value !== "function") return false
   return "Parser" in value && typeof value.Parser === "function"
 }
