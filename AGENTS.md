@@ -75,6 +75,7 @@ scripts/ # Dev and ops helpers in TypeScript (not shipped in Docker); most open 
   deployment-env.ts # Loads ~/.config/vault-cortex/.env; shell variables override its values
   instance-env.ts # Derives PUBLIC_URL for manual deploys (npm run lightsail:up) the same way sst.config.ts and deploy.yml do, or the Lambda authorizer rejects tokens
   tool-surface-capture.ts # Boots one server per settings combination for the tool-surface snapshot test, size report, and LobeHub manifest; an on/off setting that gates tools goes in its SURFACE_AXES
+  obsidian-tag-oracle.ts, generate-body-tag-vectors.ts, compare-body-tags-random.ts # Check body tags against Obsidian's own parser (see "Upgrading remark-parse")
 cli/src/ # npx vault-cortex CLI, run on the host: bin (entry) → main (wiring) → program (Commander), one module per command (init, configure, upgrade, get-sync-token; lifecycle holds start, restart, logs, and down), and the shared modules they use (prompts, docker, env, scaffold, and others)
   __tests__/integration/ # Interactive flows through node-pty in a real PTY: pty-harness, the cli-pty tests, and a fake docker binary in fixtures/
 src/
@@ -87,12 +88,12 @@ src/
   __tests__/docker/ # :remote image boot tests (npm run test:remote-boot): docker-harness, and fixtures/ob, a stub of the obsidian-headless CLI
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
-    obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
+    obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, body-tags + obsidian-remark-parser + remark-ports/, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
     vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
       tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
-    search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, chunker, file-watcher
+    search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, chunker, file-watcher, body-tag-parser + body-tag-worker (body tags parsed in a worker thread)
     oauth/ # OAuth 2.1: oauth-provider, oauth-routes, consent-page
     setup/ # Setup mode (browser sign-in to Obsidian Sync while the :remote image has no working token): setup-server (entry), setup-routes, setup-page, obsidian-api, vault-key, sync-token-store
 ```
@@ -1207,6 +1208,41 @@ lives: exhausted finite rules complete without spawning (`recurrence.ts`'s
 docstring), and calendar-invalid dates are nulled at parse time
 (`calendarValidOrNull` in `tasks.ts`). A behavior change in either is a
 decision, not a drift fix.
+
+## Upgrading remark-parse (body-tag parity)
+
+`obsidian-markdown/body-tags.ts` finds a note's `#tags` with
+`remark-parse@8.0.3`, the version Obsidian's metadata cache forked, plus
+Obsidian's syntax as tokenizers in `obsidian-remark-parser.ts`. The pin is
+excluded from Dependabot, and 8.0.3 is the last 8.x release, so an advisory
+anywhere in its dependency tree is answered with an `overrides` entry, as
+`trim` is.
+
+NEVER open, read or copy Obsidian's app code (`worker.js`, `app.js`) when
+editing `obsidian-remark-parser.ts`, `body-tags.ts` or `remark-ports/`.
+Obsidian is proprietary and this repo is MIT, so those files are written
+from Obsidian's observed behaviour only: the scripts below run `worker.js`
+as a black box and print its answers, and nothing else may read it.
+
+Re-check the parser against Obsidian when remark-parse changes and when
+Obsidian ships a new release:
+
+1. Extract `worker.js` from the installed app:
+   `npx -y @electron/asar extract "<app-dir>/obsidian-<version>.asar" <dir>`
+   (on macOS, `<app-dir>` is `~/Library/Application Support/obsidian`).
+2. Regenerate the vectors:
+   `npm run vectors:body-tags -- <dir>/worker.js <version>`. It asks that
+   worker for every input in
+   `src/vault-mcp/obsidian-markdown/__tests__/fixtures/obsidian-body-tag-vectors.json`
+   and rewrites each expected answer.
+3. Run `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/body-tags.test.ts`
+   and `npm run compare:body-tags -- <dir>/worker.js --documents 300000`.
+4. For each disagreement the comparison prints, save its shrunk input as a
+   `{ label, input }` record in a JSON file, pass that file as the third
+   argument to step 2's command, then fix the parser until every row passes.
+
+For a one-off question, `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`
+prints Obsidian's raw tags and listed names for each input.
 
 ## Upgrading obsidian-headless
 

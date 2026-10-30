@@ -39,9 +39,13 @@ export const registerSearchTools = ({
     : ""
   const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${searchFiltersNoteOnlyClause}:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- tags: every listed frontmatter tag must match, in any letter case; "project" also matches "project/a"
+- tags: every listed tag must match, in the tags property or as a #tag in the body, in any letter case; "project" also matches "project/a"
 - properties: keys and text values match exactly, letter case included; values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days in the server's time zone (returned created and modified values show its UTC offset), so "on" matches anywhere within the day. Notes without a parseable created property never match a created filter`
+
+  // Different tools edit the two tag fields, so every description that
+  // returns notes says which field is which
+  const tagsFieldsText = `tags (the tags property${whenToolEnabledText("vault_update_properties", ", which vault_update_properties edits")}), body_tags (the #tags written in the note's text, each spelling once${whenToolEnabledText("vault_replace_in_note", ", edited as text with vault_replace_in_note")}; absent when there are none)`
 
   const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
@@ -69,8 +73,8 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? "vault notes and file content (canvas, PDF, and text files)"
     : "vault notes"
   const searchResultFieldsText = config.fileToolsEnabled
-    ? "path, title, snippet, score, tags, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes"
-    : "path, title, snippet, score, tags, folder (top-level folder), type, kind, created, modified, bytes"
+    ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`
+    : `path, title, snippet, score, ${tagsFieldsText}, folder (top-level folder), type, kind, created, modified, bytes`
   const searchResultKindText = config.fileToolsEnabled
     ? `The kind field is "note" for markdown notes or "file" for non-markdown content; file results also carry extension (e.g. ".pdf").`
     : `The kind field is always "note".`
@@ -221,7 +225,7 @@ Returns: JSON with results array (${searchResultFieldsText}), total (results ret
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
     {
       title: "Search by Tag",
-      description: `Find notes by frontmatter tag, ignoring letter case; inline #tags in note bodies are not searched. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project/vault-cortex" and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
+      description: `Find notes by tag, in the tags property or as a #tag in the body, ignoring letter case. Unless exact is true, a tag also matches every tag nested under it at any depth: "project" matches "project/vault-cortex" and "project/a/b". A nested tag continues with "/", so "project" never matches "projects" or "my-project".
 
 Example: vault_search_by_tag({ tag: "project" })
 Example: vault_search_by_tag({ tag: "project", exact: true, limit: 50 }) — notes tagged "project" itself, up to 50
@@ -239,7 +243,7 @@ Errors:
 - "tag must not be empty …" — tag is "#" alone; pass the tag name.
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), and the frontmatter values title (file name without .md when missing or not text), tags (in the note's letter case), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
+Returns: JSON array of notes sorted by most recently modified, then by path ascending. Each note has path, folder (top-level folder; "" at the vault root), bytes (on-disk size), modified (file modification time), ${tagsFieldsText}, both in the note's letter case, and the frontmatter values title (file name without .md when missing or not text), related ([] when missing), type (null when missing or not text), and created (null when missing or not an ISO date). Timestamps are ISO 8601. When present, a note also has leading_callout (the callout opening its body, as { type, title, body }) and additional_properties (every other frontmatter key).`,
       inputSchema: {
         tag: z
           .string()
@@ -283,7 +287,7 @@ Returns: JSON array of notes sorted by most recently modified, then by path asce
     ),
     whenToolEnabledText(
       "vault_list_property_values",
-      'To count tags in one folder, or only the most-used ones, use vault_list_property_values({ key: "tags" }) with folder or limit.',
+      'To count tags property values in one folder, or only the most-used ones, use vault_list_property_values({ key: "tags" }) with folder or limit; it does not count #tags in note bodies.',
     ),
   ])
 
@@ -291,7 +295,7 @@ Returns: JSON array of notes sorted by most recently modified, then by path asce
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Only frontmatter tags Obsidian accepts are counted, not inline #tags. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
+      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Tags in the tags property and #tags written in note bodies both count, as in Obsidian's Tags view. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
@@ -353,7 +357,7 @@ Errors:
 - An empty vault returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON array of note metadata (path, title, tags, related, folder (top-level folder), type, created, modified, bytes, leading_callout, additional_properties), newest first. The created field is null when the property is missing or not an ISO date; bytes is on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
+Returns: JSON array of note metadata (path, title, ${tagsFieldsText}, related, folder (top-level folder), type, created, modified, bytes, leading_callout, additional_properties), newest first. The created field is null when the property is missing or not an ISO date; bytes is on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {
         sort_by: z
           .enum(["created", "modified"])
@@ -419,7 +423,7 @@ Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title (file name without .md when missing or not text), tags, related ([] when missing), folder (top-level folder), type (null when missing or not text), created (frontmatter; null when missing or not an ISO date), modified (file time), bytes (on-disk size), plus, when present, leading_callout (the note's opening callout, { type, title, body }) and additional_properties (other frontmatter keys).`,
+Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title (file name without .md when missing or not text), ${tagsFieldsText}, related ([] when missing), folder (top-level folder), type (null when missing or not text), created (frontmatter; null when missing or not an ISO date), modified (file time), bytes (on-disk size), plus, when present, leading_callout (the note's opening callout, { type, title, body }) and additional_properties (other frontmatter keys).`,
       inputSchema: {
         folder: z
           .string()
@@ -617,7 +621,7 @@ Errors:
 - An unknown key or unmatched value returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending, then by path — recently-synced notes may sort ahead of older content edits.
+Returns: JSON array of note metadata (path, title, ${tagsFieldsText}, related, folder, type, created, modified, bytes, leading_callout?, additional_properties?), sorted by filesystem mtime descending, then by path — recently-synced notes may sort ahead of older content edits.
 - folder is the top-level folder ("" at the vault root); title falls back to the file name without .md when missing or not text; related is [] when missing; type is null when missing or not text; created is null when missing or not an ISO date.
 - leading_callout appears only when the note has a leading callout.
 - additional_properties appears only when frontmatter has keys outside title, type, created, related, and tags.`,
@@ -837,7 +841,7 @@ Errors:
 - "too many excluded folders" — pass at most 994 exclude_folders entries, then retry.
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON array of note metadata (path, title, tags, related, folder (top-level folder), type, created (null when missing or not an ISO date), modified, bytes, leading_callout, additional_properties), sorted by most recently modified. The bytes field is the on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
+Returns: JSON array of note metadata (path, title, ${tagsFieldsText}, related, folder (top-level folder), type, created (null when missing or not an ISO date), modified, bytes, leading_callout, additional_properties), sorted by most recently modified. The bytes field is the on-disk file size. A leading_callout field appears only when the note has one; additional_properties only when frontmatter has keys outside title, type, created, related, and tags.`,
       inputSchema: {
         exclude_folders: z
           .array(z.string().min(1))

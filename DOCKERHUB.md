@@ -140,7 +140,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 | Property | What you can do |
 | --------- | ------------------------------------------------------------------------------------------------------------ |
 | `title` | Display name in search results; falls back to the filename when missing |
-| `tags` | Search and filter by tag, including parent-child hierarchies (`project` matches `project/vault-cortex`) |
+| `tags` | Search and filter by tag, in the property or written as `#tag` in a note (`project` matches `project/a`) |
 | `type` | Filter by note type — `meeting`, `person`, `session-log`, or any value your vault uses |
 | `created` | Sort by creation date and see when each note was created alongside every search result |
 | `related` | Filter for notes that cross-reference a specific link — surfaces connections invisible without a graph query |
