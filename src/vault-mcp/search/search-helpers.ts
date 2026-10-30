@@ -135,11 +135,11 @@ const storedMtimeToIso = (mtimeMs: number): string => {
   }
 }
 
-// ── JSON column parsers (private) ──────────────────────────────
+// ── JSON column parsers ────────────────────────────────────────
 
-/** Parses a JSON column that must contain a string array (tags, related,
- *  depends_on). Throws on corruption — these columns are serialized by the
- *  indexer, so a non-array value indicates index corruption. */
+/** Parses a JSON column that must contain a string array (tags, body_tags,
+ *  related, depends_on, kanban_done_lanes). The indexer writes these columns,
+ *  so any other value throws as index corruption. */
 export const parseStringArray = (json: string): string[] => {
   const parsed = parseJsonColumn(json)
 
@@ -235,8 +235,8 @@ const bodyTagsField = (bodyTagsJson: string): { body_tags?: string[] } => {
   return uniqueBodyTags.length > 0 ? { body_tags: uniqueBodyTags } : {}
 }
 
-/** The notes columns rowToMetadata reads, for every query that returns note
- *  metadata, so a new column is added in one place. */
+/** The `notes` table columns that rowToMetadata reads. Every query that
+ *  returns note metadata selects them, so a new column is added in one place. */
 export const NOTE_METADATA_COLUMNS =
   "path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes"
 

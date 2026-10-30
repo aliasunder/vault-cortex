@@ -371,11 +371,14 @@ export type RebuildResult = {
 /** A note's body tags as stored before a rebuild, or none when the stored value
  *  is damaged: the background pass replaces it anyway, and throwing here would
  *  fail every startup. */
-const readStoredBodyTags = (params: { json: string; path: string }, logger: Logger): string[] => {
-  const { json, path } = params
+const readStoredBodyTags = (
+  params: { bodyTagsJson: string; path: string },
+  logger: Logger,
+): string[] => {
+  const { bodyTagsJson, path } = params
 
   try {
-    return parseStringArray(json)
+    return parseStringArray(bodyTagsJson)
   } catch (error) {
     logger.warn("ignored damaged stored body tags", { path, error: describeError(error) })
     return []
@@ -2163,12 +2166,14 @@ export const createSearchIndex = (
     logger: Logger,
   ): Promise<RebuildResult> => {
     const { vaultPath, bodyTagParser } = params
+
     // Embedding work that outlived its source can leave vectors whose chunk or
     // memory entry is gone. They would take nearest-neighbour slots from live
     // vectors, so they are dropped before anything else.
     const orphanNoteVectorsRemoved = deleteOrphanNoteVectorsStmt?.run().changes ?? 0
     const orphanFileVectorsRemoved = deleteOrphanFileVectorsStmt?.run().changes ?? 0
     const orphanMemoryVectorsRemoved = deleteOrphanMemoryVectorsStmt?.run().changes ?? 0
+
     // Each note keeps the body tags stored before this rebuild until the
     // background pass parses it again, so a tag search right after a restart
     // still finds them
@@ -2177,9 +2182,10 @@ export const createSearchIndex = (
         .all()
         .map((row) => [
           row.path,
-          readStoredBodyTags({ json: row.body_tags, path: row.path }, logger),
+          readStoredBodyTags({ bodyTagsJson: row.body_tags, path: row.path }, logger),
         ]),
     )
+
     sourceVersions.clear()
     cachedCanvasNotePaths = undefined
     db.exec("DELETE FROM notes_fts")

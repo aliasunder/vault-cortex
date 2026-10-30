@@ -59,20 +59,24 @@ export const createErrorMiddleware =
  *   `forceExitMs`.
  */
 export const createShutdownHandler =
-  (params: {
+  ({
+    httpServer,
+    bodyTagParser,
+    forceExitMs = 10_000,
+  }: {
     httpServer: { close: (callback: () => void) => void }
     bodyTagParser: Pick<BodyTagParser, "close">
     forceExitMs?: number
   }): (() => void) =>
   (): void => {
-    const { httpServer, bodyTagParser, forceExitMs = 10_000 } = params
-
     logger.info("SIGTERM received, draining")
+
     // Detached on purpose: the drain doesn't wait for it, and exiting ends the
     // worker either way
     bodyTagParser.close().catch((error: unknown) => {
       logger.warn("body-tag parser did not close cleanly", { error: describeError(error) })
     })
+
     httpServer.close(() => {
       logger.info("drained, exiting")
       process.exit(0)
