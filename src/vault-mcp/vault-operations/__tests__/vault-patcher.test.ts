@@ -5090,6 +5090,34 @@ describe("Windows line breaks (CRLF)", () => {
       )
     })
 
+    // Every edit drops a carriage return that ends a line, but the line it
+    // sat on stays, and an append goes below it
+    it("patchNote appends below a last line that holds only a carriage return", async () => {
+      await writeTestNote("note.md", "body\n\r")
+      await patchNote(
+        { vaultPath: vault, path: "note.md", operation: "append", content: "| 2 |" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("body\n\n| 2 |\n")
+    })
+
+    it("patchNote appends below a section's last line that holds only a carriage return", async () => {
+      await writeTestNote("note.md", "## A\nx\n\r")
+      await patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: "append",
+          heading: "A",
+          content: "| 2 |",
+        },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("## A\nx\n\n| 2 |\n")
+    })
+
     it("replaceInNote keeps a lone carriage return inside new_text", async () => {
       await writeTestNote("note.md", LF_NOTE)
       await replaceInNote(

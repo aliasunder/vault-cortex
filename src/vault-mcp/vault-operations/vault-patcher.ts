@@ -90,9 +90,9 @@ const findDisplacedLeadingContent = (lines: readonly string[]): DisplacedLeading
 }
 
 /** Appends `contentLines` to a body that ends just before line `bodyEndLine`.
- *  - At the note's end, a final line break splits off an empty last element
- *    that only ends the line before it, so the content goes above that element
- *    (`"a\n"` → `["a", ""]` → content at index 1).
+ *  - At the note's end, when `lastElementIsLine` is false, the last element is
+ *    the empty string a final line break or an empty body leaves, so the
+ *    content goes above it (`"a\n"` → `["a", ""]` → content at index 1).
  *  - A body ending at a heading keeps its last empty line, and the content goes
  *    below it. One ending at a trailing `%% %%` comment block stops above the
  *    empty lines before the block, so the content goes above them. */
@@ -100,24 +100,33 @@ const appendToBody = (params: {
   lines: readonly string[]
   contentLines: readonly string[]
   bodyEndLine: number
+  lastElementIsLine: boolean
 }): string[] => {
-  const { lines, contentLines, bodyEndLine } = params
-  const endsWithLineTerminator = bodyEndLine === lines.length && lines.at(-1) === ""
+  const { lines, contentLines, bodyEndLine, lastElementIsLine } = params
+  const endsWithLineTerminator = bodyEndLine === lines.length && !lastElementIsLine
   const insertionLine = endsWithLineTerminator ? bodyEndLine - 1 : bodyEndLine
 
   return [...lines.slice(0, insertionLine), ...contentLines, ...lines.slice(insertionLine)]
 }
 
 /** Splices new content into a line array at the position determined by operation and target. */
-const applySectionOperation = (
-  lines: readonly string[],
-  contentLines: readonly string[],
-  target: HeadingInfo,
-  operation: Operation,
-): string[] => {
+const applySectionOperation = (params: {
+  lines: readonly string[]
+  contentLines: readonly string[]
+  target: HeadingInfo
+  operation: Operation
+  lastElementIsLine: boolean
+}): string[] => {
+  const { lines, contentLines, target, operation, lastElementIsLine } = params
+
   switch (operation) {
     case "append":
-      return appendToBody({ lines, contentLines, bodyEndLine: target.bodyEndLine })
+      return appendToBody({
+        lines,
+        contentLines,
+        bodyEndLine: target.bodyEndLine,
+        lastElementIsLine,
+      })
     case "prepend":
       return [
         ...lines.slice(0, target.bodyStartLine),
@@ -149,6 +158,9 @@ const readNoteForPatch = async (
   fullPath: string
   textBeforeBody: string
   lines: string[]
+  /** False when the last element of `lines` is the empty string that a final
+   *  line break or an empty body leaves, which is no line of the note. */
+  lastElementIsLine: boolean
   /** The 0-based file line `lines` starts on, so messages can name file lines. */
   bodyStartFileLine: number
   /** Raw on-disk file bytes — used for before/after size logging. */
@@ -169,6 +181,10 @@ const readNoteForPatch = async (
     // so body matching and the empty-line handling after an edit stay
     // consistent, and the note is rewritten as LF.
     lines: splitIntoLines(body),
+    // splitIntoLines also strips a lone `\r`, so a last line holding only a
+    // `\r` splits to "" too; only the raw body tells it from a final line
+    // break's empty element.
+    lastElementIsLine: body !== "" && !body.endsWith("\n"),
     bodyStartFileLine: findBodyStartLine(fileContent),
     beforeBytes: Buffer.byteLength(fileContent, "utf8"),
   }
@@ -277,8 +293,8 @@ const listTextDeletionEdits = (params: {
   // would be quadratic in its length. Starts as an empty range before the body.
   let lastLineBreakRun: LineBreakRun = { start: -1, end: -1 }
   /** The run of line breaks in `body` around `position`. Reuses the last run
-   *  measured when `position` falls inside it or on one of its edges (measuring
-   *  from an edge finds the same run), and remembers each new one. */
+   *  measured when `position` falls inside it or on one of its edges, and
+   *  remembers each new one. */
   const findLineBreakRunAt = (position: number): LineBreakRun => {
     // The run found around a position always has start <= position <= end, so
     // a position at either end of the last run measures that same run.
@@ -446,7 +462,7 @@ const patchNote = async (
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, textBeforeBody, lines, bodyStartFileLine, beforeBytes } =
+    const { fullPath, textBeforeBody, lines, lastElementIsLine, bodyStartFileLine, beforeBytes } =
       await readNoteForPatch(params.vaultPath, path)
     // The control-character check allows `\r`, so content may hold `\r\n`
     // breaks; splitIntoLines turns them into the LF lines the body uses.
@@ -473,7 +489,7 @@ const patchNote = async (
 
       const updatedLines =
         operation === "append"
-          ? appendToBody({ lines, contentLines, bodyEndLine: lines.length })
+          ? appendToBody({ lines, contentLines, bodyEndLine: lines.length, lastElementIsLine })
           : [...contentLines, ...lines]
       const afterBytes = await writePatchedNote(
         { fullPath, textBeforeBody, lines: updatedLines },
@@ -539,7 +555,13 @@ const patchNote = async (
       }
     }
 
-    const updatedLines = applySectionOperation(lines, contentLines, target, operation)
+    const updatedLines = applySectionOperation({
+      lines,
+      contentLines,
+      target,
+      operation,
+      lastElementIsLine,
+    })
 
     const afterBytes = await writePatchedNote(
       { fullPath, textBeforeBody, lines: updatedLines },
