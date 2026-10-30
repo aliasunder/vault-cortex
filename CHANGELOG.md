@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.55.4] — 2026-10-30
+
+### Bug Fixes
+
+- **deps:** Bump @hono/node-server to 2.1.5 for CVE-2026-118663 (#715)
+- **tools:** Shorten tool descriptions, and point Errors entries at messages that carry their remedy (#713)
+- **tools:** Save through a short hidden temporary file and stop memory names ending in .md (#710)
+
 ## [0.55.3] — 2026-10-24
 
 ### Bug Fixes
