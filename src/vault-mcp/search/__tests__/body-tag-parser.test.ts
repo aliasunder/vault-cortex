@@ -215,7 +215,7 @@ describe("createBodyTagParser", () => {
     expect(startResult).toEqual({ outcome: "unavailable" })
     expect(requestLogger.error).toHaveBeenCalledTimes(1)
     expect(requestLogger.error).toHaveBeenCalledWith(
-      "body-tag worker failed to start; note indexed without body tags",
+      "body-tag worker failed to start; note keeps its stored body tags",
       { path: "a.md", error: "[Error]: cannot load the worker entry" },
     )
     expect(vi.mocked(failedWorker.postMessage)).not.toHaveBeenCalled()
@@ -239,7 +239,7 @@ describe("createBodyTagParser", () => {
     expect(failedResult).toEqual({ outcome: "unavailable" })
     expect(requestLogger.error).toHaveBeenCalledTimes(1)
     expect(requestLogger.error).toHaveBeenCalledWith(
-      "body-tag worker failed to start; note indexed without body tags",
+      "body-tag worker failed to start; note keeps its stored body tags",
       { path: "a.md", error: "[Error]: thread creation failed" },
     )
     expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })

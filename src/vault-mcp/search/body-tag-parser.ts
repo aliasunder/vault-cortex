@@ -155,7 +155,7 @@ export const createBodyTagParser = (params: { timeoutMs: number }): BodyTagParse
 
       // close() terminates a starting worker, which is not a failure to log
       if (closed) return null
-      job.logger.error("body-tag worker failed to start; note indexed without body tags", {
+      job.logger.error("body-tag worker failed to start; note keeps its stored body tags", {
         path: job.notePath,
         error: describeError(error),
       })
