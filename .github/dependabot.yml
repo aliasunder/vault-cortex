@@ -21,6 +21,11 @@ updates:
       # construction. A bump is a deliberate parity re-verification (see
       # "Upgrading rrule" in AGENTS.md), not routine dependency churn.
       - dependency-name: rrule
+      # remark-parse is pinned to 8.0.3, the version Obsidian's metadata cache
+      # forked, so body tags match Obsidian by construction. 8.0.3 is the
+      # last 8.x release; a bump is a parity re-verification (see "Upgrading
+      # remark-parse" in AGENTS.md), not routine dependency churn.
+      - dependency-name: remark-parse
 
   # obsidian-headless is installed from its own lockfile into the Docker
   # remote target — not in the root package.json. Dependabot needs a

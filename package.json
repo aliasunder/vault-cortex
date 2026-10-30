@@ -79,7 +79,10 @@
     "build:remote-image": "docker build --target remote -t vault-cortex:remote-ci .",
     "test:remote-boot": "npm run build:remote-image && vitest run --config vitest.remote-boot.config.ts",
     "prepare": "husky",
-    "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts"
+    "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts",
+    "oracle:body-tags": "tsx scripts/obsidian-tag-oracle.ts",
+    "vectors:body-tags": "tsx scripts/generate-body-tag-vectors.ts",
+    "compare:body-tags": "tsx scripts/compare-body-tags-random.ts"
   },
   "lint-staged": {
     "*": "tsx scripts/lint-shell.ts",
@@ -106,6 +109,7 @@
     "luxon": "3.7.2",
     "pdfjs-dist": "6.4.299",
     "picomatch": "4.0.7",
+    "remark-parse": "8.0.3",
     "rrule": "2.8.1",
     "sharp": "0.35.5",
     "sqlite-vec": "0.1.9",
@@ -122,7 +126,8 @@
     "@huggingface/transformers": {
       "onnxruntime-web": "npm:empty-npm-package@1.0.0",
       "sharp": "npm:empty-npm-package@1.0.0"
-    }
+    },
+    "trim": "1.0.1"
   },
   "devDependencies": {
     "@clack/prompts": "1.8.1",

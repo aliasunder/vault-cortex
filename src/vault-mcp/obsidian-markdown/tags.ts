@@ -1,14 +1,19 @@
 // ── Frontmatter tags, read the way Obsidian's Tags view reads them ──────────
 
 /**
- * Matches a tag name Obsidian's Tags view accepts: no whitespace, no
- * character from the General Punctuation (U+2000–U+206F) or Supplemental
- * Punctuation (U+2E00–U+2E7F) blocks, and none of the listed ASCII
- * punctuation, so `_`, `-`, `/`, letters, digits, emoji and other Unicode
- * pass. A copy of the class Obsidian 1.14.4 tests every tag against (its
- * `getTags` and property editor), without the leading `#`.
+ * The regex character class of one tag-name character, as Obsidian 1.14.4
+ * tests every tag name (its `getTags` and property editor) and ends a body
+ * tag: no whitespace, no character from the General Punctuation
+ * (U+2000–U+206F) or Supplemental Punctuation (U+2E00–U+2E7F) blocks, and
+ * none of the listed ASCII punctuation, so `_`, `-`, `/`, letters, digits,
+ * emoji and other Unicode pass. The body-tag tokenizer builds on the same
+ * class, so the two cannot drift.
  */
-const TAG_NAME_RE = /^[^\u2000-\u206F\u2E00-\u2E7F'!"#$%&()*+,.:;<=>?@^`{|}~[\]\\\s]+$/
+export const TAG_NAME_CHARACTER_CLASS =
+  "[^\\u2000-\\u206F\\u2E00-\\u2E7F'!\"#$%&()*+,.:;<=>?@^`{|}~[\\]\\\\\\s]"
+
+/** Matches a whole name of tag-name characters, without the leading `#`. */
+const TAG_NAME_RE = new RegExp(`^${TAG_NAME_CHARACTER_CLASS}+$`)
 
 /** Matches a name made of ASCII digits only, which Obsidian refuses as a tag
  *  (`#1984` is not a tag, `#y1984` is), with the same `\d` Obsidian uses. */
