@@ -519,7 +519,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending,
       description: `List distinct values for a specific property key with how often each occurs.
 
 Example: vault_list_property_values({ key: "status" }) returns [{ value: "done", count: 211 }, { value: "active", count: 47 }, ...]
-Example: vault_list_property_values({ key: "tags", limit: 10 }) — the 10 most-used tags
+Example: vault_list_property_values({ key: "tags", limit: 10 }) — the 10 most-used tags property values
 
 When to use: Enumerating possible values for a property key${whenToolEnabledText("vault_search_by_property", " before calling vault_search_by_property")}.${whenToolEnabledText("vault_list_property_keys", " Call vault_list_property_keys first to discover valid key names.")}${whenToolEnabledText("vault_search_by_property", ` vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.`)}
 
@@ -591,7 +591,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
     ),
     whenToolEnabledText(
       "vault_search_by_tag",
-      "Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching).",
+      'Prefer vault_search_by_tag for tag-specific queries (it matches nested tags and #tags in note bodies; key "tags" here matches only the tags property).',
     ),
     propertyDiscoverySentence,
   ])
