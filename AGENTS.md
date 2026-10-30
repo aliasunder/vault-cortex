@@ -1237,10 +1237,10 @@ Obsidian ships a new release:
    `src/vault-mcp/obsidian-markdown/__tests__/fixtures/obsidian-body-tag-vectors.json`
    and rewrites each expected answer.
 3. Run `npx vitest run src/vault-mcp/obsidian-markdown/__tests__/body-tags.test.ts`
-   and `npm run compare:body-tags -- <dir>/worker.js --documents 300000`.
-4. For each disagreement the comparison prints, save its shrunk input as a
-   `{ label, input }` record in a JSON file, pass that file as the third
-   argument to step 2's command, then fix the parser until every row passes.
+   and `npm run compare:body-tags -- <dir>/worker.js --documents 300000 --out disagreements.json`.
+4. When the comparison finds disagreements, pass `disagreements.json` (each
+   shrunk input as a `{ label, input }` record) as the third argument to step
+   2's command, then fix the parser until every row passes.
 
 For a one-off question, `npm run oracle:body-tags -- <dir>/worker.js <inputs.json>`
 prints Obsidian's raw tags and listed names for each input.

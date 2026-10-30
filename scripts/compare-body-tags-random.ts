@@ -2,7 +2,7 @@
  * Compares `parseBodyTags` with Obsidian's own parser on generated notes, to
  * find disagreements the stored test vectors do not cover.
  *
- * Run as `tsx scripts/compare-body-tags-random.ts <worker.js> [--documents N] [--seed S] [--repo-markdown]`.
+ * Run as `tsx scripts/compare-body-tags-random.ts <worker.js> [--documents N] [--seed S] [--repo-markdown] [--out disagreements.json]`.
  * - Each document is built from random Markdown and Obsidian syntax fragments
  *   (up to about 4 KB, so length-dependent rules run), split from its
  *   properties block the way indexing splits it, and parsed by both sides.

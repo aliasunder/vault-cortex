@@ -12,10 +12,10 @@
  *     queries verbatim (research notes, session logs) would otherwise match
  *     their own documentation. Reruns reuse the snapshot via
  *     --reuse-snapshot so every configuration sees an identical corpus.
- *  2. Build the search index with real ONNX models and await its two
- *     background passes. Tag filters read the body tags one pass writes,
- *     and scoring a partially embedded index measures indexing order, not
- *     ranking. Any embedding error fails the run.
+ *  2. Build the search index with real ONNX models and await the embedding
+ *     pass, because scoring a partially embedded index measures indexing
+ *     order, not ranking. Any embedding error fails the run. No query or
+ *     score reads body tags, so the body-tag pass is stopped at once.
  *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
  *  4. Run every judgment query at each --limits value, reporting the rank
  *     of the first expected result, file pollution in the top 5 (or the
@@ -221,15 +221,15 @@ const main = async (): Promise<void> => {
   } else {
     console.log("rebuilding index (FTS + embedding — this takes minutes)…")
     const rebuildStartMs = performance.now()
-    // The server's per-note limit, so the eval indexes what production does
     const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
     const { count, embedding, bodyTags } = await search.rebuildFromVault(
       { vaultPath: snapshotDir, bodyTagParser },
       logger,
     )
-    // Tag filters read body tags, which the rebuild fills in the background
-    await bodyTags
+    // No eval query or score reads body tags, so closing the parser stops the
+    // background body-tag pass at its first note
     await bodyTagParser.close()
+    await bodyTags
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
     await embedding
