@@ -307,8 +307,6 @@ const scanItemLine = (
   if (!indentedByItem) {
     const bullet = readBulletMarker(value, index, commonmark)
 
-    // Without a bullet, size keeps the indent's width; the line's own start
-    // is returned as its index
     if (bullet) {
       const markerWidth = bullet.markerIndex + 1 - index
 
@@ -349,6 +347,8 @@ const scanItemLine = (
   const indented = indentedByItem || indentedByColumns
   const indentedByLeadingSpace = !commonmark && !indentedByItem && value.charAt(lineStart) === SPACE
 
+  // A line without a bullet is handed back from its own start, so the
+  // advance past a marker that was not a bullet is discarded
   return {
     nextIndex,
     size,
