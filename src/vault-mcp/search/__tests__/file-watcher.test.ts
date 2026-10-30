@@ -1608,7 +1608,11 @@ const gateRootListing = async (testVault: string) => {
   return { reached: reached.promise, release: () => release.resolve(undefined) }
 }
 
-describe("watchVaultAndBuildIndex — changes during startup", () => {
+// These tests write and read up to 40 real files. In a full parallel run on
+// macOS the largest batch takes over 4 seconds, close to vitest's 5-second default.
+const HELD_BATCH_TIMEOUT = { timeout: 15000 }
+
+describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOUT, () => {
   /** A controlled watcher whose startup rebuild waits for finishRebuild, unless
    *  realRebuild is set. The database lives outside the vault, so its own files
    *  never appear among the held changes. */
