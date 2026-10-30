@@ -161,8 +161,42 @@ const footnoteReferenceTokenizer: InlineTokenizer = withLocator(function (
   return eat(match[0])({ type: "footnoteReference", value: label })
 }, indexOfLocator("[^"))
 
+const countBacktickRun = (value: string, runStart: number): number => {
+  // The scan measures a run of backticks, so its index is mutable parser state
+  let index = runStart
+
+  while (value.charAt(index) === "`") index += 1
+
+  return index - runStart
+}
+
+/** The index just past the run that closes a code span opening with the run
+ *  at `runStart`, which is the next run of exactly the same length, or -1. */
+const findCodeSpanEnd = (value: string, runStart: number): number => {
+  const openLength = countBacktickRun(value, runStart)
+  // The scan jumps from run to run, so its index is mutable parser state
+  let index = runStart + openLength
+
+  while (index < value.length) {
+    if (value.charAt(index) !== "`") {
+      index += 1
+      continue
+    }
+
+    const runLength = countBacktickRun(value, index)
+
+    if (runLength === openLength) return index + runLength
+
+    index += runLength
+  }
+
+  return -1
+}
+
 /** The index just past the `]` that closes a bracketed span opening at
- *  `openIndex`, honouring nested brackets and backslash escapes, or -1. */
+ *  `openIndex`, or -1. Nested brackets and backslash escapes are honoured,
+ *  and a code span is skipped whole, so a `]` inside one does not close the
+ *  span; a backtick run with no closing run fails the whole span. */
 const findBracketedSpanEnd = (value: string, openIndex: number): number => {
   // The scan threads its index and bracket depth through the value, so both
   // are mutable parser state.
@@ -174,6 +208,15 @@ const findBracketedSpanEnd = (value: string, openIndex: number): number => {
 
     if (character === "\\") {
       index += 2
+      continue
+    }
+
+    if (character === "`") {
+      const codeSpanEnd = findCodeSpanEnd(value, index)
+
+      if (codeSpanEnd === -1) return -1
+
+      index = codeSpanEnd
       continue
     }
 

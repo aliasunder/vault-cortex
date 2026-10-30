@@ -350,8 +350,10 @@ const scanItemLine = (
 
   if (currentMarker) return { nextIndex, size, index, currentMarker, indented: indentedByItem }
 
-  const indentedPastTabStop = Boolean(commonmark && item && size > TAB_SIZE)
-  const indented = indentedByItem || indentedPastTabStop
+  // `size` now includes a marker that turned out not to be a bullet (`**`,
+  // `1.x`), so such a line counts as indented under a one-column item
+  const indentedByColumns = Boolean(commonmark && item && (size >= item.indent || size > TAB_SIZE))
+  const indented = indentedByItem || indentedByColumns
   const indentedByLeadingSpace = !commonmark && !indentedByItem && value.charAt(lineStart) === SPACE
 
   return {

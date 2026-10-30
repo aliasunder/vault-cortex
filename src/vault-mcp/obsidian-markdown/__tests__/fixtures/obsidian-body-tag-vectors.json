@@ -2535,6 +2535,181 @@
       "label": "ordered list lazy line, blank, seven-space tag",
       "input": "1. a\nb\n\n       #x",
       "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 1",
+      "input": "*\n\n**\n$$ #t\n",
+      "expected": ["t"]
+    },
+    {
+      "label": "random comparison, seed 211, case 2",
+      "input": "*\n---\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 3",
+      "input": "*\n***\n$$\n- #b",
+      "expected": ["b"]
+    },
+    {
+      "label": "random comparison, seed 211, case 4",
+      "input": "*\n***\n<div\n-\t#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 5",
+      "input": "*\n---\n$$\n- #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 6",
+      "input": "*\n***\n<v>\n- #-",
+      "expected": ["-"]
+    },
+    {
+      "label": "random comparison, seed 211, case 7",
+      "input": "*\n\n**\n    ~~~ #m",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 211, case 8",
+      "input": "*\n***\n    #f",
+      "expected": ["f"]
+    },
+    {
+      "label": "random comparison, seed 211, case 9",
+      "input": "*\n\n**\n<p\n- #t",
+      "expected": ["t"]
+    },
+    {
+      "label": "random comparison, seed 211, case 10",
+      "input": "*\n ```\n***\n#y",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 211, case 11",
+      "input": "*\n\n**\n\n    #u",
+      "expected": ["u"]
+    },
+    {
+      "label": "random comparison, seed 211, case 12",
+      "input": "*\n\n**\n$$\n\n#a",
+      "expected": ["a"]
+    },
+    {
+      "label": "random comparison, seed 211, case 13",
+      "input": "*\n ~~~\n\n*\\*#m",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 211, case 14",
+      "input": "*\n***\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 15",
+      "input": "*\n---\n\t#f",
+      "expected": ["f"]
+    },
+    {
+      "label": "random comparison, seed 211, case 16",
+      "input": "*\n---\n$$\n\n#g",
+      "expected": ["g"]
+    },
+    {
+      "label": "random comparison, seed 211, case 17",
+      "input": "*\n***\n    #i",
+      "expected": ["i"]
+    },
+    {
+      "label": "random comparison, seed 211, case 18",
+      "input": "*\n\n*%\n<!n\n- #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 19",
+      "input": "*\n***\n    #c",
+      "expected": ["c"]
+    },
+    {
+      "label": "random comparison, seed 211, case 20",
+      "input": "*\n---\n    #a",
+      "expected": ["a"]
+    },
+    {
+      "label": "random comparison, seed 211, case 21",
+      "input": "*\n***\n<v>\n- #a",
+      "expected": ["a"]
+    },
+    {
+      "label": "random comparison, seed 211, case 22",
+      "input": "- 1. \n    <!e #f\n    ---",
+      "expected": ["f"]
+    },
+    {
+      "label": "random comparison, seed 211, case 23",
+      "input": "*\n---\n    ) #g",
+      "expected": ["g"]
+    },
+    {
+      "label": "inline footnote, unclosed code span falls back",
+      "input": "^[a ` #b]#c #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline footnote, code span run lengths must match",
+      "input": "^[a `` x ` #b]#c #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline footnote, longer closing run does not close",
+      "input": "^[a ` x `` #b]#c #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline footnote, code span holding a bracket is skipped",
+      "input": "^[a ` #b]#c ` #d]",
+      "expected": ["d"]
+    },
+    {
+      "label": "inline footnote, closed code span with a bracket",
+      "input": "^[a `]` #b]#c #d",
+      "expected": ["c", "d", "b"]
+    },
+    {
+      "label": "inline footnote fallback rejects a nested-bracket shortcut",
+      "input": "^[a [x] ` #b]#c #d",
+      "expected": ["b", "d"]
+    },
+    {
+      "label": "inline footnote fallback to a link",
+      "input": "^[a ` #b](u)#c #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline footnote, escape ignored inside a code span",
+      "input": "^[a ` x \\` #b]#c #d",
+      "expected": ["c", "d", "b"]
+    },
+    {
+      "label": "inline footnote, escaped backtick opens no span",
+      "input": "^[a \\` #b]#c #d",
+      "expected": ["c", "d", "b"]
+    },
+    {
+      "label": "inline footnote fallback before a later footnote",
+      "input": "^[a ` #b]#c ^[#d] #e",
+      "expected": ["b", "c", "e", "d"]
+    },
+    {
+      "label": "nested inline footnote with an unclosed code span",
+      "input": "^[x ^[a ` #b]#c] #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "quoted inline footnote with a code span across lines",
+      "input": "> ^[a\n|`` #b\n]#c\n#d",
+      "expected": ["b", "c", "d"]
     }
   ]
 }
