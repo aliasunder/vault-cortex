@@ -18,12 +18,15 @@ import { describe, expect, it, onTestFinished } from "vitest"
 /** Every shell script in the repo, sorted: what a run with no paths checks. */
 const ALL_SHELL_SCRIPTS = [
   ".claude/hooks/install-deps.sh",
+  ".claude/hooks/prepare-command.sh",
+  ".github/scripts/generate-cli-notes.sh",
   ".github/scripts/generate-notes.sh",
   ".github/scripts/update-changelog.sh",
   "cli/src/__tests__/integration/fixtures/docker",
   "rootfs/etc/s6-overlay/s6-rc.d/svc-obsidian-sync/run",
   "rootfs/etc/s6-overlay/s6-rc.d/svc-vault-mcp/finish",
   "rootfs/etc/s6-overlay/s6-rc.d/svc-vault-mcp/run",
+  "rootfs/etc/s6-overlay/scripts/check-sync-vault",
   "rootfs/etc/s6-overlay/scripts/init-check-auth",
   "rootfs/etc/s6-overlay/scripts/init-derive-env",
   "rootfs/etc/s6-overlay/scripts/init-first-sync",

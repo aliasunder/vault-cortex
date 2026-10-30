@@ -49,6 +49,11 @@ describe("sanitizeFtsQuery", () => {
       expected: '""',
     },
     {
+      name: "reserved words dropped in any letter case",
+      input: "meeting and notes Or fence near Not",
+      expected: "meeting notes fence",
+    },
+    {
       name: "empty string: empty result",
       input: "",
       expected: '""',
@@ -162,6 +167,16 @@ describe("sanitizeFtsQuery", () => {
       name: "dot inside quoted phrase preserved",
       input: '"mcpservers.org"',
       expected: '"mcpservers.org"',
+    },
+    {
+      name: "control characters become word breaks",
+      input: `alpha${String.fromCharCode(0x01)}beta${String.fromCharCode(0x7f)}`,
+      expected: "alpha beta",
+    },
+    {
+      name: "NUL inside a quoted phrase becomes a space",
+      input: `"alpha${String.fromCharCode(0x00)}beta"`,
+      expected: '"alpha beta"',
     },
   ]
 

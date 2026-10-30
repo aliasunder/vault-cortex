@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest"
 import {
   applyOptionalSettings,
   askOptionalSettings,
-  derivePublicUrlOverride,
+  describeStrandedPublicUrl,
+  portsOfOtherContainers,
   readOptionalValue,
+  withPublicUrlOverride,
 } from "../optional-settings.js"
 import { createScriptedPrompts } from "./command-stubs.js"
 
@@ -23,6 +25,17 @@ describe("readOptionalValue", () => {
 
   it("returns undefined for a missing line", () => {
     expect(readOptionalValue("PORT=9000\n", "TZ")).toBeUndefined()
+  })
+
+  it.each([
+    { label: "double quotes", envContent: 'PORT="9000"\n' },
+    { label: "single quotes", envContent: "PORT='9000'\n" },
+  ])("drops one pair of surrounding $label, as the server reads the value", ({ envContent }) => {
+    expect(readOptionalValue(envContent, "PORT")).toBe("9000")
+  })
+
+  it("returns an empty string for a line with no value", () => {
+    expect(readOptionalValue("PORT=\n", "PORT")).toBe("")
   })
 })
 
@@ -82,44 +95,153 @@ describe("applyOptionalSettings", () => {
   })
 })
 
-describe("derivePublicUrlOverride", () => {
+describe("withPublicUrlOverride", () => {
   it("follows a PORT change when PUBLIC_URL is the derived localhost form", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=8000\n", {
-      PORT: "9000",
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=8000\n",
     })
-    expect(derived).toEqual({
+    expect(overrides).toEqual({
       PORT: "9000",
       PUBLIC_URL: "http://localhost:9000",
     })
   })
 
-  it("derives from the current PORT, not the default", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:9100\nPORT=9100\n", {
-      PORT: "9200",
+  it("follows the current PORT, not the default", () => {
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9200" },
+      envContent: "PUBLIC_URL=http://localhost:9100\nPORT=9100\n",
     })
-    expect(derived).toEqual({
+    expect(overrides).toEqual({
       PORT: "9200",
       PUBLIC_URL: "http://localhost:9200",
     })
   })
 
-  it("never touches a custom PUBLIC_URL", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=https://vault.example.com\nPORT=8000\n", {
-      PORT: "9000",
+  it("reads an empty PORT line as the default port", () => {
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=\n",
     })
-    expect(derived).toEqual({ PORT: "9000" })
+    expect(overrides).toEqual({
+      PORT: "9000",
+      PUBLIC_URL: "http://localhost:9000",
+    })
+  })
+
+  it("follows a PORT change from a value that isn't a port when PUBLIC_URL is on the default port", () => {
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=80a0\n",
+    })
+    expect(overrides).toEqual({
+      PORT: "9000",
+      PUBLIC_URL: "http://localhost:9000",
+    })
+  })
+
+  it("leaves a default-port PUBLIC_URL beside a valid PORT on another port", () => {
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9200" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=9100\n",
+    })
+    expect(overrides).toEqual({ PORT: "9200" })
+  })
+
+  it("never touches a custom PUBLIC_URL", () => {
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PUBLIC_URL=https://vault.example.com\nPORT=8000\n",
+    })
+    expect(overrides).toEqual({ PORT: "9000" })
   })
 
   it("returns the overrides unchanged without a PORT override", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=8000\n", {
-      MEMORY_ENABLED: "false",
+    const overrides = withPublicUrlOverride({
+      overrides: { MEMORY_ENABLED: "false" },
+      envContent: "PUBLIC_URL=http://localhost:8000\nPORT=8000\n",
     })
-    expect(derived).toEqual({ MEMORY_ENABLED: "false" })
+    expect(overrides).toEqual({ MEMORY_ENABLED: "false" })
   })
 
   it("returns the overrides unchanged when PUBLIC_URL is absent", () => {
-    const derived = derivePublicUrlOverride("PORT=8000\n", { PORT: "9000" })
-    expect(derived).toEqual({ PORT: "9000" })
+    const overrides = withPublicUrlOverride({
+      overrides: { PORT: "9000" },
+      envContent: "PORT=8000\n",
+    })
+    expect(overrides).toEqual({ PORT: "9000" })
+  })
+})
+
+describe("portsOfOtherContainers", () => {
+  it("leaves out the install's own ports", () => {
+    const portsInUse = portsOfOtherContainers(
+      [
+        { hostPort: 8000, containerName: "vault-cortex" },
+        { hostPort: 9100, containerName: "other-app" },
+      ],
+      "vault-cortex",
+    )
+
+    expect(portsInUse).toEqual(new Map([[9100, "other-app"]]))
+  })
+
+  it.each([
+    { label: "after", containerNames: ["vault-cortex", "stopped-test"] },
+    { label: "before", containerNames: ["stopped-test", "vault-cortex"] },
+  ])(
+    "keeps a port another container also publishes, listed $label the install's own",
+    ({ containerNames }) => {
+      const publishedPorts = containerNames.map((containerName) => {
+        return { hostPort: 8000, containerName }
+      })
+
+      expect(portsOfOtherContainers(publishedPorts, "vault-cortex")).toEqual(
+        new Map([[8000, "stopped-test"]]),
+      )
+    },
+  )
+})
+
+describe("describeStrandedPublicUrl", () => {
+  const CUSTOM_URL_ENV = "PUBLIC_URL=https://vault.example.com\nPORT=8000\n"
+
+  it("warns when a new PORT leaves a custom PUBLIC_URL as it was", () => {
+    const warning = describeStrandedPublicUrl({
+      envContent: CUSTOM_URL_ENV,
+      pickedOverrides: { PORT: "9000" },
+      appliedOverrides: { PORT: "9000" },
+    })
+
+    expect(warning).toBe(
+      "PORT changed — make sure PUBLIC_URL (https://vault.example.com) still reaches the server.",
+    )
+  })
+
+  it.each([
+    { label: "the current port", envContent: CUSTOM_URL_ENV },
+    {
+      label: "the default port behind an empty PORT line",
+      envContent: "PUBLIC_URL=https://vault.example.com\nPORT=\n",
+    },
+  ])("stays quiet when the picked PORT is $label", ({ envContent }) => {
+    const warning = describeStrandedPublicUrl({
+      envContent,
+      pickedOverrides: { PORT: "8000" },
+      appliedOverrides: { PORT: "8000" },
+    })
+
+    expect(warning).toBeUndefined()
+  })
+
+  it("stays quiet when the localhost PUBLIC_URL already names the new port", () => {
+    const warning = describeStrandedPublicUrl({
+      envContent: "PUBLIC_URL=http://localhost:9000\nPORT=8000\n",
+      pickedOverrides: { PORT: "9000" },
+      appliedOverrides: { PORT: "9000" },
+    })
+
+    expect(warning).toBeUndefined()
   })
 })
 
@@ -127,7 +249,10 @@ describe("askOptionalSettings chooser", () => {
   it("offers the local settings without SYNC_MODE in local mode", async () => {
     const scripted = createScriptedPrompts([[]])
 
-    await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.multiselectCalls[0].options.map((option) => option.value)).toEqual([
       "MEMORY_ENABLED",
@@ -145,7 +270,10 @@ describe("askOptionalSettings chooser", () => {
   it("adds SYNC_MODE to the chooser in remote mode", async () => {
     const scripted = createScriptedPrompts([[]])
 
-    await askOptionalSettings({ mode: "remote", envContent: "" }, scripted.prompts)
+    await askOptionalSettings(
+      { portsInUse: new Map(), mode: "remote", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.multiselectCalls[0].options.map((option) => option.value)).toEqual([
       "MEMORY_ENABLED",
@@ -165,7 +293,7 @@ describe("askOptionalSettings chooser", () => {
     const scripted = createScriptedPrompts([[]])
 
     await askOptionalSettings(
-      { mode: "local", envContent: "MEMORY_ENABLED=false\nPORT=9000\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=false\nPORT=9000\n" },
       scripted.prompts,
     )
 
@@ -187,6 +315,7 @@ describe("askOptionalSettings chooser", () => {
 
     await askOptionalSettings(
       {
+        portsInUse: new Map(),
         mode: "local",
         envContent: "MEMORY_ENABLED=true\nMEMORY_DIR=About Me\n",
       },
@@ -202,7 +331,10 @@ describe("askOptionalSettings chooser", () => {
   it('adds the dependency note for the server-valid disabled spelling "0"', async () => {
     const scripted = createScriptedPrompts([[]])
 
-    await askOptionalSettings({ mode: "local", envContent: "MEMORY_ENABLED=0\n" }, scripted.prompts)
+    await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=0\n" },
+      scripted.prompts,
+    )
 
     const memoryFolderOption = scripted.multiselectCalls[0].options.find(
       (option) => option.value === "MEMORY_DIR",
@@ -215,7 +347,10 @@ describe("askOptionalSettings chooser", () => {
   it("returns no overrides and asks nothing further when nothing is picked", async () => {
     const scripted = createScriptedPrompts([[]])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(overrides).toEqual({})
     expect(scripted.asked).toEqual(["Any optional settings to change? (press enter to skip)"])
@@ -227,7 +362,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "MEMORY_ENABLED=false\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=false\n" },
       scripted.prompts,
     )
 
@@ -245,7 +380,10 @@ describe("askOptionalSettings per-setting prompts", () => {
     // toggle) — the confirm must start on Yes, not fall to false.
     const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
 
-    await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.confirmCalls).toEqual([
       {
@@ -260,7 +398,10 @@ describe("askOptionalSettings per-setting prompts", () => {
     // the confirm at No, not inherit the enabled-unless-"false" heuristic.
     const scripted = createScriptedPrompts([["READONLY_MODE"], false])
 
-    await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.confirmCalls).toEqual([
       {
@@ -275,7 +416,10 @@ describe("askOptionalSettings per-setting prompts", () => {
     // ${VAR:-default} and env-var's .default() — the CLI must match.
     const scripted = createScriptedPrompts([["READONLY_MODE"], false])
 
-    await askOptionalSettings({ mode: "local", envContent: "READONLY_MODE=\n" }, scripted.prompts)
+    await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "READONLY_MODE=\n" },
+      scripted.prompts,
+    )
 
     expect(scripted.confirmCalls).toEqual([
       {
@@ -289,7 +433,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([["READONLY_MODE"], true])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "READONLY_MODE=true\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "READONLY_MODE=true\n" },
       scripted.prompts,
     )
 
@@ -305,7 +449,10 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("offers the three Sync modes the client accepts, seeded with the default when the var is absent", async () => {
     const scripted = createScriptedPrompts([["SYNC_MODE"], "pull-only"])
 
-    await askOptionalSettings({ mode: "remote", envContent: "" }, scripted.prompts)
+    await askOptionalSettings(
+      { portsInUse: new Map(), mode: "remote", envContent: "" },
+      scripted.prompts,
+    )
 
     // The values are what `ob sync-config --mode` accepts; a chooser entry the
     // client rejects would only surface at the image's first boot.
@@ -339,7 +486,10 @@ describe("askOptionalSettings per-setting prompts", () => {
     // the confirm must not misrepresent MEMORY_ENABLED=0 as enabled.
     const scripted = createScriptedPrompts([["MEMORY_ENABLED"], false])
 
-    await askOptionalSettings({ mode: "local", envContent: "MEMORY_ENABLED=0\n" }, scripted.prompts)
+    await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_ENABLED=0\n" },
+      scripted.prompts,
+    )
 
     expect(scripted.confirmCalls).toEqual([
       {
@@ -354,7 +504,10 @@ describe("askOptionalSettings per-setting prompts", () => {
     // silently fall back to the default port on every later read.
     const scripted = createScriptedPrompts([["PORT"], "1e4", "9000"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual(["PORT must be a whole number between 1 and 65535."])
     expect(overrides).toEqual({ PORT: "9000" })
@@ -364,7 +517,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([["MEMORY_DIR"], "Memory Bank"])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "MEMORY_DIR=About Me\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_DIR=About Me\n" },
       scripted.prompts,
     )
 
@@ -378,13 +531,34 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(overrides).toEqual({ MEMORY_DIR: "Memory Bank" })
   })
 
+  it.each([
+    { label: "an empty line", envContent: "MEMORY_DIR=\n" },
+    { label: "empty quotes", envContent: 'MEMORY_DIR=""\n' },
+  ])(
+    "offers the default memory folder when MEMORY_DIR is $label, as the server reads it",
+    async ({ envContent }) => {
+      const scripted = createScriptedPrompts([["MEMORY_DIR"], ""])
+
+      const overrides = await askOptionalSettings(
+        { portsInUse: new Map(), mode: "local", envContent },
+        scripted.prompts,
+      )
+
+      expect(scripted.errors).toEqual([])
+      expect(overrides).toEqual({ MEMORY_DIR: "About Me" })
+    },
+  )
+
   it("re-prompts on an empty memory folder until a name is given", async () => {
     // No current value and no typed answer: the stub returns the prompt's
     // defaultValue ("About Me"), so a genuinely empty submission needs the
     // default suppressed — send whitespace, which trims to empty.
     const scripted = createScriptedPrompts([["MEMORY_DIR"], "   ", "Notes"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual(["The folder name can't be empty."])
     expect(overrides).toEqual({ MEMORY_DIR: "Notes" })
@@ -393,8 +567,40 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("uses the default port on an empty submission", async () => {
     const scripted = createScriptedPrompts([["PORT"], ""])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
+    expect(overrides).toEqual({ PORT: "8000" })
+  })
+
+  it("offers the default port when the PORT line is empty", async () => {
+    const scripted = createScriptedPrompts([["PORT"], ""])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "PORT=\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
+    ])
+    expect(overrides).toEqual({ PORT: "8000" })
+  })
+
+  it("offers the default port when the PORT line is not a port", async () => {
+    const scripted = createScriptedPrompts([["PORT"], ""])
+
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "PORT=80a0\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.textCalls).toEqual([
+      { message: "Host port for the server:", defaultValue: "8000", placeholder: "8000" },
+    ])
+    expect(scripted.errors).toEqual([])
     expect(overrides).toEqual({ PORT: "8000" })
   })
 
@@ -402,7 +608,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([["SYNC_MODE"], "bidirectional"])
 
     const overrides = await askOptionalSettings(
-      { mode: "remote", envContent: "SYNC_MODE=pull-only\n" },
+      { portsInUse: new Map(), mode: "remote", envContent: "SYNC_MODE=pull-only\n" },
       scripted.prompts,
     )
 
@@ -417,7 +623,10 @@ describe("askOptionalSettings per-setting prompts", () => {
       "Europe/London", // accepted
     ])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual([
       '"Not/AZone" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).',
@@ -428,7 +637,10 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("skips an unset daily notes folder left blank, writing nothing", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     // No pre-filled default when unset — the real default is the vault's
     // own config, so the prompt must not offer a concrete value to accept.
@@ -445,6 +657,33 @@ describe("askOptionalSettings per-setting prompts", () => {
     ])
   })
 
+  it.each([
+    { label: "an empty line", envContent: "DAILY_NOTES_FOLDER=\n" },
+    { label: "empty quotes", envContent: 'DAILY_NOTES_FOLDER=""\n' },
+  ])(
+    "treats a daily notes folder set to $label as unset, as the server reads it",
+    async ({ envContent }) => {
+      const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
+
+      const overrides = await askOptionalSettings(
+        { portsInUse: new Map(), mode: "local", envContent },
+        scripted.prompts,
+      )
+
+      expect(scripted.textCalls).toEqual([
+        {
+          message: "Vault folder for daily notes:",
+          defaultValue: "",
+          placeholder: "blank = use your vault's daily notes settings",
+        },
+      ])
+      expect(overrides).toEqual({})
+      expect(scripted.logs).toEqual([
+        "Left unset — the server reads this setting from your vault's own config.",
+      ])
+    },
+  )
+
   it("keeps a set daily notes folder on a blank submit without recording a no-op", async () => {
     // The prompt resolves an empty submit to its defaultValue (the current
     // value), so blank never destroys an existing setting — and the unchanged
@@ -453,7 +692,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
       scripted.prompts,
     )
 
@@ -471,7 +710,10 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("collects a typed daily notes format, trimmed", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "  DD-MM-YYYY  "])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.textCalls).toEqual([
       {
@@ -491,7 +733,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "   "])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
       scripted.prompts,
     )
 
@@ -503,7 +745,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Planner"])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
       scripted.prompts,
     )
 
@@ -521,7 +763,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Journal"])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
       scripted.prompts,
     )
 
@@ -536,7 +778,10 @@ describe("askOptionalSettings per-setting prompts", () => {
       "YYYY/MM/DD", // format typed
     ])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })
   })
@@ -545,7 +790,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const scripted = createScriptedPrompts([[]])
 
     await askOptionalSettings(
-      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
       scripted.prompts,
     )
 
@@ -568,7 +813,7 @@ describe("askFolder validation", () => {
     ])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "MEMORY_DIR=About Me\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_DIR=About Me\n" },
       scripted.prompts,
     )
 
@@ -580,7 +825,7 @@ describe("askFolder validation", () => {
     const scripted = createScriptedPrompts([["MEMORY_DIR"], "/var/data", "My Notes"])
 
     const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "MEMORY_DIR=About Me\n" },
+      { portsInUse: new Map(), mode: "local", envContent: "MEMORY_DIR=About Me\n" },
       scripted.prompts,
     )
 
@@ -595,7 +840,10 @@ describe("DAILY_NOTES_FOLDER validate callback", () => {
   it("rejects path traversal", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "../etc", "Journal"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual(["Path traversal (..) is not allowed in folder names."])
     expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Journal" })
@@ -604,7 +852,10 @@ describe("DAILY_NOTES_FOLDER validate callback", () => {
   it("rejects absolute paths", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "/var/notes", "Journal"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual([
       "Absolute paths are not allowed — use a vault-relative folder name.",
@@ -615,7 +866,10 @@ describe("DAILY_NOTES_FOLDER validate callback", () => {
   it("accepts / as the vault root", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "/"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual([])
     expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "/" })
@@ -626,7 +880,10 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("rejects path traversal", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "../YYYY-MM-DD", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual(["Date format must not contain path traversal (..)."])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
@@ -635,7 +892,10 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("rejects a leading path separator", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "/YYYY-MM-DD", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual(["Date format must not start with a path separator."])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
@@ -644,7 +904,10 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("rejects a trailing path separator", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "YYYY-MM-DD/", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual(["Date format must not end with a path separator."])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
@@ -653,7 +916,10 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("rejects digits outside bracket escapes", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "2024-MM-DD", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual([
       "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
@@ -664,7 +930,10 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("rejects digits outside brackets even when brackets contain digits too", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "2024 [Day 2]", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual([
       "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
@@ -675,7 +944,10 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("rejects trailing digits in a format string", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "YYYY-2024", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual([
       "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
@@ -686,7 +958,10 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("accepts digits inside bracket escapes", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "YYYY-MM-DD [Day 1]"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual([])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD [Day 1]" })
@@ -695,7 +970,10 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("accepts a valid format without digits", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "YYYY/MM/DD"])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { portsInUse: new Map(), mode: "local", envContent: "" },
+      scripted.prompts,
+    )
 
     expect(scripted.errors).toEqual([])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })

@@ -7,6 +7,7 @@ import {
   buildFilesToWrite,
   detectMode,
   patchEnvObsidianToken,
+  readEnvInstanceName,
   readEnvObsidianToken,
   readEnvPort,
   readEnvPublicUrl,
@@ -119,7 +120,7 @@ describe("readEnvPort", () => {
   it("returns the default 8000 when no .env exists", () => {
     const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
 
-    expect(readEnvPort(missingPath)).toBe(8000)
+    expect(readEnvPort(missingPath)).toEqual({ kind: "ok", port: 8000 })
   })
 
   it("returns the default 8000 when PORT is only present as a comment", () => {
@@ -127,7 +128,7 @@ describe("readEnvPort", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# PORT=9000\n")
 
-    expect(readEnvPort(envPath)).toBe(8000)
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 8000 })
   })
 
   it("returns an uncommented PORT override", () => {
@@ -135,7 +136,7 @@ describe("readEnvPort", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPORT=9000\n")
 
-    expect(readEnvPort(envPath)).toBe(9000)
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 9000 })
   })
 
   it("strips surrounding double quotes from the port value", () => {
@@ -143,7 +144,107 @@ describe("readEnvPort", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPORT="9000"\n')
 
-    expect(readEnvPort(envPath)).toBe(9000)
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 9000 })
+  })
+
+  it("takes the last active PORT line, as docker --env-file does", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "PORT=8000\nMCP_AUTH_TOKEN=abc\nPORT=8001\n")
+
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 8001 })
+  })
+
+  it("reads an empty last PORT line as the default port, not an earlier line's port", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "PORT=9000\nMCP_AUTH_TOKEN=abc\nPORT=\n")
+
+    expect(readEnvPort(envPath)).toEqual({ kind: "ok", port: 8000 })
+  })
+
+  it.each([
+    { label: "letters", portValue: "abc", reportedValue: "abc" },
+    { label: "digits then letters", portValue: "80a", reportedValue: "80a" },
+    { label: "zero", portValue: "0", reportedValue: "0" },
+    { label: "a number above 65535", portValue: "70000", reportedValue: "70000" },
+    { label: "a quoted value padded with spaces", portValue: '" 9000 "', reportedValue: " 9000 " },
+  ])(
+    "reports $label as an invalid port instead of using the default",
+    ({ portValue, reportedValue }) => {
+      const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+      const envPath = join(targetDir, ".env")
+      writeFileSync(envPath, `PORT=9000\nPORT=${portValue}\n`)
+
+      expect(readEnvPort(envPath)).toEqual({
+        kind: "invalid",
+        message: `PORT "${reportedValue}" is not a valid port — use a whole number between 1 and 65535.`,
+      })
+    },
+  )
+})
+
+describe("readEnvInstanceName", () => {
+  const writeEnv = (content: string): string => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, content)
+    return envPath
+  }
+
+  it("returns the default name when no .env exists", () => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(readEnvInstanceName(missingPath)).toEqual({ kind: "ok", instanceName: "vault-cortex" })
+  })
+
+  it.each([
+    { label: "no INSTANCE_NAME line", content: "MCP_AUTH_TOKEN=abc\n" },
+    { label: "a commented-out line", content: "# INSTANCE_NAME=work\n" },
+    { label: "an empty value", content: "INSTANCE_NAME=\n" },
+    { label: "an empty quoted value", content: 'INSTANCE_NAME=""\n' },
+  ])("returns the default name for $label", ({ content }) => {
+    expect(readEnvInstanceName(writeEnv(content))).toEqual({
+      kind: "ok",
+      instanceName: "vault-cortex",
+    })
+  })
+
+  it.each([
+    { label: "a plain name", content: "INSTANCE_NAME=work_2\n", expected: "work_2" },
+    {
+      label: "a double-quoted name",
+      content: 'INSTANCE_NAME="work-vault"\n',
+      expected: "work-vault",
+    },
+    {
+      label: "a single-quoted name",
+      content: "INSTANCE_NAME='work-vault'\n",
+      expected: "work-vault",
+    },
+    { label: "a name with trailing spaces", content: "INSTANCE_NAME=work  \n", expected: "work" },
+  ])("returns $label as written, without quotes or spaces", ({ content, expected }) => {
+    expect(readEnvInstanceName(writeEnv(content))).toEqual({ kind: "ok", instanceName: expected })
+  })
+
+  it("takes the last active line, as docker --env-file does", () => {
+    const envPath = writeEnv("INSTANCE_NAME=vault-cortex\nPORT=8001\nINSTANCE_NAME=work\n")
+
+    expect(readEnvInstanceName(envPath)).toEqual({ kind: "ok", instanceName: "work" })
+  })
+
+  it.each([
+    { label: "a one-character name", value: "a" },
+    { label: "uppercase letters", value: "Work" },
+    { label: "a space", value: "my vault" },
+    { label: "a leading hyphen", value: "-work" },
+    { label: "a dot", value: "work.vault" },
+  ])("rejects $label with the rule in the message", ({ value }) => {
+    const envPath = writeEnv(`INSTANCE_NAME=${value}\n`)
+
+    expect(readEnvInstanceName(envPath)).toEqual({
+      kind: "invalid",
+      message: `INSTANCE_NAME "${value}" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.`,
+    })
   })
 })
 
@@ -193,6 +294,25 @@ describe("readEnvVaultPath", () => {
 
     expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
   })
+
+  it("returns undefined when the value is an empty pair of quotes", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_PATH=""\n')
+
+    expect(readEnvVaultPath(envPath)).toBeUndefined()
+  })
+
+  it("takes the last active line, as docker --env-file does", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "VAULT_PATH=/Users/me/OldVault\nMCP_AUTH_TOKEN=abc\nVAULT_PATH=/Users/me/NewVault\n",
+    )
+
+    expect(readEnvVaultPath(envPath)).toBe("/Users/me/NewVault")
+  })
 })
 
 describe("readEnvPublicUrl", () => {
@@ -202,6 +322,17 @@ describe("readEnvPublicUrl", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com\n")
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
+  it("takes the last active line, as docker --env-file does", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "PUBLIC_URL=https://old.example.com\nMCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://new.example.com\n",
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://new.example.com")
   })
 
   it("strips trailing slashes so consumers can append paths cleanly", () => {
@@ -237,8 +368,6 @@ describe("readEnvPublicUrl", () => {
   })
 
   it("returns undefined for an empty PUBLIC_URL= line", () => {
-    // Contrast with hasEnvPublicUrl, which deliberately matches the empty
-    // line for old-compose detection — the value reader must not.
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=\n")
@@ -268,6 +397,22 @@ describe("readEnvPublicUrl", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com/"\n')
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
+  it("returns undefined when the quotes hold only whitespace", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="   "\n')
+
+    expect(readEnvPublicUrl(envPath)).toBeUndefined()
+  })
+
+  it("trims whitespace inside the quotes before stripping trailing slashes", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL=" https://vault.example.com/ "\n')
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
@@ -364,6 +509,23 @@ describe("patchEnvObsidianToken", () => {
     )
   })
 
+  it("replaces every active token line, so the last one docker reads is the new token", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "OBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\nOBSIDIAN_AUTH_TOKEN=stale-token\n",
+    )
+
+    const result = patchEnvObsidianToken(envPath, "new-token")
+
+    expect(result).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "OBSIDIAN_AUTH_TOKEN=new-token\nVAULT_NAME=MyVault\nOBSIDIAN_AUTH_TOKEN=new-token\n",
+    )
+    expect(readEnvObsidianToken(envPath)).toBe("new-token")
+  })
+
   it("replaces an empty token value", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
     const envPath = join(targetDir, ".env")
@@ -437,6 +599,30 @@ describe("readEnvObsidianToken", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Test\n")
 
     expect(readEnvObsidianToken(envPath)).toBeUndefined()
+  })
+
+  it("returns undefined when the value is an empty pair of quotes", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, 'OBSIDIAN_AUTH_TOKEN=old-token\nOBSIDIAN_AUTH_TOKEN=""\n')
+
+    expect(readEnvObsidianToken(envPath)).toBeUndefined()
+  })
+
+  it("keeps the quotes around a quoted token", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, 'OBSIDIAN_AUTH_TOKEN="my-token"\n')
+
+    expect(readEnvObsidianToken(envPath)).toBe('"my-token"')
+  })
+
+  it("takes the last active line, as docker --env-file does", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(
+      envPath,
+      "OBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=Test\nOBSIDIAN_AUTH_TOKEN=new-token\n",
+    )
+
+    expect(readEnvObsidianToken(envPath)).toBe("new-token")
   })
 
   it("returns undefined when the file has no OBSIDIAN_AUTH_TOKEN line", () => {
@@ -532,4 +718,32 @@ describe("stripEnvQuotedValues", () => {
 
     expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My 'Cool' Vault\n")
   })
+})
+
+describe("value readers with an empty last line", () => {
+  it.each([
+    {
+      label: "VAULT_PATH",
+      envContent: "VAULT_PATH=/Users/me/OldVault\nVAULT_PATH=\n",
+      readValue: readEnvVaultPath,
+    },
+    {
+      label: "PUBLIC_URL",
+      envContent: "PUBLIC_URL=https://old.example.com\nPUBLIC_URL=\n",
+      readValue: readEnvPublicUrl,
+    },
+    {
+      label: "OBSIDIAN_AUTH_TOKEN",
+      envContent: "OBSIDIAN_AUTH_TOKEN=old-token\nOBSIDIAN_AUTH_TOKEN=\n",
+      readValue: readEnvObsidianToken,
+    },
+  ])(
+    "read an empty last $label line as unset, as docker --env-file does",
+    ({ envContent, readValue }) => {
+      const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+      writeFileSync(envPath, envContent)
+
+      expect(readValue(envPath)).toBeUndefined()
+    },
+  )
 })

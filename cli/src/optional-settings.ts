@@ -1,4 +1,5 @@
-import { DEFAULT_PORT, type Mode } from "./scaffold.js"
+import { DEFAULT_PORT, isValidPort, stripSurroundingQuotes, type Mode } from "./scaffold.js"
+import type { PublishedPort } from "./docker.js"
 import type { Prompts, SelectOption } from "./prompts.js"
 
 type OptionalSettingBase = {
@@ -172,13 +173,16 @@ const commentedLinePattern = (name: string): RegExp => new RegExp(`^# ${name}=.*
  * Reads a var's current value from .env content. A commented-out or missing
  * line returns undefined — both mean "the server uses its built-in default",
  * which is exactly what the prompts need to distinguish. Duplicate lines
- * report the LAST value, matching docker --env-file precedence — hints,
- * prompt seeding, and the PUBLIC_URL derivation must reason from the value
- * that actually takes effect.
+ * report the LAST value, matching docker --env-file precedence. The value
+ * loses one pair of surrounding quotes, as stripEnvQuotedValues removes them
+ * before docker run. Hints, prompt seeding, and the PUBLIC_URL derivation
+ * must reason from the value that actually takes effect.
  */
 export const readOptionalValue = (envContent: string, name: string): string | undefined => {
   const matches = [...envContent.matchAll(new RegExp(`^${name}=(.*)$`, "gm"))]
-  return matches.at(-1)?.[1].trim()
+  const lastMatch = matches.at(-1)
+
+  return lastMatch && stripSurroundingQuotes(lastMatch[1].trim())
 }
 
 /**
@@ -216,18 +220,52 @@ export const applyOptionalSettings = (
  * point at a port nothing listens on. A custom PUBLIC_URL (reverse proxy,
  * remote domain) is the user's own and is never touched.
  */
-export const derivePublicUrlOverride = (
-  envContent: string,
-  overrides: Record<string, string>,
-): Record<string, string> => {
+export const withPublicUrlOverride = (params: {
+  overrides: Record<string, string>
+  envContent: string
+}): Record<string, string> => {
+  const { overrides, envContent } = params
   const newPort = overrides.PORT
 
   if (!newPort) return overrides
-  const currentPort = readOptionalValue(envContent, "PORT") ?? String(DEFAULT_PORT)
+  // An empty PORT= line leaves the default port in effect, as readEnvPort reads it.
+  const currentPort = readOptionalValue(envContent, "PORT") || String(DEFAULT_PORT)
+  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+  // A generated .env starts with PUBLIC_URL on the default port, so beside a
+  // PORT edited into a value that isn't a port, that URL follows too.
+  const followedPorts = isValidPort(currentPort)
+    ? [currentPort]
+    : [currentPort, String(DEFAULT_PORT)]
+  const publicUrlFollowsPort = followedPorts.some(
+    (followedPort) => currentPublicUrl === `http://localhost:${followedPort}`,
+  )
+
+  if (!publicUrlFollowsPort) return overrides
+  return { ...overrides, PUBLIC_URL: `http://localhost:${newPort}` }
+}
+
+/**
+ * Warns about a picked PORT change that left PUBLIC_URL as it was:
+ * withPublicUrlOverride never rewrites a custom URL, so it may still name
+ * the old port. Returns undefined when there is nothing to warn about.
+ */
+export const describeStrandedPublicUrl = (params: {
+  envContent: string
+  pickedOverrides: Record<string, string>
+  appliedOverrides: Record<string, string>
+}): string | undefined => {
+  const { envContent, pickedOverrides, appliedOverrides } = params
   const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
 
-  if (currentPublicUrl !== `http://localhost:${currentPort}`) return overrides
-  return { ...overrides, PUBLIC_URL: `http://localhost:${newPort}` }
+  // Picking PORT and accepting its pre-filled current value changes nothing.
+  const currentPort = readOptionalValue(envContent, "PORT") || String(DEFAULT_PORT)
+  const portChanged = Boolean(pickedOverrides.PORT) && pickedOverrides.PORT !== currentPort
+  // A localhost URL that already names the new port still reaches the server.
+  const publicUrlNamesNewPort = currentPublicUrl === `http://localhost:${pickedOverrides.PORT}`
+
+  if (!portChanged || appliedOverrides.PUBLIC_URL || !currentPublicUrl) return undefined
+  if (publicUrlNamesNewPort) return undefined
+  return `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`
 }
 
 /**
@@ -238,17 +276,6 @@ export const derivePublicUrlOverride = (
  */
 const isEnabledToggleValue = (value: string | undefined): boolean =>
   !["false", "0"].includes((value ?? "").toLowerCase())
-
-/**
- * Plain digits in the TCP port range. Number() coercion is not enough:
- * it accepts "1e4"/"0x1F40"/"+9000", which readEnvPort's /^PORT=(\d+)/
- * would later fail to read back — silently falling to the default port.
- */
-const isValidPort = (value: string): boolean => {
-  if (!/^\d+$/.test(value)) return false
-  const port = Number(value)
-  return port >= 1 && port <= 65535
-}
 
 /**
  * The engine's own IANA zone validation: Intl.DateTimeFormat throws a
@@ -263,18 +290,66 @@ const isValidTimezone = (value: string): boolean => {
   }
 }
 
-/** Re-prompts until the answer is a valid port number. */
-const askPort = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
+/** Host ports that containers on this machine publish, mapped to each container's name. */
+export type PortsInUse = ReadonlyMap<number, string>
+
+export const portInUseMessage = (params: { port: string; containerName: string }): string => {
+  return `Port ${params.port} is already used by the "${params.containerName}" container on this machine.`
+}
+
+/** The first port, counting up from the default, that no container publishes. */
+export const suggestFreePort = (portsInUse: PortsInUse): string => {
+  const findFreePort = (candidatePort: number): number => {
+    return portsInUse.has(candidatePort) ? findFreePort(candidatePort + 1) : candidatePort
+  }
+  return String(findFreePort(DEFAULT_PORT))
+}
+
+/** Re-prompts until the answer is a valid port no other container on the machine publishes. */
+export const askFreePort = async (
+  params: { suggestedPort: string | undefined; portsInUse: PortsInUse },
+  prompts: Prompts,
+): Promise<string> => {
+  const { suggestedPort, portsInUse } = params
+  // An empty PORT= line leaves the default port in effect, as readEnvPort reads
+  // it; a value that isn't a port is never offered, since it would be rejected.
+  const offeredPort =
+    suggestedPort && isValidPort(suggestedPort) ? suggestedPort : String(DEFAULT_PORT)
   const answer = (
     await prompts.text("Host port for the server:", {
-      defaultValue: currentValue ?? String(DEFAULT_PORT),
-      placeholder: String(DEFAULT_PORT),
+      defaultValue: offeredPort,
+      placeholder: offeredPort,
     })
   ).trim()
 
-  if (isValidPort(answer)) return answer
-  prompts.error("PORT must be a whole number between 1 and 65535.")
-  return askPort(currentValue, prompts)
+  if (!isValidPort(answer)) {
+    prompts.error("PORT must be a whole number between 1 and 65535.")
+    return askFreePort(params, prompts)
+  }
+  const portUser = portsInUse.get(Number(answer))
+
+  if (!portUser) return answer
+  prompts.error(`${portInUseMessage({ port: answer, containerName: portUser })} Pick another port.`)
+  // Suggest a free port, so pressing Enter can't pick the taken one again.
+  return askFreePort({ ...params, suggestedPort: suggestFreePort(portsInUse) }, prompts)
+}
+
+export const buildPortsInUse = (publishedPorts: ReadonlyArray<PublishedPort>): PortsInUse => {
+  return new Map(publishedPorts.map(({ hostPort, containerName }) => [hostPort, containerName]))
+}
+
+/**
+ * Start and restart replace the install's own container, so only other
+ * containers' ports are taken. A port another container also publishes stays taken.
+ */
+export const portsOfOtherContainers = (
+  publishedPorts: ReadonlyArray<PublishedPort>,
+  containerName: string,
+): PortsInUse => {
+  const otherContainersPorts = publishedPorts.filter((publishedPort) => {
+    return publishedPort.containerName !== containerName
+  })
+  return buildPortsInUse(otherContainersPorts)
 }
 
 /** Re-prompts until the answer is a zone the runtime recognizes. */
@@ -305,7 +380,8 @@ const askFolder = async (
   const { question, currentValue, defaultValue } = params
   const answer = (
     await prompts.text(question, {
-      defaultValue: currentValue ?? defaultValue,
+      // An empty .env value leaves the server's default folder in effect.
+      defaultValue: currentValue || defaultValue,
       placeholder: defaultValue,
     })
   ).trim()
@@ -344,12 +420,13 @@ const askOptionalText = async (
   const answer = (
     await prompts.text(question, {
       defaultValue: currentValue,
-      placeholder: currentValue === undefined ? placeholder : "blank = keep the current value",
+      // The server reads an empty .env value as unset.
+      placeholder: currentValue ? "blank = keep the current value" : placeholder,
     })
   ).trim()
 
   if (answer !== "" && answer !== currentValue) return answer
-  if (currentValue === undefined) {
+  if (!currentValue) {
     prompts.log("Left unset — the server reads this setting from your vault's own config.")
     return undefined
   }
@@ -362,10 +439,10 @@ const askOptionalText = async (
  * or undefined when an optionalText prompt was left blank (nothing to write).
  */
 const askSettingValue = async (
-  params: { setting: OptionalSetting; currentValue: string | undefined },
+  params: { setting: OptionalSetting; currentValue: string | undefined; portsInUse: PortsInUse },
   prompts: Prompts,
 ): Promise<string | undefined> => {
-  const { setting, currentValue } = params
+  const { setting, currentValue, portsInUse } = params
   switch (setting.kind) {
     case "toggle": {
       // An unset or empty var means the server default applies — seed the
@@ -380,7 +457,7 @@ const askSettingValue = async (
       return String(enabled)
     }
     case "port":
-      return askPort(currentValue, prompts)
+      return askFreePort({ suggestedPort: currentValue, portsInUse }, prompts)
     case "timezone":
       return askTimezone(currentValue, prompts)
     case "folder":
@@ -418,16 +495,22 @@ const askSettingValue = async (
 }
 
 /**
- * The guided optional-settings flow shared by init and configure: one
- * multiselect chooser (enter with nothing picked = change nothing), then one
- * prompt per picked setting. Returns the chosen values keyed by var name —
- * the caller owns applying them via applyOptionalSettings.
+ * The guided optional-settings flow shared by init and configure:
+ * - one multiselect chooser (enter with nothing picked = change nothing), then
+ *   one prompt per picked setting;
+ * - returns the chosen values keyed by var name, which the caller applies with
+ *   applyOptionalSettings.
  */
 export const askOptionalSettings = async (
-  params: { mode: Mode; envContent: string },
+  params: {
+    mode: Mode
+    envContent: string
+    /** Ports other containers publish, which the port prompt refuses; empty when Docker can't be asked. */
+    portsInUse: PortsInUse
+  },
   prompts: Prompts,
 ): Promise<Record<string, string>> => {
-  const { mode, envContent } = params
+  const { mode, envContent, portsInUse } = params
   const offeredSettings = OPTIONAL_SETTINGS.filter(
     (setting) => !setting.remoteOnly || mode === "remote",
   )
@@ -459,7 +542,7 @@ export const askOptionalSettings = async (
   for (const setting of offeredSettings) {
     if (!pickedNames.includes(setting.name)) continue
     const value = await askSettingValue(
-      { setting, currentValue: readOptionalValue(envContent, setting.name) },
+      { setting, currentValue: readOptionalValue(envContent, setting.name), portsInUse },
       prompts,
     )
 

@@ -1,6 +1,10 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import { describe, expect, it } from "vitest"
-import { measureToolDefinitionChars, measureToolListChars } from "../tool-surface-capture.js"
+import {
+  measureErrorsSectionChars,
+  measureToolDefinitionChars,
+  measureToolListChars,
+} from "../tool-surface-capture.js"
 
 // Serializes to {"type":"object","properties":{"path":{"type":"string"}}} — 57 chars.
 const PATH_SCHEMA: Tool["inputSchema"] = {
@@ -64,5 +68,40 @@ describe("measureToolListChars", () => {
 
   it("measures an empty tool list as zero", () => {
     expect(measureToolListChars([])).toBe(0)
+  })
+})
+
+describe("measureErrorsSectionChars", () => {
+  const toolWith = (description: string): Tool => ({
+    name: "vault_x",
+    description,
+    inputSchema: EMPTY_SCHEMA,
+  })
+
+  it("counts the Errors line and its bullets, each with its line break, and stops at the next section label", () => {
+    // "Errors:\n" is 8, '- "a" — fix a\n' is 14, '- "b" — fix b\n' is 14
+    const description = 'Read a note.\n\nErrors:\n- "a" — fix a\n- "b" — fix b\nReturns: the note.'
+
+    expect(measureErrorsSectionChars(toolWith(description))).toBe(36)
+  })
+
+  it("keeps a bullet whose text holds a capitalized word and a colon inside the section", () => {
+    // "Errors:\n" is 8, '- Note: "a" fails\n' is 18
+    const description = 'Errors:\n- Note: "a" fails\nObsidian syntax: none.'
+
+    expect(measureErrorsSectionChars(toolWith(description))).toBe(26)
+  })
+
+  it("counts to the end of the description when no section label follows", () => {
+    // "Errors:\n" is 8, '- "a" — fix a' is 13 plus one for its line break
+    expect(measureErrorsSectionChars(toolWith('Errors:\n- "a" — fix a'))).toBe(22)
+  })
+
+  it("measures a description without an Errors line as zero", () => {
+    expect(measureErrorsSectionChars(toolWith("Read a note.\n\nReturns: the note."))).toBe(0)
+  })
+
+  it("measures a tool without a description as zero", () => {
+    expect(measureErrorsSectionChars({ name: "vault_x", inputSchema: EMPTY_SCHEMA })).toBe(0)
   })
 })

@@ -73,14 +73,34 @@ describe("buildProgram init", () => {
     const { program, initCalls } = buildCapturingProgram()
 
     await program.parseAsync(
-      ["init", "--mode", "remote", "--vault-path", "/vaults/Mine", "--dir", "./out", "--yes"],
+      [
+        "init",
+        "--mode",
+        "remote",
+        "--vault-path",
+        "/vaults/Mine",
+        "--dir",
+        "./out",
+        "--instance-name",
+        "work",
+        "--port",
+        "8001",
+        "--yes",
+      ],
       {
         from: "user",
       },
     )
 
     expect(initCalls).toEqual([
-      { mode: "remote", vaultPath: "/vaults/Mine", dir: "./out", yes: true },
+      {
+        mode: "remote",
+        vaultPath: "/vaults/Mine",
+        dir: "./out",
+        instanceName: "work",
+        port: "8001",
+        yes: true,
+      },
     ])
   })
 

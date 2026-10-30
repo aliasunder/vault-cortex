@@ -12,6 +12,7 @@ import {
   createStrictInputObject,
   describeTextWindow,
   formatNoteMetadata,
+  toolInputErrorResult,
 } from "../tool-helpers.js"
 
 const VAULT_PATH = "/srv/vault"
@@ -107,12 +108,14 @@ describe("safeHandlerContent", () => {
     expect(rootWarnSpy).not.toHaveBeenCalled()
   })
 
-  it("returns a filesystem error with its path vault-relative and logs it absolute", async () => {
+  it("returns a filesystem error with its path vault-relative and its remedy appended, and logs it absolute", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
     const failToOpenNote = async (): Promise<string> => {
       throw Object.assign(new Error("EACCES: permission denied, open '/srv/vault/Locked.md'"), {
         code: "EACCES",
+        syscall: "open",
+        path: "/srv/vault/Locked.md",
       })
     }
 
@@ -122,7 +125,12 @@ describe("safeHandlerContent", () => {
     ])
 
     expect(result).toEqual({
-      content: [{ type: "text", text: "[Error]: EACCES: permission denied, open 'Locked.md'" }],
+      content: [
+        {
+          type: "text",
+          text: "[Error]: EACCES: permission denied, open 'Locked.md'. Ask the vault's owner to fix the file's or folder's permissions.",
+        },
+      ],
       isError: true,
     })
     expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -191,6 +199,35 @@ describe("safeHandlerContent", () => {
     expect(warnSpy).toHaveBeenCalledWith("tool_error", {
       error: `[Error]: ${INVALID_YAML_MESSAGE}`,
     })
+  })
+})
+
+describe("toolInputErrorResult", () => {
+  it("returns the message as given in an isError result, without the [Name]: prefix a thrown error gets", () => {
+    const requestLogger = logger.child({ requestId: "request-1" })
+    vi.spyOn(requestLogger, "warn").mockImplementation(() => {})
+
+    expect(
+      toolInputErrorResult({ message: "on_or_after requires a file", logger: requestLogger }),
+    ).toEqual({
+      content: [{ type: "text", text: "on_or_after requires a file" }],
+      isError: true,
+    })
+  })
+
+  it("logs the message as tool_error on the caller's logger", () => {
+    const requestLogger = logger.child({ requestId: "request-1" })
+    const requestWarnSpy = vi.spyOn(requestLogger, "warn").mockImplementation(() => {})
+    const rootWarnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => rootWarnSpy.mockRestore())
+
+    toolInputErrorResult({ message: "on_or_after requires a file", logger: requestLogger })
+
+    expect(requestWarnSpy).toHaveBeenCalledTimes(1)
+    expect(requestWarnSpy).toHaveBeenCalledWith("tool_error", {
+      error: "on_or_after requires a file",
+    })
+    expect(rootWarnSpy).not.toHaveBeenCalled()
   })
 })
 

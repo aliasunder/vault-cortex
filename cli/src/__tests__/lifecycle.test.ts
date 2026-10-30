@@ -1,12 +1,13 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import type { DockerLogsParams, DockerRunner } from "../docker.js"
 import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
 import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
+  createRecordingDocker,
   createScriptedPrompts,
   dockerDown,
   dockerNotInstalled,
@@ -94,7 +95,7 @@ describe("runDown", () => {
     const removeCalls: string[] = []
     const dockerNoContainer: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
+      containerImage: () => undefined,
       stopAndRemoveContainer: () => {
         removeCalls.push("called")
         return true
@@ -226,7 +227,7 @@ describe("runLogs", () => {
     const streamCalls: DockerLogsParams[] = []
     const dockerNoContainer: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
+      containerImage: () => undefined,
       streamLogs: async (params) => {
         streamCalls.push(params)
         return 0
@@ -265,7 +266,7 @@ describe("runLogs", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(streamCalls).toEqual([{ follow: true, since: "10m" }])
+    expect(streamCalls).toEqual([{ instanceName: "vault-cortex", follow: true, since: "10m" }])
   })
 
   it("defaults to a non-following stream with no since bound", async () => {
@@ -287,7 +288,7 @@ describe("runLogs", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(streamCalls).toEqual([{ follow: false, since: undefined }])
+    expect(streamCalls).toEqual([{ instanceName: "vault-cortex", follow: false, since: undefined }])
   })
 
   it("passes the stream's exit code through as its own", async () => {
@@ -392,6 +393,26 @@ describe("runRestart", () => {
     ])
   })
 
+  it("exits 1 when local .env has an empty PUBLIC_URL line", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPUBLIC_URL=\n",
+    )
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
+    ])
+  })
+
   it("exits 1 when local .env has no PUBLIC_URL", async () => {
     const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n")
@@ -404,9 +425,53 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
-      `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
-        "Add this line to your .env:\n  PUBLIC_URL=http://localhost:8000",
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        "Set this line in your .env:\n  PUBLIC_URL=http://localhost:8000",
     ])
+  })
+
+  it("exits 1 when remote .env has an empty PUBLIC_URL line", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=MyVault\nPUBLIC_URL=\n",
+    )
+    const scripted = createScriptedPrompts()
+    const recording = createRecordingDocker()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PUBLIC_URL is empty or missing in ${targetDir}/.env — the server requires it.\n` +
+        "Set it to the address your MCP clients reach this server at, for example:\n" +
+        "  PUBLIC_URL=https://vault.example.com",
+    ])
+    expect(recording.runParams).toEqual([])
+  })
+
+  it("exits 1 when .env's PORT is not a port", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPORT=80a\nPUBLIC_URL=http://localhost:8000\n",
+    )
+    const scripted = createScriptedPrompts()
+    const recording = createRecordingDocker()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `PORT "80a" is not a valid port — use a whole number between 1 and 65535. Fix it in ${targetDir}/.env.`,
+    ])
+    expect(recording.runParams).toEqual([])
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
@@ -471,6 +536,7 @@ describe("runRestart", () => {
       [
         {
           mode: "local",
+          instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
           vaultPath: "/home/user/MyVault",
@@ -523,6 +589,7 @@ describe("runRestart", () => {
       [
         {
           mode: "remote",
+          instanceName: "vault-cortex",
           envFilePath: join(targetDir, ".env"),
           port: 8000,
           vaultPath: undefined,
@@ -659,7 +726,7 @@ describe("runRestart", () => {
     const removeCalls: string[] = []
     const dockerFirstStart: DockerRunner = {
       ...dockerReady,
-      containerExists: () => false,
+      containerImage: () => undefined,
       stopAndRemoveContainer: () => {
         removeCalls.push("called")
         return false
@@ -726,5 +793,264 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(0)
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
+  })
+})
+
+describe("commands on an install with a custom INSTANCE_NAME", () => {
+  const writeNamedLocalEnv = (targetDir: string): void => {
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/WorkVault\nPORT=8001\nPUBLIC_URL=http://localhost:8001\nINSTANCE_NAME=work\n",
+    )
+  }
+
+  it("down removes only the instance's own container", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.calls).toEqual(["inspect:work", "rm:work"])
+  })
+
+  it("down names the instance when its container is absent", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const dockerNoContainer: DockerRunner = {
+      ...dockerReady,
+      containerImage: () => undefined,
+    }
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerNoContainer },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.logs).toEqual(["No work container found — nothing to stop."])
+  })
+
+  it("down names the instance in the remove hint when removal fails", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReady, stopAndRemoveContainer: () => false },
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual(["Could not remove the container — check: docker rm -f work"])
+  })
+
+  it("logs streams the instance's own container", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.calls).toEqual(["inspect:work", "logs:work"])
+    expect(recording.logsParams).toEqual([
+      { instanceName: "work", follow: false, since: undefined },
+    ])
+  })
+
+  it("logs names the instance and its start command when its container is absent", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: { ...dockerReady, containerImage: () => undefined } },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      `No work container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
+    ])
+  })
+
+  it("restart names the instance in the remove hint when removal fails", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const dockerRun = vi.fn(() => true)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: { ...dockerReady, stopAndRemoveContainer: () => false, dockerRun },
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([
+      "Could not remove the existing container — check: docker rm -f work",
+    ])
+    expect(dockerRun).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { label: "start", run: runStart },
+    { label: "restart", run: runRestart },
+  ])("$label re-creates the instance's own container", async ({ run }) => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await run(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(recording.calls).toEqual(["inspect:work", "rm:work", "run:work"])
+    expect(recording.runParams).toEqual([
+      {
+        mode: "local",
+        instanceName: "work",
+        envFilePath: join(targetDir, ".env"),
+        port: 8001,
+        vaultPath: "/home/user/WorkVault",
+      },
+    ])
+  })
+
+  it("restart names the instance in the logs hint when the health check times out", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeNamedLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever, healthTimeoutMs: 0 },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Waiting for the server to come up",
+      "stop: Server did not respond within 0 minutes — check: docker logs work",
+    ])
+  })
+
+  it.each([
+    { label: "down", run: runDown },
+    { label: "logs", run: runLogs },
+    { label: "start", run: runStart },
+  ])("$label stops on an invalid INSTANCE_NAME before any docker call", async ({ run }) => {
+    const targetDir = makeTempTargetDir("vault-cli-named-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/WorkVault\nPUBLIC_URL=http://localhost:8000\nINSTANCE_NAME=Work Vault\n",
+    )
+    const recording = createRecordingDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await run(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: recording.docker, fetchFn: fetchOk },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(recording.calls).toEqual([])
+    expect(scripted.errors).toEqual([
+      `INSTANCE_NAME "Work Vault" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit. Fix it in ${targetDir}/.env.`,
+    ])
+  })
+})
+
+describe("a container under the install's name that runs another image", () => {
+  const createForeignContainerDocker = (): { docker: DockerRunner; calls: string[] } => {
+    const recording = createRecordingDocker()
+    const docker: DockerRunner = {
+      ...recording.docker,
+      containerImage: (instanceName) => {
+        recording.calls.push(`inspect:${instanceName}`)
+        return "postgres:16"
+      },
+    }
+    return { docker, calls: recording.calls }
+  }
+
+  it("down leaves it in place and exits 1", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-foreign-")
+    writeLocalEnv(targetDir)
+    const foreign = createForeignContainerDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: foreign.docker },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(foreign.calls).toEqual(["inspect:vault-cortex"])
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        `To keep this install's data, rename that container: docker rename vault-cortex <new-name>\n` +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
+    ])
+  })
+
+  it("logs refuses to stream it", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-foreign-")
+    writeLocalEnv(targetDir)
+    const foreign = createForeignContainerDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: foreign.docker },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(foreign.calls).toEqual(["inspect:vault-cortex"])
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        `To keep this install's data, rename that container: docker rename vault-cortex <new-name>\n` +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
+    ])
+  })
+
+  it("restart leaves it in place and starts nothing", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-foreign-")
+    writeLocalEnv(targetDir)
+    const foreign = createForeignContainerDocker()
+    const scripted = createScriptedPrompts()
+
+    const exitCode = await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: foreign.docker, fetchFn: fetchNever },
+    )
+
+    expect(exitCode).toBe(1)
+    expect(foreign.calls).toEqual(["inspect:vault-cortex"])
+    expect(scripted.errors).toEqual([
+      `A container named "vault-cortex" runs postgres:16, not Vault Cortex, so this command leaves it alone.\n` +
+        `To keep this install's data, rename that container: docker rename vault-cortex <new-name>\n` +
+        `Or change INSTANCE_NAME in ${targetDir}/.env: the install then starts on new, empty volumes.`,
+    ])
   })
 })

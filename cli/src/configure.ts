@@ -4,8 +4,9 @@ import { recreateContainer, requireInitializedDir, resolveDeployment } from "./l
 import {
   applyOptionalSettings,
   askOptionalSettings,
-  derivePublicUrlOverride,
-  readOptionalValue,
+  describeStrandedPublicUrl,
+  portsOfOtherContainers,
+  withPublicUrlOverride,
 } from "./optional-settings.js"
 import type { DockerRunner } from "./docker.js"
 import type { Prompts } from "./prompts.js"
@@ -35,14 +36,19 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   prompts.intro("vault-cortex configure")
 
   // Editing settings only needs an init'd .env — the full start validation
-  // (VAULT_PATH, PUBLIC_URL) runs later, only when a restart is requested.
+  // (PORT, VAULT_PATH, PUBLIC_URL) runs later, only when a restart is requested.
   const initialized = requireInitializedDir(flags.dir, prompts)
 
   if (!initialized) return 1
-  const { targetDir, envFilePath, mode } = initialized
+  const { targetDir, envFilePath, mode, instanceName } = initialized
 
   const envContent = readFileSync(envFilePath, "utf8")
-  const pickedOverrides = await askOptionalSettings({ mode, envContent }, prompts)
+  const daemonStatus = docker.daemonStatus()
+  const portsInUse = portsOfOtherContainers(
+    daemonStatus === "running" ? docker.publishedHostPorts() : [],
+    instanceName,
+  )
+  const pickedOverrides = await askOptionalSettings({ mode, envContent, portsInUse }, prompts)
 
   if (Object.keys(pickedOverrides).length === 0) {
     // Covers both empty-overrides paths: nothing picked in the chooser, and
@@ -53,30 +59,28 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
     return 0
   }
 
-  const overrides = derivePublicUrlOverride(envContent, pickedOverrides)
+  const overrides = withPublicUrlOverride({ overrides: pickedOverrides, envContent })
   const changedNames = Object.keys(overrides)
   writeFileSync(envFilePath, applyOptionalSettings(envContent, overrides))
   prompts.log(`Updated ${changedNames.join(", ")} in ${targetDir}/.env.`)
 
-  // A custom PUBLIC_URL is never rewritten (see derivePublicUrlOverride), but
-  // a port change can still strand it — surface the consequence non-blocking.
-  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+  const publicUrlWarning = describeStrandedPublicUrl({
+    envContent,
+    pickedOverrides,
+    appliedOverrides: overrides,
+  })
 
-  if (pickedOverrides.PORT && !overrides.PUBLIC_URL && currentPublicUrl) {
-    prompts.warn(
-      `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`,
-    )
-  }
+  if (publicUrlWarning) prompts.warn(publicUrlWarning)
 
   const restartHint = `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`
-  const daemonStatus = docker.daemonStatus()
+  // Asked again: Docker may have stopped or started while the prompts were open.
+  const restartDaemonStatus = docker.daemonStatus()
 
-  if (daemonStatus !== "running") {
-    // Settings are already saved — the runtime state only affects the restart
-    // offer, so both non-running states degrade to the hint; restart itself
-    // prints the full install/start guidance when run.
+  if (restartDaemonStatus !== "running") {
+    // Settings are already saved, so both non-running states degrade to the
+    // hint; restart itself prints the full install/start guidance when run.
     prompts.warn(
-      daemonStatus === "not-installed"
+      restartDaemonStatus === "not-installed"
         ? `No container runtime found — settings saved.\n${restartHint}`
         : `Container runtime not running — settings saved.\n${restartHint}`,
     )

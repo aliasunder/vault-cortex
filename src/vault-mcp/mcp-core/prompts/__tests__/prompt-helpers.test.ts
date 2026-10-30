@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
+  describeErrorForPromptFallback,
   formatNoteLine,
   capContent,
   exceedsCharCap,
@@ -163,5 +164,36 @@ describe("wrapWithDataMarkers", () => {
       truncationToolName: undefined,
     })
     expect(result).toContain('source="path &quot;with&quot; &amp;chars"')
+  })
+})
+
+describe("describeErrorForPromptFallback", () => {
+  it("makes a filesystem error's path vault-relative and appends its remedy without the closing period", () => {
+    const error = Object.assign(
+      new Error("EACCES: permission denied, open '/srv/vault/Projects/plan.md'"),
+      { code: "EACCES", syscall: "open", path: "/srv/vault/Projects/plan.md" },
+    )
+
+    expect(describeErrorForPromptFallback({ error, vaultPath: "/srv/vault" })).toBe(
+      "[Error]: EACCES: permission denied, open 'Projects/plan.md'. Ask the vault's owner to fix the file's or folder's permissions",
+    )
+  })
+
+  it("drops the closing period of an error that has no remedy", () => {
+    expect(
+      describeErrorForPromptFallback({
+        error: new Error("daily notes config is not valid JSON."),
+        vaultPath: "/srv/vault",
+      }),
+    ).toBe("[Error]: daily notes config is not valid JSON")
+  })
+
+  it("returns an error with no remedy and no closing period as it is", () => {
+    expect(
+      describeErrorForPromptFallback({
+        error: new Error("note not found: Projects/plan.md"),
+        vaultPath: "/srv/vault",
+      }),
+    ).toBe("[Error]: note not found: Projects/plan.md")
   })
 })

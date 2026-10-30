@@ -1,5 +1,64 @@
 # Changelog
 
+## [0.55.3] — 2026-10-24
+
+### Bug Fixes
+
+- **tools:** Keep a note's properties block when an edit does not change it (#707)
+
+### Maintenance
+
+- **deps:** Bump fast-uri from 3.1.8 to 3.1.9 (#709)
+
+## [0.55.2] — 2026-10-24
+
+### Features
+
+- **tools:** Append a remedy to every raw filesystem and index error (#701)
+
+### Bug Fixes
+
+- **deps:** Bump body-parser to 2.4.0 for CVE-2026-111181 (#708)
+
+### Maintenance
+
+- **deps:** Bump github/codeql-action/upload-sarif from 4.38.3 to 4.39.0 (#706)
+- **deps:** Bump the production group with 2 updates (#704)
+
+## [0.55.1] — 2026-10-23
+
+### Bug Fixes
+
+- Read properties blocks the way Obsidian does and report task lines on the written note (#700)
+- **tools:** Polish eleven tool-description faults left after the caller-use sweep (#698)
+- **auth:** Tighten gateway token checks and keep revoked tokens revoked (#699)
+- **tools:** Cut description text a calling agent cannot act on (#697)
+
+### CI / Infrastructure
+
+- **release:** Remove the tag-push release workflow (#696)
+- **release:** List only CLI changes in CLI release notes (#694)
+- **release:** Build a queued CLI release on main's latest commit (#693)
+
+### Maintenance
+
+- **deps:** Bump ip-address from 10.7.2 to 10.7.4 (#703)
+
+## [0.55.0] — 2026-10-21
+
+### Features
+
+- Run more than one vault-cortex install on a machine with INSTANCE_NAME (#686)
+
+### CI / Infrastructure
+
+- **release:** Leave contributor-only commits out of server release notes (#691)
+- **release:** Stop CHANGELOG.md gaining a blank line at every release (#690)
+
+### Maintenance
+
+- **deps:** Bump hono from 4.13.7 to 4.13.13 (#692)
+
 ## [0.54.16] — 2026-10-20
 
 ### Features

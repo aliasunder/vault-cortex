@@ -12,11 +12,7 @@ import {
 } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import {
-  parseNote,
-  UnkeepableOpeningBlockError,
-  UnsupportedPropertiesBlockError,
-} from "../../obsidian-markdown/frontmatter.js"
+import { parseNote, UnkeepableOpeningBlockError } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 import { runsAsRoot } from "../../../__tests__/runs-as-root.js"
@@ -163,6 +159,12 @@ describe("getMemory", () => {
     // The visible files still come back — proves the read ran normally.
     expect(result).toContain("# Opinions")
     expect(result).toContain("# Principles")
+  })
+
+  it("leaves a file whose name ends in .md twice out of the all-files read", async () => {
+    const withoutDoubledName = await getMemory({ vaultPath: vault }, logger)
+    await writeFile(join(vault, "About Me", "Opinions.MD.md"), "# Doubled\n", "utf8")
+    expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutDoubledName)
   })
 
   it("skips a folder whose name ends in .md in the all-files read", async () => {
@@ -340,6 +342,20 @@ describe("getMemory", () => {
       'memory file must not start with a dot: ".secret" would be a hidden file',
     )
   })
+
+  // The store adds .md itself, so "Opinions.md" names "Opinions.md.md". A real
+  // file of that name on disk makes the name check, not a missing file, the
+  // only possible rejection.
+  it.each([
+    { label: "lowercase", file: "Opinions.md" },
+    { label: "uppercase", file: "Opinions.MD" },
+  ])("rejects a file name ending in .md ($label) even when that file exists", async ({ file }) => {
+    await writeFile(join(vault, "About Me", `${file}.md`), "## Notes (newest first)\n", "utf8")
+
+    await expect(getMemory({ vaultPath: vault, file }, logger)).rejects.toThrow(
+      new Error(`memory file must be named without .md: "${file}"`),
+    )
+  })
 })
 
 describe("updateMemory", () => {
@@ -358,9 +374,34 @@ describe("updateMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('memory file must not start with a dot: ".secret" would be a hidden file')
+    ).rejects.toThrow(
+      new Error('memory file must not start with a dot: ".secret" would be a hidden file'),
+    )
     const memoryDirEntries = await readdir(join(vault, "About Me"))
     expect(memoryDirEntries).not.toContain(".secret.md")
+  })
+
+  it.each([
+    { label: "lowercase", file: "Opinions.md" },
+    { label: "uppercase", file: "Opinions.MD" },
+  ])("rejects a file name ending in .md ($label) and writes nothing", async ({ file }) => {
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file,
+          section: "Notes (newest first)",
+          entry: "never written",
+          date: "2026-05-08",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error(`memory file must be named without .md: "${file}"`))
+    expect((await readdir(join(vault, "About Me"))).toSorted()).toEqual([
+      "Opinions.md",
+      "Principles.md",
+    ])
+    expect(await readFile(join(vault, "About Me/Opinions.md"), "utf8")).toBe(OPINIONS_MD)
   })
 
   it("inserts entry at top of section by default", async () => {
@@ -491,14 +532,14 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    expect(raw).toContain("title: Principles — About Me")
-    expect(raw).toContain("type: profile")
-    expect(raw).toContain("- about-me")
-    expect(raw).toContain("- principles")
-    // Local-offset created stamp survives byte-identically — never
-    // re-serialized to UTC-Z
-    expect(raw).toContain("created: 2026-04-22T20:51:21-04:00")
+    // The block goes back as written: the quoted title and the local-offset
+    // created stamp are never re-serialized
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      PRINCIPLES_MD.replace(
+        "## Decision heuristics (newest first)\n",
+        "## Decision heuristics (newest first)\n- **2026-05-08**: new entry\n",
+      ),
+    )
   })
 
   it("uses today's date when no date option provided", async () => {
@@ -616,6 +657,154 @@ created: 2026-01-01T00:00:00-05:00
     expect(linkStats.isSymbolicLink()).toBe(true)
   })
 
+  it("wraps the memory folder's mkdir failure with the folder's vault-relative path", async () => {
+    // The folder is server configuration, so a file at its path is the vault
+    // owner's to move; the raw EEXIST from mkdir would read as the caller's path
+    const memoryFolder = join(vault, "About Me")
+    await rm(memoryFolder, { recursive: true })
+    await writeFile(memoryFolder, "not a folder")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "About Me"', {
+        cause: Object.assign(new Error(`EEXIST: file already exists, mkdir '${memoryFolder}'`), {
+          errno: -17,
+          code: "EEXIST",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "About Me",
+      error: `[Error]: EEXIST: file already exists, mkdir '${memoryFolder}'`,
+    })
+  })
+
+  it("wraps the mkdir failure when the memory folder is a symlink that points nowhere", async () => {
+    // mkdir reports ENOENT here, and a retry cannot fix a broken link, so the
+    // failure is the vault owner's like a file at the folder's path
+    const memoryFolder = join(vault, "About Me")
+    await rm(memoryFolder, { recursive: true })
+    await symlink(join(vault, "missing-folder"), memoryFolder)
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "About Me"', {
+        cause: Object.assign(
+          new Error(`ENOENT: no such file or directory, mkdir '${memoryFolder}'`),
+          { errno: -2, code: "ENOENT", syscall: "mkdir", path: memoryFolder },
+        ),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "About Me",
+      error: `[Error]: ENOENT: no such file or directory, mkdir '${memoryFolder}'`,
+    })
+  })
+
+  it("wraps the mkdir failure when a file sits where a parent of the memory folder belongs", async () => {
+    // mkdir reports ENOTDIR, not EEXIST, when the file is a parent of the
+    // folder it creates
+    const nestedStore = createMemoryStore({ memoryDir: "Meta/About Me" })
+    const memoryFolder = join(vault, "Meta", "About Me")
+    await writeFile(join(vault, "Meta"), "not a folder")
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      nestedStore.updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot create memory folder "Meta/About Me"', {
+        cause: Object.assign(new Error(`ENOTDIR: not a directory, mkdir '${memoryFolder}'`), {
+          errno: -20,
+          code: "ENOTDIR",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      }),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot create memory folder", {
+      folder: "Meta/About Me",
+      error: `[Error]: ENOTDIR: not a directory, mkdir '${memoryFolder}'`,
+    })
+  })
+
+  it.skipIf(runsAsRoot)(
+    "lets a permission failure creating the memory folder through with its code",
+    async () => {
+      // Only a file or broken symlink in the folder's way is wrapped; a
+      // permission failure keeps Node's coded error so the tool boundary can
+      // name its remedy
+      const readOnlyVault = await mkdtemp(join(tmpdir(), "read-only-vault-"))
+      const memoryFolder = join(readOnlyVault, "About Me")
+      onTestFinished(() => rm(readOnlyVault, { recursive: true }))
+      await chmod(readOnlyVault, 0o500)
+      // Registered after the removal so that it runs first, which makes the
+      // vault writable again before it is removed.
+      onTestFinished(() => chmod(readOnlyVault, 0o700))
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+
+      await expect(
+        updateMemory(
+          {
+            vaultPath: readOnlyVault,
+            file: "Archive",
+            section: "Notes",
+            entry: "never written",
+            date: "2026-05-15",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        Object.assign(new Error(`EACCES: permission denied, mkdir '${memoryFolder}'`), {
+          errno: -13,
+          code: "EACCES",
+          syscall: "mkdir",
+          path: memoryFolder,
+        }),
+      )
+      expect(warnSpy).not.toHaveBeenCalled()
+    },
+  )
+
   it("rejects a folder named like the memory file with a vault-relative message", async () => {
     await mkdir(join(vault, "About Me", "Archive.md"))
     await expect(
@@ -654,6 +843,33 @@ created: 2026-01-01T00:00:00-05:00
       logger,
     )
     expect(result).toBe("- **2026-05-15**: section entry")
+  })
+
+  it("drops a new section name's trailing spaces, so the name without them appends to it", async () => {
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Spaced  ",
+        entry: "first entry",
+        date: "2026-05-15",
+      },
+      logger,
+    )
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Spaced",
+        entry: "second entry",
+        date: "2026-05-16",
+      },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      `${PRINCIPLES_MD}\n## Spaced (newest first)\n- **2026-05-16**: second entry\n- **2026-05-15**: first entry\n`,
+    )
   })
 
   it("appends to an existing section by its short name without duplicating it", async () => {
@@ -772,7 +988,7 @@ created: 2026-01-01T00:00:00-05:00
     const section = await getMemory({ vaultPath: vault, file: "Fenced", section: "Notes" }, logger)
 
     // The new entry is inserted before the first real entry, not before
-    // the column-0 fenced bullet that matches ENTRY_PATTERN.
+    // the column-0 fenced bullet that looks like an entry.
     expect(section).toBe(
       [
         "- **2026-06-16**: New entry appended at top",
@@ -856,6 +1072,7 @@ created: 2026-01-01T00:00:00-05:00
     { dateKind: "a timestamp", date: "2026-07-02T10:00:00" },
     { dateKind: "free text with a line break", date: "today\n" },
     { dateKind: "a calendar-impossible date", date: "2026-13-40" },
+    { dateKind: "a day past the end of its month", date: "2026-02-30" },
   ])("rejects $dateKind as the entry date", async ({ date }) => {
     await expect(
       updateMemory(
@@ -868,7 +1085,9 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)")
+    ).rejects.toThrow(
+      new Error("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"),
+    )
     // Nothing was written — the file is byte-identical to the fixture.
     const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
@@ -951,7 +1170,9 @@ created: 2026-01-01T00:00:00-05:00
           },
           logger,
         ),
-      ).rejects.toThrow(`memory file must be a bare name without path separators: "${file}"`)
+      ).rejects.toThrow(
+        new Error(`memory file must be a bare name without path separators: "${file}"`),
+      )
       // No file escaped the memory directory into the vault root.
       expect(await readdir(vault)).toEqual(["About Me"])
     },
@@ -1185,13 +1406,9 @@ describe("updateMemory auto-creation", () => {
       },
       logger,
     )
-    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    expect(raw).toContain("## Decision heuristics (newest first)")
-    expect(raw).toContain("Secrets invisible at every layer")
-    expect(raw).toContain("## Working style (newest first)")
-    expect(raw).toContain("## New category (newest first)")
-    expect(raw).toContain("- **2026-05-15**: appended entry")
-    expect(raw).toContain("title: Principles — About Me")
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      `${PRINCIPLES_MD}\n## New category (newest first)\n- **2026-05-15**: appended entry\n`,
+    )
   })
 
   it("auto-created section entry is readable via getMemory", async () => {
@@ -1578,10 +1795,77 @@ describe("deleteMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('memory file must not start with a dot: ".secret" would be a hidden file')
+    ).rejects.toThrow(
+      new Error('memory file must not start with a dot: ".secret" would be a hidden file'),
+    )
   })
 
-  it("deletes an exact matching entry", async () => {
+  // A ### subsection after an entry is the section's own content, as the entry
+  // reader treats it, so deleting the entry leaves the subsection in place
+  it.each([
+    {
+      label: "the last entry before a ### subsection",
+      before: "# T\n\n## S (newest first)\n- **2026-01-01**: one\n\n### Sub\nkeep me\n",
+      after: "# T\n\n## S (newest first)\n\n### Sub\nkeep me\n",
+    },
+    {
+      label: "an entry followed by a ### subsection and a later entry",
+      before:
+        "# T\n\n## S (newest first)\n- **2026-01-02**: two\n- **2026-01-01**: one\n\n### Sub\nkeep me\n- **2025-12-31**: older\n",
+      after:
+        "# T\n\n## S (newest first)\n- **2026-01-02**: two\n\n### Sub\nkeep me\n- **2025-12-31**: older\n",
+    },
+  ])("deleting $label keeps the subsection", async ({ before, after }) => {
+    await writeFile(join(vault, "About Me/Sectioned.md"), before, "utf8")
+
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-01", entry: "one" },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(after)
+  })
+
+  // A ### line inside code or a comment is not a heading, so it stays the
+  // entry's continuation and goes with it
+  it.each([
+    { label: "a code fence", opener: "```md", closer: "```" },
+    { label: "a %% comment", opener: "%%", closer: "%%" },
+  ])("deletes a ### line inside $label along with its entry", async ({ opener, closer }) => {
+    await writeFile(
+      join(vault, "About Me/Sectioned.md"),
+      `# T\n\n## S (newest first)\n- **2026-01-02**: two\n- **2026-01-01**: one\n${opener}\n### not a subsection\n${closer}\n- **2025-12-31**: older\n`,
+      "utf8",
+    )
+
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-01", entry: "one" },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n- **2026-01-02**: two\n- **2025-12-31**: older\n",
+    )
+  })
+
+  it("deleting an entry keeps the next entry when a ### subsection follows that entry", async () => {
+    await writeFile(
+      join(vault, "About Me/Sectioned.md"),
+      "# T\n\n## S (newest first)\n- **2026-01-02**: two\n- **2026-01-01**: one\n\n### Sub\nkeep me\n",
+      "utf8",
+    )
+
+    await deleteMemory(
+      { vaultPath: vault, file: "Sectioned", section: "S", date: "2026-01-02", entry: "two" },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/Sectioned.md"), "utf8")).toBe(
+      "# T\n\n## S (newest first)\n- **2026-01-01**: one\n\n### Sub\nkeep me\n",
+    )
+  })
+
+  it("deletes an exact matching entry and keeps the rest of the file, properties included, as written", async () => {
     await deleteMemory(
       {
         vaultPath: vault,
@@ -1592,16 +1876,11 @@ describe("deleteMemory", () => {
       },
       logger,
     )
-    const result = await getMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-      },
-      logger,
+
+    // The block goes back as written, the local-offset created stamp included
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      PRINCIPLES_MD.replace("- **2026-05-05**: Least-privilege for AI agents\n", ""),
     )
-    expect(result).not.toContain("Least-privilege")
-    expect(result).toContain("Secrets invisible")
   })
 
   it("resolves a section addressed by its short name (no suffix)", async () => {
@@ -1615,16 +1894,10 @@ describe("deleteMemory", () => {
       },
       logger,
     )
-    const result = await getMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-      },
-      logger,
+
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      PRINCIPLES_MD.replace("- **2026-05-06**: Secrets invisible at every layer\n", ""),
     )
-    expect(result).not.toContain("Secrets invisible")
-    expect(result).toContain("Least-privilege for AI agents")
   })
 
   it("throws on no matching entry", async () => {
@@ -1639,27 +1912,97 @@ describe("deleteMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('no entry matching (2026-05-05, "nonexistent text")')
+    ).rejects.toThrow(
+      new Error(
+        'no entry matching (2026-05-05, "nonexistent text") under ## Decision heuristics (newest first) in About Me/Principles.md',
+      ),
+    )
   })
 
-  // Server-written bullets only carry real calendar dates, so a malformed
-  // date can never match — the guard turns a guaranteed "no entry matching"
-  // miss into an actionable format error before any file read.
-  it("rejects a calendar-impossible date and leaves the file unchanged", async () => {
+  // An entry's date is read by its shape alone, so a date of another shape
+  // can never match — the guard turns a guaranteed "no entry matching" miss
+  // into a format error before any file read.
+  it("rejects a date that is not YYYY-MM-DD and leaves the file unchanged", async () => {
     await expect(
       deleteMemory(
         {
           vaultPath: vault,
           file: "Principles",
           section: "Decision heuristics (newest first)",
-          date: "2026-13-40",
+          date: "2026-5-5",
           entry: "Least-privilege for AI agents",
         },
         logger,
       ),
-    ).rejects.toThrow("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)")
+    ).rejects.toThrow(new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)"))
     const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
+  })
+
+  // The built bullet "- **2026-01-01**: **Tip**: rest" is a line in the file,
+  // so only the date check stops the delete
+  it("rejects a date with entry text after it and leaves the file unchanged", async () => {
+    const boldLeadPath = join(vault, "About Me/BoldLead.md")
+    const boldLeadContent = "## Notes (newest first)\n- **2026-01-01**: **Tip**: rest\n"
+    await writeFile(boldLeadPath, boldLeadContent, "utf8")
+
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "BoldLead",
+          section: "Notes",
+          date: "2026-01-01**: **Tip",
+          entry: "rest",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error("date must be YYYY-MM-DD (e.g. 2026-07-02)"))
+    expect(await readFile(boldLeadPath, "utf8")).toBe(boldLeadContent)
+  })
+
+  it("deletes a hand-edited entry whose date is not a real calendar day", async () => {
+    const handEditedPath = join(vault, "About Me/Hand.md")
+    await writeFile(
+      handEditedPath,
+      "## Notes (newest first)\n- **2026-02-30**: typed by hand\n- **2026-01-01**: kept\n",
+      "utf8",
+    )
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "Hand",
+        section: "Notes",
+        date: "2026-02-30",
+        entry: "typed by hand",
+      },
+      logger,
+    )
+
+    expect(await readFile(handEditedPath, "utf8")).toBe(
+      "## Notes (newest first)\n- **2026-01-01**: kept\n",
+    )
+  })
+
+  it("rejects a file name ending in .md and leaves a file of that name unchanged", async () => {
+    const doubledExtensionPath = join(vault, "About Me", "Opinions.md.md")
+    const doubledExtensionContent = "## Notes (newest first)\n- **2026-01-01**: old\n"
+    await writeFile(doubledExtensionPath, doubledExtensionContent, "utf8")
+
+    await expect(
+      deleteMemory(
+        {
+          vaultPath: vault,
+          file: "Opinions.md",
+          section: "Notes",
+          date: "2026-01-01",
+          entry: "old",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('memory file must be named without .md: "Opinions.md"'))
+    expect(await readFile(doubledExtensionPath, "utf8")).toBe(doubledExtensionContent)
   })
 
   it("throws on ambiguous match", async () => {
@@ -1685,27 +2028,11 @@ title: Dupe
         },
         logger,
       ),
-    ).rejects.toThrow("ambiguous: 2 entries match")
-  })
-
-  it("preserves frontmatter after deletion", async () => {
-    await deleteMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-        date: "2026-05-05",
-        entry: "Least-privilege for AI agents",
-      },
-      logger,
+    ).rejects.toThrow(
+      new Error(
+        'ambiguous: 2 entries match (2026-01-01, "same entry") under ## Section (newest first) in About Me/Dupe.md',
+      ),
     )
-    const raw = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    expect(raw).not.toContain("Least-privilege for AI agents")
-    expect(raw).toContain("title: Principles — About Me")
-    expect(raw).toContain("type: profile")
-    // Local-offset created stamp survives byte-identically — never
-    // re-serialized to UTC-Z
-    expect(raw).toContain("created: 2026-04-22T20:51:21-04:00")
   })
 
   it("case-insensitive section matching", async () => {
@@ -1719,15 +2046,10 @@ title: Dupe
       },
       logger,
     )
-    const result = await getMemory(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-      },
-      logger,
+
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      PRINCIPLES_MD.replace("- **2026-05-06**: Secrets invisible at every layer\n", ""),
     )
-    expect(result).not.toContain("Secrets invisible")
   })
 
   it("throws on non-existent file", async () => {
@@ -1742,7 +2064,7 @@ title: Dupe
         },
         logger,
       ),
-    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+    ).rejects.toThrow(new Error('memory file not found: "About Me/Ghost.md"'))
   })
 
   it("throws on non-existent section", async () => {
@@ -1868,6 +2190,13 @@ describe("listMemoryFiles", () => {
 
   it("excludes a pre-existing hidden memory file from the outlines", async () => {
     await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
+  // Listed, it would show as file "Opinions.md", which every memory tool refuses
+  it("leaves a file whose name ends in .md twice out of the outlines", async () => {
+    await writeFile(join(vault, "About Me", "Opinions.md.md"), "# Doubled\n", "utf8")
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
@@ -2088,6 +2417,35 @@ describe("listMemoryFiles", () => {
     expect(emptySection?.entry_count).toBe(0)
   })
 
+  it("counts the entries getMemoryEntries reads when an empty line ends a fence inside a blockquote", async () => {
+    // The empty line ends the quoted fence, so `> %%` opens a comment that
+    // hides the second bullet
+    await writeFile(
+      join(vault, "About Me/Quoted.md"),
+      [
+        "# Quoted",
+        "",
+        "## Notes (newest first)",
+        "- **2026-01-03**: before the quote",
+        "> ```",
+        "",
+        "> %%",
+        "- **2026-01-01**: inside the comment",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const entries = await getMemoryEntries({ vaultPath: vault, file: "Quoted" }, logger)
+
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-01-03"])
+    expect(outlines.find((outline) => outline.file === "Quoted")?.headings).toEqual([
+      { level: 1, text: "Quoted" },
+      { level: 2, text: "Notes (newest first)", entry_count: 1 },
+    ])
+  })
+
   it("identifies H1 and H2 headings correctly", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
@@ -2135,6 +2493,12 @@ describe("listMemoryFileNames", () => {
 
   it("excludes a pre-existing hidden memory file", async () => {
     await writeFile(join(vault, "About Me/.secret.md"), "# Hidden\n", "utf8")
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("leaves out a file whose name ends in .md twice", async () => {
+    await writeFile(join(vault, "About Me/Opinions.md.md"), "# Doubled\n", "utf8")
     const names = await listMemoryFileNames({ vaultPath: vault }, logger)
     expect(names).toEqual(["Opinions", "Principles"])
   })
@@ -2213,7 +2577,7 @@ describe("custom memoryDir", () => {
     onTestFinished(() => rm(customVault, { recursive: true }))
     await expect(
       customStore.getMemory({ vaultPath: customVault, file: "Nonexistent" }, logger),
-    ).rejects.toThrow('memory file not found: "Profile/Nonexistent.md"')
+    ).rejects.toThrow(new Error('memory file not found: "Profile/Nonexistent.md"'))
   })
 
   it("returns empty string when configured directory does not exist", async () => {
@@ -2369,6 +2733,11 @@ title: Big
 - **2026-06-13**: small tail entry
 `
     await writeFile(join(vault, "About Me/Big.md"), fileContent, "utf8")
+    const beforeBytes = Buffer.byteLength(fileContent, "utf8")
+    const afterBytes = Buffer.byteLength(
+      fileContent.replace(`- **2026-06-14**: ${dominantEntry}\n`, ""),
+      "utf8",
+    )
 
     await expect(
       deleteMemory(
@@ -2381,29 +2750,51 @@ title: Big
         },
         logger,
       ),
-    ).rejects.toThrow("refusing memory write")
+    ).rejects.toThrow(
+      new Error(
+        `refusing memory write: deleting memory entry would shrink content from ${beforeBytes} to ${afterBytes} bytes (>50% reduction) — the on-disk content has likely diverged from the copy this write was based on`,
+      ),
+    )
 
     // The guard fires before the write, so the file is left fully intact.
     expect(await readFile(join(vault, "About Me/Big.md"), "utf8")).toBe(fileContent)
   })
 
   it("allows a normal single-entry delete on a real-sized file", async () => {
+    const fileContent = `---
+title: Big
+---
+
+# Big
+
+## Notes (newest first)
+- **2026-06-14**: small entry
+- **2026-06-13**: ${"y".repeat(1300)}
+`
+    // Above the 1250-byte floor, so the shrink check runs instead of being skipped
+    expect(Buffer.byteLength(fileContent, "utf8")).toBeGreaterThan(1250)
+    await writeFile(join(vault, "About Me/Big.md"), fileContent, "utf8")
+
     await deleteMemory(
       {
         vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics (newest first)",
-        date: "2026-05-05",
-        entry: "Least-privilege for AI agents",
+        file: "Big",
+        section: "Notes (newest first)",
+        date: "2026-06-14",
+        entry: "small entry",
       },
       logger,
     )
-    const content = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    expect(content).not.toContain("Least-privilege for AI agents")
-    expect(content).toContain("Secrets invisible at every layer")
+
+    expect(await readFile(join(vault, "About Me/Big.md"), "utf8")).toBe(
+      fileContent.replace("- **2026-06-14**: small entry\n", ""),
+    )
   })
 
   it("skips the guard for files at or below the 1250-byte floor", async () => {
+    // Deleting the dominant entry shrinks the file by more than half, which
+    // the guard would refuse above the floor.
+    const dominantEntry = "x".repeat(1000)
     const tiny = `---
 title: T
 ---
@@ -2411,9 +2802,8 @@ title: T
 # T
 
 ## S (newest first)
-- **2026-06-14**: hi
+- **2026-06-14**: ${dominantEntry}
 `
-    // Sanity-check the fixture is genuinely under the guard's 1250-byte floor.
     expect(Buffer.byteLength(tiny, "utf8")).toBeLessThan(1250)
     await writeFile(join(vault, "About Me/T.md"), tiny, "utf8")
 
@@ -2423,12 +2813,14 @@ title: T
         file: "T",
         section: "S (newest first)",
         date: "2026-06-14",
-        entry: "hi",
+        entry: dominantEntry,
       },
       logger,
     )
-    const content = await readFile(join(vault, "About Me/T.md"), "utf8")
-    expect(content).not.toContain("- **2026-06-14**: hi")
+
+    expect(await readFile(join(vault, "About Me/T.md"), "utf8")).toBe(
+      "---\ntitle: T\n---\n\n# T\n\n## S (newest first)\n",
+    )
   })
 })
 
@@ -2871,7 +3263,11 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow('section not found: "Nonexistent section" in About Me/Principles.md')
+    ).rejects.toThrow(
+      new Error(
+        'section not found: "Nonexistent section" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
+    )
   })
 
   it("throws when the section does not exist even with onOrAfter set", async () => {
@@ -2885,7 +3281,11 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow('section not found: "Nonexistent section" in About Me/Principles.md')
+    ).rejects.toThrow(
+      new Error(
+        'section not found: "Nonexistent section" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
+      ),
+    )
   })
 
   it("throws when the memory file does not exist", async () => {
@@ -2899,7 +3299,7 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+    ).rejects.toThrow(new Error('memory file not found: "About Me/Ghost.md"'))
   })
 
   it("throws on an invalid on_or_after date", async () => {
@@ -2913,7 +3313,9 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow("date must be a real ISO calendar date")
+    ).rejects.toThrow(
+      new Error("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"),
+    )
   })
 
   it("returns entries with correct field shape", async () => {
@@ -3082,40 +3484,14 @@ created: 2026-01-01T00:00:00-05:00
   it("throws when the memory file does not exist and no section is given", async () => {
     await expect(
       getMemoryEntries({ vaultPath: vault, file: "Ghost", onOrAfter: "2026-05-01" }, logger),
-    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+    ).rejects.toThrow(new Error('memory file not found: "About Me/Ghost.md"'))
   })
 })
 
 describe("memory file with a properties block the server cannot read or keep", () => {
-  /** Awaits a call that must reject and returns what it rejected with. */
-  const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
-    try {
-      await pending
-    } catch (error) {
-      return error
-    }
-    throw new Error("expected the call to reject, but it resolved")
-  }
-
-  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
-  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
-    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
-    return { kind: thrown.kind, message: thrown.message }
-  }
-
-  const UNCLOSED_FLOW_MESSAGE =
-    "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
-
   /** A memory body under a given block, holding one entry deleteMemory can match. */
   const buildMemoryFile = (block: string): string => {
     return `${block}# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry\n`
-  }
-
-  const BROKEN_MD = buildMemoryFile("---\ntitle: [unclosed\n---\n")
-
-  const BROKEN_REFUSAL = {
-    kind: "invalid-yaml",
-    message: `memory file "About Me/Broken.md": ${UNCLOSED_FLOW_MESSAGE}`,
   }
 
   const plantBrokenFile = async (content: string): Promise<void> => {
@@ -3123,63 +3499,65 @@ describe("memory file with a properties block the server cannot read or keep", (
     expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
   }
 
-  it.each([
-    {
-      label: "listMemoryFiles",
-      read: () => listMemoryFiles({ vaultPath: vault }, logger),
-    },
-    {
-      label: "getMemory with no file",
-      read: () => getMemory({ vaultPath: vault }, logger),
-    },
-    {
-      label: "getMemory for the file",
-      read: () => getMemory({ vaultPath: vault, file: "Broken" }, logger),
-    },
-    {
-      label: "getMemory for a section of the file",
-      read: () => getMemory({ vaultPath: vault, file: "Broken", section: "Notes" }, logger),
-    },
-    {
-      label: "getMemoryEntries for the file",
-      read: () => {
-        return getMemoryEntries(
-          { vaultPath: vault, file: "Broken", onOrAfter: "2026-01-01" },
-          logger,
-        )
-      },
-    },
-  ])("$label names the unreadable file", async ({ read }) => {
-    await plantBrokenFile(BROKEN_MD)
+  const readBrokenFile = (): Promise<string> => readFile(join(vault, "About Me/Broken.md"), "utf8")
 
-    expect(describeRefusal(await captureRejection(read()))).toEqual(BROKEN_REFUSAL)
+  // Each block is one a rewrite of the properties would refuse; an edit that
+  // leaves the properties alone writes it back as it was
+  const BLOCK_CASES = [
+    { label: "a block that is not valid YAML", block: "---\ntitle: [unclosed\n---\n" },
+    { label: "a list block", block: "---\n- a\n- b\n---\n" },
+    { label: "a single-value block", block: "---\nJust a paragraph.\n---\n" },
+    { label: "an explicitly tagged block", block: "---\nstatus: !done\n---\n" },
+    { label: "a comment-only block", block: "---\n# keep\n---\n" },
+  ]
+
+  it.each(BLOCK_CASES)("updateMemory appends under $label and keeps it", async ({ block }) => {
+    await plantBrokenFile(buildMemoryFile(block))
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Broken",
+        section: "Notes (newest first)",
+        entry: "new entry",
+        date: "2026-05-06",
+      },
+      logger,
+    )
+
+    expect(await readBrokenFile()).toBe(
+      `${block}# Broken\n\n## Notes (newest first)\n- **2026-05-06**: new entry\n- **2026-05-05**: kept entry\n`,
+    )
   })
 
-  it("updateMemory names the unreadable file and leaves it unchanged", async () => {
-    await plantBrokenFile(BROKEN_MD)
+  it.each(BLOCK_CASES)(
+    "updateMemory adds a section under $label and keeps it",
+    async ({ block }) => {
+      await plantBrokenFile(buildMemoryFile(block))
 
-    const refusal = await captureRejection(
-      updateMemory(
+      await updateMemory(
         {
           vaultPath: vault,
           file: "Broken",
-          section: "Notes (newest first)",
+          section: "Brand new section",
           entry: "new entry",
           date: "2026-05-06",
         },
         logger,
-      ),
-    )
+      )
 
-    expect(describeRefusal(refusal)).toEqual(BROKEN_REFUSAL)
-    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(BROKEN_MD)
-  })
+      expect(await readBrokenFile()).toBe(
+        `${buildMemoryFile(block)}\n## Brand new section (newest first)\n- **2026-05-06**: new entry\n`,
+      )
+    },
+  )
 
-  it("deleteMemory names the unreadable file and leaves it unchanged", async () => {
-    await plantBrokenFile(BROKEN_MD)
+  it.each(BLOCK_CASES)(
+    "deleteMemory removes an entry under $label and keeps it",
+    async ({ block }) => {
+      await plantBrokenFile(buildMemoryFile(block))
 
-    const refusal = await captureRejection(
-      deleteMemory(
+      await deleteMemory(
         {
           vaultPath: vault,
           file: "Broken",
@@ -3188,40 +3566,224 @@ describe("memory file with a properties block the server cannot read or keep", (
           entry: "kept entry",
         },
         logger,
-      ),
-    )
+      )
 
-    expect(describeRefusal(refusal)).toEqual(BROKEN_REFUSAL)
-    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(BROKEN_MD)
+      expect(await readBrokenFile()).toBe(`${block}# Broken\n\n## Notes (newest first)\n`)
+    },
+  )
+
+  it.each(BLOCK_CASES)("listMemoryFiles lists a file holding $label", async ({ block }) => {
+    const content = buildMemoryFile(block)
+    await plantBrokenFile(content)
+
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+
+    expect(outlines.find((outline) => outline.file === "Broken")).toEqual({
+      file: "Broken",
+      title: "Broken",
+      bytes: Buffer.byteLength(content, "utf8"),
+      entry_policy: "append-only",
+      leading_callout: null,
+      headings: [
+        { level: 1, text: "Broken" },
+        { level: 2, text: "Notes (newest first)", entry_count: 1 },
+      ],
+    })
   })
 
-  const UNKEEPABLE_BLOCK_CASES = [
-    {
-      label: "a list block",
-      content: buildMemoryFile("---\n- a\n- b\n---\n"),
-      refusal: {
-        kind: "not-key-value",
-        message:
-          'memory file "About Me/Broken.md": properties block holds a list, not key-value pairs, so rewriting the note would delete it',
-      },
+  it("listMemoryFiles logs the file whose block is not valid YAML", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    await plantBrokenFile(buildMemoryFile("---\ntitle: [unclosed\n---\n"))
+
+    await listMemoryFiles({ vaultPath: vault }, logger)
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("memory file properties block unreadable", {
+      file: "Broken.md",
+      error:
+        "[Error]: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]",
+    })
+  })
+
+  it.skipIf(runsAsRoot)(
+    "listMemoryFiles still fails when a listed file cannot be read",
+    async () => {
+      await plantBrokenFile(buildMemoryFile("---\ntitle: [unclosed\n---\n"))
+      // afterEach removes the vault; removing a file needs only its folder's permissions
+      await chmod(join(vault, "About Me/Broken.md"), 0o000)
+
+      await expect(listMemoryFiles({ vaultPath: vault }, logger)).rejects.toThrow(
+        new Error('cannot read memory file "About Me/Broken.md"'),
+      )
     },
-    {
-      label: "an explicitly tagged block",
-      content: buildMemoryFile("---\nstatus: !done\n---\n"),
-      refusal: {
-        kind: "explicit-tag",
-        message:
-          'memory file "About Me/Broken.md": properties block uses the YAML tag !done, which rewriting the note would drop',
+  )
+
+  it.each(BLOCK_CASES)("getMemory with no file reads a file holding $label", async ({ block }) => {
+    await plantBrokenFile(buildMemoryFile(block))
+    // Only the planted file stays, so the read returns its body alone
+    await rm(join(vault, "About Me/Principles.md"))
+    await rm(join(vault, "About Me/Opinions.md"))
+
+    expect(await getMemory({ vaultPath: vault }, logger)).toBe(
+      "# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry",
+    )
+  })
+
+  it.each(BLOCK_CASES)("getMemory for the file reads a file holding $label", async ({ block }) => {
+    await plantBrokenFile(buildMemoryFile(block))
+
+    expect(await getMemory({ vaultPath: vault, file: "Broken" }, logger)).toBe(
+      "# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry",
+    )
+  })
+
+  it.each(BLOCK_CASES)("getMemory for a section reads a file holding $label", async ({ block }) => {
+    await plantBrokenFile(buildMemoryFile(block))
+
+    expect(await getMemory({ vaultPath: vault, file: "Broken", section: "Notes" }, logger)).toBe(
+      "- **2026-05-05**: kept entry",
+    )
+  })
+
+  it.each(BLOCK_CASES)("getMemoryEntries reads a file holding $label", async ({ block }) => {
+    await plantBrokenFile(buildMemoryFile(block))
+
+    expect(
+      await getMemoryEntries({ vaultPath: vault, file: "Broken", onOrAfter: "2026-01-01" }, logger),
+    ).toEqual([
+      {
+        section: "Notes (newest first)",
+        date: "2026-05-05",
+        text: "- **2026-05-05**: kept entry",
+        entryIndex: 0,
       },
-    },
+    ])
+  })
+
+  /** An empty block followed by body --- lines: a rewrite of the properties
+   *  would write no block, so the body's --- lines would become the file's
+   *  first block. A kept block stays above them. */
+  const STACKED_BLOCK_PREFIX = "---\n---\n---\nJust a paragraph.\n---\n"
+
+  it("updateMemory keeps an empty block above the body's --- lines", async () => {
+    await plantBrokenFile(buildMemoryFile(STACKED_BLOCK_PREFIX))
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Broken",
+        section: "Notes (newest first)",
+        entry: "new entry",
+        date: "2026-05-06",
+      },
+      logger,
+    )
+
+    expect(await readBrokenFile()).toBe(
+      `${STACKED_BLOCK_PREFIX}# Broken\n\n## Notes (newest first)\n- **2026-05-06**: new entry\n- **2026-05-05**: kept entry\n`,
+    )
+  })
+
+  it("deleteMemory keeps an empty block above the body's --- lines", async () => {
+    await plantBrokenFile(buildMemoryFile(STACKED_BLOCK_PREFIX))
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "Broken",
+        section: "Notes (newest first)",
+        date: "2026-05-05",
+        entry: "kept entry",
+      },
+      logger,
+    )
+
+    expect(await readBrokenFile()).toBe(
+      `${STACKED_BLOCK_PREFIX}# Broken\n\n## Notes (newest first)\n`,
+    )
+  })
+
+  /** The YAML parser reads `# scope\rnote: kept` as one comment line, so the
+   *  block holds only `a`; an LF in place of the CR would add a `note` property. */
+  const CR_INSIDE_LINE_BLOCK = "---\n# scope\rnote: kept\na: 1\n---\n"
+
+  it("updateMemory keeps a carriage return inside a properties line as written", async () => {
+    await plantBrokenFile(buildMemoryFile(CR_INSIDE_LINE_BLOCK))
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Broken",
+        section: "Notes (newest first)",
+        entry: "new entry",
+        date: "2026-05-06",
+      },
+      logger,
+    )
+
+    expect(await readBrokenFile()).toBe(
+      `${CR_INSIDE_LINE_BLOCK}# Broken\n\n## Notes (newest first)\n- **2026-05-06**: new entry\n- **2026-05-05**: kept entry\n`,
+    )
+  })
+
+  it("deleteMemory keeps a carriage return inside a properties line as written", async () => {
+    await plantBrokenFile(buildMemoryFile(CR_INSIDE_LINE_BLOCK))
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "Broken",
+        section: "Notes (newest first)",
+        date: "2026-05-05",
+        entry: "kept entry",
+      },
+      logger,
+    )
+
+    expect(await readBrokenFile()).toBe(
+      `${CR_INSIDE_LINE_BLOCK}# Broken\n\n## Notes (newest first)\n`,
+    )
+  })
+
+  // Each file has no properties block as written, but its opening lines would
+  // become one once saved: the save drops one of two BOMs, or one of two CRs
+  const OPENS_A_BLOCK_WHEN_SAVED_CASES = [
+    { label: "two leading BOMs", prefix: "\uFEFF\uFEFF---\ntitle: [unclosed\n---\n" },
+    { label: "a first line of --- and two CRs", prefix: "---\r\r\ntitle: [unclosed\n---\n" },
   ]
 
-  it.each(UNKEEPABLE_BLOCK_CASES)(
-    "updateMemory refuses $label, keeping its kind, and leaves the file unchanged",
-    async ({ content, refusal: expectedRefusal }) => {
+  /** The refusal each case expects. The class matters as well as the message:
+   *  the tool boundary picks the repair step by it, and toThrow compares only
+   *  the message. */
+  const OPENS_A_BLOCK_REFUSAL = {
+    isOpeningBlockRefusal: true,
+    message:
+      'memory file "About Me/Broken.md": the note would open with a properties block the server cannot keep: properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]',
+  }
+
+  /** Awaits a call that must reject and returns its class check and message. */
+  const describeRejection = async (
+    pending: Promise<unknown>,
+  ): Promise<{ isOpeningBlockRefusal: boolean; message: string | null }> => {
+    try {
+      await pending
+    } catch (error) {
+      return {
+        isOpeningBlockRefusal: error instanceof UnkeepableOpeningBlockError,
+        message: error instanceof Error ? error.message : null,
+      }
+    }
+    throw new Error("expected the call to reject, but it resolved")
+  }
+
+  it.each(OPENS_A_BLOCK_WHEN_SAVED_CASES)(
+    "updateMemory refuses a file with $label and leaves it unchanged",
+    async ({ prefix }) => {
+      const content = buildMemoryFile(prefix)
       await plantBrokenFile(content)
 
-      const refusal = await captureRejection(
+      const refusal = await describeRejection(
         updateMemory(
           {
             vaultPath: vault,
@@ -3234,17 +3796,42 @@ describe("memory file with a properties block the server cannot read or keep", (
         ),
       )
 
-      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
-      expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
+      expect(refusal).toEqual(OPENS_A_BLOCK_REFUSAL)
+      expect(await readBrokenFile()).toBe(content)
     },
   )
 
-  it.each(UNKEEPABLE_BLOCK_CASES)(
-    "deleteMemory refuses $label, keeping its kind, and leaves the file unchanged",
-    async ({ content, refusal: expectedRefusal }) => {
+  it.each(OPENS_A_BLOCK_WHEN_SAVED_CASES)(
+    "updateMemory refuses a new section in a file with $label and leaves it unchanged",
+    async ({ prefix }) => {
+      const content = buildMemoryFile(prefix)
       await plantBrokenFile(content)
 
-      const refusal = await captureRejection(
+      const refusal = await describeRejection(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Broken",
+            section: "Brand new section",
+            entry: "new entry",
+            date: "2026-05-06",
+          },
+          logger,
+        ),
+      )
+
+      expect(refusal).toEqual(OPENS_A_BLOCK_REFUSAL)
+      expect(await readBrokenFile()).toBe(content)
+    },
+  )
+
+  it.each(OPENS_A_BLOCK_WHEN_SAVED_CASES)(
+    "deleteMemory refuses a file with $label and leaves it unchanged",
+    async ({ prefix }) => {
+      const content = buildMemoryFile(prefix)
+      await plantBrokenFile(content)
+
+      const refusal = await describeRejection(
         deleteMemory(
           {
             vaultPath: vault,
@@ -3257,177 +3844,8 @@ describe("memory file with a properties block the server cannot read or keep", (
         ),
       )
 
-      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
-      expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(content)
+      expect(refusal).toEqual(OPENS_A_BLOCK_REFUSAL)
+      expect(await readBrokenFile()).toBe(content)
     },
   )
-
-  // The writes above refuse these blocks; the reads below must still accept them
-
-  it.each(UNKEEPABLE_BLOCK_CASES)(
-    "listMemoryFiles lists a file holding $label",
-    async ({ content }) => {
-      await plantBrokenFile(content)
-
-      const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-
-      expect(outlines.find((outline) => outline.file === "Broken")).toEqual({
-        file: "Broken",
-        title: "Broken",
-        bytes: Buffer.byteLength(content, "utf8"),
-        entry_policy: "append-only",
-        leading_callout: null,
-        headings: [
-          { level: 1, text: "Broken" },
-          { level: 2, text: "Notes (newest first)", entry_count: 1 },
-        ],
-      })
-    },
-  )
-
-  it.each(UNKEEPABLE_BLOCK_CASES)(
-    "getMemory with no file reads a file holding $label",
-    async ({ content }) => {
-      await plantBrokenFile(content)
-      // Only the planted file stays, so the read returns its body alone
-      await rm(join(vault, "About Me/Principles.md"))
-      await rm(join(vault, "About Me/Opinions.md"))
-
-      expect(await getMemory({ vaultPath: vault }, logger)).toBe(
-        "# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry",
-      )
-    },
-  )
-
-  it.each(UNKEEPABLE_BLOCK_CASES)(
-    "getMemory for the file reads a file holding $label",
-    async ({ content }) => {
-      await plantBrokenFile(content)
-
-      expect(await getMemory({ vaultPath: vault, file: "Broken" }, logger)).toBe(
-        "# Broken\n\n## Notes (newest first)\n- **2026-05-05**: kept entry",
-      )
-    },
-  )
-
-  it.each(UNKEEPABLE_BLOCK_CASES)(
-    "getMemory for a section reads a file holding $label",
-    async ({ content }) => {
-      await plantBrokenFile(content)
-
-      expect(await getMemory({ vaultPath: vault, file: "Broken", section: "Notes" }, logger)).toBe(
-        "- **2026-05-05**: kept entry",
-      )
-    },
-  )
-
-  it.each(UNKEEPABLE_BLOCK_CASES)(
-    "getMemoryEntries reads a file holding $label",
-    async ({ content }) => {
-      await plantBrokenFile(content)
-
-      expect(
-        await getMemoryEntries(
-          { vaultPath: vault, file: "Broken", onOrAfter: "2026-01-01" },
-          logger,
-        ),
-      ).toEqual([
-        {
-          section: "Notes (newest first)",
-          date: "2026-05-05",
-          text: "- **2026-05-05**: kept entry",
-          entryIndex: 0,
-        },
-      ])
-    },
-  )
-
-  /** An empty block reads as no properties, so a rewrite writes none and the
-   *  body's own --- lines would become the file's first block. */
-  const STACKED_BLOCK_MD = buildMemoryFile("---\n---\n---\nJust a paragraph.\n---\n")
-
-  /** The parts of a write's output refusal: an UnkeepableOpeningBlockError
-   *  naming the file, caused by the unnamed refusal, whose own cause is the
-   *  block refusal. */
-  const describeOutputRefusal = (
-    thrown: unknown,
-  ): { message: string; causeMessage: string | null; rootIsBlockRefusal: boolean } | null => {
-    if (!(thrown instanceof UnkeepableOpeningBlockError)) return null
-
-    const unnamedRefusal = thrown.cause instanceof UnkeepableOpeningBlockError ? thrown.cause : null
-    return {
-      message: thrown.message,
-      causeMessage: unnamedRefusal?.message ?? null,
-      rootIsBlockRefusal: unnamedRefusal?.cause instanceof UnsupportedPropertiesBlockError,
-    }
-  }
-
-  const UNNAMED_OPENING_BLOCK_MESSAGE =
-    "the note would open with a properties block the server cannot keep: properties block holds a single value, not key-value pairs (a --- line at the top and a later --- line make a properties block), so rewriting the note would delete it"
-
-  const OPENING_BLOCK_REFUSAL = {
-    message: `memory file "About Me/Broken.md": ${UNNAMED_OPENING_BLOCK_MESSAGE}`,
-    causeMessage: UNNAMED_OPENING_BLOCK_MESSAGE,
-    rootIsBlockRefusal: true,
-  }
-
-  it("updateMemory refuses a write that would open the file with --- lines it cannot keep", async () => {
-    await plantBrokenFile(STACKED_BLOCK_MD)
-
-    const refusal = await captureRejection(
-      updateMemory(
-        {
-          vaultPath: vault,
-          file: "Broken",
-          section: "Notes (newest first)",
-          entry: "new entry",
-          date: "2026-05-06",
-        },
-        logger,
-      ),
-    )
-
-    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
-    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(STACKED_BLOCK_MD)
-  })
-
-  it("updateMemory refuses a new section that would open the file with --- lines it cannot keep", async () => {
-    await plantBrokenFile(STACKED_BLOCK_MD)
-
-    const refusal = await captureRejection(
-      updateMemory(
-        {
-          vaultPath: vault,
-          file: "Broken",
-          section: "Brand new section",
-          entry: "new entry",
-          date: "2026-05-06",
-        },
-        logger,
-      ),
-    )
-
-    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
-    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(STACKED_BLOCK_MD)
-  })
-
-  it("deleteMemory refuses a write that would open the file with --- lines it cannot keep", async () => {
-    await plantBrokenFile(STACKED_BLOCK_MD)
-
-    const refusal = await captureRejection(
-      deleteMemory(
-        {
-          vaultPath: vault,
-          file: "Broken",
-          section: "Notes (newest first)",
-          date: "2026-05-05",
-          entry: "kept entry",
-        },
-        logger,
-      ),
-    )
-
-    expect(describeOutputRefusal(refusal)).toEqual(OPENING_BLOCK_REFUSAL)
-    expect(await readFile(join(vault, "About Me/Broken.md"), "utf8")).toBe(STACKED_BLOCK_MD)
-  })
 })

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 import { buildLocalEnv, buildRemoteEnv } from "./env.js"
@@ -17,17 +17,23 @@ import {
   pollHealth,
   type DockerRunner,
 } from "./docker.js"
-import { reportPublicUrlProbe } from "./lifecycle.js"
+import {
+  applyInstanceIdentity,
+  describeStrandedCarriedPublicUrl,
+  resolveInstanceIdentity,
+} from "./instance-identity.js"
+import { checkInstanceContainer, reportPublicUrlProbe, resolveDeployment } from "./lifecycle.js"
 import {
   applyOptionalSettings,
   askOptionalSettings,
-  derivePublicUrlOverride,
+  describeStrandedPublicUrl,
+  readOptionalValue,
+  withPublicUrlOverride,
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
+  detectMode,
   readEnvObsidianToken,
-  readEnvPort,
-  readEnvPublicUrl,
   stripEnvQuotedValues,
   writeFiles,
   type FileWriteResult,
@@ -41,6 +47,10 @@ export type InitFlags = {
   mode?: string
   vaultPath?: string
   dir?: string
+  /** INSTANCE_NAME for this install, skipping the name-in-use prompt. */
+  instanceName?: string
+  /** Host PORT for this install. */
+  port?: string
   yes?: boolean
 }
 
@@ -191,6 +201,13 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
   return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
 }
 
+const askTargetDir = async (prompts: Prompts): Promise<string> => {
+  return await prompts.text("Where should I put the config files?", {
+    defaultValue: DEFAULT_TARGET_DIR,
+    placeholder: DEFAULT_TARGET_DIR,
+  })
+}
+
 /** Re-prompts until the answer is a valid base http(s) URL (no /mcp path). */
 const askPublicUrl = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text(
@@ -227,6 +244,30 @@ const confirmOverwrite =
   (prompts: Prompts) =>
   (name: string): Promise<boolean> =>
     prompts.confirm(`${name} already exists and differs — overwrite?`, false)
+
+/**
+ * The refusal for a folder whose .env belongs to the other mode's install:
+ * start, restart and upgrade read the mode from that file, so a re-run must
+ * not write the other mode's settings over it or start the other image.
+ */
+const describeModeMismatch = (params: { targetDir: string; mode: Mode }): string | undefined => {
+  const { targetDir, mode } = params
+  const envFilePath = join(targetDir, ".env")
+  const existingMode = detectMode(envFilePath)
+
+  if (!existingMode || existingMode === mode) return undefined
+  // detectMode reads any .env without a Sync token as local, but only a file
+  // init wrote has MCP_AUTH_TOKEN; another app's .env gets the usual re-run question.
+  const writtenByInit =
+    readOptionalValue(readFileSync(envFilePath, "utf8"), "MCP_AUTH_TOKEN") !== undefined
+
+  if (!writtenByInit) return undefined
+  return (
+    `${targetDir} holds a ${existingMode} install, and this run sets up a ${mode} one.\n` +
+    `To start the existing install: ${startCommand(targetDir)}\n` +
+    `To set up a ${mode} install, run init again with another --dir.`
+  )
+}
 
 /**
  * Re-init guard, fired the moment the target dir is known (prompt answer or
@@ -271,16 +312,17 @@ const reportWrites = (
 
 /**
  * Offers to start the container, walking a gate ladder where each failed
- * gate degrades to instructions instead of an error: daemon running → user
- * consents → docker run succeeds → health check passes. Returns "running"
- * when the server is confirmed up, "starting" when the container launched
- * but the health check timed out, or "not-started" when a gate failed.
+ * gate degrades to instructions instead of an error: daemon running → no
+ * other image's container holds the name → user consents → any container with
+ * this name is removed → docker run succeeds → health check passes. Returns
+ * "running" when the server is confirmed up, "starting" when the container
+ * launched but the health check timed out, or "not-started" when a gate failed.
  */
 const offerDockerRun = async (
-  params: { targetDir: string; port: number; mode: Mode; vaultPath?: string },
+  params: { targetDir: string; instanceName: string; port: number; mode: Mode; vaultPath?: string },
   deps: InitDeps,
 ): Promise<StartStatus> => {
-  const { targetDir, port, mode, vaultPath } = params
+  const { targetDir, instanceName, port, mode, vaultPath } = params
   const { prompts, docker, fetchFn } = deps
   const daemonStatus = docker.daemonStatus()
 
@@ -295,13 +337,30 @@ const offerDockerRun = async (
     )
     return "not-started"
   }
-  const startNow = await prompts.confirm("Start the server now?", true)
+  const envFilePath = join(targetDir, ".env")
+  const instanceContainer = checkInstanceContainer(
+    { instanceName, envFilePath },
+    { prompts, docker },
+  )
+
+  if (instanceContainer === "foreign") return "not-started"
+  // docker run refuses a name an existing container already holds, so a yes
+  // replaces that container the way `start` does, and the question says so.
+  const containerExists = instanceContainer === "own"
+  const startQuestion = containerExists
+    ? `Start the server now? This stops and replaces the existing "${instanceName}" container. Its data volumes are kept.`
+    : "Start the server now?"
+  const startNow = await prompts.confirm(startQuestion, true)
 
   if (!startNow) return "not-started"
-  const envFilePath = join(targetDir, ".env")
+  if (containerExists && !docker.stopAndRemoveContainer(instanceName)) {
+    prompts.error(`Could not remove the existing container — check: docker rm -f ${instanceName}`)
+    return "not-started"
+  }
   stripEnvQuotedValues(envFilePath)
   const containerStarted = docker.dockerRun({
     mode,
+    instanceName,
     envFilePath,
     port,
     vaultPath,
@@ -318,7 +377,7 @@ const offerDockerRun = async (
   const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
 
   if (!healthy) {
-    spinner.stop(healthTimeoutMessage(mode, timeoutMs))
+    spinner.stop(healthTimeoutMessage({ mode, timeoutMs, instanceName }))
     return "starting"
   }
   spinner.stop("Server is up — health check passed.")
@@ -339,6 +398,8 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 
   if (flags.yes) {
     if (!vaultPathResult || vaultPathResult.kind === "error") {
+      // runInit rejects --yes without --vault-path before calling this, so the
+      // fallback message is unreachable; it covers vaultPathResult's undefined type.
       prompts.error(vaultPathResult?.message ?? "--yes requires --vault-path.")
       return 1
     }
@@ -356,19 +417,17 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
       ? vaultPathResult.path
       : await askVaultPath(prompts)
 
+  const requestedTargetDir =
+    flags.dir ?? (flags.yes ? DEFAULT_TARGET_DIR : await askTargetDir(prompts))
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
-  const targetDir = resolve(
-    expandTilde(
-      flags.dir ??
-        (flags.yes
-          ? DEFAULT_TARGET_DIR
-          : await prompts.text("Where should I put the config files?", {
-              defaultValue: DEFAULT_TARGET_DIR,
-              placeholder: DEFAULT_TARGET_DIR,
-            })),
-    ),
-  )
+  const targetDir = resolve(expandTilde(requestedTargetDir))
+  const modeMismatch = describeModeMismatch({ targetDir, mode: "local" })
+
+  if (modeMismatch) {
+    prompts.error(modeMismatch)
+    return 1
+  }
 
   // --yes skips the guard: it's non-interactive by contract, and its own
   // conflict policy (refuse to overwrite, exit 1) already protects the dir.
@@ -377,6 +436,10 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 
     if (!continueReinit) return 0
   }
+
+  const identityResult = await resolveInstanceIdentity({ mode: "local", targetDir, flags }, deps)
+
+  if (identityResult.kind === "exit") return 1
 
   const token = generateToken()
 
@@ -387,14 +450,29 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // user asked for a full re-run — the answers land in the regenerated file
   // when they overwrite at the conflict prompt (keeping it discards them,
   // which the write report states). In-place edits stay configure's job.
-  const defaultEnvContent = buildLocalEnv({ mcpAuthToken: token, vaultPath })
+  const templateEnvContent = buildLocalEnv({ mcpAuthToken: token, vaultPath })
+  const generatedEnvContent = applyInstanceIdentity(templateEnvContent, identityResult.identity)
   const optionalOverrides = flags.yes
     ? {}
-    : await askOptionalSettings({ mode: "local", envContent: defaultEnvContent }, prompts)
-  const envContent = applyOptionalSettings(
-    defaultEnvContent,
-    derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
-  )
+    : await askOptionalSettings(
+        {
+          mode: "local",
+          envContent: generatedEnvContent,
+          portsInUse: identityResult.portsInUse,
+        },
+        prompts,
+      )
+  const appliedOverrides = withPublicUrlOverride({
+    overrides: optionalOverrides,
+    envContent: generatedEnvContent,
+  })
+  const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
+  const publicUrlWarning =
+    describeStrandedPublicUrl({
+      envContent: generatedEnvContent,
+      pickedOverrides: optionalOverrides,
+      appliedOverrides,
+    }) ?? describeStrandedCarriedPublicUrl(templateEnvContent, identityResult.identity)
 
   // Conflict policy: identical existing files are skipped silently;
   // differing ones prompt per file (default keep). --yes never overwrites —
@@ -420,15 +498,26 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
-  const port = readEnvPort(join(targetDir, ".env"))
+  // Only a written .env carries the picked port, so a kept one needs no warning.
+  if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
+  // The .env on disk decides what starts, with start's own checks: a kept
+  // file may hold another name, port, vault folder or PUBLIC_URL than this run's.
+  const deployment = resolveDeployment(targetDir, prompts)
+
+  if (!deployment) return 1
+  const { instanceName, port } = deployment
 
   // --yes is for scripts/CI, so it never starts Docker.
   const startStatus: StartStatus = flags.yes
     ? "not-started"
-    : await offerDockerRun({ targetDir, port, mode: "local", vaultPath }, deps)
+    : await offerDockerRun(
+        { targetDir, instanceName, port, mode: "local", vaultPath: deployment.vaultPath },
+        deps,
+      )
   prompts.print(
     buildLocalConnectMessage({
       targetDir,
+      instanceName,
       token,
       startStatus,
       port,
@@ -446,21 +535,26 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
 const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> => {
   const { prompts, fetchFn } = deps
 
+  const requestedTargetDir = flags.dir ?? (await askTargetDir(prompts))
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
-  const targetDir = resolve(
-    expandTilde(
-      flags.dir ??
-        (await prompts.text("Where should I put the config files?", {
-          defaultValue: DEFAULT_TARGET_DIR,
-          placeholder: DEFAULT_TARGET_DIR,
-        })),
-    ),
-  )
+  const targetDir = resolve(expandTilde(requestedTargetDir))
+  const modeMismatch = describeModeMismatch({ targetDir, mode: "remote" })
+
+  if (modeMismatch) {
+    prompts.error(modeMismatch)
+    return 1
+  }
 
   const continueReinit = await confirmReinitOverExistingEnv(targetDir, prompts)
 
   if (!continueReinit) return 0
+
+  // Before the public URL prompt, so a second install's port is chosen before
+  // the user types the URL that reaches it.
+  const identityResult = await resolveInstanceIdentity({ mode: "remote", targetDir, flags }, deps)
+
+  if (identityResult.kind === "exit") return 1
 
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
@@ -468,14 +562,14 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // Sign in to Obsidian and capture the Sync token directly via the API.
   // When the user declines or capture fails, fall back to any token already
   // in the on-disk .env (a re-init over an existing deployment). Only show
-  // the "run get-sync-token later" guidance when neither source has a token.
+  // the sign-in guidance when neither source has a token.
   const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
   const existingEnvToken = readEnvObsidianToken(join(targetDir, ".env"))
-  const hasExistingToken = Boolean(capturedToken ?? existingEnvToken)
+  const hasSyncToken = Boolean(capturedToken ?? existingEnvToken)
 
-  if (!hasExistingToken) {
+  if (!hasSyncToken) {
     prompts.log(
-      "No token yet — run this later to add it to your .env:\n" +
+      "No Sync token in .env — sign in on the server's sign-in page once it starts, or add a token with:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   }
@@ -492,21 +586,30 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   // .env passed the re-init guard — a consented re-run gets the full setup,
   // chooser included (see the local flow's comment for the overwrite/keep
   // semantics).
-  const defaultEnvContent = buildRemoteEnv({
-    mcpAuthToken: token,
-    publicUrl,
-    obsidianAuthToken: capturedToken ?? existingEnvToken,
-    vaultName,
-    vaultPassword,
-  })
+  const generatedEnvContent = applyInstanceIdentity(
+    buildRemoteEnv({
+      mcpAuthToken: token,
+      publicUrl,
+      obsidianAuthToken: capturedToken ?? existingEnvToken,
+      vaultName,
+      vaultPassword,
+    }),
+    identityResult.identity,
+  )
   const optionalOverrides = await askOptionalSettings(
-    { mode: "remote", envContent: defaultEnvContent },
+    { mode: "remote", envContent: generatedEnvContent, portsInUse: identityResult.portsInUse },
     prompts,
   )
-  const envContent = applyOptionalSettings(
-    defaultEnvContent,
-    derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
-  )
+  const appliedOverrides = withPublicUrlOverride({
+    overrides: optionalOverrides,
+    envContent: generatedEnvContent,
+  })
+  const envContent = applyOptionalSettings(generatedEnvContent, appliedOverrides)
+  const publicUrlWarning = describeStrandedPublicUrl({
+    envContent: generatedEnvContent,
+    pickedOverrides: optionalOverrides,
+    appliedOverrides,
+  })
   const files = buildFilesToWrite(envContent)
   const results = await writeFiles({ targetDir, files }, confirmOverwrite(prompts))
   reportWrites({ targetDir, results }, prompts)
@@ -519,18 +622,23 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
 
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
-  const port = readEnvPort(join(targetDir, ".env"))
-  // Like PORT above, PUBLIC_URL comes from the .env actually on disk — a kept
-  // existing file may hold a different URL than this run's prompt, and the
-  // server only reads the file. The prompted value is the fallback for a kept
-  // legacy .env that predates PUBLIC_URL.
-  const effectivePublicUrl = readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
+  if (tokenWritten && publicUrlWarning) prompts.warn(publicUrlWarning)
+  if (capturedToken && !tokenWritten) {
+    prompts.warn(
+      `The Sync token from this sign-in wasn't saved, because ${targetDir}/.env was kept. To add it, run:\n` +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+    )
+  }
+  // Same on-disk checks as the local flow; the server reads only the file,
+  // so a kept file's PUBLIC_URL wins over this run's prompt.
+  const deployment = resolveDeployment(targetDir, prompts)
 
-  // Without the sync token the container can't start (init-check-auth fails
-  // and s6 stops it), so only offer docker run when it was provided.
-  const startStatus: StartStatus = !hasExistingToken
-    ? "not-started"
-    : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
+  if (!deployment) return 1
+  const { instanceName, port, publicUrl: effectivePublicUrl } = deployment
+
+  // Started without a Sync token in .env, the container keeps a login saved
+  // on its volume, or serves its sign-in page; the closing message covers both.
+  const startStatus = await offerDockerRun({ targetDir, instanceName, port, mode: "remote" }, deps)
 
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.
@@ -543,10 +651,12 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   prompts.print(
     buildRemoteConnectMessage({
       targetDir,
+      instanceName,
       token,
       publicUrl: effectivePublicUrl,
       startStatus,
-      obsidianTokenMissing: !hasExistingToken,
+      // From the file, like PUBLIC_URL: a token captured this run is not in a kept .env.
+      obsidianTokenMissing: !readEnvObsidianToken(join(targetDir, ".env")),
       tokenWritten,
     }),
   )

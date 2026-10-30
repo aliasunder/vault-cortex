@@ -2307,6 +2307,14 @@ describe("searchByFolder", () => {
     const results = index.searchByFolder({ folder: "About Me", limit: 1 }, logger)
     expect(results.map((note) => note.path)).toEqual(["About Me/sub/deep.md"])
   })
+
+  it("reports each note's top-level folder, not its parent folder", () => {
+    const results = index.searchByFolder({ folder: "About Me" }, logger)
+    expect(results.map(({ path, folder }) => ({ path, folder }))).toEqual([
+      { path: "About Me/sub/deep.md", folder: "About Me" },
+      { path: "About Me/Principles.md", folder: "About Me" },
+    ])
+  })
 })
 
 describe("listAllTags", () => {
@@ -3186,6 +3194,22 @@ describe("property keys containing JSON path syntax", () => {
 
     expect(asNumber.map((result) => result.path)).toEqual(["Projects/rated.md"])
     expect(asString.map((result) => result.path)).toEqual([])
+  })
+
+  it("fullTextSearch's properties filter matches a key and text value only in their exact letter case", () => {
+    const propertyIndex = createPropertyTestIndex()
+    seedPropertyNotes(propertyIndex, [
+      { filePath: "exact.md", frontmatter: "status: active" },
+      { filePath: "key-case.md", frontmatter: "Status: active" },
+      { filePath: "value-case.md", frontmatter: "status: Active" },
+    ])
+
+    const results = propertyIndex.fullTextSearch(
+      { query: "searchable", filters: { properties: { status: "active" } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["exact.md"])
   })
 
   it.each([
@@ -4850,6 +4874,20 @@ describe("findOrphans", () => {
     })
   })
 
+  it("accepts up to 994 excluded folders and refuses 995", () => {
+    const queryIndex = createSearchIndex(":memory:")
+    const createExcludeFolders = (count: number): string[] => {
+      return Array.from({ length: count }, (_, folderIndex) => `Folder${folderIndex}`)
+    }
+    const largestAccepted = createExcludeFolders(994)
+    const oneTooMany = createExcludeFolders(995)
+
+    expect(queryIndex.findOrphans({ excludeFolders: largestAccepted }, logger)).toEqual([])
+    expect(() => {
+      queryIndex.findOrphans({ excludeFolders: oneTooMany }, logger)
+    }).toThrow("too many excluded folders")
+  })
+
   it("propagates unrelated SQLite query failures unchanged", () => {
     const queryIndex = createSearchIndex(":memory:")
     const requestLogger = { ...logger, warn: vi.fn() }
@@ -4915,6 +4953,21 @@ describe("findOrphans", () => {
 
   it("ignores ASCII letter case in excludeFolders", () => {
     const orphans = index.findOrphans({ excludeFolders: ["projects"] }, logger)
+    expect(orphans.map((orphan) => orphan.path)).toEqual(["Daily Notes/2026-05-13.md", "hub.md"])
+  })
+
+  it("counts links from notes in an excluded folder as incoming links", () => {
+    index.upsertNote(
+      {
+        filePath: "Templates/project.md",
+        rawContent: "# Template\n\nSee [[Projects/orphan]].\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+    const orphans = index.findOrphans({ excludeFolders: ["Templates"] }, logger)
+    // The template is left out as excluded, and its link still connects
+    // Projects/orphan.md, so neither appears
     expect(orphans.map((orphan) => orphan.path)).toEqual(["Daily Notes/2026-05-13.md", "hub.md"])
   })
 
@@ -7198,6 +7251,39 @@ describe("canvas file content and links", () => {
       })
     })
 
+    it("reports a file's full parent folder and a note's top-level folder", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      fileIndex.upsertNote(
+        {
+          filePath: "Diagrams/System/plan.md",
+          rawContent: "# Plan\n\nThe architecture deployment plan.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      fileIndex.upsertNonMdFile("Diagrams/System/arch.canvas", 500)
+      fileIndex.upsertFileContent(
+        {
+          filePath: "Diagrams/System/arch.canvas",
+          rawContent: CANVAS_WITH_FILE_NODES,
+          fileStat: testStat(5000, 500),
+        },
+        logger,
+      )
+
+      const { results } = await fileIndex.hybridSearch({ query: "architecture deployment" }, logger)
+      const foldersByPath = results
+        .map(({ path, folder }) => ({ path, folder }))
+        .toSorted((left, right) => left.path.localeCompare(right.path))
+
+      expect(foldersByPath).toEqual([
+        { path: "Diagrams/System/arch.canvas", folder: "Diagrams/System" },
+        { path: "Diagrams/System/plan.md", folder: "Diagrams" },
+      ])
+    })
+
     it("canvas file-node references appear as backlinks", () => {
       const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
         fileToolsEnabled: true,
@@ -7220,7 +7306,7 @@ describe("canvas file content and links", () => {
         logger,
       )
       const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
-      expect(backlinks.map((backlink) => backlink.path)).toEqual(["Diagrams/arch.canvas"])
+      expect(backlinks).toEqual([{ path: "Diagrams/arch.canvas", title: "arch", bytes: 500 }])
     })
 
     it("canvas outgoing links show file-node targets", () => {

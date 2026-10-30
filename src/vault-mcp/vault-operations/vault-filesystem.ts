@@ -22,10 +22,12 @@ import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import { withExclusiveFileLock, withFileLock } from "../../utils/file-write-lock.js"
 import { links } from "../obsidian-markdown/links.js"
 import {
+  findBodyStartLine,
   OverwriteBlockedError,
   parseNote,
   parseNoteForRewrite,
   replacePropertiesBlock,
+  splitPropertiesBlock,
   stringifyNote,
   mergeFrontmatter,
   UnsupportedPropertiesBlockError,
@@ -168,12 +170,40 @@ export const pruneEmptyParents = async (
   return pruneFrom(start, 0)
 }
 
+/** The temp file a save writes beside its target: a dot, a UUID and ".tmp".
+ *  - The leading dot hides it, so Obsidian Sync and the file watcher never
+ *    open a file the save is about to rename away; file-watcher.ts ignores
+ *    every dot-prefixed path.
+ *  - Its name is 41 bytes (a 36-character UUID plus the dot and ".tmp")
+ *    whatever the target's name, so a target named near the filesystem's
+ *    limit still saves.
+ *  - It stays in the target's folder, so the rename or link that follows
+ *    never crosses filesystems. */
+export const tempSavePath = (filePath: string): string => {
+  return join(dirname(filePath), `.${randomUUID()}.tmp`)
+}
+
+/** Removes a file a write left behind. A failed removal is logged, not thrown,
+ *  so the caller's own failure is the one that propagates. */
+const removeLeftoverFile = async (
+  params: { fullPath: string; loggedPath: string; failureLogMessage: string },
+  logger: Logger,
+): Promise<void> => {
+  try {
+    await rm(params.fullPath, { force: true })
+  } catch (cleanupError) {
+    logger.warn(params.failureLogMessage, {
+      path: params.loggedPath,
+      error: describeError(cleanupError),
+    })
+  }
+}
+
 /**
  * Stages content to a unique temp file, then renames over the target.
  * `rename` is atomic on the same filesystem, so the target is never
  * truncated — readers (notably the obsidian-sync container) see either the old
- * content or the new content, never a 0-byte or partial write. This is the
- * core defense against the partial-write clobber class of bug.
+ * content or the new content, never a 0-byte or partial write.
  *
  * Overwrites an existing target; use `atomicWriteFileExclusive` when the file
  * must not already exist.
@@ -182,21 +212,16 @@ export const atomicWriteFile = async (
   params: { filePath: string; content: string },
   logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
+  const tmpPath = tempSavePath(params.filePath)
   try {
     await writeFile(tmpPath, params.content, "utf8")
     await rename(tmpPath, params.filePath)
   } catch (err) {
-    // Best-effort cleanup so a failed write never strands a temp file. A
-    // failed cleanup is logged, not thrown, so the write failure propagates.
-    try {
-      await rm(tmpPath, { force: true })
-    } catch (cleanupError) {
-      logger.warn("failed to remove temp file", {
-        path: tmpPath,
-        error: describeError(cleanupError),
-      })
-    }
+    // A failed write never strands its temp file
+    await removeLeftoverFile(
+      { fullPath: tmpPath, loggedPath: tmpPath, failureLogMessage: "failed to remove temp file" },
+      logger,
+    )
     throw err
   }
 }
@@ -228,7 +253,7 @@ export const atomicWriteFileExclusive = async (
   },
   logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
+  const tmpPath = tempSavePath(params.filePath)
   const hardLinksSupported = params.hardLinksSupported ?? true
   try {
     await writeFile(tmpPath, params.content, "utf8")
@@ -247,31 +272,31 @@ export const atomicWriteFileExclusive = async (
       await rename(tmpPath, params.filePath)
     } catch (renameError) {
       // The reservation took but the swap failed — drop the placeholder so a
-      // failed write never strands a 0-byte note at the destination. A failed
-      // cleanup is logged, not thrown, so the swap failure propagates.
-      await rm(params.filePath, { force: true }).catch((cleanupError: unknown) => {
-        logger.warn("failed to remove reservation placeholder", {
-          path: params.filePath,
-          error: describeError(cleanupError),
-        })
-      })
+      // failed write never strands a 0-byte note at the destination.
+      await removeLeftoverFile(
+        {
+          fullPath: params.filePath,
+          loggedPath: params.filePath,
+          failureLogMessage: "failed to remove reservation placeholder",
+        },
+        logger,
+      )
       throw renameError
     }
   } finally {
-    // Always drop the temp file — renamed away on success, redundant otherwise.
-    // A failed cleanup is logged, not thrown, so the original failure (e.g.
-    // EEXIST) propagates.
-    await rm(tmpPath, { force: true }).catch((cleanupError: unknown) => {
-      logger.warn("failed to remove temp file", {
-        path: tmpPath,
-        error: describeError(cleanupError),
-      })
-    })
+    // Always drop the temp file. After a link it is a second name for the
+    // target, so removing it leaves the target alone; after the rename it is
+    // already gone.
+    await removeLeftoverFile(
+      { fullPath: tmpPath, loggedPath: tmpPath, failureLogMessage: "failed to remove temp file" },
+      logger,
+    )
   }
 }
 
 /** Parses a note an overwrite will merge into. A refused properties block
- *  becomes an OverwriteBlockedError, whose repair skips putting prose back. */
+ *  becomes an OverwriteBlockedError, which the tool layer repairs without
+ *  moving the block's text into the body the overwrite replaces. */
 const parseNoteForOverwrite = (existing: string): ParsedNote => {
   try {
     return parseNoteForRewrite(existing)
@@ -343,13 +368,14 @@ const readNoteOutline = async (
     throw new Error(`note not found: "${params.path}"`)
   }
 
-  const lines = splitIntoLines(parseNote(content).content)
+  // The outline returns no properties, so the block is split off without being read
+  const lines = splitIntoLines(splitPropertiesBlock(content).body)
   const headings = parseHeadings(lines)
   const calloutSpan = parseLeadingCalloutSpan(lines)
 
-  // linesBeforeFirstHeading returns a zero-based prefix, so its indices still
-  // match the callout span. Filtering that prefix also keeps a callout after a
-  // leading H1 outside the region without span subtraction or negative slices.
+  // linesBeforeFirstHeading returns a prefix of `lines`, so the callout span's
+  // line indices filter it directly; a callout below the first heading lies
+  // past the prefix and filters nothing.
   const regionLines = linesBeforeFirstHeading(lines, headings)
   const regionOutsideCallout = regionLines.filter(
     (_line, index) =>
@@ -408,9 +434,15 @@ const readNoteSection = async (
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
-  const lines = splitIntoLines(parseNote(content).content)
+  // A section read returns no properties, so the block is split off without being read
+  const lines = splitIntoLines(splitPropertiesBlock(content).body)
   const headings = parseHeadings(lines)
-  const target = findHeading(headings, params.heading, params.headingLevel)
+  const target = findHeading({
+    headings,
+    text: params.heading,
+    level: params.headingLevel,
+    bodyStartFileLine: findBodyStartLine(content),
+  })
   logger.info("read note section", {
     path: params.path,
     heading: target.text,
@@ -678,16 +710,15 @@ const moveNoteToTrash = async (
         await rename(params.fullPath, candidateFullPath)
       } catch (renameError) {
         // The claim took but the move failed — drop our placeholder so it
-        // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
-        // logged, not thrown, so the rename failure propagates as the cause.
-        try {
-          await rm(candidateFullPath, { force: true })
-        } catch (cleanupError) {
-          logger.warn("failed to remove claim placeholder", {
-            path: candidateRelativePath,
-            error: describeError(cleanupError),
-          })
-        }
+        // doesn't strand a 0-byte file occupying a suffix.
+        await removeLeftoverFile(
+          {
+            fullPath: candidateFullPath,
+            loggedPath: candidateRelativePath,
+            failureLogMessage: "failed to remove claim placeholder",
+          },
+          logger,
+        )
         throw renameError
       }
 
@@ -987,7 +1018,7 @@ const readAsset = async (
     // The buffer is one sentinel byte longer than the statted size — if the
     // file grew after the stat, the sentinel fills and the read is rejected
     // as unstable.
-    const readBuffer = Buffer.alloc(Math.min(fileStats.size, params.maxBytes) + 1)
+    const readBuffer = Buffer.alloc(fileStats.size + 1)
     // A single read() may return short on some platforms, so the loop
     // accumulates until EOF or the buffer is full.
     let totalBytesRead = 0

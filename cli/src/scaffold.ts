@@ -19,17 +19,35 @@ export type FileWriteResult = {
 /** Default host port — matches the container's internal port. */
 export const DEFAULT_PORT = 8000
 
-/** Matches an active (uncommented) PORT line, with optional surrounding quotes. */
-const ENV_PORT_LINE = /^PORT=["']?(\d+)["']?\s*$/m
+/**
+ * Used when .env sets no INSTANCE_NAME: the container name and volume prefix
+ * every install had before the setting existed, so those installs keep their data.
+ */
+export const DEFAULT_INSTANCE_NAME = "vault-cortex"
 
-/** Matches an active (uncommented) VAULT_PATH line in a .env file. */
-const ENV_VAULT_PATH_LINE = /^VAULT_PATH=(.+)\s*$/m
+/**
+ * Matches every active (uncommented) PORT line, capturing its raw value.
+ * Global, because `docker run --env-file` lets the last duplicate win.
+ */
+const ENV_PORT_LINES = /^PORT=(.*)$/gm
 
-/** Matches an active (uncommented) PUBLIC_URL line. */
-const ENV_PUBLIC_URL_LINE = /^PUBLIC_URL=/m
+/** Matches every active (uncommented) INSTANCE_NAME line, capturing its raw value. */
+const ENV_INSTANCE_NAME_LINES = /^INSTANCE_NAME=(.*)$/gm
 
-/** Matches an active (uncommented) PUBLIC_URL line, capturing a non-empty value. */
-const ENV_PUBLIC_URL_VALUE_LINE = /^PUBLIC_URL=(.+)\s*$/m
+/**
+ * Compose's project-name rule plus Docker's two-character minimum for container
+ * names, so the container, the Compose project and the volume prefix are one string.
+ */
+const INSTANCE_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]+$/
+
+/**
+ * Match every active (uncommented) line of their variable, empty values
+ * included: `docker run --env-file` lets the last duplicate win, even an
+ * empty one, and the readers below treat an empty value as unset.
+ */
+const ENV_VAULT_PATH_LINES = /^VAULT_PATH=(.*)$/gm
+const ENV_PUBLIC_URL_VALUE_LINES = /^PUBLIC_URL=(.*)$/gm
+const ENV_OBSIDIAN_TOKEN_LINES = /^OBSIDIAN_AUTH_TOKEN=(.*)$/gm
 
 /** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
 const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m
@@ -42,7 +60,7 @@ const QUOTED_ENV_VALUE = /^([A-Za-z_][A-Za-z0-9_]*=)(["'])(.*)\2(\s*)$/gm
  * `'bar'` → `bar`, `unquoted` → `unquoted`. Only strips when the
  * opening and closing quote characters match.
  */
-const stripSurroundingQuotes = (value: string): string => {
+export const stripSurroundingQuotes = (value: string): string => {
   const quoteMatch = /^(["'])(.*)\1$/.exec(value)
   return quoteMatch ? quoteMatch[2] : value
 }
@@ -53,54 +71,97 @@ export const buildFilesToWrite = (envContent: string): FileToWrite[] => [
 ]
 
 /**
- * Reads the host port from the .env that is actually on disk — which may be
- * a pre-existing file this run chose to keep, with a PORT override the
- * generated default doesn't have. Falls back to DEFAULT_PORT when the file
- * or an uncommented PORT line is absent.
+ * Plain digits in the TCP port range. Number() coercion is not enough: it
+ * accepts "1e4", "0x1F40" and "+9000".
  */
-export const readEnvPort = (envFilePath: string): number => {
-  if (!existsSync(envFilePath)) return DEFAULT_PORT
-  const match = ENV_PORT_LINE.exec(readFileSync(envFilePath, "utf8"))
-  return match ? Number(match[1]) : DEFAULT_PORT
+export const isValidPort = (value: string): boolean => {
+  if (!/^\d+$/.test(value)) return false
+  const port = Number(value)
+  return port >= 1 && port <= 65535
+}
+
+/** The error for a .env PORT value that isn't a port; callers add where to fix it. */
+export const describeInvalidEnvPort = (portValue: string): string => {
+  return `PORT "${portValue}" is not a valid port — use a whole number between 1 and 65535.`
+}
+
+export type PortRead = { kind: "ok"; port: number } | { kind: "invalid"; message: string }
+
+/**
+ * Reads the host port from a .env file:
+ * - the last active line wins, as it does for `docker run --env-file`;
+ * - a missing file, line or empty value means DEFAULT_PORT;
+ * - any other value that is not a port is reported, never corrected, because
+ *   the CLI would map one port while PUBLIC_URL names another.
+ */
+export const readEnvPort = (envFilePath: string): PortRead => {
+  if (!existsSync(envFilePath)) return { kind: "ok", port: DEFAULT_PORT }
+  const portLines = [...readFileSync(envFilePath, "utf8").matchAll(ENV_PORT_LINES)]
+  const rawValue = portLines.at(-1)?.[1].trim()
+  const portValue = rawValue ? stripSurroundingQuotes(rawValue) : ""
+
+  if (!portValue) return { kind: "ok", port: DEFAULT_PORT }
+  if (!isValidPort(portValue)) {
+    return { kind: "invalid", message: describeInvalidEnvPort(portValue) }
+  }
+  return { kind: "ok", port: Number(portValue) }
+}
+
+/** Returns why a candidate instance name is invalid, or undefined when it is valid. */
+export const describeInvalidInstanceName = (candidateName: string): string | undefined => {
+  if (INSTANCE_NAME_PATTERN.test(candidateName)) return undefined
+  return `"${candidateName}" is not a valid instance name — use at least two lowercase letters, digits, hyphens or underscores, starting with a letter or digit.`
+}
+
+export type InstanceNameRead =
+  { kind: "ok"; instanceName: string } | { kind: "invalid"; message: string }
+
+/**
+ * Reads INSTANCE_NAME from a .env file:
+ * - the last active line wins, as it does for `docker run --env-file`;
+ * - a missing file, line or empty value means DEFAULT_INSTANCE_NAME;
+ * - an invalid value is reported, never corrected, because the name decides
+ *   which volumes hold the install's data.
+ */
+export const readEnvInstanceName = (envFilePath: string): InstanceNameRead => {
+  if (!existsSync(envFilePath)) return { kind: "ok", instanceName: DEFAULT_INSTANCE_NAME }
+  const instanceNameLines = [...readFileSync(envFilePath, "utf8").matchAll(ENV_INSTANCE_NAME_LINES)]
+  const rawValue = instanceNameLines.at(-1)?.[1].trim()
+  const instanceName = rawValue ? stripSurroundingQuotes(rawValue) : ""
+
+  if (!instanceName) return { kind: "ok", instanceName: DEFAULT_INSTANCE_NAME }
+  const invalidReason = describeInvalidInstanceName(instanceName)
+
+  if (invalidReason) return { kind: "invalid", message: `INSTANCE_NAME ${invalidReason}` }
+  return { kind: "ok", instanceName }
 }
 
 /**
  * Reads the host vault path from a .env file. Returns undefined when the
- * file is missing or has no uncommented VAULT_PATH line.
+ * file is missing, has no uncommented VAULT_PATH line, or the last one is empty.
  */
 export const readEnvVaultPath = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
-  const match = ENV_VAULT_PATH_LINE.exec(readFileSync(envFilePath, "utf8"))
+  const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_VAULT_PATH_LINES)].at(-1)
   const rawValue = match?.[1].trim()
-  return rawValue ? stripSurroundingQuotes(rawValue) : undefined
-}
+  const vaultPath = rawValue ? stripSurroundingQuotes(rawValue) : ""
 
-/**
- * Returns true when the .env file has an active (uncommented) PUBLIC_URL line.
- * It's the FALSE result that carries the signal: the old compose-based CLI's
- * generated .env never held a PUBLIC_URL line (the compose file's environment
- * defaults supplied it), so a local .env without one predates the docker-run
- * migration — callers use the negation to ask the user to add the line
- * instead of starting a server missing a required variable.
- */
-export const hasEnvPublicUrl = (envFilePath: string): boolean => {
-  if (!existsSync(envFilePath)) return false
-  return ENV_PUBLIC_URL_LINE.test(readFileSync(envFilePath, "utf8"))
+  return vaultPath || undefined
 }
 
 /**
  * Reads the public URL value from a .env file. Returns undefined when the
- * file is missing or has no uncommented, non-empty PUBLIC_URL line —
- * deliberately stricter than hasEnvPublicUrl, whose job is old-compose
- * detection and so matches an empty `PUBLIC_URL=` line too.
+ * file is missing or its last active PUBLIC_URL line is empty or absent,
+ * which is how start spots a .env the server would refuse (including one
+ * from the old compose-based CLI, which never wrote the line).
  */
 export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
-  const match = ENV_PUBLIC_URL_VALUE_LINE.exec(readFileSync(envFilePath, "utf8"))
-  // A whitespace-only line matches the regex and trims to "" — normalize to
-  // undefined so the non-empty contract holds ("" is never a legitimate URL).
+  const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_PUBLIC_URL_VALUE_LINES)].at(-1)
+  // A whitespace-only value, quoted or not, counts as empty, as it does in
+  // the server's check of the required variable.
   const rawValue = match?.[1].trim()
-  const unquotedValue = rawValue ? stripSurroundingQuotes(rawValue) : undefined
+  const unquotedValue = rawValue ? stripSurroundingQuotes(rawValue).trim() : undefined
   // Strip trailing slashes (mirroring askPublicUrl's prompt-side
   // normalization): consumers append paths to this base, and a hand-edited
   // `https://host/` would otherwise print broken `//mcp` connect URLs.
@@ -120,20 +181,20 @@ export const detectMode = (envFilePath: string): Mode | undefined => {
 }
 
 /**
- * Patches the OBSIDIAN_AUTH_TOKEN value in an existing .env file.
- * Returns true when the patch succeeded, false when the file is missing
- * or has no active OBSIDIAN_AUTH_TOKEN line (e.g. a local-mode .env).
+ * Patches every active OBSIDIAN_AUTH_TOKEN line in an existing .env, since
+ * `docker run --env-file` lets the last duplicate win. Returns false when the
+ * file is missing or has no active line (e.g. a local-mode .env).
  */
 export const patchEnvObsidianToken = (envFilePath: string, token: string): boolean => {
   if (!existsSync(envFilePath)) return false
   const content = readFileSync(envFilePath, "utf8")
-  /** Matches the full OBSIDIAN_AUTH_TOKEN line for replacement. */
-  const fullTokenLine = /^OBSIDIAN_AUTH_TOKEN=.*$/m
+  /** Matches every full OBSIDIAN_AUTH_TOKEN line for replacement. */
+  const everyTokenLine = /^OBSIDIAN_AUTH_TOKEN=.*$/gm
 
-  if (!fullTokenLine.test(content)) return false
+  if (!OBSIDIAN_AUTH_TOKEN_LINE.test(content)) return false
   // Function replacement avoids $ pattern interpretation ($&, $', etc.)
   // that String.prototype.replace applies to string replacements.
-  const patched = content.replace(fullTokenLine, () => `OBSIDIAN_AUTH_TOKEN=${token}`)
+  const patched = content.replace(everyTokenLine, () => `OBSIDIAN_AUTH_TOKEN=${token}`)
   writeFileSync(envFilePath, patched)
   return true
 }
@@ -141,12 +202,17 @@ export const patchEnvObsidianToken = (envFilePath: string, token: string): boole
 /**
  * Reads the OBSIDIAN_AUTH_TOKEN value from an existing .env file. Returns
  * undefined when the file is missing, has no active line, or the value is
- * empty — an empty `OBSIDIAN_AUTH_TOKEN=` line is not a valid token.
+ * empty — `OBSIDIAN_AUTH_TOKEN=""` included, since the CLI strips quotes
+ * before docker run. Quotes stay in a returned value, because init writes it
+ * back into the regenerated .env.
  */
 export const readEnvObsidianToken = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
-  const match = /^OBSIDIAN_AUTH_TOKEN=(.+)$/m.exec(readFileSync(envFilePath, "utf8"))
-  return match?.[1].trim() || undefined
+  const match = [...readFileSync(envFilePath, "utf8").matchAll(ENV_OBSIDIAN_TOKEN_LINES)].at(-1)
+  const rawValue = match?.[1].trim()
+  const unquotedValue = rawValue ? stripSurroundingQuotes(rawValue).trim() : ""
+
+  return unquotedValue ? rawValue : undefined
 }
 
 /**

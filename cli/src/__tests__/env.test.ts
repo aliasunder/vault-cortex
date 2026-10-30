@@ -91,12 +91,15 @@ describe("buildRemoteEnv", () => {
     expect(lines).toContain("VAULT_PASSWORD=hunter2")
   })
 
-  it("writes an empty OBSIDIAN_AUTH_TOKEN line with a fill-this-in warning when the token was skipped", () => {
+  it("writes an empty OBSIDIAN_AUTH_TOKEN line under the sign-in options when the token was skipped", () => {
     const env = buildRemoteEnv({ ...baseAnswers, obsidianAuthToken: "" })
 
-    expect(env).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
-    expect(env).toContain("FILL THIS IN")
-    expect(env).toContain("npx vault-cortex@latest get-sync-token")
+    expect(env).toContain(
+      "# Obsidian Sync auth token. Leave empty to sign in on the server's sign-in\n" +
+        "# page at your PUBLIC_URL once it starts (over HTTPS), or generate one with:\n" +
+        "#   npx vault-cortex@latest get-sync-token\n" +
+        "OBSIDIAN_AUTH_TOKEN=\n",
+    )
   })
 
   it("states defaulted sync settings as uncommented lines", () => {

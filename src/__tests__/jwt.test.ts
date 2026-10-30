@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { createHmac } from "node:crypto"
 import { DateTime } from "luxon"
-import { getDeploymentJwtVerification, signJwt, verifyJwt, verifyLegacyJwt } from "../jwt.js"
+import { getDeploymentJwtVerification, signJwt, verifyJwt } from "../jwt.js"
 import type { JwtPayload } from "../jwt.js"
 
 const SECRET = "test-secret"
@@ -18,26 +18,38 @@ const buildPayload = (overrides: Partial<JwtPayload> = {}): JwtPayload => ({
   ...overrides,
 })
 
-/** Signs any claims object — `signJwt` only accepts the bound payload shape,
- *  and the pre-binding tokens under test are missing `aud`. */
-const signClaims = (claims: object, secret: string): string => {
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-  const body = Buffer.from(JSON.stringify(claims)).toString("base64url")
-  const sig = createHmac("sha256", secret)
-    .update(`${header}.${body}`)
-    .digest()
-    .toString("base64url")
-  return `${header}.${body}.${sig}`
+const encodeJsonSegment = (value: object): string => {
+  return Buffer.from(JSON.stringify(value)).toString("base64url")
 }
 
-/** The legacy access-token shape minted before issuer and audience binding:
- *  a literal issuer name and no audience. */
-const legacyClaims = (exp = DateTime.now().plus({ hours: 1 })) => ({
-  sub: "test-client",
-  scope: "vault",
-  exp: exp.toUnixInteger(),
-  iss: "vault-cortex",
-})
+/** Signs claims with HS256 under any header segment, so a test can vary
+ *  what the header says. */
+const signUnderHeader = ({
+  headerSegment,
+  claims,
+  secret,
+}: {
+  headerSegment: string
+  claims: object
+  secret: string
+}): string => {
+  const body = encodeJsonSegment(claims)
+  const sig = createHmac("sha256", secret)
+    .update(`${headerSegment}.${body}`)
+    .digest()
+    .toString("base64url")
+  return `${headerSegment}.${body}.${sig}`
+}
+
+/** Signs any claims object, including the malformed and audience-less
+ *  ones `signJwt`'s payload type rejects. */
+const signClaims = (claims: object, secret: string): string => {
+  return signUnderHeader({
+    headerSegment: encodeJsonSegment({ alg: "HS256", typ: "JWT" }),
+    claims,
+    secret,
+  })
+}
 
 /** Verifies a JWT against this file's deployment binding. */
 const verify = (token: string, secret: string): JwtPayload | null =>
@@ -227,31 +239,35 @@ describe("verifyJwt", () => {
   })
 
   it("returns null for a payload missing required fields", () => {
-    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-    const body = Buffer.from(JSON.stringify({ foo: "bar" })).toString("base64url")
-    const sig = createHmac("sha256", SECRET)
-      .update(`${header}.${body}`)
-      .digest()
-      .toString("base64url")
-    expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
+    const token = signClaims({ foo: "bar" }, SECRET)
+    expect(verify(token, SECRET)).toBeNull()
+  })
+
+  it("returns null for a payload without sub", () => {
+    const token = signClaims(
+      {
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: ISSUER,
+        aud: AUDIENCE,
+      },
+      SECRET,
+    )
+    expect(verify(token, SECRET)).toBeNull()
   })
 
   it("returns null when exp is a string instead of number", () => {
-    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-    const body = Buffer.from(
-      JSON.stringify({
+    const token = signClaims(
+      {
         sub: "x",
         scope: "vault",
         exp: "not-a-number",
         iss: ISSUER,
         aud: AUDIENCE,
-      }),
-    ).toString("base64url")
-    const sig = createHmac("sha256", SECRET)
-      .update(`${header}.${body}`)
-      .digest()
-      .toString("base64url")
-    expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
+      },
+      SECRET,
+    )
+    expect(verify(token, SECRET)).toBeNull()
   })
 
   it("returns null when the issuer differs from the expected issuer", () => {
@@ -273,20 +289,16 @@ describe("verifyJwt", () => {
   })
 
   it("returns null for a payload without an audience", () => {
-    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
-    const body = Buffer.from(
-      JSON.stringify({
+    const token = signClaims(
+      {
         sub: "x",
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
         iss: ISSUER,
-      }),
-    ).toString("base64url")
-    const sig = createHmac("sha256", SECRET)
-      .update(`${header}.${body}`)
-      .digest()
-      .toString("base64url")
-    expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
+      },
+      SECRET,
+    )
+    expect(verify(token, SECRET)).toBeNull()
   })
 
   it("accepts a token without iat", () => {
@@ -320,6 +332,26 @@ describe("verifyJwt", () => {
     expect(verify(token, SECRET)).toBeNull()
   })
 
+  it("returns null for a token with an empty signature segment", () => {
+    const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url")
+    const body = Buffer.from(JSON.stringify(buildPayload())).toString("base64url")
+    expect(verify(`${header}.${body}.`, SECRET)).toBeNull()
+  })
+
+  it.each([
+    { label: "names alg none", headerSegment: encodeJsonSegment({ alg: "none", typ: "JWT" }) },
+    { label: "names RS256", headerSegment: encodeJsonSegment({ alg: "RS256", typ: "JWT" }) },
+    { label: "names no algorithm", headerSegment: encodeJsonSegment({ typ: "JWT" }) },
+    { label: "is not JSON", headerSegment: Buffer.from("not-json").toString("base64url") },
+  ])("returns null for a correctly signed token whose header $label", ({ headerSegment }) => {
+    const payload = buildPayload()
+    const token = signUnderHeader({ headerSegment, claims: payload, secret: SECRET })
+
+    // The same claims under an HS256 header verify, so only the header check rejects it.
+    expect(verify(signClaims(payload, SECRET), SECRET)).toEqual(payload)
+    expect(verify(token, SECRET)).toBeNull()
+  })
+
   it("returns null for a signature of correct length but wrong bytes", () => {
     const token = signJwt(buildPayload(), SECRET)
     const [header, body, sig] = token.split(".") as [string, string, string]
@@ -332,35 +364,29 @@ describe("verifyJwt", () => {
     flipped[0] = firstByte ^ 0xff
     expect(verify(`${header}.${body}.${flipped.toString("base64url")}`, SECRET)).toBeNull()
   })
-})
 
-describe("verifyLegacyJwt", () => {
-  it("returns the claims of a pre-binding token (no aud)", () => {
-    const claims = legacyClaims()
-    const token = signClaims(claims, SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toEqual(claims)
-  })
+  it.each([
+    { label: "padding appended", rewriteSignature: (signature: string) => `${signature}=` },
+    {
+      label: "a stray character appended",
+      rewriteSignature: (signature: string) => `${signature}!`,
+    },
+    {
+      label: "a space inserted",
+      rewriteSignature: (signature: string) => `${signature.slice(0, 8)} ${signature.slice(8)}`,
+    },
+  ])("returns null for a valid signature re-encoded with $label", ({ rewriteSignature }) => {
+    const payload = buildPayload()
+    const token = signJwt(payload, SECRET)
+    const signedPart = token.slice(0, token.lastIndexOf("."))
+    const signature = token.slice(token.lastIndexOf(".") + 1)
+    const rewrittenSignature = rewriteSignature(signature)
 
-  it("returns null for a token that carries an aud, even this server's", () => {
-    // A token with an audience is a bound token and belongs to verifyJwt;
-    // accepting it here would let a foreign audience through unchecked.
-    const token = signJwt(buildPayload(), SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toBeNull()
-  })
-
-  it("returns null for a pre-binding token signed with a different secret", () => {
-    const token = signClaims(legacyClaims(), OTHER_SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toBeNull()
-  })
-
-  it("returns null for an expired pre-binding token", () => {
-    const expired = legacyClaims(DateTime.now().minus({ minutes: 1 }))
-    const token = signClaims(expired, SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toBeNull()
-  })
-
-  it("returns null for a payload missing the base claims", () => {
-    const token = signClaims({ iss: "vault-cortex" }, SECRET)
-    expect(verifyLegacyJwt({ token, secret: SECRET })).toBeNull()
+    // Same bytes once decoded, so only the canonical-encoding check rejects it.
+    expect(Buffer.from(rewrittenSignature, "base64url")).toEqual(
+      Buffer.from(signature, "base64url"),
+    )
+    expect(verify(token, SECRET)).toEqual(payload)
+    expect(verify(`${signedPart}.${rewrittenSignature}`, SECRET)).toBeNull()
   })
 })

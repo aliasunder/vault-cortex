@@ -14,8 +14,10 @@ the init chain registers the initial Sync device under the `DEVICE_NAME` env
 var, or the container hostname when unset. Both
 processes run as UID 1000 (PUID/PGID-adjustable). Production runs the
 `:remote` image on Lightsail as a single Compose service, fronted by API
-Gateway with a Lambda authorizer (path-aware: OAuth endpoints pass
-through, /mcp validates static token or JWT). IaC via SST v4.
+Gateway: OAuth endpoints and `/healthz` pass straight through, and every
+other route goes through a Lambda authorizer that validates the static
+token or JWT.
+IaC via SST v4.
 
 The server provides vault CRUD, hybrid search (FTS5 keyword and sqlite-vec
 vector results fused by Reciprocal Rank Fusion, then reranked by a
@@ -61,8 +63,9 @@ on a folder for the full list.
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint; stays at the repo root, the only place Render reads it
 Dockerfile # Two-target build: local (default) + remote
-.claude/ # Committed Claude Code hook setup only (the rest is gitignored): settings.json registers the hook below
-  hooks/install-deps.sh # Runs at session start and worktree entry: loads nvm, installs dependencies when needed (npm ci, sst install), and at session start puts the checkout's Node (the .nvmrc version when nvm has it, else nvm's default alias) first on PATH for the session's later Bash commands
+.claude/ # Committed dependency hooks (the rest is gitignored); settings.json registers Claude Code setup
+  hooks/install-deps.sh # Claude session/worktree setup; loads the checkout's Node and installs dependencies/SST types when needed
+  hooks/prepare-command.sh # Optional command interface: environment selects Node; prepare also runs dependency setup
 obsidian-headless/ # Lockfile-pinned obsidian-headless Sync CLI for the :remote image
 rootfs/ # Container filesystem overlay for the :remote image: s6 init chain and services in etc/s6-overlay/, and usr/local/bin/get-sync-token, an in-container terminal sign-in to Obsidian that prints the Sync token for .env
 templates/memory/ # About Me/ memory file templates for new vaults
@@ -79,14 +82,14 @@ src/
   auth.ts # Auth helpers shared by the Lambda authorizer and vault-mcp/
   jwt.ts # Minimal HS256 JWT sign and verify for the Lambda authorizer and the OAuth server
   utils/ # Generic helpers with no domain logic (admission rules under Module layering)
-  functions/authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
+  functions/authorizer.ts # Lambda: validates the static token or a JWT on every protected route
   __tests__/integration/ # Server tests over real HTTP through the SDK Client; files listed under "Integration tests — when to add"
   __tests__/docker/ # :remote image boot tests (npm run test:remote-boot): docker-harness, and fixtures/ob, a stub of the obsidian-headless CLI
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
     obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, tasks, recurrence, memory-entries, canvas, plaintext, pdf + pdf-engine, moment-format
     vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations
-    mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions
+    mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
       tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
     search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, chunker, file-watcher
@@ -115,23 +118,24 @@ A module's folder is decided by **what it depends on**, not just its topic:
   fence state machine (`advanceFence`) — every function that walks lines
   and tracks code fences calls it, so they can't disagree about where a
   fence opens.
-  **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
-  that performs side effects — it resolves `pdfjs-dist` package paths from disk
-  via `createRequire` and mutates `globalThis` (canvas polyfill injection). It
-  lives here because it is PDF domain logic: the bootstrap that configures pdfjs
-  so `pdf.ts`'s extraction pipeline works. The two PDF modules are a unit and
-  belong together in the parser layer.
-  `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
-  **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
-  signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields (`[completion:: date]`,
-  `[priority:: high]`). Mutation functions must strip both formats when removing
-  a field (a Dataview-formatted task must not get fields orphaned). `tasks.ts`
-  takes the format as a parameter; `vault-operations/task-format-config.ts`
-  decides it from the user's Tasks plugin settings (`taskFormat` in
-  `.obsidian/plugins/obsidian-tasks-plugin/data.json`, emoji by default), and
-  its `setDoneDate`/`setCancelledDate` switches control whether completion
-  dates are stamped at all. When `.obsidian/` is not synced to the server,
-  `task-format-config.ts` falls back to emoji.
+  - **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
+    that performs side effects — it resolves `pdfjs-dist` package paths from
+    disk via `createRequire` and mutates `globalThis` (canvas polyfill
+    injection). It lives here because it is PDF domain logic: the bootstrap
+    that configures pdfjs so `pdf.ts`'s extraction pipeline works. The two PDF
+    modules are a unit and belong together in the parser layer.
+    `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
+  - **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
+    signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields
+    (`[completion:: date]`, `[priority:: high]`). Mutation functions must strip
+    both formats when removing a field (a Dataview-formatted task must not get
+    fields orphaned). `tasks.ts` takes the format as a parameter;
+    `vault-operations/task-format-config.ts` decides it from the user's Tasks
+    plugin settings (`taskFormat` in
+    `.obsidian/plugins/obsidian-tasks-plugin/data.json`, emoji by default), and
+    its `setDoneDate`/`setCancelledDate` switches control whether completion
+    dates are stamped at all. When `.obsidian/` is not synced to the server,
+    `task-format-config.ts` falls back to emoji.
 - **`vault-operations/`** — everything that reads/writes the vault.
   `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
   read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
@@ -412,6 +416,10 @@ limitations (no hard links, polling for file watching) but does not
 change path separator behavior. Native Windows execution (without
 Docker) is not a supported deployment and would break path handling
 throughout the codebase.
+
+## Dependency setup for agent commands
+
+Before integrating agent command setup, read [Agent command setup](./CONTRIBUTING.md#agent-command-setup).
 
 ## Code style
 
@@ -726,6 +734,15 @@ which are the description and the input schema with each parameter's Zod
     and cut `.describe()` back to the plain meaning. Format and
     default stay in `.describe()`. Never drop a fact only
     `.describe()` carries.
+- **Every sentence changes what a calling agent does.** A sentence earns
+  its place when it changes which tool or values the agent sends, what it
+  does with the result or an error, or when it corrects a wrong assumption
+  the rest of the definition leaves open. Judge each claim in a sentence on
+  its own, and keep only the claims that meet this test. How the server
+  carries out the call (which `.obsidian` file holds a setting, what the
+  search index holds, how a save stages its write) goes in ARCHITECTURE.md,
+  however accurate it is; the outcome the caller sees stays in the
+  description.
 - **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich validation
   (format, date validity, mutual exclusivity) lives in the data layer or
   handler, where failures flow through `safeHandler` as structured tool
@@ -943,31 +960,37 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   centralized test directory higher up the tree. Don't spawn a
   standalone test file just to mock differently; use
   `vi.mock(path, { spy: true })` to keep the real implementation.
-  **Exception — shell scripts outside vitest's include paths.** The
-  remote image's s6 init scripts under `rootfs/etc/s6-overlay/scripts/`
-  are the `vault-mcp` server's boot chain for the `:remote` target, the
-  Claude Code hook sits in `.claude/hooks/`, and the release scripts sit
-  in `.github/scripts/`. None is a TypeScript module, and vitest's
-  include paths (`src/`, `cli/src/`, `scripts/`) reach none of those
-  folders. The init-script tests live in
-  `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
-  `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
-  `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
-  `print-derived-env.test.ts`, which covers the derivation that
-  `init-derive-env` publishes), and the hook's and release scripts'
-  tests in `src/__tests__/` (`install-deps.test.ts`,
-  `generate-notes.test.ts`, `update-changelog.test.ts`). These script
-  tests run the real script under its own shell (`sh` for the init
-  scripts, `bash` for the others) with stub binaries on `PATH` or, for
-  the release-notes script, a temporary git repository, and name
-  the script they cover —
-  don't move them next to the scripts or widen vitest's include for
-  them. Whole-image behaviour (the init chain's ordering,
-  the `container_environment` files the chain publishes, the volume
-  layout, and the checks that stop the container) belongs in the
-  remote-boot test suite (`src/__tests__/docker/`, see "Remote image
-  boot tests — when to add"); the branches inside one script stay in
-  that script's test file.
+
+  **Exception — shell scripts outside vitest's include paths.** These
+  scripts are not TypeScript modules, and vitest's include paths (`src/`,
+  `cli/src/`, `scripts/`) reach none of their folders, so their tests
+  live in folders vitest reaches:
+  - the remote image's s6 init scripts in
+    `rootfs/etc/s6-overlay/scripts/` (the `vault-mcp` server's boot chain
+    for the `:remote` target) → `src/vault-mcp/__tests__/`:
+    `init-check-auth.test.ts`, `init-obsidian-login.test.ts`,
+    `init-first-sync.test.ts`, `init-setup-user.test.ts`,
+    `init-setup-vault.test.ts`, `check-sync-vault.test.ts` (the vault
+    check `init-setup-vault` runs), and `print-derived-env.test.ts` (the
+    derivation that `init-derive-env` publishes)
+  - the dependency hooks in `.claude/hooks/` →
+    `src/__tests__/install-deps.test.ts`
+  - the release scripts in `.github/scripts/` → `src/__tests__/`:
+    `generate-notes.test.ts`, `generate-cli-notes.test.ts`,
+    `update-changelog.test.ts`
+
+  These script tests run the real script under its own shell (`sh` for
+  the init scripts, `bash` for the others) with stub binaries on `PATH`
+  or, for `generate-notes.sh` and `generate-cli-notes.sh`, a temporary
+  git repository, and name the script they cover — don't move them next
+  to the scripts or widen vitest's include for them.
+
+  Whole-image behaviour (the init chain's ordering, the
+  `container_environment` files the chain publishes, the volume layout,
+  and the checks that stop the container) belongs in the remote-boot test
+  suite (`src/__tests__/docker/`, see "Remote image boot tests — when to
+  add"); the branches inside one script stay in that script's test file.
+
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
   identical assertion shapes (input → expected). Use labeled case objects
@@ -1194,10 +1217,22 @@ of `obsidian-headless/package.json` as a potential regression and
 re-verify each contract against the new source before merging:
 
 - Verbs and flags the scripts call: `login`, `sync-config` (including
-  `--mode` and `--json`), `sync`, `sync --continuous`, and
-  `sync-setup --vault --device-name`. `sync-config --json` prints `vaultId`
+  `--mode` and `--json`), `sync`, `sync --continuous`,
+  `sync-setup --vault --device-name`, `sync-list-remote --json` and
+  `sync-list-local --json`. `sync-config --json` prints `vaultId`
   and `syncMode` (`bidirectional` when unset), and an unknown `--mode`
   value exits non-zero, which `init-setup-vault` treats as fatal.
+- Each vault's setup is `obsidian-headless/sync/<vaultId>/config.json`, and
+  every command uses the first setup, in folder-name order, whose
+  `path.resolve(vaultPath)` is the working folder. `check-sync-vault` relies
+  on these outputs, captured as vectors in its test file:
+  - `sync-config --json` exits 3 when no setup matches the folder and 1 when
+    a setup without `vaultPath` sorts first, and it skips a setup file it
+    can't read or parse;
+  - `sync-list-local --json` lists `{ id, path, host }` per setup;
+  - `sync-list-remote --json` lists owned and shared vaults with `id` and
+    `name`, and needs the token;
+  - `sync-setup` resolves `--vault` by ID first, then by a unique name.
 - `sync-setup` rewrites the whole config on every boot without the filter
   fields or `syncMode`. `sync-config --file-types` / `--excluded-folders` /
   `--configs` then queue only the recorded server files that the new value

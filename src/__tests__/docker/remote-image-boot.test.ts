@@ -35,8 +35,10 @@ import {
   pathExistsInContainer,
   publishedPort,
   readContainerFile,
+  readVolumeFile,
   runContainer,
   runSyncEngineOracle,
+  seedSyncSetup,
   seedSyncState,
   seedSyncToken,
   startContainer,
@@ -93,30 +95,56 @@ const BASE_ENV = {
   EMBEDDING_ENABLED: "false",
 }
 
-/** Every `ob` call that a single boot makes, in order, for BASE_ENV. The stub
- *  logs each call's arguments as "$*":
+/** The `ob` calls check-sync-vault makes before `sync-setup`: the account's
+ *  vault list, then the setup the client uses for the vault folder now. */
+const VAULT_CHECK_CALLS = ["sync-list-remote --json", "sync-config --json"]
+
+/** The `ob` calls from `sync-setup` to the first sync's settings read, for
+ *  BASE_ENV. The stub logs each call's arguments as "$*":
+ *  - The first `sync-config --json` is init-setup-vault confirming that the
+ *    client uses the setup `sync-setup` just wrote.
  *  - A `sync-config` flag whose variable is unset is skipped.
  *  - The folder and file-type filters always run, so an emptied variable
  *    clears the setting. The empty argument shows as a trailing space.
  *  - `--configs` always runs, because SYNC_CONFIGS has a built-in default.
- *  - `sync-config --json` is init-first-sync reading the settings back. */
-const EXPECTED_BOOT_SEQUENCE = [
-  "login",
+ *  - The last `sync-config --json` is init-first-sync reading the settings back. */
+const SETUP_CALLS = [
   "sync-setup --vault ci-vault --device-name ci-device",
+  "sync-config --json",
   "sync-config --device-name ci-device",
   "sync-config --excluded-folders ",
   "sync-config --file-types ",
   "sync-config --configs core-plugin-data,community-plugin-data,app",
   "sync-config --json",
+]
+
+/** Every `ob` call that a first boot makes, in order: no setup exists yet. */
+const FIRST_BOOT_SEQUENCE = [
+  "login",
+  ...VAULT_CHECK_CALLS,
+  ...SETUP_CALLS,
   "sync",
   "sync --continuous",
 ]
 
-const callLogOf = (boots: number): string =>
-  Array.from({ length: boots }, () => EXPECTED_BOOT_SEQUENCE)
+/** A later boot finds this vault's setup, so the check also lists the local
+ *  setups to warn about any for other vaults. */
+const REBOOT_SEQUENCE = [
+  "login",
+  ...VAULT_CHECK_CALLS,
+  "sync-list-local --json",
+  ...SETUP_CALLS,
+  "sync",
+  "sync --continuous",
+]
+
+/** The call log the stub writes across the given boots, one call per line. */
+const callLogOf = (...boots: ReadonlyArray<ReadonlyArray<string>>): string => {
+  return boots
     .flat()
     .map((call) => `${call}\n`)
     .join("")
+}
 
 /** Test-owned copy of what the stub's one-shot sync writes. */
 const REMOTE_BOOT_NOTE = `---
@@ -130,8 +158,9 @@ Delivered by the stubbed first sync. Links to [[Sync Log]].
 
 const OWNERSHIP_LINE = "Ownership IDs changed"
 
-const uniqueName = (scenario: string): string =>
-  `remote-boot-${scenario}-${randomBytes(4).toString("hex")}`
+const uniqueName = (scenario: string): string => {
+  return `remote-boot-${scenario}-${randomBytes(4).toString("hex")}`
+}
 
 const bootedStartedAt = async (name: string): Promise<string> => {
   const result = await docker(["inspect", "-f", "{{.State.StartedAt}}", name])
@@ -226,12 +255,12 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
     expect(appliedIds).toBe("1000:1000\n")
   })
 
-  it("invokes the Sync client in the documented order: login, sync-setup, sync-config ×5, sync, sync --continuous", async () => {
+  it("invokes the Sync client in the documented order, from login to sync --continuous", async () => {
     const callLog = await readContainerFile({
       name,
       path: "/home/obsidian/.config/ob-calls.log",
     })
-    expect(callLog).toBe(callLogOf(1))
+    expect(callLog).toBe(callLogOf(FIRST_BOOT_SEQUENCE))
   })
 
   it("records the two synced notes in the sync state under /home/obsidian/.config", async () => {
@@ -279,8 +308,15 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
       const searchResponse: unknown = JSON.parse(textContent(result))
       // `modified` is the boot-time mtime and `score` is an RRF float — every
       // other field of the response is fixed by the fixture, so pin those.
-      const isSearchResponse = (value: unknown): value is { results: Record<string, unknown>[] } =>
-        typeof value === "object" && value !== null && Array.isArray(Reflect.get(value, "results"))
+      const isSearchResponse = (
+        value: unknown,
+      ): value is { results: Record<string, unknown>[] } => {
+        return (
+          typeof value === "object" &&
+          value !== null &&
+          Array.isArray(Reflect.get(value, "results"))
+        )
+      }
 
       if (!isSearchResponse(searchResponse)) {
         throw new Error(`unexpected vault_search response: ${textContent(result)}`)
@@ -479,7 +515,7 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
 
     it("runs the full Sync sequence again, appending to the first boot's log", async () => {
       expect(await readContainerFile({ name, path: "/persist/config/ob-calls.log" })).toBe(
-        callLogOf(2),
+        callLogOf(FIRST_BOOT_SEQUENCE, REBOOT_SEQUENCE),
       )
     })
 
@@ -580,21 +616,15 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
         path: "/home/obsidian/.config/ob-calls.log",
       })
       expect(callLog).toBe(
-        [
+        callLogOf([
           "login",
-          "sync-setup --vault ci-vault --device-name ci-device",
-          "sync-config --device-name ci-device",
-          "sync-config --excluded-folders ",
-          "sync-config --file-types ",
-          "sync-config --configs core-plugin-data,community-plugin-data,app",
-          "sync-config --json",
+          ...VAULT_CHECK_CALLS,
+          ...SETUP_CALLS,
           "sync",
           "sync",
           "sync",
           "sync --continuous",
-        ]
-          .map((call) => `${call}\n`)
-          .join(""),
+        ]),
       )
     })
 
@@ -957,6 +987,60 @@ describe("remote image boot — safety checks in the init chain stop the contain
     expect(logs).not.toContain("First sync (attempt")
   })
 
+  it("refuses to sync another vault's Sync setup before ob sync-setup writes anything", async () => {
+    // A config volume left set up for another vault: the Sync client would
+    // sync that vault into /vault, whatever VAULT_NAME says. The stub's
+    // account lists only VAULT_NAME's vault, so the other one reads as gone.
+    const configVolume = `${uniqueName("other-vault-config")}-volume`
+    const configHome = "/home/obsidian/.config"
+    const otherVaultSetup = JSON.stringify({
+      vaultId: "other-vault-id",
+      vaultName: "Other Vault",
+      vaultPath: "/vault",
+    })
+    await seedSyncSetup({
+      image: IMAGE,
+      volume: configVolume,
+      mountPath: configHome,
+      vaultId: "other-vault-id",
+      configJson: otherVaultSetup,
+    })
+    const logs = await logsAfterGuardStops({
+      scenario: "other-vault-setup",
+      env: BASE_ENV,
+      volumes: [`${configVolume}:${configHome}`],
+    })
+    expect(logs).toContain(
+      "[obsidian-sync] ERROR: This install is set up to sync a different vault than VAULT_NAME.",
+    )
+    expect(logs).toContain(
+      "[obsidian-sync] VAULT_NAME is 'ci-vault' (ci-vault-id), but its Sync setup is for 'Other Vault' (other-vault-id), which is no longer in your account.",
+    )
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-setup-vault: command exited 1",
+    )
+    expect(logs).not.toContain("First sync (attempt")
+
+    // The volume shows what ran: the check's reads only, no sync-setup, and
+    // the other vault's setup unchanged.
+    const callLog = await readVolumeFile({
+      image: IMAGE,
+      volume: configVolume,
+      mountPath: configHome,
+      path: `${configHome}/ob-calls.log`,
+    })
+    const setupAfter = await readVolumeFile({
+      image: IMAGE,
+      volume: configVolume,
+      mountPath: configHome,
+      path: `${configHome}/obsidian-headless/sync/other-vault-id/config.json`,
+    })
+    expect({ callLog, setupAfter }).toEqual({
+      callLog: callLogOf(["login", ...VAULT_CHECK_CALLS]),
+      setupAfter: otherVaultSetup,
+    })
+  })
+
   it("refuses to sync an empty vault when the device's sync state records files", async () => {
     // A kept config volume (sync state recording files) with a wiped vault
     // volume would have the sync engine push every recorded file as a
@@ -1182,12 +1266,13 @@ const setupModeEnv = (): Record<string, string> => {
   }
 }
 
-const postSetupForm = (port: number, fields: Record<string, string>): Promise<Response> =>
-  fetch(`http://127.0.0.1:${port}/setup`, {
+const postSetupForm = (port: number, fields: Record<string, string>): Promise<Response> => {
+  return fetch(`http://127.0.0.1:${port}/setup`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(fields),
   })
+}
 
 describe("remote image boot — setup mode (no Sync token anywhere)", () => {
   const name = uniqueName("setup-mode")
@@ -1335,7 +1420,7 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
         expect({ token, mode: mode.stdout.trim(), callLog }).toEqual({
           token: FAKE_OBSIDIAN_ACCOUNT.token,
           mode: "600",
-          callLog: callLogOf(1),
+          callLog: callLogOf(FIRST_BOOT_SEQUENCE),
         })
         expect(logs).toContain("[obsidian-sync] Auth token found on the volume.")
       })
@@ -1479,7 +1564,7 @@ describe("remote image boot — env var token wins over a token file on the volu
     const logs = await containerLogs(name)
     expect({ setupModePublished, callLog }).toEqual({
       setupModePublished: false,
-      callLog: callLogOf(1),
+      callLog: callLogOf(FIRST_BOOT_SEQUENCE),
     })
     expect(logs).toContain("[obsidian-sync] Auth token present.")
   })

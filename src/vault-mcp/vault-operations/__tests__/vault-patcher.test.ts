@@ -3,10 +3,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
-import {
-  UnkeepableOpeningBlockError,
-  UnsupportedPropertiesBlockError,
-} from "../../obsidian-markdown/frontmatter.js"
+import { UnkeepableOpeningBlockError } from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
 
 const { patchNote, replaceInNote, deleteSpan, replaceSpan, insertAtAnchor } = vaultPatcher
@@ -54,10 +51,6 @@ Intro paragraph.
 ## Done
 - [x] Task D
 `
-
-/** NOTE_WITH_SECTIONS as a patch writes it back: the properties block comes
- *  out in block style and the body is unchanged. */
-const NOTE_WITH_SECTIONS_REWRITTEN = NOTE_WITH_SECTIONS.replace("tags: [test]", "tags:\n  - test")
 
 const NOTE_NO_FRONTMATTER = `# Title
 
@@ -467,10 +460,15 @@ Second content.
         },
         logger,
       ),
-    ).rejects.toThrow(/ambiguous.*2 sections.*Rename one heading/)
+    ).rejects.toThrow(
+      // The lines count from the top of the file, past the three-line properties block
+      new Error(
+        'ambiguous heading: "Section" matches 2 sections: ## Section (line 5), ## Section (line 8)',
+      ),
+    )
   })
 
-  it("errors on cross-level ambiguity with heading_level hint", async () => {
+  it("names each matching heading's level on cross-level ambiguity", async () => {
     const content = `---
 title: CrossLevel
 ---
@@ -493,7 +491,11 @@ Sub-level.
         },
         logger,
       ),
-    ).rejects.toThrow(/ambiguous.*heading_level/)
+    ).rejects.toThrow(
+      new Error(
+        'ambiguous heading: "Overview" matches 2 sections: # Overview (line 5), ## Overview (line 8)',
+      ),
+    )
   })
 
   it("disambiguates with heading_level", async () => {
@@ -566,7 +568,7 @@ describe("patchNote — file-level operations", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      `${NOTE_WITH_SECTIONS_REWRITTEN}## New Section\nNew content.\n`,
+      `${NOTE_WITH_SECTIONS}## New Section\nNew content.\n`,
     )
   })
 
@@ -609,7 +611,7 @@ describe("patchNote — file-level operations", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+      NOTE_WITH_SECTIONS.replace(
         "---\n\n# Main Title",
         "---\n> [!note] Important\n> Read this first.\n\n# Main Title",
       ),
@@ -965,7 +967,7 @@ describe("patchNote — section-level append", () => {
     )
     // The empty line that ends Up Next stays above the appended task
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace("- [ ] Task C\n\n", "- [ ] Task C\n\n- [ ] Task E\n"),
+      NOTE_WITH_SECTIONS.replace("- [ ] Task C\n\n", "- [ ] Task C\n\n- [ ] Task E\n"),
     )
   })
 
@@ -982,7 +984,7 @@ describe("patchNote — section-level append", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+      NOTE_WITH_SECTIONS.replace(
         "- [ ] Sub-task 1\n\n",
         "- [ ] Sub-task 1\n\n- [ ] New task after subtasks\n",
       ),
@@ -1001,7 +1003,7 @@ describe("patchNote — section-level append", () => {
       },
       logger,
     )
-    expect(await readTestNote("note.md")).toBe(`${NOTE_WITH_SECTIONS_REWRITTEN}- [x] Task E\n`)
+    expect(await readTestNote("note.md")).toBe(`${NOTE_WITH_SECTIONS}- [x] Task E\n`)
   })
 
   it("appends directly below the last line when the note ends with a line break", async () => {
@@ -1085,7 +1087,7 @@ describe("patchNote — section-level prepend", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace("## Active\n", "## Active\n- [ ] Urgent task\n"),
+      NOTE_WITH_SECTIONS.replace("## Active\n", "## Active\n- [ ] Urgent task\n"),
     )
   })
 })
@@ -1104,7 +1106,7 @@ describe("patchNote — section-level replace", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+      NOTE_WITH_SECTIONS.replace(
         "## Up Next\n- [ ] Task C\n\n",
         "## Up Next\nCompletely new content.\n\n",
       ),
@@ -1125,7 +1127,7 @@ describe("patchNote — section-level replace", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+      NOTE_WITH_SECTIONS.replace(
         "## Active\n- [ ] Task A\n- [ ] Task B\n\n### Subtasks\n- [ ] Sub-task 1\n\n",
         "## Active\nReplaced all active content.\n\n",
       ),
@@ -1187,7 +1189,7 @@ describe("patchNote — child-section guard", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+      NOTE_WITH_SECTIONS.replace(
         "## Active\n- [ ] Task A\n- [ ] Task B\n\n### Subtasks\n- [ ] Sub-task 1\n\n",
         "## Active\nReplaced everything.\n\n",
       ),
@@ -1207,7 +1209,7 @@ describe("patchNote — child-section guard", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+      NOTE_WITH_SECTIONS.replace(
         "## Up Next\n- [ ] Task C\n\n",
         "## Up Next\nNew up-next content.\n\n",
       ),
@@ -1256,7 +1258,7 @@ More content.
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+      NOTE_WITH_SECTIONS.replace(
         "- [ ] Sub-task 1\n\n",
         "- [ ] Sub-task 1\n\n- [ ] Appended task\n\n",
       ),
@@ -1276,7 +1278,7 @@ More content.
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace("## Active\n", "## Active\nPrepended line.\n\n"),
+      NOTE_WITH_SECTIONS.replace("## Active\n", "## Active\nPrepended line.\n\n"),
     )
   })
 })
@@ -1745,7 +1747,7 @@ kanban-plugin: board
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace("## Done\n- [x] Task D\n", "## Done\nNothing left.\n"),
+      NOTE_WITH_SECTIONS.replace("## Done\n- [x] Task D\n", "## Done\nNothing left.\n"),
     )
   })
 })
@@ -1764,10 +1766,7 @@ describe("patchNote — insert_before", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
-        "## Done\n",
-        "## Context\nSome context here.\n\n## Done\n",
-      ),
+      NOTE_WITH_SECTIONS.replace("## Done\n", "## Context\nSome context here.\n\n## Done\n"),
     )
   })
 
@@ -1784,7 +1783,7 @@ describe("patchNote — insert_before", () => {
       logger,
     )
     expect(await readTestNote("note.md")).toBe(
-      NOTE_WITH_SECTIONS_REWRITTEN.replace(
+      NOTE_WITH_SECTIONS.replace(
         "# Main Title\n",
         "# Preface\nBefore everything.\n\n# Main Title\n",
       ),
@@ -1804,29 +1803,29 @@ describe("frontmatter preservation", () => {
       heading: op === "append" || op === "prepend" ? undefined : "Active",
       includeChildren: op === "replace" ? true : undefined,
     })),
-  )("$name preserves frontmatter and modifies body", async ({ op, heading, includeChildren }) => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
-    await patchNote(
-      {
-        vaultPath: vault,
-        path: "note.md",
-        operation: op,
-        content: `marker-${op}`,
-        heading,
-        includeChildren,
-      },
-      logger,
-    )
-    const updated = await readTestNote("note.md")
-    // Frontmatter preserved
-    expect(updated).toContain("title: Test Note")
-    expect(updated).toContain("tags:")
-    expect(updated).toContain("- test")
-    // Body was actually modified
-    expect(updated).toContain(`marker-${op}`)
-    // Frontmatter is still at the top (starts with ---)
-    expect(updated.startsWith("---\n")).toBe(true)
-  })
+  )(
+    "$name keeps the properties block as written and modifies body",
+    async ({ op, heading, includeChildren }) => {
+      await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+      await patchNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          operation: op,
+          content: `marker-${op}`,
+          heading,
+          includeChildren,
+        },
+        logger,
+      )
+      const updated = await readTestNote("note.md")
+      const writtenBlock = "---\ntitle: Test Note\ntags: [test]\n---\n"
+
+      expect(updated.slice(0, writtenBlock.length)).toBe(writtenBlock)
+      // Body was actually modified
+      expect(updated).toContain(`marker-${op}`)
+    },
+  )
 
   it("handles file with no frontmatter", async () => {
     await writeTestNote("no-fm.md", NOTE_NO_FRONTMATTER)
@@ -1918,19 +1917,7 @@ Body text.
       },
       logger,
     )
-    const updated = await readTestNote("complex.md")
-    expect(updated).toContain("title: Complex")
-    expect(updated).toContain("number: 42")
-    expect(updated).toContain("key: value")
-    // Verify list-type frontmatter values preserved
-    expect(updated).toContain("- a")
-    expect(updated).toContain("- b")
-    expect(updated).toContain("- c")
-    expect(updated).toContain("- one")
-    expect(updated).toContain("- two")
-    // Verify body was replaced
-    expect(updated).toContain("New body.")
-    expect(updated).not.toContain("Body text.")
+    expect(await readTestNote("complex.md")).toBe(content.replace("Body text.", "New body."))
   })
 })
 
@@ -2000,7 +1987,7 @@ describe("patchNote errors", () => {
   })
 })
 
-describe("patchNote — properties block a rewrite would lose", () => {
+describe("body edits keep the properties block as written", () => {
   /** Awaits a call that must reject and returns what it rejected with. */
   const captureRejection = async (pending: Promise<unknown>): Promise<unknown> => {
     try {
@@ -2011,47 +1998,78 @@ describe("patchNote — properties block a rewrite would lose", () => {
     throw new Error("expected the call to reject, but it resolved")
   }
 
-  /** The parts of a properties-block refusal callers rely on, or null when the throw is anything else. */
-  const describeRefusal = (thrown: unknown): { kind: string; message: string } | null => {
-    if (!(thrown instanceof UnsupportedPropertiesBlockError)) return null
-    return { kind: thrown.kind, message: thrown.message }
-  }
+  const BLOCKS = [
+    { label: "a commented block", block: "---\n# keep me\ntitle: 'Quoted'   # inline\n---\n" },
+    { label: "a flow-style block", block: "---\ntags: [a, b]\n---\n" },
+    { label: "a block that is not valid YAML", block: "---\ntitle: [unclosed\n---\n" },
+    { label: "a list block", block: "---\n- a\n- b\n---\n" },
+    { label: "a single-value block", block: "---\nJust a paragraph.\n---\n" },
+    { label: "an explicitly tagged block", block: "---\nstatus: !done\n---\n" },
+  ]
 
-  it.each([
+  // Each edit runs on a body of "old line\nkeep line\n" and leaves the body shown
+  const EDITS = [
     {
-      label: "a list block",
-      content: "---\n- a\n- b\n---\nbody\n",
-      refusal: {
-        kind: "not-key-value",
-        message:
-          "properties block holds a list, not key-value pairs, so rewriting the note would delete it",
+      tool: "patchNote",
+      edit: (path: string) => {
+        return patchNote({ vaultPath: vault, path, operation: "prepend", content: "added" }, logger)
       },
+      editedBody: "added\nold line\nkeep line\n",
     },
     {
-      label: "an explicitly tagged block",
-      content: "---\nstatus: !done\n---\nbody\n",
-      refusal: {
-        kind: "explicit-tag",
-        message: "properties block uses the YAML tag !done, which rewriting the note would drop",
-      },
-    },
-  ])(
-    "append refuses $label and leaves the note unchanged",
-    async ({ content, refusal: expectedRefusal }) => {
-      await writeTestNote("kept.md", content)
-      expect(await readTestNote("kept.md")).toBe(content)
-
-      const refusal = await captureRejection(
-        patchNote(
-          { vaultPath: vault, path: "kept.md", operation: "append", content: "added" },
+      tool: "replaceInNote",
+      edit: (path: string) => {
+        return replaceInNote(
+          { vaultPath: vault, path, oldText: "old line", newText: "new line" },
           logger,
-        ),
-      )
-
-      expect(describeRefusal(refusal)).toEqual(expectedRefusal)
-      expect(await readTestNote("kept.md")).toBe(content)
+        )
+      },
+      editedBody: "new line\nkeep line\n",
     },
-  )
+    {
+      tool: "deleteSpan",
+      edit: (path: string) =>
+        deleteSpan({ vaultPath: vault, path, startAnchor: "old line" }, logger),
+      editedBody: "keep line\n",
+    },
+    {
+      tool: "replaceSpan",
+      edit: (path: string) => {
+        return replaceSpan(
+          { vaultPath: vault, path, startAnchor: "old line", content: "new line" },
+          logger,
+        )
+      },
+      editedBody: "new line\nkeep line\n",
+    },
+    {
+      tool: "insertAtAnchor",
+      edit: (path: string) => {
+        return insertAtAnchor(
+          { vaultPath: vault, path, anchor: "old line", position: "after", content: "added" },
+          logger,
+        )
+      },
+      editedBody: "old line\nadded\nkeep line\n",
+    },
+  ]
+
+  const CASES = EDITS.flatMap((edit) => {
+    return BLOCKS.map((block) => ({
+      label: `${edit.tool} on ${block.label}`,
+      edit: edit.edit,
+      editedBody: edit.editedBody,
+      block: block.block,
+    }))
+  })
+
+  it.each(CASES)("$label edits the body and writes the block back unchanged", async (testCase) => {
+    await writeTestNote("kept.md", `${testCase.block}old line\nkeep line\n`)
+
+    await testCase.edit("kept.md")
+
+    expect(await readTestNote("kept.md")).toBe(`${testCase.block}${testCase.editedBody}`)
+  })
 
   it("refuses a prepend that would open a note with no properties with --- lines it cannot keep", async () => {
     const original = "Intro\n"
@@ -2117,11 +2135,10 @@ describe("patchNote — duplicate-heading guard", () => {
       },
       logger,
     )
-    // Exact whole-file result — frontmatter is normalized to block style on write.
+    // Exact whole-file result — the properties block is written back as it was.
     expect(await readTestNote("note.md")).toBe(`---
 title: Test Note
-tags:
-  - test
+tags: [test]
 ---
 
 # Main Title
@@ -2156,11 +2173,10 @@ body
       },
       logger,
     )
-    // Exact whole-file result — frontmatter is normalized to block style on write.
+    // Exact whole-file result — the properties block is written back as it was.
     expect(await readTestNote("note.md")).toBe(`---
 title: Test Note
-tags:
-  - test
+tags: [test]
 ---
 
 # Main Title
@@ -5052,7 +5068,154 @@ describe("Windows line breaks (CRLF)", () => {
     })
   })
 
-  it("edits a CRLF note whose last property is a list of quoted links, keeping its properties", async () => {
+  // Only a CR followed by LF is a line break to convert; a CR inside a line is text
+  describe("lone carriage returns", () => {
+    const LONE_CR_CONTENT = "X1\rX2"
+
+    it("patchNote keeps a lone carriage return inside content", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await patchNote(
+        { vaultPath: vault, path: "note.md", operation: "append", content: LONE_CR_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nB\nX1\rX2\n",
+      )
+    })
+
+    it("replaceInNote keeps a lone carriage return inside new_text", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "task", newText: LONE_CR_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [ ] X1\rX2\nB\n")
+    })
+
+    // insertAtAnchor and replaceSpan split their content the same way, so a
+    // trailing CR before the note's line break never becomes a CRLF
+    it("replaceInNote drops a carriage return that new_text ends with before the note's line break", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "task", newText: "done\r" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [ ] done\nB\n")
+    })
+
+    it("replaceInNote drops the carriage return new_text ends with at every match when replacing all", async () => {
+      await writeTestNote("note.md", "---\ntitle: C\n---\n- [ ] task\n- [ ] task\n")
+      const result = await replaceInNote(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          oldText: "task",
+          newText: "done\r",
+          replaceAllOccurrences: true,
+        },
+        logger,
+      )
+
+      expect(result).toEqual({ message: "Replaced 2 occurrences in note.md", count: 2 })
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n- [ ] done\n- [ ] done\n")
+    })
+
+    // A deletion would shrink the two empty lines around X into one
+    it("replaceInNote keeps the empty lines around a match whose new_text is only a carriage return", async () => {
+      await writeTestNote("note.md", "---\ntitle: C\n---\nA\n\nX\n\nB\n")
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "X\n", newText: "\r" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\nA\n\n\nB\n")
+    })
+
+    it("replaceInNote keeps a carriage return that new_text ends with when text follows it on the line", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "[ ]", newText: "[x]\r" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\n- [x]\r task\nB\n")
+    })
+
+    it("replaceInNote drops the note's own carriage return that a deletion leaves before a line break", async () => {
+      await writeTestNote("note.md", "---\ntitle: C\n---\n# H\nA1\rX\nB\n")
+      await replaceInNote({ vaultPath: vault, path: "note.md", oldText: "X", newText: "" }, logger)
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA1\nB\n")
+    })
+
+    it("replaceSpan keeps a lone carriage return inside content", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await replaceSpan(
+        { vaultPath: vault, path: "note.md", startAnchor: "task", content: LONE_CR_CONTENT },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA\nX1\rX2\nB\n")
+    })
+
+    it("insertAtAnchor keeps a lone carriage return inside content", async () => {
+      await writeTestNote("note.md", LF_NOTE)
+      await insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "note.md",
+          anchor: "task",
+          position: "after",
+          content: LONE_CR_CONTENT,
+        },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(
+        "---\ntitle: C\n---\n# H\nA\n- [ ] task\nX1\rX2\nB\n",
+      )
+    })
+
+    // The YAML parser reads `# scope\rnote: kept` as one comment line, so the
+    // block holds only `a`; an LF there would add a `note` property
+    it("keeps a carriage return inside a properties line as written, so the properties do not change", async () => {
+      const blockWithCr = "---\n# scope\rnote: kept\na: 1\n---\n"
+      await writeTestNote("note.md", `${blockWithCr}old\n`)
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "old", newText: "new" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe(`${blockWithCr}new\n`)
+    })
+
+    // The YAML parser reads `a: x\r\r\n` as the value `x\r`. Writing that CRLF as
+    // LF would pair the CR with the LF as a new CRLF, so the value would lose its CR
+    it("keeps a carriage return before a CRLF inside a properties line, so the properties do not change", async () => {
+      await writeTestNote("note.md", "---\r\na: x\r\r\nb: 2\r\n---\r\nold\r\n")
+      await replaceInNote(
+        { vaultPath: vault, path: "note.md", oldText: "old", newText: "new" },
+        logger,
+      )
+
+      expect(await readTestNote("note.md")).toBe("---\na: x\r\r\nb: 2\n---\nnew\n")
+    })
+
+    it("deleteSpan keeps a lone carriage return in the note's own text while converting its CRLF line breaks", async () => {
+      await writeTestNote(
+        "note.md",
+        "---\r\ntitle: C\r\n---\r\n# H\r\nA1\rA2\r\n- [ ] task\r\nB\r\n",
+      )
+      await deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "task" }, logger)
+
+      expect(await readTestNote("note.md")).toBe("---\ntitle: C\n---\n# H\nA1\rA2\nB\n")
+    })
+  })
+
+  it("edits a CRLF note whose last property is a list of quoted links, keeping its properties as written with LF line breaks", async () => {
     await writeTestNote(
       "related.md",
       '---\r\ntitle: "C"\r\nrelated:\r\n  - "[[Note]]"\r\n---\r\nA\r\n',
@@ -5063,7 +5226,7 @@ describe("Windows line breaks (CRLF)", () => {
     )
 
     expect(await readTestNote("related.md")).toBe(
-      '---\ntitle: C\nrelated:\n  - "[[Note]]"\n---\nA\nZ\n',
+      '---\ntitle: "C"\nrelated:\n  - "[[Note]]"\n---\nA\nZ\n',
     )
   })
 })

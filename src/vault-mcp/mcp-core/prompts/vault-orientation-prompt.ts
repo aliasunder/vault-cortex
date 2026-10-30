@@ -4,10 +4,15 @@ import { createMemoryStore, type MemoryFileOutline } from "../../vault-operation
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { resolveEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { describeErrorForLog, describeErrorRelativeTo } from "../../../utils/describe-error.js"
+import { describeErrorForLog } from "../../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../../utils/compare-utf8-bytes.js"
 import type { ToolName } from "../tool-registry.js"
-import { type PromptRegistrationContext, textResult, formatNoteLine } from "./prompt-helpers.js"
+import {
+  type PromptRegistrationContext,
+  describeErrorForPromptFallback,
+  textResult,
+  formatNoteLine,
+} from "./prompt-helpers.js"
 
 const PROMPT_NAMES = {
   VAULT_ORIENTATION: "vault-orientation",
@@ -337,7 +342,7 @@ export const registerVaultOrientationPrompt = ({
         // The prompt takes no arguments, so a failure caught here is the
         // server's own and logs at error, not warn
         reqLogger.error("prompt_error", describeErrorForLog(error))
-        const clientMessage = describeErrorRelativeTo({ error, directory: vaultPath })
+        const clientMessage = describeErrorForPromptFallback({ error, vaultPath })
         const fallbackTools = formatEnabledToolList([
           "vault_list_tags",
           "vault_list_property_keys",

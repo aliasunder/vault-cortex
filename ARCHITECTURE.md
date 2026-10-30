@@ -134,9 +134,11 @@ Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `
 2. **Read-only mode** — `READONLY_MODE=true` keeps exactly the tools whose own `readOnlyHint` annotation says they don't write; write tools are never advertised to clients rather than rejected at call time. The `memory-review` prompt follows its write tool, and the memory bootstrap is skipped.
 3. **Per-tool disabling** — `DISABLED_TOOLS` subtracts individually named tools. Purely subtractive: it cannot re-enable a tool an earlier predicate removed. Unknown names fail the boot (a typo that silently disabled nothing would mislead the operator).
 
-Group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry — annotations are declared once, and a new gating axis is one new predicate, not new branching in every module. Availability-keyed cross-references in tool descriptions and prompts disappear whenever their target does; a small number of durable API-level references (e.g. error-section alternatives naming sibling tools) remain. Search, indexing, and the file watcher are unaffected by `READONLY_MODE` and `DISABLED_TOOLS` — they write to the index database outside the vault, not to the vault itself.
+How the served set is built and kept consistent:
 
-The wrapper also builds each tool's input with `createStrictInputObject`, so a parameter the tool doesn't declare is rejected with an error naming the accepted ones; tools with no parameters accept any key.
+- **Registration** — group modules register through a gated wrapper that skips disabled names and injects each tool's annotations from the registry, so annotations are declared once and a new gating axis is one new predicate. The wrapper also builds each tool's input with `createStrictInputObject`, so a parameter the tool doesn't declare is rejected with an error naming the accepted ones; tools with no parameters accept any key.
+- **Cross-references** — references to other tools in tool descriptions and prompts are availability-keyed, so each disappears whenever its target does. A test disables each tool in turn and checks that no served tool's description or input schema still names it.
+- **What gating leaves alone** — search, indexing and the file watcher ignore `READONLY_MODE` and `DISABLED_TOOLS`, because they write to the index database outside the vault, not to the vault itself.
 
 ### Vault read/write
 
@@ -166,7 +168,7 @@ The edit tools differ in how they locate the lines they change — by heading, b
 - **`vault_patch_note`** — heading-targeted, with an optional file-level mode. Four operations: `append`, `prepend`, `replace`, `insert_before`. A no-heading `prepend` whose content starts with a heading reports back when it nested pre-existing leading content inside that heading.
 - **`vault_replace_in_note`** — exact-text find-and-replace in the note body.
 - **`vault_delete_span`** — anchor-targeted; removes the matched span of whole lines.
-- **`vault_replace_span`** — anchor-targeted; swaps the matched span for new content.
+- **`vault_replace_span`** — anchor-targeted; swaps the matched span for new content. Empty lines at the content's start or end join the note's empty lines on that side, and each joined run keeps the wider side's count (`collapseEmptyLineRunsAtEdits` in `lines.ts`). Content made only of line breaks touches both sides, so it joins them into one run of empty lines.
 - **`vault_insert_at_anchor`** — anchor-targeted; inserts content before or after the anchor line without removing it.
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
@@ -175,16 +177,17 @@ The three anchor tools share one resolution rule: a short, case-sensitive substr
 
 Every tool handles a note's properties block by the same rules, so a write never silently drops its properties:
 
-- **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
-- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in every backlink source it reads to plan its rewrites, even one whose link needs no change, and a list, a single value or a tag only in a note where it must rewrite a link.
-- **Results** of every write are checked, and a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way, an edit that removes the text above such lines, or a call that removes every property.
+- **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties. Reads that return no properties (`vault_read_note`'s `outline` and `heading` modes and `vault_get_memory`) split the block off without parsing it, and `vault_list_memory_files` lists a file whose block is not valid YAML under its file name, with a warning in the server log.
+- **Body edits** write the block back as written, with LF line breaks, so they accept any block: the five body-edit tools, both memory writes, and a move that changes links only in note bodies.
+- **Rewrites** of the properties refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. They are `vault_update_properties` merges, `vault_write_note` overwrites, the task tools (which write the note back from its parsed properties), and a move that must change a link inside the block. A move reads a block that is not valid YAML as no properties, as Obsidian does, so it rewrites that note's body links and leaves the links inside the block as they were.
+- **Results** are checked unless the write keeps the block as written: a write is refused when the note would open with a block the server could not read or keep. With no properties to write, a body that starts with `---` lines becomes the properties block. This happens with a `vault_write_note` body that starts that way (when no properties are passed or kept from an overwritten note, or every key is set to `null`), an edit to a note without a properties block that removes the text above such lines (deleting a heading that sits above them), or a call that removes every property.
 - **Refusals** carry the server's own message, with the line and column when the parser reports a position. The tool then adds how to fix the note:
   - For a block already in the vault, repair steps when every tool they name is served: `vault_read_note` and `vault_update_properties` with `replace: true`, plus `vault_patch_note` for a block that may hold prose to put back. Otherwise it points at Obsidian.
   - For a `vault_write_note` overwrite of such a note, which replaces the body anyway, the steps skip the prose: replace the block, then run the overwrite again. These steps need only `vault_read_note` and `vault_update_properties`; if either is not served, it points at Obsidian.
   - For a write that would open the note with a block the server could not read or keep, the ways around it: give the note a property, put text above the `---` lines, or remove them.
-- **YAML comments** are not kept. A rewrite writes the block from its parsed properties, so it drops any comments, and a block holding only comments reads as no properties and is written back as none.
+- **YAML comments** survive body edits. A rewrite of the properties writes the block from its parsed values, so it drops any comments, and a block holding only comments reads as no properties and is written back as none.
 
-Unlike a read that parses the block, such as `vault_read_note` with `properties_only`, `outline` or `heading`, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
+Unlike a read that parses the block, such as `vault_read_note` with `properties_only`, the search index accepts a block that is not valid YAML: it reads the note as its body with no properties, as Obsidian's metadata cache does. The note stays in search, tasks and the link graph, titled by its file name; the tags and links in its properties are not indexed, and a warning in the server log names the note as needing repair.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 
@@ -197,7 +200,7 @@ To remove a single entry from a memory file, use `vault_delete_memory`.
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
 - **Every link form:** wikilinks (including aliases, heading anchors, and embeds), markdown links, and frontmatter links, resolved with the same logic as the link-graph tools
-- **Canvas files:** links in text cards are rewritten like note links, and a file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
+- **Canvas files:** links in text cards are rewritten like note links; the link index does not record them, so the move finds them with its own scan ([File I/O safety](#file-io-safety)). A file card that opens the moved note gets the note's new path, because Obsidian opens a file card by its exact path; an edited Canvas is saved in Obsidian's own `.canvas` layout
 - **Minimal rewrites:** apart from Canvas file cards, a link is rewritten only when leaving it unchanged would break it
 - **Guardrails:** refuses to overwrite an existing destination, and blocks moves out of or into protected folders
 
@@ -296,7 +299,9 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 **Auto-initialization:** A two-layer bootstrap — startup seeds the default structure, write-time handles growth beyond it:
 
 - **Startup:** if the memory folder (default: `About Me/`) doesn't exist, the server creates it with template files (Me.md, Opinions.md, Principles.md, Routines.md, Agents.md), each opening with a `> [!info] Scope of this file` callout so agents discover a ready, self-documenting structure.
-- **Write-time:** `vault_update_memory` auto-creates files and sections on write — agents can save preferences without manual setup; a newly-created file is seeded with a placeholder scope callout to fill in.
+- **Write-time:** `vault_update_memory` auto-creates files and sections on write — agents can save preferences without manual setup; a newly-created file is seeded with a placeholder scope callout to fill in, and a newly-created section heading gets "(newest first)" appended.
+
+**Listing:** `listMemoryFiles` (behind `vault_list_memory_files`) lists the `.md` files directly inside the memory folder, whether or not each has frontmatter or a scope callout. It skips hidden names and names ending in `.md` twice in any letter case (`Opinions.md.md`): `memoryFilePath` refuses both kinds, so no memory tool could reach them by name.
 
 **Opt-out:** The memory layer is opt-out: set `MEMORY_ENABLED=false` to hide all memory tools and prompts, skip auto-initialization, and strip memory references from server metadata. `READONLY_MODE=true` also skips auto-initialization (no vault writes at startup). The vault CRUD and search layers continue to work normally.
 
@@ -316,11 +321,12 @@ Link queries use a `links` table populated during indexing:
   2. Path relative to the linking note (path from current file, including upward `../`)
   3. Basename (shortest-path-first for ambiguous basenames)
 - **Non-markdown files:** Targets that don't resolve to a note are checked against a `non_md_files` table (populated during rebuild, maintained by the file watcher). Both wikilinks and markdown-style links to `.canvas`, `.base`, images, PDFs, and other non-markdown files resolve as `kind: "file"` instead of being counted as broken.
-- **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness.
+- **Outgoing links:** `vault_get_outgoing_links` returns a `kind` discriminator (`"note"` or `"file"`) plus each target's byte size (`bytes` — from the notes table for notes, from `non_md_files` for files), so clients can route notes to `vault_read_note` and files to `vault_read_file` with size awareness. A broken link keeps the target text the index stored: its original letter case, and for a markdown link, its `%`-escapes decoded.
 - **Orphans:** `vault_find_orphans` and `vault-orientation` resolve default exclusions on each invocation: the daily notes folder (resolved as [Daily notes](#property-discovery--daily-notes) describes), `Templates`, and the memory dir.
   - `ORPHAN_EXCLUDE_FOLDERS` replaces that list; a tool call's `exclude_folders` replaces it for that call.
   - An unreadable or malformed config logs a warning and uses `Daily Notes`; a missing file uses that fallback without a warning.
   - A vault-root, blank, or whitespace-only folder setting adds no daily-folder exclusion, so those daily notes remain eligible.
+  - Each excluded folder adds one `NOT LIKE` clause, and SQLite's expression-depth limit caps the list at 994 folders. `findOrphans` (`search-queries.ts`) translates SQLite's "Expression tree is too large" error to "too many excluded folders".
 
 ### Files
 
@@ -331,7 +337,7 @@ Link queries use a `links` table populated during indexing:
 
 `vault_read_file` reads non-markdown vault files, dispatching on extension to the most useful representation per type:
 
-1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
+1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block: the path, the delivered format, dimensions and bytes, and, when the image was recompressed, its original dimensions and bytes. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
 2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas `file`-type node references are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
 3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation). `start_line`/`limit` page any text result — passthrough formats, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read stays byte-exact.
 4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js):
@@ -350,7 +356,7 @@ Link queries use a `links` table populated during indexing:
 
 5. **Unknown types** return an error naming the readable set.
 
-The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal + hidden-path guards as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB).
+The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal + hidden-path guards as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB). The read buffer is one byte longer than the statted size, so a file that grows during the read (an Obsidian Sync download can do this) fills that byte, and the read fails with "file changed while reading".
 
 `vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice. Canvas, PDF, and text files (.txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base) are indexed for full-text search in the `file_content` + `file_content_fts` tables — see Canvas entry above for the canvas-specific link graph integration. PDF text is extracted via `obsidian-markdown/pdf.ts` (structured markdown reconstruction) — this works on PDFs with embedded text content; scanned or image-only PDFs produce no indexable text and are silently skipped. Text files are indexed as raw UTF-8 content. Content exceeding 100 KiB is truncated before FTS insertion.
 
@@ -403,6 +409,8 @@ Four design choices shape the query surface:
 - **Block IDs** — `assign_block_id` adds or replaces the line's ID, and `null` removes it. On a Kanban board, no new ID goes on an indented line, for the reason given above: `assign_block_id` is refused there, as is any edit that would leave the line ending in a new `^id`, such as a description ending in one with no fields after it. A checklist item ending in a `^id` is refused under any card on a board.
 
 Both tools refuse a `block_id` found at the end of more than one task line, as the task to update or as a new sub-task's parent, and list every matching line instead of acting on the first.
+
+Both tools parse the written line back (`diffTaskRoundTrip` in `tasks.ts`) and return an advisory, not an error, for each field that does not read back as the call intended. Description or checklist text that ends in a signifier is read back according to that field's value grammar: a trailing `🔁` reads any following words as its recurrence rule, while `📅` followed by words that are not a `YYYY-MM-DD` date stays description text.
 
 `vault_create_task` and `vault_update_task` read the Tasks plugin's format and date toggles on every write, so a change in Obsidian applies to the next write. The plugin's status registry is read once at boot, so `vault_list_tasks` and the two write tools always agree on which checkboxes are tasks; a status-type change needs a restart.
 
@@ -505,10 +513,10 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 
 1. The watcher starts holding: from then on, it records each path chokidar reports as changed instead of indexing it. Startup waits for chokidar's initial scan to finish.
 2. `rebuildFromVault` runs. The watcher is the index's only other writer, because a tool's vault write reaches the index as a watcher event. The watcher is holding, so nothing else writes while the rebuild reads.
-3. The watcher goes live. In the same step, it removes each held path whose latest event was a deletion, and marks every held path so that a live change to it takes over from the step 4 batch.
+3. The watcher goes live. In the same step, it removes each held path whose latest event was a deletion, and marks every held path so that the step 4 batch drops its own read of a path that a live change then indexes.
 4. One batch checks each held path against the disk, `INDEXING_FILE_READ_CONCURRENCY` (16) at a time. Paths gone from disk are removed first. The rest are read again within the rebuild's limits: other files 16 at a time, then the PDFs whose text is extracted, `PDF_EXTRACTION_CONCURRENCY` (4) at a time.
 
-The server starts accepting requests once the step 4 batch has finished writing to the index, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. A held path that a live change takes over is indexed by that change, which can finish just after the server starts.
+The server starts accepting requests once the step 4 batch has finished writing to the index, or after 10 s if a Sync backlog makes the batch longer; the batch then finishes in the background. A live change that indexes a held path can finish just after the server starts.
 
 A file that is created after step 1 and deleted within chokidar's 2 s write-stability window emits no event, so if the rebuild read it, it stays searchable until the next restart.
 
@@ -634,10 +642,10 @@ OAuth/MCP spec) and never invoke the Lambda.
 For protected requests, the authorizer:
 
 - accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
-- checks the signature, issuer, and audience of deployment-bound JWTs
+- checks the signature, issuer, and audience of JWTs bound to this deployment
+  (see **JWT payload** below)
 - forwards a correctly bound expired JWT to Express for the **401** refresh challenge
-- forwards unexpired pre-binding JWTs without an audience claim to Express,
-  avoiding API Gateway's fixed **403** while those tokens remain valid
+- denies every other token with a **403**
 
 The Authorization header is the route's identity source, so a
 tokenless request gets an automatic **401** from API Gateway without invoking
@@ -655,8 +663,8 @@ and revocation. An expired token stops here with **401** and
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
 
-**Why both layers:** Lightsail port 8000 is publicly bound by default. If the
-API Gateway authorizer is misconfigured, or someone hits the public IP
+**Why both layers:** Lightsail port 8000 is open to the internet by default.
+If the API Gateway authorizer is misconfigured, or someone hits the public IP
 directly, Express still rejects. `/healthz` bypasses auth for docker-compose
 healthchecks.
 
@@ -721,7 +729,7 @@ sequenceDiagram
     Note over C,E: Subsequent MCP Requests (dual-validated)
     C->>AG: POST /mcp (Bearer JWT)
     AG->>L: Authorize request
-    L->>L: Verify JWT signature (HMAC)
+    L->>L: Verify JWT signature (HMAC), issuer and audience
     L-->>AG: isAuthorized: true
     AG->>E: Forward
     E->>E: requireBearerAuth (verify JWT again)
@@ -742,18 +750,12 @@ cryptographic or binding checks. The binding claims
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
 - `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
-  `/mcp`. `PUBLIC_URL` must be a bare origin; path prefixes are rejected at
-  startup.
+  `/mcp`. `PUBLIC_URL` must be a bare origin; path prefixes are rejected when
+  the MCP server starts.
 - Each verifier checks both claims against its own copy of `PUBLIC_URL` — the
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
   secret.
-- The Lambda passes a token that carries no `aud` at all — the shape minted
-  by releases before binding — so that Express can reject it with a 401, the
-  status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
-  them. Only tokens minted before an upgrade have this shape, so the path
-  goes quiet within their 24-hour lifetime. A token that names any other
-  audience is denied at the Lambda.
 - A client's `resource` parameter, when sent, must name one of the two
   identifiers the server's discovery documents advertise — the MCP endpoint
   or the server URL itself — compared in canonical form, so a trailing slash
@@ -871,7 +873,9 @@ OAuth session:
   immediately (without a rotation they live for 6 hours);
 - every stored refresh token becomes unreachable, because rows are keyed
   under the old token;
-- each client goes back through the consent page on its next request.
+- the Lambda authorizer answers each client's old token with a **403**,
+  which clients don't treat as a sign-in prompt, so each client goes back
+  through the consent page once you reconnect it.
 
 ### Optional hardening + customization
 
@@ -927,13 +931,22 @@ graph LR
    `init-check-auth` (looks for the Sync token in the env var, then in the
    Sync client's own credential file on the config volume; with neither,
    the boot switches to [setup mode](#setup-mode) instead of stopping) →
-   `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
-   with `--device-name`, plus optional sync-config; fails fast when
-   `VAULT_NAME` is missing or `SYNC_MODE` fails to apply) → `init-first-sync`
+   `init-obsidian-login` (`ob login`) → `init-setup-vault` (sets up the
+   vault's Sync in the steps listed after this chain) → `init-first-sync`
    (one-shot `ob sync` run to _completion_, with retries; its four steps,
    failure branches included, are listed below). Any
    fatal init failure stops the container
    (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns retry.
+
+   `init-setup-vault` fails fast when `VAULT_NAME` is missing or `SYNC_MODE`
+   fails to apply. Its steps, in order:
+
+   1. `check-sync-vault` stops the boot, before anything is written, when the
+      volume's Sync setup is for a different vault than `VAULT_NAME`.
+   2. `ob sync-setup` with `--device-name`, then a check that the Sync client
+      now uses `VAULT_NAME`'s vault.
+   3. Optional sync-config settings.
+
 2. **`svc-obsidian-sync`** — bidirectional Obsidian Sync
    (`ob sync --continuous`). Stores sync state in the config volume at
    `/home/obsidian/.config` (persists across restarts for incremental sync —
@@ -1190,9 +1203,19 @@ Docker hardening, and durability seatbelts above.
 - **Atomic writes** (`atomicWriteFile` in `vault-filesystem.ts`):
   write-to-temp-then-rename. The target is never truncated — the
   Obsidian Sync process sees either old content or new content, never a
-  0-byte or partial write. The temp file is cleaned up in a `finally`
-  block on failure (`catch` in `atomicWriteFile`; `finally` in
-  `atomicWriteFileExclusive`).
+  0-byte or partial write. The temp file is `.<UUID>.tmp` in the note's
+  folder:
+  - hidden: Obsidian Sync and the file watcher skip dot-prefixed names,
+    so neither opens it;
+  - 41 bytes whatever the note's name, so a note named near the
+    filesystem's limit still saves;
+  - on the note's filesystem, so the rename (or the hard link of an
+    exclusive create, below) stays atomic.
+
+  A `catch` in `atomicWriteFile` removes the temp file after a failure. A
+  `finally` in `atomicWriteFileExclusive` removes it after every call,
+  because after a link it is a second name for the note.
+
 - **Exclusive atomic creates** (`atomicWriteFileExclusive`): uses
   `link()` for POSIX no-clobber semantics — fails atomically with
   `EEXIST` if the target already exists, closing the TOCTOU race on
@@ -1211,9 +1234,9 @@ Docker hardening, and durability seatbelts above.
   `trash-sweeper.ts` share one serializing key for the whole `.trash/`
   domain.
 - **Properties-block guard** (`frontmatter.ts`): every rewrite refuses a
-  note whose properties block it cannot keep, and every write's result is
-  checked before it reaches disk, so no write silently drops a block's
-  properties.
+  note whose properties block it cannot keep, and every other write either
+  keeps the block as written or checks its result before it reaches disk,
+  so no write silently drops a block's properties.
   [Vault read/write](#vault-readwrite) gives the full rules and the
   repair path.
 - **Trash handling** (`moveNoteToTrash` in `vault-filesystem.ts`,
@@ -1225,19 +1248,35 @@ Docker hardening, and durability seatbelts above.
   deleting, it checks that the file still sits inside `.trash/` and is
   still the unchanged file it trashed, so a corrupted record, a symlink,
   or a note Obsidian later trashed under the same name is left alone.
+  - A name already taken in `.trash/` gets Obsidian's suffixes (`Plan 1.md`,
+    `Plan 2.md`, …); after `TRASH_NAME_SUFFIX_LIMIT` (100) numbered names the
+    delete fails.
+  - The setting is read from `.obsidian/app.json` on every delete
+    (`trash-config.ts`), except on a server running Obsidian Sync, where a
+    delete is always permanent and Sync's version history is the recovery
+    path. A missing file, or a missing or unknown `trashOption`, means
+    `system`; a file that exists but cannot be read or parsed refuses the
+    delete, because a `system` fallback could let the sweep remove a note
+    the user set to keep.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans notes and Canvas files for backlinks the
   search index missed (closing a lag race) or never records (links in
-  Canvas text cards). The scan skips a file it cannot read or parse, with
-  a warning, so an unreadable file aborts the move only when the index
-  lists it as a backlink. The move then reads every affected file and
-  computes every rewrite _before_ touching anything. If any read fails, no
-  file is mutated. Destination is written first via exclusive create;
+  Canvas text cards). The scan skips a file it cannot read, or a Canvas
+  file whose JSON it cannot parse, with a warning, so such a file aborts
+  the move only when the index lists it as a backlink. A note whose
+  properties block is not valid YAML is scanned for its body links. When
+  the scan finds new linking notes, the move releases the lock, adds them
+  to the lock set and scans again, up to `MAX_BACKLINK_VERIFY_RETRIES` (3)
+  retries; if new ones still appear, it aborts with nothing written. The
+  move then reads every affected file and computes every rewrite _before_
+  touching anything. If any read fails, no file is mutated. Destination is written first via exclusive create;
   source is deleted last — a failure at any step leaves both copies rather
   than losing content.
 - **Content-hash gating** (`search-index.ts`): SHA-256 per chunk. Only
-  changed content re-embeds on both incremental updates and full rebuilds
-  — a correctness guarantee (not just performance).
+  changed content re-embeds on both incremental updates and full rebuilds.
+  Each chunk's hash is saved in the same transaction as its vector, so a
+  crash can never mark a chunk as embedded while its vector is missing; the
+  gating is a correctness guarantee, not just a performance one.
 - **Symlink safety** (`filterValidSymlinks` in
   `utils/filter-valid-symlinks.ts`): broken symlinks and symlinks to
   non-file targets are filtered from directory listings before indexing
@@ -1310,8 +1349,11 @@ Docker hardening, and durability seatbelts above.
 - **`safeHandler()`** (built per server by `createSafeHandlers` in
   `tool-helpers.ts`): wraps every MCP tool handler with try/catch. Errors
   return a structured `isError` response with the error's name and message,
-  plus how to fix a properties-block refusal — no stack traces. A buggy tool
-  never crashes the server.
+  plus one remedy sentence for a raw filesystem or search-index error
+  (`coded-error-remedy.ts`, keyed on the error's code and syscall) or
+  how to fix a properties-block refusal — no stack traces. A buggy tool
+  never crashes the server. The prompts' fallback messages carry the same
+  remedy sentence.
 - **Library errors**: an image sharp cannot decode, a password-protected
   PDF, a damaged PDF, and a PDF reader that fails to start (pdf.js or the
   canvas library failing to load, whose error quotes install paths) each
@@ -1326,6 +1368,11 @@ Docker hardening, and durability seatbelts above.
   `pdf_page_render_failed` logs, and the logs of PDFs the search index or
   file watcher cannot read, keep the full message
   and the cause of a wrapped error (`describeErrorForLog`).
+- **Memory file read failures** (`memory-store.ts`): a failed read of a
+  memory file is rethrown as "cannot read memory file …" with the
+  vault-relative path and no Node error code, so the tool boundary adds no
+  coded remedy. A file name longer than the filesystem allows surfaces
+  under this message, not as `ENAMETOOLONG`.
 - **In-lock existence checks**: `deleteNote` and `moveNote` check file
   existence inside the lock, so a missing note returns the "note not found"
   error the tools document instead of Node's ENOENT text.
@@ -1352,6 +1399,12 @@ Docker hardening, and durability seatbelts above.
 - **Idempotency guard**: if the exact bullet already exists in the target
   section, `updateMemory` no-ops — prevents duplicate entries from MCP
   client retries after gateway timeouts.
+- **Near-duplicate section guard** (`findNearMissSection` in
+  `memory-store.ts`): `updateMemory` refuses to create a section whose name
+  differs from an existing H2 heading only by an HTML-entity slip, a typo
+  within a length-scaled edit budget, or spacing ("section not created"),
+  so entries do not split across near-identical headings. Names
+  that differ only in their digits ("2025" vs "2026") count as different.
 - **Line-break rejection**: entry text, date, and section name all reject
   `\r` and `\n` — a multiline entry would corrupt the dated-bullet format
   and evade the duplicate guard.
@@ -1382,7 +1435,7 @@ Any VPS with comparable specs works — the table above prices the Lightsail ref
 | Decision                                    | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Lightsail over ECS                          | $12–24 vs ~$50+. Single-user server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                                                    |
+| API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and per-route auth (OAuth endpoints and `/healthz` pass through, a Lambda authorizer validates every other route). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                               |
 | Obsidian Sync over git-based sync           | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Single image over a separate sync container | The two processes have shared fate through `/vault` — the MCP server without sync serves a stale vault; sync without the server serves nothing — so a single supervised container is the semantically honest packaging, not a convenience bundle. One image also means one repo, one CI, one version, and no Compose requirement for users (`docker run`/Podman/nerdctl all work). The `local` target has no sync process and stays single-process under tini.                                                                                                                                    |
 | OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both pass through independent Lambda and Express checks using the same HMAC key.                                                                                                                                                                                                                                                                                                  |

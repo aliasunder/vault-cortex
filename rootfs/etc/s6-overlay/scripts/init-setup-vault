@@ -9,6 +9,10 @@ if [ "${SETUP_MODE:-}" = 1 ]; then
   exit 0
 fi
 
+# Resolved before the cd into VAULT_PATH, so a relative script path still
+# finds check-sync-vault beside this script.
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
 VAULT_PATH="${VAULT_PATH:-/vault}"
 mkdir -p "$VAULT_PATH"
 if ! cd "$VAULT_PATH"; then
@@ -52,12 +56,61 @@ fi
 if [ -n "$CONFIG_DIR_NAME" ]; then
   set -- "$@" --config-dir "$CONFIG_DIR_NAME"
 fi
+
+# check-sync-vault stops the boot before ob sync-setup writes anything when
+# the volume holds another vault's Sync setup. It prints the vault ID that
+# VAULT_NAME names, for the check after ob sync-setup. It runs under sh
+# because this script has already loaded the environment its with-contenv
+# line would load.
+if ! REQUESTED_VAULT_ID=$(sh "$SCRIPT_DIR/check-sync-vault"); then
+  exit 1
+fi
+
 if ! run_sync_setup "$@"; then
   echo "[obsidian-sync] ERROR: ob sync-setup failed." >&2
   echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct." >&2
   if [ -z "$VAULT_PASSWORD" ]; then
     echo "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD." >&2
   fi
+  exit 1
+fi
+
+SYNC_SETUP_GUIDE_URL="https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#another-vaults-sync-setup"
+
+# The check prints no vault ID when VAULT_NAME named no single vault. ob
+# sync-setup then fails, so getting here means the vault changed mid-boot.
+if [ -z "$REQUESTED_VAULT_ID" ]; then
+  echo "[obsidian-sync] ERROR: VAULT_NAME '$VAULT_NAME' named no single vault when the vault check ran, so this boot can't confirm which setup ob sync-setup used." >&2
+  echo "[obsidian-sync] Restart to run the check again." >&2
+  exit 1
+fi
+
+# ob sync-setup has just written VAULT_NAME's setup, so the Sync client must
+# now use it for this folder. Every sync-config call below writes to the setup
+# the client uses, so any other answer stops the boot before those writes.
+#
+# Prints the vault ID the Sync client now uses for this folder, or nothing
+# when ob sync-config fails or prints no vault ID. It always returns 0,
+# because set -e would end the script silently on a failed assignment.
+picked_vault_id() {
+  picked_config=$(s6-setuidgid obsidian ob sync-config --json) || return 0
+  printf '%s' "$picked_config" | node --no-warnings -e '
+    const config = JSON.parse(require("node:fs").readFileSync(0, "utf8"))
+    if (typeof config.vaultId === "string") console.log(config.vaultId)
+  ' 2>/dev/null || return 0
+}
+PICKED_VAULT_ID=$(picked_vault_id)
+
+if [ -z "$PICKED_VAULT_ID" ]; then
+  echo "[obsidian-sync] ERROR: After ob sync-setup, the Sync client could not read its own setup." >&2
+  echo "[obsidian-sync] Refusing to sync without knowing which vault this install is set up for." >&2
+  echo "[obsidian-sync] See: $SYNC_SETUP_GUIDE_URL" >&2
+  exit 1
+fi
+if [ "$PICKED_VAULT_ID" != "$REQUESTED_VAULT_ID" ]; then
+  echo "[obsidian-sync] ERROR: After ob sync-setup, the Sync client does not use the setup for '$VAULT_NAME' in this folder." >&2
+  echo "[obsidian-sync] Refusing to sync a vault other than VAULT_NAME." >&2
+  echo "[obsidian-sync] See: $SYNC_SETUP_GUIDE_URL" >&2
   exit 1
 fi
 

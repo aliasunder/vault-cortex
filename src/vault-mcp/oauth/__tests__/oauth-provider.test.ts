@@ -720,6 +720,27 @@ describe("verifyAccessToken", () => {
     )
   })
 
+  it("rejects a revoked JWT re-sent with padding appended to its signature", async () => {
+    const { oauth, db } = await createVerifyTokenTest()
+    const token = signJwt(
+      {
+        sub: "client-123",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
+      },
+      AUTH_TOKEN,
+    )
+    seedRevokedToken(db, token)
+
+    // The padded copy is a string the revocation list does not hold, so the
+    // signature check is what must reject it.
+    await expect(verifyAccessToken(oauth, `${token}=`)).rejects.toThrow(
+      new InvalidTokenError("Token expired or invalid"),
+    )
+  })
+
   it("rejects an expired JWT", async () => {
     const { oauth } = await createVerifyTokenTest()
     const token = signJwt(

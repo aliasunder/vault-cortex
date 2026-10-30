@@ -26,8 +26,8 @@ export type MemoryEntry = Readonly<{
    *  would silently lose memory content. */
   date: string
   /** Raw entry markdown: the dated bullet line plus every continuation line
-   *  (wrapped prose, sub-bullets, fenced code examples) up to the next entry
-   *  or section boundary, with trailing blank lines trimmed. */
+   *  (wrapped prose, sub-bullets, fenced code examples) up to the next entry,
+   *  a deeper heading or the section's end, with trailing blank lines trimmed. */
   text: string
   /** 0-based document order across the whole file, spanning sections. */
   entryIndex: number
@@ -37,9 +37,26 @@ export type MemoryEntry = Readonly<{
 
 /** Matches the first line of a dated memory entry (`- **YYYY-MM-DD**: …`) and
  *  captures the date. The bold date is the reliable anchor — entry text after
- *  the colon may contain its own `**bold**`. Same shape as memory-store's
- *  ENTRY_PATTERN, with a capture group added. */
+ *  the colon may contain its own `**bold**`. */
 const ENTRY_START_PATTERN = /^- \*\*(\d{4}-\d{2}-\d{2})\*\*:/
+
+/** The date of the memory entry the line opens, as written, or undefined
+ *  when the line opens no entry. The date is checked for shape only. */
+export const memoryEntryLineDate = (line: string): string | undefined => {
+  return ENTRY_START_PATTERN.exec(line)?.[1]
+}
+
+/** True when the line opens a dated memory entry, the same test the parser
+ *  uses, so the memory store's writes agree with it on what an entry is. */
+export const isMemoryEntryLine = (line: string): boolean => Boolean(memoryEntryLineDate(line))
+
+/** True for a file name that ends in .md twice, in any letter case, such as
+ *  "Opinions.md.md". The memory tools add .md to a bare name and refuse a name
+ *  that already ends in .md, so no memory tool can reach such a file, and the
+ *  memory listings and recall leave it out instead of offering its name. */
+export const isDoubledMarkdownFileName = (fileName: string): boolean => {
+  return fileName.toLowerCase().endsWith(".md.md")
+}
 
 /** Matches any ATX heading line (H1–H6) per CommonMark §4.2: 0-3 leading
  *  spaces, hashes, then a space/tab separator or end of line (empty headings
@@ -78,7 +95,7 @@ const closeEntry = (openEntry: OpenEntry, section: string, entryIndex: number): 
  * the H2. Prose before a section's first entry (intro text, scope callouts)
  * belongs to no entry and is ignored; every line after an entry's bullet —
  * wrapped prose, sub-bullets, fenced code — is that entry's continuation
- * until the next entry starts or the section ends.
+ * until the next entry starts, a deeper heading opens, or the section ends.
  *
  * Fence/comment awareness works one way by design: a line that *looks* like a
  * dated bullet inside a fenced code block or `%% %%` comment never starts an
@@ -125,8 +142,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
         continue
       }
 
-      const entryStartMatch = ENTRY_START_PATTERN.exec(line)
-      const entryDate = entryStartMatch?.[1]
+      const entryDate = memoryEntryLineDate(line)
 
       if (entryDate) {
         if (openEntry !== null) {

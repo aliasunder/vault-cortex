@@ -13,6 +13,20 @@ set -euo pipefail
 # Logs go to stderr because SessionStart hook stdout enters the model's context.
 log() { echo "[install-deps] $*" >&2; }
 
+# Explicit command callers print the selected Node bin:
+# - --node-bin selects Node without installing.
+# - --prepare-node-bin also runs dependency setup.
+# Claude hook invocations omit the argument and keep stdout empty.
+output_mode="${1:-}"
+case "${output_mode}" in
+  ""|--node-bin|--prepare-node-bin) ;;
+  *) log "unknown operation '${output_mode}'"; exit 2 ;;
+esac
+if (($# > 1)); then
+  log "expected at most one operation argument"
+  exit 2
+fi
+
 # A hook's non-interactive shell never sources .bashrc, so nvm is loaded here.
 # - Without it, npm can resolve to a system Node (cloud images ship Node 22 at
 #   /opt/node22).
@@ -28,7 +42,7 @@ for dir in "${HOME}/.nvm" /root/.nvm; do
     # version is not installed.
     set +eu
     # shellcheck disable=SC1091
-    . "${dir}/nvm.sh"
+    . "${dir}/nvm.sh" >&2
     set -eu
     break
   fi
@@ -53,6 +67,7 @@ payload_cwd="$(read_payload_field cwd)"
 checkout_lookup_dir="${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}"
 checkout="$(git -C "${checkout_lookup_dir}" rev-parse --show-toplevel 2>/dev/null)" || {
   log "no git checkout resolved from '${checkout_lookup_dir}' — skipping"
+  [[ -z "${output_mode}" ]] || exit 1
   exit 0
 }
 
@@ -138,7 +153,23 @@ persist_node_on_path() {
   fi
 }
 
-persist_node_on_path
+if [[ -n "${output_mode}" ]]; then
+  # Resolve inside the checkout: a version-manager shim can select another
+  # Node when invoked from the original shell's working directory.
+  physical_node_path="$(cd "${checkout}" && node -p process.execPath 2>/dev/null)" || {
+    log "could not resolve the selected Node in ${checkout}"
+    exit 1
+  }
+  if [[ "${physical_node_path}" != /* || ! -x "${physical_node_path}" ]]; then
+    log "selected Node in ${checkout} returned an invalid executable path"
+    exit 1
+  fi
+  node_bin="$(dirname "${physical_node_path}")"
+  printf '%s\n' "${node_bin}"
+  [[ "${output_mode}" != --node-bin ]] || exit 0
+else
+  persist_node_on_path
+fi
 
 # The stamp, marker, and lock (each described below) live in the checkout's
 # git directory, which is per-worktree and never tracked. A .claude/ location

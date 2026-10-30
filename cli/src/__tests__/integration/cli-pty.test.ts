@@ -19,6 +19,9 @@ import {
 // Down arrow in terminal escape sequences
 const DOWN = "\x1b[B"
 
+/** Matches an active .env line that sets a local install's name, port or URL. */
+const LOCAL_IDENTITY_LINE = /^(PUBLIC_URL|INSTANCE_NAME|PORT)=/
+
 describe("init local", () => {
   it("completes the happy path (decline start)", async () => {
     const { vaultDir, configDir } = createPtyWorkDir()
@@ -60,6 +63,59 @@ describe("init local", () => {
     const envContent = readFileSync(join(configDir, ".env"), "utf8")
     expect(envContent).toContain(`VAULT_PATH=${vaultDir}`)
     expect(envContent).toMatch(/^MCP_AUTH_TOKEN=\S+$/m)
+  })
+
+  it("gives a second install its own name and port when the default name is in use", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+
+    const prompts: PtyPrompt[] = [
+      { match: "How do you want to run", send: "\r", label: "mode → local" },
+      {
+        match: "Path to your Obsidian vault",
+        send: `${vaultDir}\r`,
+        label: "vault path",
+      },
+      {
+        match: "Where should I put the config",
+        send: `${configDir}\r`,
+        label: "config dir",
+      },
+      {
+        match: 'An install named "vault-cortex" already exists',
+        send: "\r",
+        label: "name in use → own name",
+      },
+      { match: "Name for this install", send: "work\r", label: "name → work" },
+      { match: "Host port", send: "8001\r", label: "port → 8001" },
+      {
+        match: "Any optional settings",
+        send: "\r",
+        label: "optional settings → skip",
+      },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
+    ]
+
+    const result = await drivePty({
+      args: ["init"],
+      workDir: vaultDir,
+      prompts,
+      env: { DOCKER_SHIM_PRESENT: "vault-cortex vault-cortex_mcp_data" },
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.promptsAnswered).toBe(result.totalPrompts)
+    expect(result.transcript).toContain("--transport http work http://localhost:8001/mcp")
+
+    // The .env also holds a random token, so every active identity line
+    // stands in for the whole file.
+    const identityLines = readFileSync(join(configDir, ".env"), "utf8")
+      .split("\n")
+      .filter((line) => LOCAL_IDENTITY_LINE.test(line))
+    expect(identityLines).toEqual([
+      "PUBLIC_URL=http://localhost:8001",
+      "INSTANCE_NAME=work",
+      "PORT=8001",
+    ])
   })
 
   it("accepts start and passes health check", async () => {
@@ -182,6 +238,7 @@ describe("init remote", () => {
         send: "\r",
         label: "optional settings → skip",
       },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
     ]
 
     const result = await drivePty({
@@ -193,7 +250,7 @@ describe("init remote", () => {
     expect(result.exitCode).toBe(0)
     expect(result.promptsAnswered).toBe(result.totalPrompts)
     expect(result.transcript).toContain("Done.")
-    expect(result.transcript).toContain("No token yet")
+    expect(result.transcript).toContain("No Sync token in .env")
 
     const envContent = readFileSync(join(configDir, ".env"), "utf8")
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com")
@@ -337,7 +394,11 @@ describe("non-interactive commands", () => {
       args: ["upgrade", "--dir", configDir],
       workDir: vaultDir,
       prompts: [],
-      env: { DOCKER_SHIM_PID_FILE: pidFile, DOCKER_SHIM_HEALTH_PORT: "8000" },
+      env: {
+        DOCKER_SHIM_PID_FILE: pidFile,
+        DOCKER_SHIM_HEALTH_PORT: "8000",
+        DOCKER_SHIM_PRESENT: "vault-cortex",
+      },
     })
 
     expect(result.exitCode).toBe(0)
@@ -352,7 +413,6 @@ describe("non-interactive commands", () => {
       args: ["down", "--dir", configDir],
       workDir: vaultDir,
       prompts: [],
-      env: { DOCKER_SHIM_NO_CONTAINER: "1" },
     })
 
     expect(result.exitCode).toBe(0)
@@ -367,6 +427,7 @@ describe("non-interactive commands", () => {
       args: ["down", "--dir", configDir],
       workDir: vaultDir,
       prompts: [],
+      env: { DOCKER_SHIM_PRESENT: "vault-cortex" },
     })
 
     expect(result.exitCode).toBe(0)
@@ -383,7 +444,11 @@ describe("non-interactive commands", () => {
       args: ["restart", "--dir", configDir],
       workDir: vaultDir,
       prompts: [],
-      env: { DOCKER_SHIM_PID_FILE: pidFile, DOCKER_SHIM_HEALTH_PORT: "8000" },
+      env: {
+        DOCKER_SHIM_PID_FILE: pidFile,
+        DOCKER_SHIM_HEALTH_PORT: "8000",
+        DOCKER_SHIM_PRESENT: "vault-cortex",
+      },
     })
 
     expect(result.exitCode).toBe(0)
@@ -486,6 +551,7 @@ describe("input validation re-prompts", () => {
         send: "\r",
         label: "optional settings → skip",
       },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
     ]
 
     const result = await drivePty({
@@ -539,6 +605,7 @@ describe("input validation re-prompts", () => {
         send: "\r",
         label: "optional settings → skip",
       },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
     ]
 
     const result = await drivePty({

@@ -24,6 +24,7 @@ const expectedSectionRule = (label: string): string =>
 
 const localDefaults = {
   targetDir: "/home/user/vault-cortex",
+  instanceName: "vault-cortex",
   token: "abc123deadbeef",
   startStatus: "not-started" as const,
   port: 8000,
@@ -32,6 +33,7 @@ const localDefaults = {
 
 const remoteDefaults = {
   targetDir: "/home/user/vault-cortex",
+  instanceName: "vault-cortex",
   token: "abc123deadbeef",
   publicUrl: "https://vault.example.com",
   startStatus: "not-started" as const,
@@ -183,6 +185,24 @@ describe("buildLocalConnectMessage", () => {
     expect(message).toContain('curl -H "Authorization: Bearer <token>"')
     expect(message).not.toMatch(/\n\n\n/)
   })
+
+  it("names a custom instance in the logs command and both connector entries", () => {
+    const message = buildLocalConnectMessage({
+      ...localDefaults,
+      instanceName: "work",
+      port: 8001,
+      startStatus: "starting",
+    })
+
+    expect(message).toContain("check progress:\n  docker logs work\n")
+    expect(message).toContain(
+      "claude mcp add --scope user --transport http work http://localhost:8001/mcp\n",
+    )
+    expect(message).toContain('  "work": {\n')
+    expect(message).not.toContain("docker logs vault-cortex")
+    expect(message).not.toContain("transport http vault-cortex")
+    expect(message).not.toContain('"vault-cortex": {')
+  })
 })
 
 // ── buildRemoteConnectMessage ──────────────────────────────────────────────────
@@ -220,9 +240,9 @@ describe("buildRemoteConnectMessage", () => {
       startStatus: "running",
     })
 
-    expect(message).toContain("The server is running.")
+    expect(message).toContain("The server is running.\n\n")
     expect(message).not.toContain("Start the server:")
-    expect(message).not.toContain("Fill in OBSIDIAN_AUTH_TOKEN")
+    expect(message).not.toContain("sign-in page")
   })
 
   it("shows 'starting in the background' when startStatus is starting", () => {
@@ -237,6 +257,21 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).not.toContain("npx vault-cortex@latest start")
   })
 
+  it("names a custom instance in the logs command and the connector entry", () => {
+    const message = buildRemoteConnectMessage({
+      ...remoteDefaults,
+      instanceName: "work",
+      startStatus: "starting",
+    })
+
+    expect(message).toContain("check progress:\n  docker logs work\n")
+    expect(message).toContain(
+      "claude mcp add --scope user --transport http work https://vault.example.com/mcp\n",
+    )
+    expect(message).not.toContain("docker logs vault-cortex")
+    expect(message).not.toContain("transport http vault-cortex")
+  })
+
   it("shows the health check block when startStatus is starting", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
@@ -247,15 +282,53 @@ describe("buildRemoteConnectMessage", () => {
     expect(message).not.toContain("Smoke test:")
   })
 
-  it("shows 'Fill in OBSIDIAN_AUTH_TOKEN' when obsidianTokenMissing and not started", () => {
+  it("follows the start command with the sign-in steps when .env has no Sync token", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
+      publicUrl: "https://vault.example.com",
       startStatus: "not-started",
       obsidianTokenMissing: true,
     })
 
     expect(message).toContain(
-      `Fill in OBSIDIAN_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env, then start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`,
+      `Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"\n` +
+        "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
+        "syncing. Open the page:\n" +
+        "  https://vault.example.com\n" +
+        "It asks for the auth token below and your Obsidian password.\n\n",
+    )
+  })
+
+  it("follows the running line with the sign-in steps when .env has no Sync token", () => {
+    const message = buildRemoteConnectMessage({
+      ...remoteDefaults,
+      publicUrl: "https://vault.example.com",
+      startStatus: "running",
+      obsidianTokenMissing: true,
+    })
+
+    expect(message).toContain(
+      "The server is running.\n" +
+        "Until it's signed in to Obsidian Sync, it shows a sign-in page instead of\n" +
+        "syncing. Open the page:\n" +
+        "  https://vault.example.com\n" +
+        "It asks for the auth token below and your Obsidian password.\n\n",
+    )
+  })
+
+  it("asks for HTTPS before the sign-in page when PUBLIC_URL is http", () => {
+    const message = buildRemoteConnectMessage({
+      ...remoteDefaults,
+      publicUrl: "http://203.0.113.5:8000",
+      startStatus: "running",
+      obsidianTokenMissing: true,
+    })
+
+    expect(message).toContain(
+      "syncing. Open the page:\n" +
+        "  http://203.0.113.5:8000\n" +
+        "It asks for the auth token below and your Obsidian password.\n" +
+        "Set up HTTPS first: the page sends your Obsidian password to the server.\n\n",
     )
   })
 

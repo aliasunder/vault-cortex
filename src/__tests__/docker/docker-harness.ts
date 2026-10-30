@@ -69,11 +69,14 @@ export const docker = async (argv: string[]): Promise<CommandResult> => {
 
 type ExecFileError = Error & { code: number; stdout: string; stderr: string }
 
-const isExecFileError = (error: unknown): error is ExecFileError =>
-  error instanceof Error &&
-  typeof Reflect.get(error, "code") === "number" &&
-  typeof Reflect.get(error, "stdout") === "string" &&
-  typeof Reflect.get(error, "stderr") === "string"
+const isExecFileError = (error: unknown): error is ExecFileError => {
+  return (
+    error instanceof Error &&
+    typeof Reflect.get(error, "code") === "number" &&
+    typeof Reflect.get(error, "stdout") === "string" &&
+    typeof Reflect.get(error, "stderr") === "string"
+  )
+}
 
 /** Run `docker <argv>` and throw with the captured stderr when it fails. */
 export const dockerOrThrow = async (argv: string[]): Promise<string> => {
@@ -301,6 +304,76 @@ export const seedSyncToken = async ({
   ])
 }
 
+/** Seed a named config volume with one vault's Sync setup
+ *  (`obsidian-headless/sync/<vaultId>/config.json`) before any container
+ *  mounts it — how a scenario fakes a volume set up for another vault. Runs
+ *  `node` from the image under test with the entrypoint bypassed. */
+export const seedSyncSetup = async ({
+  image,
+  volume,
+  mountPath,
+  vaultId,
+  configJson,
+}: {
+  image: string
+  volume: string
+  /** Where the volume is mounted for the seeding run, which is also the
+   *  Sync client's config home. */
+  mountPath: string
+  vaultId: string
+  configJson: string
+}): Promise<void> => {
+  await dockerOrThrow([
+    "run",
+    "--rm",
+    "--pull=never",
+    "--entrypoint",
+    "node",
+    "-v",
+    `${volume}:${mountPath}`,
+    image,
+    "--no-warnings",
+    "-e",
+    `
+      const { mkdirSync, writeFileSync } = require("node:fs")
+      const { join } = require("node:path")
+      const setupDir = join(process.argv[1], "obsidian-headless", "sync", process.argv[2])
+      mkdirSync(setupDir, { recursive: true })
+      writeFileSync(join(setupDir, "config.json"), process.argv[3])
+    `,
+    mountPath,
+    vaultId,
+    configJson,
+  ])
+}
+
+/** Raw bytes of a file on a named volume, read by a throwaway container from
+ *  the image under test — how a scenario reads what a boot that stopped
+ *  itself left on its volume. */
+export const readVolumeFile = ({
+  image,
+  volume,
+  mountPath,
+  path,
+}: {
+  image: string
+  volume: string
+  mountPath: string
+  path: string
+}): Promise<string> => {
+  return dockerOrThrow([
+    "run",
+    "--rm",
+    "--pull=never",
+    "--entrypoint",
+    "cat",
+    "-v",
+    `${volume}:${mountPath}`,
+    image,
+    path,
+  ])
+}
+
 /** Port the in-container stand-in for api.obsidian.md listens on; the
  *  setup-mode scenarios point OBSIDIAN_API_URL at it. */
 export const FAKE_OBSIDIAN_API_PORT = 9797
@@ -506,8 +579,9 @@ export const waitForStopped = async ({
 
 /** Run a command inside the container and report its outcome — non-zero
  *  exits are data here (`test -e` on an absent path), not errors. */
-export const execInContainer = (name: string, argv: string[]): Promise<CommandResult> =>
-  docker(["exec", name, ...argv])
+export const execInContainer = (name: string, argv: string[]): Promise<CommandResult> => {
+  return docker(["exec", name, ...argv])
+}
 
 /** Raw bytes of a file inside the container — no trimming, so a stray
  *  trailing newline in a `container_environment` value fails an exact

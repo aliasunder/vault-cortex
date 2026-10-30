@@ -8,6 +8,8 @@ import type { VaultConfig } from "../../config.js"
 import type { Logger } from "../../../logger.js"
 import type { ToolAvailability } from "../tool-availability.js"
 import { truncateToCodePointLimit } from "../../../utils/truncate-to-code-point-limit.js"
+import { describeErrorRelativeTo } from "../../../utils/describe-error.js"
+import { appendRemedy, remedyForCodedError } from "../coded-error-remedy.js"
 
 export type PromptRegistrationContext = ToolAvailability & {
   server: McpServer
@@ -44,6 +46,26 @@ export const textResult = (text: string): GetPromptResult => ({
   messages: [{ role: "user", content: { type: "text", text } }],
 })
 
+/** The error text a prompt's fallback message quotes in parentheses: the
+ *  message with a Node error's paths made vault-relative, then its remedy, if
+ *  any. A closing period is dropped, because the fallback's own sentence ends
+ *  with one after the parenthesis. */
+export const describeErrorForPromptFallback = (params: {
+  error: unknown
+  vaultPath: string
+}): string => {
+  const { error, vaultPath } = params
+  // Prompts write nothing and read through paths that never refuse a
+  // properties block, so only coded remedies apply, never the tool boundary's
+  // repair steps
+  const errorText = appendRemedy({
+    message: describeErrorRelativeTo({ error, directory: vaultPath }),
+    remedy: remedyForCodedError(error),
+  })
+
+  return errorText.endsWith(".") ? errorText.slice(0, -1) : errorText
+}
+
 /** Whether capContent would cut `text`: more than `maxChars` characters,
  *  counted in code points. Always false without a cap. */
 export const exceedsCharCap = (text: string, maxChars: number | undefined): boolean => {
@@ -51,7 +73,10 @@ export const exceedsCharCap = (text: string, maxChars: number | undefined): bool
   // within the cap settles it without walking the text.
   if (!maxChars || text.length <= maxChars) return false
 
-  return !text[Symbol.iterator]().drop(maxChars).next().done
+  // A string's iterator yields code points, not UTF-16 units
+  const codePointsPastCap = text[Symbol.iterator]().drop(maxChars)
+
+  return !codePointsPastCap.next().done
 }
 
 /** Opt-in safety cap for live content embedded in a prompt. When the caller
@@ -63,6 +88,8 @@ export const capContent = (
   maxChars: number | undefined,
   toolName: string | undefined,
 ): string => {
+  // exceedsCharCap also checks !maxChars, but only this check narrows
+  // maxChars to a number for the truncation below
   if (!maxChars || !exceedsCharCap(text, maxChars)) return text
 
   const keptText = truncateToCodePointLimit(text, maxChars)

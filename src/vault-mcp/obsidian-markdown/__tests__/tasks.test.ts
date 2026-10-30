@@ -6,6 +6,9 @@ import {
   type TaskFormatConfig,
 } from "../tasks.js"
 
+/** Written as a code point so no invisible literal hides in the source. */
+const BOM = String.fromCharCode(0xfeff)
+
 const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
   [" ", "todo"],
   ["x", "done"],
@@ -709,6 +712,43 @@ describe("tasks.extractTasks", () => {
       expect(extracted).toEqual([task({ line: 2, description: "Task under a horizontal rule" })])
     })
 
+    // Expected values in the tests below come from Obsidian's own metadata
+    // cache run on the same notes.
+
+    it("skips a properties block that follows a BOM, so its last line makes no heading", () => {
+      const content = `${BOM}---\n# note\na: 1\n---\n- [ ] A`
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([task({ line: 5, description: "A" })])
+    })
+
+    it("lists the tasks after a BOM note's properties block that holds a fence", () => {
+      const content = `${BOM}---\nd: |\n  \`\`\`\n---\n- [ ] A`
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([task({ line: 5, description: "A" })])
+    })
+
+    it("reads a heading on the first line of a BOM note with no properties block", () => {
+      const content = `${BOM}# H\n- [ ] A`
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([task({ line: 2, description: "A", heading: "H" })])
+    })
+
+    it("ends the properties block at a ---- closer, not at a later --- rule", () => {
+      const content = ["---", "a: 1", "----", "- [ ] A", "", "- [ ] B", "---", "- [ ] C"].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([
+        task({ line: 4, description: "A" }),
+        task({ line: 6, description: "B" }),
+        task({ line: 8, description: "C" }),
+      ])
+    })
+
+    it("scans the lines under a spaced --- opener as body", () => {
+      const content = ["--- ", "a: 1", "---", "- [ ] A"].join("\n")
+      const extracted = tasks.extractTasks(content)
+      expect(extracted).toEqual([task({ line: 4, description: "A", heading: "a: 1" })])
+    })
+
     it("excludes task lines inside a fenced code block within a callout", () => {
       const content = [
         "> [!info] Example",
@@ -767,6 +807,26 @@ describe("tasks.extractTasks", () => {
       ].join("\n")
       const extracted = tasks.extractTasks(content)
       expect(extracted).toEqual([task({ line: 5, description: "Task after nested fence" })])
+    })
+  })
+
+  describe("text that is already a body (extractTasksFromBody)", () => {
+    it("reads --- lines at the top of a body as rules, not a properties block", () => {
+      const body = ["---", "- [ ] P", "- [ ] Q", "---", ""].join("\n")
+      const extracted = tasks.extractTasksFromBody(body)
+      expect(extracted).toEqual([
+        task({ line: 2, description: "P" }),
+        task({ line: 3, description: "Q" }),
+      ])
+    })
+
+    it("lists a body's tasks between a --- line and a ---- line", () => {
+      const body = ["---", "- [ ] P", "  - [ ] s1", "----", ""].join("\n")
+      const extracted = tasks.extractTasksFromBody(body)
+      expect(extracted).toEqual([
+        task({ line: 2, description: "P" }),
+        task({ line: 3, description: "s1", depth: 1, parentLine: 2 }),
+      ])
     })
   })
 
@@ -1385,35 +1445,35 @@ describe("task line mutations", () => {
     })
   })
 
-  // ── getTaskIndent ──────────────────────────────────────────────
+  // ── getStructuralIndent ───────────────────────────────────────
 
-  describe("getTaskIndent", () => {
+  describe("getStructuralIndent", () => {
     it("returns 0 for a top-level task", () => {
-      expect(tasks.getTaskIndent("- [ ] Top level")).toBe(0)
+      expect(tasks.getStructuralIndent("- [ ] Top level")).toBe(0)
     })
 
     it("returns 2 for a 2-space indented sub-task", () => {
-      expect(tasks.getTaskIndent("  - [ ] Sub-task")).toBe(2)
+      expect(tasks.getStructuralIndent("  - [ ] Sub-task")).toBe(2)
     })
 
     it("returns 4 for a 4-space indented sub-task", () => {
-      expect(tasks.getTaskIndent("    - [ ] Deep sub-task")).toBe(4)
+      expect(tasks.getStructuralIndent("    - [ ] Deep sub-task")).toBe(4)
     })
 
     it("returns tab width for tab-indented sub-task", () => {
-      expect(tasks.getTaskIndent("\t- [ ] Tab sub-task")).toBe(1)
+      expect(tasks.getStructuralIndent("\t- [ ] Tab sub-task")).toBe(1)
     })
 
     it("strips blockquote markers before measuring", () => {
-      expect(tasks.getTaskIndent("> - [ ] Blockquoted top")).toBe(0)
+      expect(tasks.getStructuralIndent("> - [ ] Blockquoted top")).toBe(0)
     })
 
     it("strips nested blockquote markers", () => {
-      expect(tasks.getTaskIndent("> > - [ ] Nested blockquote")).toBe(0)
+      expect(tasks.getStructuralIndent("> > - [ ] Nested blockquote")).toBe(0)
     })
 
     it("measures indent after blockquote markers", () => {
-      expect(tasks.getTaskIndent(">   - [ ] Indented in blockquote")).toBe(2)
+      expect(tasks.getStructuralIndent(">   - [ ] Indented in blockquote")).toBe(2)
     })
   })
 
@@ -1646,6 +1706,14 @@ describe("task line mutations", () => {
       expect(result).toEqual({
         taskLine: "- [ ] Deploy #urgent 📅 2026-09-01 ^deploy  ",
         deduplicatedTags: ["#urgent"],
+      })
+    })
+
+    it("matches a tag holding regex metacharacters literally", () => {
+      const result = tasks.deduplicateDescriptionTags("- [ ] Learn #c++ 📅 2026-01-01 #c++ #cc ^x")
+      expect(result).toEqual({
+        taskLine: "- [ ] Learn #c++ 📅 2026-01-01 #cc ^x",
+        deduplicatedTags: ["#c++"],
       })
     })
 
@@ -2071,6 +2139,27 @@ describe("task line mutations", () => {
         taskLine: line,
         dependsOn: [],
         config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    // The parser reads `a , b` as two ids, so a write must replace the whole list
+    it("replaces a depends-on list typed with spaces around the comma", () => {
+      const line = "- [ ] My task ⛔ a , b ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineDependsOn({
+        taskLine: line,
+        dependsOn: ["c"],
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ⛔ c ^my-task")
+    })
+
+    it("clears a depends-on list typed with spaces around the comma", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 [dependsOn:: a , b] ^my-task"
+      const result = tasks.updateTaskLineDependsOn({
+        taskLine: line,
+        dependsOn: null,
+        config: DATAVIEW_CONFIG,
       })
       expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
     })

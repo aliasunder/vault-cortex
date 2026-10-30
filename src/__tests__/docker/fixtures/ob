@@ -33,10 +33,16 @@
 #                          that this device has never downloaded (a server
 #                          row with no local row), as a filter or excluded
 #                          folder leaves behind
+#   OB_STUB_VAULT_ID     — the ID of the account's vault named VAULT_NAME
+#                          (default ci-vault-id)
 #
-# `sync-config --json` prints the vault ID and the stored sync mode.
-# `sync-setup` resets the mode to two-way, and `sync-config --mode` rejects
-# an unknown value, as the real client does.
+# Vault setups follow the real client's layout: `sync-setup` writes
+# sync/<vault ID>/config.json, and `sync-config --json` prints the first
+# setup, by folder name, whose vaultPath is the working folder, or exits 3
+# when there is none. `sync-list-local --json` lists every setup, and
+# `sync-list-remote --json` lists one vault, VAULT_NAME. `sync-setup` resets
+# the mode to two-way, and `sync-config --mode` rejects an unknown value, as
+# the real client does.
 #
 # Test-only verbs (not real ob commands) that stand in for what continuous
 # sync does to the record while the container runs:
@@ -48,8 +54,37 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 CALL_LOG="$CONFIG_HOME/ob-calls.log"
 printf '%s\n' "$*" >> "$CALL_LOG"
 
-STATE_DIR="$CONFIG_HOME/obsidian-headless/sync/ci-vault-id"
+VAULT_ID="${OB_STUB_VAULT_ID:-ci-vault-id}"
+SYNC_ROOT="$CONFIG_HOME/obsidian-headless/sync"
+STATE_DIR="$SYNC_ROOT/$VAULT_ID"
 MODE_FILE="$CONFIG_HOME/ob-stub-sync-mode"
+export SYNC_ROOT
+
+# Prints the setup the real client would use for the working folder: the
+# first sync/<folder>/config.json, in name order, whose vaultPath resolves to
+# the working folder, with the stored sync mode. Exits 3 when none matches.
+print_picked_setup() {
+  MODE="$1" node --no-warnings -e '
+    const { existsSync, readdirSync, readFileSync } = require("node:fs")
+    const { join, resolve } = require("node:path")
+    const syncRoot = process.env.SYNC_ROOT
+    const folders = existsSync(syncRoot) ? readdirSync(syncRoot).sort() : []
+    for (const folder of folders) {
+      const configPath = join(syncRoot, folder, "config.json")
+      if (!existsSync(configPath)) continue
+      let config
+      try {
+        config = JSON.parse(readFileSync(configPath, "utf8"))
+      } catch {
+        continue
+      }
+      if (!config || resolve(config.vaultPath) !== process.cwd()) continue
+      console.log(JSON.stringify({ ...config, syncMode: process.env.MODE }))
+      process.exit(0)
+    }
+    process.exit(3)
+  '
+}
 
 # The real client's table layout for the three tables init-first-sync reads,
 # exported so the node snippets below can read it from the environment.
@@ -110,8 +145,46 @@ case "${1:-}" in
     fi
     exit 0
     ;;
+  sync-list-remote)
+    VAULT_ID="$VAULT_ID" node --no-warnings -e '
+      const vault = { id: process.env.VAULT_ID, name: process.env.VAULT_NAME, region: "us" }
+      console.log(JSON.stringify({ vaults: [vault], shared: [] }))
+    '
+    exit 0
+    ;;
+  sync-list-local)
+    node --no-warnings -e '
+      const { existsSync, readdirSync, readFileSync } = require("node:fs")
+      const { join } = require("node:path")
+      const syncRoot = process.env.SYNC_ROOT
+      const folders = existsSync(syncRoot) ? readdirSync(syncRoot).sort() : []
+      const vaults = folders.flatMap((folder) => {
+        const configPath = join(syncRoot, folder, "config.json")
+        if (!existsSync(configPath)) return []
+        try {
+          const config = JSON.parse(readFileSync(configPath, "utf8"))
+          return config ? [{ id: folder, path: config.vaultPath, host: "stub" }] : []
+        } catch {
+          return []
+        }
+      })
+      console.log(JSON.stringify({ vaults }))
+    '
+    exit 0
+    ;;
   sync-setup)
     rm -f "$MODE_FILE"
+    # The real client writes only config.json here; state.db appears once a
+    # sync runs. vaultPath is the physical working folder, as path.resolve(".") gives.
+    mkdir -p "$STATE_DIR"
+    VAULT_ID="$VAULT_ID" VAULT_FOLDER="$(pwd -P)" node --no-warnings -e '
+      const config = {
+        vaultId: process.env.VAULT_ID,
+        vaultName: process.env.VAULT_NAME,
+        vaultPath: process.env.VAULT_FOLDER,
+      }
+      require("node:fs").writeFileSync(process.argv[1], JSON.stringify(config, null, 2))
+    ' "$STATE_DIR/config.json"
     if [ "${OB_STUB_UNDOWNLOADED_FILE:-}" = "1" ]; then
       record_undownloaded_file
     fi
@@ -123,8 +196,8 @@ case "${1:-}" in
       if [ -f "$MODE_FILE" ]; then
         mode=$(cat "$MODE_FILE")
       fi
-      printf '{"vaultId":"ci-vault-id","syncMode":"%s"}\n' "$mode"
-      exit 0
+      print_picked_setup "$mode"
+      exit $?
     fi
     if [ "${2:-}" = "--mode" ]; then
       case "${3:-}" in

@@ -1,5 +1,61 @@
 import { describe, it, expect } from "vitest"
-import { parseMemoryEntries } from "../memory-entries.js"
+import {
+  isDoubledMarkdownFileName,
+  isMemoryEntryLine,
+  memoryEntryLineDate,
+  parseMemoryEntries,
+} from "../memory-entries.js"
+
+describe("isDoubledMarkdownFileName", () => {
+  it.each([
+    { label: "a name ending in .md twice", fileName: "Opinions.md.md", doubled: true },
+    { label: "an uppercase first extension", fileName: "Opinions.MD.md", doubled: true },
+    { label: "a path ending in .md twice", fileName: "About Me/Opinions.md.md", doubled: true },
+    { label: "a name ending in .md once", fileName: "Opinions.md", doubled: false },
+    { label: "a name with .md inside it", fileName: "Notes.md backup.md", doubled: false },
+  ])("returns $doubled for $label", ({ fileName, doubled }) => {
+    expect(isDoubledMarkdownFileName(fileName)).toBe(doubled)
+  })
+})
+
+describe("isMemoryEntryLine", () => {
+  it.each([
+    { label: "a dated bullet", line: "- **2026-07-02**: an entry", opensEntry: true },
+    {
+      label: "an impossible date of the right shape",
+      line: "- **2026-02-30**: typed by hand",
+      opensEntry: true,
+    },
+    {
+      label: "a date that is not zero-padded",
+      line: "- **2026-7-2**: an entry",
+      opensEntry: false,
+    },
+    { label: "a bullet with no bold date", line: "- 2026-07-02: an entry", opensEntry: false },
+    {
+      label: "a bold date with no colon after it",
+      line: "- **2026-07-02** an entry",
+      opensEntry: false,
+    },
+    { label: "an indented bullet", line: "  - **2026-07-02**: an entry", opensEntry: false },
+  ])("returns $opensEntry for $label", ({ line, opensEntry }) => {
+    expect(isMemoryEntryLine(line)).toBe(opensEntry)
+  })
+})
+
+describe("memoryEntryLineDate", () => {
+  it.each([
+    { label: "a dated bullet", line: "- **2026-07-02**: an entry", date: "2026-07-02" },
+    {
+      label: "entry text that opens with a bold lead",
+      line: "- **2026-07-02**: **Tip**: rest",
+      date: "2026-07-02",
+    },
+    { label: "a line that opens no entry", line: "- 2026-07-02: an entry", date: undefined },
+  ])("returns $date for $label", ({ line, date }) => {
+    expect(memoryEntryLineDate(line)).toBe(date)
+  })
+})
 
 describe("parseMemoryEntries", () => {
   it("parses a single dated entry with exact section, date, text, and index", () => {

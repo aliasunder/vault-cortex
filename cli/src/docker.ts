@@ -4,10 +4,29 @@ import type { Mode } from "./scaffold.js"
 
 export const LOCAL_IMAGE = "ghcr.io/aliasunder/vault-cortex:latest"
 export const REMOTE_IMAGE = "ghcr.io/aliasunder/vault-cortex:remote"
-export const CONTAINER_NAME = "vault-cortex"
+
+/** The image on GHCR and on its Docker Hub mirror, which Docker also reports without docker.io/. */
+const VAULT_CORTEX_IMAGE_REPOSITORIES = [
+  "ghcr.io/aliasunder/vault-cortex",
+  "aliasunder/vault-cortex",
+  "docker.io/aliasunder/vault-cortex",
+]
+
+/** True for any tag or digest of the Vault Cortex image. */
+export const isVaultCortexImage = (image: string): boolean => {
+  return VAULT_CORTEX_IMAGE_REPOSITORIES.some((repository) => {
+    return (
+      image === repository ||
+      image.startsWith(`${repository}:`) ||
+      image.startsWith(`${repository}@`)
+    )
+  })
+}
 
 export type DockerRunParams = {
   mode: Mode
+  /** The install's INSTANCE_NAME: the container name and the volume prefix. */
+  instanceName: string
   envFilePath: string
   port: number
   /** Host vault path — local mode only (bind mount). */
@@ -15,10 +34,41 @@ export type DockerRunParams = {
 }
 
 export type DockerLogsParams = {
+  instanceName: string
   /** Stream new output until interrupted (`docker logs --follow`). */
   follow: boolean
   /** Passed through to `docker logs --since` (e.g. "10m", "2h", or a timestamp). */
   since?: string
+}
+
+/**
+ * Named volumes per mode, mounted in this order. The volume names are
+ * `<instance>_<volume>`, the names Compose gives a project's volumes, so a
+ * CLI install and a Compose install with the same name share their data.
+ */
+const VOLUME_MOUNTS: Readonly<Record<Mode, ReadonlyArray<{ volume: string; mountPath: string }>>> =
+  {
+    local: [{ volume: "mcp_data", mountPath: "/data" }],
+    remote: [
+      { volume: "vault_data", mountPath: "/vault" },
+      { volume: "mcp_data", mountPath: "/data" },
+      { volume: "obsidian_config", mountPath: "/home/obsidian/.config" },
+    ],
+  }
+
+const volumeName = (instanceName: string, volume: string): string => `${instanceName}_${volume}`
+
+/** The named volumes an install of this mode and name mounts. */
+export const instanceVolumeNames = (params: { mode: Mode; instanceName: string }): string[] => {
+  const { mode, instanceName } = params
+  return VOLUME_MOUNTS[mode].map(({ volume }) => volumeName(instanceName, volume))
+}
+
+const volumeMountArgs = (mode: Mode, instanceName: string): string[] => {
+  return VOLUME_MOUNTS[mode].flatMap(({ volume, mountPath }) => [
+    "-v",
+    `${volumeName(instanceName, volume)}:${mountPath}`,
+  ])
 }
 
 /**
@@ -29,6 +79,8 @@ export type DockerLogsParams = {
  */
 export type DaemonStatus = "running" | "not-running" | "not-installed"
 
+export type PublishedPort = { hostPort: number; containerName: string }
+
 export type DockerRunner = {
   /** Whether the container runtime is reachable, stopped, or absent. */
   daemonStatus: () => DaemonStatus
@@ -36,10 +88,20 @@ export type DockerRunner = {
   dockerRun: (params: DockerRunParams) => boolean
   /** Pulls the latest image from the registry. */
   pullImage: (image: string) => boolean
-  /** Stops and removes the vault-cortex container (idempotent). */
-  stopAndRemoveContainer: () => boolean
-  /** True when a vault-cortex container exists, running or stopped. */
-  containerExists: () => boolean
+  /** Stops and removes the named container (idempotent). */
+  stopAndRemoveContainer: (instanceName: string) => boolean
+  /**
+   * The image the container with this exact name was created from, running
+   * or stopped, or undefined when no container has the name.
+   */
+  containerImage: (instanceName: string) => string | undefined
+  /** True when a named volume exists. */
+  volumeExists: (volumeName: string) => boolean
+  /**
+   * Host ports that existing containers publish, stopped ones included: one
+   * entry per container and port. Empty when the runtime can't list them.
+   */
+  publishedHostPorts: () => ReadonlyArray<PublishedPort>
   /**
    * Streams `docker logs` to the terminal; resolves with the docker
    * process's exit code once the stream ends.
@@ -68,14 +130,14 @@ const HEALTH_CMD =
  * testable without spawning processes.
  */
 export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
-  const { mode, envFilePath, port, vaultPath } = params
+  const { mode, instanceName, envFilePath, port, vaultPath } = params
   const image = mode === "local" ? LOCAL_IMAGE : REMOTE_IMAGE
 
   const args = [
     "run",
     "-d",
     "--name",
-    CONTAINER_NAME,
+    instanceName,
     "--restart",
     "unless-stopped",
     "--env-file",
@@ -90,17 +152,17 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
       throw new Error("vaultPath is required for local mode")
     }
     args.push("-v", `${vaultPath}:/vault:rw`)
-    args.push("-v", "vault-cortex_mcp_data:/data")
+    args.push(...volumeMountArgs(mode, instanceName))
     args.push("--health-cmd", HEALTH_CMD)
     args.push("--health-interval", "15s")
     args.push("--health-timeout", "5s")
     args.push("--health-retries", "3")
     args.push("--health-start-period", "20s")
   } else {
-    args.push("--hostname", CONTAINER_NAME)
-    args.push("-v", "vault-cortex_vault_data:/vault")
-    args.push("-v", "vault-cortex_mcp_data:/data")
-    args.push("-v", "vault-cortex_obsidian_config:/home/obsidian/.config")
+    // The init chain names the Sync device after the hostname when the .env
+    // sets no DEVICE_NAME; a fixed name keeps it from being a container ID.
+    args.push("--hostname", instanceName)
+    args.push(...volumeMountArgs(mode, instanceName))
     args.push("--health-cmd", HEALTH_CMD)
     args.push("--health-interval", "15s")
     args.push("--health-timeout", "5s")
@@ -123,12 +185,12 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
  * testable without spawning processes.
  */
 export const buildDockerLogsArgs = (params: DockerLogsParams): string[] => {
-  const { follow, since } = params
+  const { instanceName, follow, since } = params
   return [
     "logs",
     ...(follow ? ["--follow"] : []),
     ...(since ? ["--since", since] : []),
-    CONTAINER_NAME,
+    instanceName,
   ]
 }
 
@@ -149,27 +211,127 @@ export const classifyDaemonStatus = (spawnResult: {
   return spawnErrorCode === "ENOENT" ? "not-installed" : "not-running"
 }
 
+/**
+ * Whether the name `docker container inspect` printed is this name. Docker
+ * prints it with a leading slash; Podman and nerdctl print it bare.
+ */
+export const isContainerNamed = (params: {
+  inspectedName: string
+  instanceName: string
+}): boolean => {
+  const { inspectedName, instanceName } = params
+  return inspectedName.trim().replace(/^\//, "") === instanceName
+}
+
+/** Go template that prints a container's name and image: "/work ghcr.io/aliasunder/vault-cortex:latest". */
+const NAME_AND_IMAGE_FORMAT = "{{.Name}} {{.Config.Image}}"
+
+/** Reads NAME_AND_IMAGE_FORMAT output into the image, or undefined when it names another container. */
+export const parseContainerImage = (params: {
+  inspectOutput: string
+  instanceName: string
+}): string | undefined => {
+  const [inspectedName, image] = params.inspectOutput.trim().split(/\s+/)
+
+  if (!image || !isContainerNamed({ inspectedName, instanceName: params.instanceName })) {
+    return undefined
+  }
+  return image
+}
+
+/**
+ * Go template that prints a container's name, then each host port it
+ * publishes: "/work 8001". PortBindings is the container's run setting, so a
+ * stopped container's ports print too.
+ */
+const PUBLISHED_PORTS_FORMAT =
+  "{{.Name}}{{range $containerPort, $bindings := .HostConfig.PortBindings}}{{range $bindings}} {{.HostPort}}{{end}}{{end}}"
+
+/**
+ * A published host port ("8000"), or a range ("8000-8010") the runtime picks one
+ * port from at start. An empty HostPort means the runtime picks any port.
+ */
+const HOST_PORT_PATTERN = /^(\d+)(?:-(\d+))?$/
+
+/** Every port a HostPort value can claim; a range counts whole, since any of its ports may be the one in use. */
+const expandHostPort = (hostPort: string): number[] => {
+  const match = HOST_PORT_PATTERN.exec(hostPort)
+
+  if (!match) return []
+  const firstPort = Number(match[1])
+  const lastPort = match[2] ? Number(match[2]) : firstPort
+  return Array.from({ length: lastPort - firstPort + 1 }, (_, offset) => firstPort + offset)
+}
+
+/**
+ * Reads PUBLISHED_PORTS_FORMAT output into one entry per container and port,
+ * so a port two containers publish keeps both.
+ */
+export const parsePublishedHostPorts = (inspectOutput: string): ReadonlyArray<PublishedPort> => {
+  return inspectOutput.split("\n").flatMap((line) => {
+    const [inspectedName, ...hostPorts] = line.trim().split(/\s+/)
+
+    if (!inspectedName) return []
+    // Docker prints the name with a leading slash; Podman and nerdctl print it bare.
+    const containerName = inspectedName.replace(/^\//, "")
+    return hostPorts.flatMap(expandHostPort).map((hostPort) => ({ hostPort, containerName }))
+  })
+}
+
 export const createDockerRunner = (): DockerRunner => ({
   daemonStatus: () => classifyDaemonStatus(spawnSync("docker", ["info"], { timeout: 5_000 })),
   // stdout is discarded: `docker run -d` prints only the container ID there,
   // which lands as a raw hex line between the wizard's prompts. stderr stays
   // inherited — image-pull progress and error output print live, which the
   // "see output above" failure messages rely on.
-  dockerRun: (params) =>
-    spawnSync("docker", buildDockerRunArgs(params), {
-      stdio: ["ignore", "ignore", "inherit"],
-    }).status === 0,
+  dockerRun: (params) => {
+    return (
+      spawnSync("docker", buildDockerRunArgs(params), {
+        stdio: ["ignore", "ignore", "inherit"],
+      }).status === 0
+    )
+  },
   pullImage: (image) => spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
-  stopAndRemoveContainer: () => spawnSync("docker", ["rm", "-f", CONTAINER_NAME]).status === 0,
-  // `docker rm -f` on a missing container exits 1 on engines < 23 and 0 on
-  // >= 23, so stopAndRemoveContainer's status can't distinguish "already
-  // gone" from "failed" — callers needing idempotent messaging probe
-  // existence first. Output stays piped (discarded): this is a boolean probe.
-  containerExists: () => spawnSync("docker", ["container", "inspect", CONTAINER_NAME]).status === 0,
+  stopAndRemoveContainer: (instanceName) => {
+    return spawnSync("docker", ["rm", "-f", instanceName]).status === 0
+  },
+  // The printed name is compared because Docker falls back to container-ID
+  // prefixes, so an all-hex name ("2025") could match another container.
+  containerImage: (instanceName) => {
+    const inspectResult = spawnSync(
+      "docker",
+      ["container", "inspect", "--format", NAME_AND_IMAGE_FORMAT, instanceName],
+      { encoding: "utf8" },
+    )
+
+    if (inspectResult.status !== 0) return undefined
+    return parseContainerImage({ inspectOutput: inspectResult.stdout, instanceName })
+  },
+  volumeExists: (volumeName) => {
+    return spawnSync("docker", ["volume", "inspect", volumeName]).status === 0
+  },
+  publishedHostPorts: () => {
+    const listResult = spawnSync("docker", ["container", "ls", "-aq"], { encoding: "utf8" })
+
+    if (listResult.status !== 0) return []
+    const containerIds = listResult.stdout.split("\n").filter(Boolean)
+
+    if (containerIds.length === 0) return []
+    const inspectResult = spawnSync(
+      "docker",
+      ["container", "inspect", "--format", PUBLISHED_PORTS_FORMAT, ...containerIds],
+      { encoding: "utf8" },
+    )
+
+    if (inspectResult.error) return []
+    // Read whatever the exit status: a container removed after the listing
+    // makes inspect exit 1, but it still prints the others.
+    return parsePublishedHostPorts(inspectResult.stdout)
+  },
   // Async spawn, not spawnSync: --follow streams until interrupted, and the
   // exit code must be observable after the stream closes.
-  streamLogs: (params) =>
-    new Promise((resolveExitCode) => {
+  streamLogs: (params) => {
+    return new Promise((resolveExitCode) => {
       const child = spawn("docker", buildDockerLogsArgs(params), {
         stdio: ["ignore", "inherit", "inherit"],
       })
@@ -188,7 +350,8 @@ export const createDockerRunner = (): DockerRunner => ({
       // A null code means the child died to a signal — report the shell
       // convention for ctrl-C (128 + SIGINT = 130).
       child.once("close", (code) => resolveExitCode(code ?? 130))
-    }),
+    })
+  },
 })
 
 /** Default bound on a single health request (shared by probe and poll). */
@@ -233,8 +396,13 @@ export const healthPollTimeoutMs = (mode: Mode): number => {
  *  adds a first-sync hint: the container's init chain retries the first
  *  sync with no upper time bound, so an expired poll does not mean the
  *  server failed — it may flip healthy after the CLI stops waiting. */
-export const healthTimeoutMessage = (mode: Mode, timeoutMs: number): string => {
-  const baseMessage = `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${CONTAINER_NAME}`
+export const healthTimeoutMessage = (params: {
+  mode: Mode
+  timeoutMs: number
+  instanceName: string
+}): string => {
+  const { mode, timeoutMs, instanceName } = params
+  const baseMessage = `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${instanceName}`
 
   if (mode === "remote") {
     return `${baseMessage} (a long first sync may still be running — the container keeps starting in the background)`

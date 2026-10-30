@@ -10,6 +10,8 @@
  * stripped by the caller (parseNote), matching headings.ts.
  */
 
+import { isThematicBreak } from "./headings.js"
+
 // ── Types ───────────────────────────────────────────────────────
 
 export type LeadingCallout = Readonly<{
@@ -68,8 +70,11 @@ const firstBodyLineIndex = (lines: readonly string[], index = 0, skippedH1 = fal
   if (line.trim() === "") return firstBodyLineIndex(lines, index + 1, skippedH1)
   if (!skippedH1 && H1_REGEX.test(line)) return firstBodyLineIndex(lines, index + 1, true)
   // Setext H1: current non-blank line is content, next line is a `===` underline.
-  // Block-level lines are excluded — they can't be heading content.
-  if (!skippedH1 && !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart())) {
+  // Block-level lines and thematic breaks are excluded — they can't be heading
+  // content, and parseHeadings reads them the same way.
+  const canBeSetextText = !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart()) && !isThematicBreak(line)
+
+  if (!skippedH1 && canBeSetextText) {
     const nextLine = index + 1 < lines.length ? lines[index + 1] : undefined
 
     if (nextLine !== undefined && SETEXT_H1_UNDERLINE_REGEX.test(nextLine))

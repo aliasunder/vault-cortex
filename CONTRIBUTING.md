@@ -94,6 +94,33 @@ npx @modelcontextprotocol/inspector
 
 See the [README](./README.md#development) for full details on each mode.
 
+## Agent command setup
+
+Claude Code uses the committed session/worktree hook. Other clients can opt in
+through `.claude/hooks/prepare-command.sh`:
+
+| Operation     | Behavior                                          |
+| ------------- | ------------------------------------------------- |
+| `environment` | Select Node without writing install state         |
+| `prepare`     | Select Node and wait for dependency and SST setup |
+
+1. Invoke the entry point with the chosen operation. Send JSON with the
+   checkout's `cwd` and `hook_event_name: "PreToolUse"` on stdin.
+2. Require a successful exit and stdout containing one nonempty absolute
+   directory with an executable `node`. Both operations print only the
+   selected physical Node bin directory.
+3. Prepend the validated directory to the original command's PATH.
+
+Ordinary `install-deps.sh` calls keep empty stdout and their existing behavior.
+With nvm, selection uses the checkout's `.nvmrc` version when installed, then
+nvm's default alias. If neither lookup finds an executable, or nvm is
+unavailable, selection uses the current PATH. Setup never downloads Node.
+
+Setup keeps the existing per-worktree lock and nonblocking failure behavior;
+an exit of zero does not prove dependencies are ready. Check the actual test or
+build result. Callers must allow time for setup and its lock wait. A checkout
+without this entry point has not opted in.
+
 ## The `cli/` Package
 
 `cli/` is a separate npm package (`npx vault-cortex@latest init`) that scaffolds the
@@ -224,18 +251,13 @@ the allowance states why.
 
 ## Release Process
 
-Releases are cut by the maintainer, in one of two ways:
+Releases are cut by the maintainer: Actions tab → "Manual Release" → choose
+`patch`/`minor`/`major`. The workflow bumps the version, deploys, and creates
+the GitHub Release.
 
-- **Manual Release:** Actions tab → "Manual Release" → choose
-  `patch`/`minor`/`major`. The workflow bumps the version, deploys, and
-  creates the GitHub Release.
-- **Tag push:** merge a version-bump PR into `main`, then run
-  `git tag v<version> && git push --tags`. The tag push deploys and creates
-  the GitHub Release.
-
-Direct commits to `main` are blocked by a branch ruleset — all changes, a tag
-push's version bump included, land via PR. Only the release workflows push to
-`main` directly, for their version-bump and CHANGELOG commits.
+Direct commits to `main` are blocked by a branch ruleset — all changes land
+via PR. Only the release workflows push to `main` directly, for their
+version-bump and CHANGELOG commits.
 
 The CLI releases separately: Actions tab → "Release CLI" (see
 [The `cli/` Package](#the-cli-package)).
@@ -249,13 +271,26 @@ What each release's notes list:
     change only `devDependencies` or `overrides` in the root `package.json`,
     and in `package-lock.json` only packages marked `"dev": true`
   - Claude Code hook changes (commit scope `hooks`)
-  - commits that change only `AGENTS.md`, `CHANGELOG.md`, dotfiles at the
-    repository root (`.gitignore`, `.trivyignore`; not `.dockerignore`, which
-    decides what the image build copies, or `.env.example`, which DEPLOY.md
-    has deployers copy), or files under `.claude/`,
-    `.devin/` or `.husky/`
-- **CLI releases** (`.github/workflows/cli_release.yml`): every commit that
-  touches `cli/`, dependency bumps included (`deps-dev` too).
+  - commits that change only these files:
+    - `AGENTS.md` and `CHANGELOG.md`
+    - dotfiles at the repository root, such as `.gitignore` and
+      `.trivyignore`, except `.dockerignore` (it decides what the image
+      build copies) and `.env.example` (DEPLOY.md has deployers copy it)
+    - files under `.claude/`, `.devin/` or `.husky/`
+- **CLI releases** (`.github/scripts/generate-cli-notes.sh`): every commit
+  that changes `cli/`, including dependency bumps that edit
+  `cli/package.json`, except commits whose added and removed lines under
+  `cli/` are all:
+  - blank
+  - in files under `cli/src/__tests__/`
+  - the `"version"` line of `cli/package.json` (the release bump)
+  - lines in `.ts` files that start, after any indent, with `#`, `//`, `/*`
+    or `*`: comments, and the comment text of the `.env` templates in
+    `cli/src/env.ts`. A `#` line shaped like a setting (`# KEY=value`) still
+    counts: the templates ship optional settings commented out, for the user
+    to uncomment.
+
+  In other files, `cli/README.md` included, every non-blank line counts.
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
 

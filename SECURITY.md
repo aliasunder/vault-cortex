@@ -106,10 +106,10 @@ mechanism-level detail.
   index, OAuth database) remain.
 - `DISABLED_TOOLS` narrows the surface tool-by-tool — e.g. keep writes
   on but remove the delete tools. Same registration-time guarantee.
-- Availability-keyed cross-references in surviving descriptions and
-  prompts disappear automatically. A small number of durable API-level
-  references remain (e.g. error-section alternatives naming sibling
-  tools).
+- Cross-references in surviving descriptions and prompts are
+  availability-keyed and disappear with their target. A test disables
+  each tool in turn and checks that no served tool's description or
+  input schema still names it.
 - Unknown tool names stop the server at startup rather than silently
   disabling nothing.
 
@@ -144,12 +144,16 @@ mechanism-level detail.
 - Atomic writes: temp-then-rename — readers never see partial content
 - Per-file mutex: three modes (serializing, fail-fast, multi-file)
   prevent concurrent writes from corrupting each other
-- Properties-block guard: every rewrite refuses a note whose properties
-  block it cannot keep (invalid YAML, a list, a single value, or a value
-  with an explicit YAML tag), and every write's result is checked before
-  it reaches disk, so no write silently drops a block's properties.
-  `vault_update_properties` with `replace: true` repairs a refused block.
-  YAML comments in a block are not kept by any rewrite
+- Properties-block guard: an edit to a note's body writes its properties
+  block back as written, comments included. Every rewrite of the
+  properties refuses a block it cannot keep (invalid YAML, a block that is
+  a list or a single value instead of key-value properties, or a value with
+  an explicit YAML tag such as `!!str`), and a write is refused when it
+  would leave `---` lines at the top of a note that the server cannot keep
+  as properties, so no write silently drops a block's properties.
+  `vault_update_properties` with `replace: true` replaces a refused block
+  with the properties it is given. A rewrite of the properties does not
+  keep YAML comments
 - First-sync gate (remote image): the init chain runs Obsidian Sync to
   completion before the server starts, so in two-way sync memory bootstrap
   can never race an incoming sync (`pull-only` and `mirror-remote` never
@@ -160,6 +164,14 @@ mechanism-level detail.
   synced `.obsidian/` settings), the container refuses to start,
   preventing the sync engine from interpreting the empty vault as mass
   local deletions
+- Sync vault check (remote image): before `ob sync-setup` writes anything,
+  the init chain asks the Sync client which vault it would sync into the
+  vault folder. When that is a vault other than `VAULT_NAME`, or a Sync
+  setup file there is not a valid setup, the container refuses to start
+  rather than merge two vaults through Obsidian Sync. It checks the Sync
+  setup, not which vault the files in the folder came from, so notes left in
+  the folder after their vault's setup was removed still sync into
+  `VAULT_NAME`'s vault
 - Trash sweep identity gate: the retention sweep deletes a recorded
   `.trash/` file only while it still has the identity recorded when the
   server trashed it and has not changed since, so a different note that
@@ -179,8 +191,8 @@ mechanism-level detail.
 ### Information leak prevention
 
 - `safeHandler()` catches all exceptions and returns the error's name and
-  message, plus how to fix a properties-block refusal — no stack traces
-  reach the client
+  message, plus one remedy sentence for a raw filesystem or search-index
+  error or a properties-block refusal — no stack traces reach the client
 - An image sharp cannot decode, a password-protected PDF, a damaged PDF,
   and a PDF reader that fails to start each return the server's own
   message; the library's error, which can quote the server's install paths,
@@ -330,7 +342,7 @@ gh release download v0.38.0 --pattern 'digests.txt*'
 
 cosign verify-blob \
   --bundle digests.txt.sigstore.json \
-  --certificate-identity-regexp '^https://github\.com/aliasunder/vault-cortex/\.github/workflows/(auto_release|manual_release)\.yml@.*$' \
+  --certificate-identity-regexp '^https://github\.com/aliasunder/vault-cortex/\.github/workflows/manual_release\.yml@.*$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   digests.txt
 ```
@@ -339,7 +351,8 @@ Then confirm the image you pulled matches a signed digest:
 
 ```bash
 docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/aliasunder/vault-cortex:v0.38.0
-# Compare the sha256:... with the corresponding line in digests.txt
+# Compare the sha256:... with the digests.txt line for the same tag:
+# :v0.38.0 is the local target, :v0.38.0-remote the remote target
 ```
 
 ## Reporting a Vulnerability

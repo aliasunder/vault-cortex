@@ -13,6 +13,7 @@ import {
   rename,
   symlink,
 } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
@@ -22,6 +23,9 @@ import { DateTime } from "luxon"
 // exact call the production code makes (the forced-collision and
 // rename-failure trash tests).
 vi.mock("node:fs/promises", { spy: true })
+// A pass-through spy too, so a test can fix the UUID a save's temp name uses
+// and assert the exact path
+vi.mock("node:crypto", { spy: true })
 import {
   vaultFs,
   atomicWriteFile,
@@ -29,6 +33,7 @@ import {
   pruneEmptyParents,
   readTrashFileState,
   resolveSafePath,
+  tempSavePath,
   trashDomainLockKey,
 } from "../vault-filesystem.js"
 import { withFileLock } from "../../../utils/file-write-lock.js"
@@ -68,12 +73,17 @@ const DONE_TAG_MESSAGE =
 const UNCLOSED_FLOW_MESSAGE =
   "properties block is not valid YAML at line 2, column 17: Flow sequence in block collection must be sufficiently indented and end with a ]"
 
-/** A list block and a tagged block: reads accept both, a rewrite would lose both. */
+/** A list, a single-value and a tagged block: reads accept each, a rewrite would lose each. */
 const UNKEEPABLE_BLOCK_CASES = [
   {
     label: "a list block",
     content: "---\n- a\n- b\n---\nbody\n",
     refusal: { kind: "not-key-value", message: LIST_BLOCK_MESSAGE },
+  },
+  {
+    label: "a single-value block",
+    content: "---\nJust a paragraph.\n---\nbody\n",
+    refusal: { kind: "not-key-value", message: SINGLE_VALUE_MESSAGE },
   },
   {
     label: "an explicitly tagged block",
@@ -119,6 +129,11 @@ const describeOutputRefusal = (
   }
 }
 
+const FIXED_UUID = "123e4567-e89b-12d3-a456-426614174000"
+
+/** A name one byte under the 255-byte name limit of APFS and ext4. */
+const NAME_ONE_BYTE_UNDER_LIMIT = `${"n".repeat(251)}.md`
+
 let vault: string
 
 beforeEach(async () => {
@@ -138,8 +153,7 @@ describe("atomicWriteFile", () => {
 
   it("leaves no .tmp staging file behind on success", async () => {
     await atomicWriteFile({ filePath: join(vault, "clean.md"), content: "body\n" }, logger)
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(await readdir(vault)).toEqual(["clean.md"])
   })
 
   it("cleans up the staging file and rethrows when the rename fails", async () => {
@@ -151,8 +165,7 @@ describe("atomicWriteFile", () => {
     await expect(atomicWriteFile({ filePath: target, content: "body\n" }, logger)).rejects.toThrow(
       /EISDIR/,
     )
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(await readdir(vault)).toEqual(["occupied"])
   })
 
   it("logs the temp-file cleanup failure when both the rename and the cleanup fail", async () => {
@@ -160,6 +173,7 @@ describe("atomicWriteFile", () => {
     await mkdir(target)
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
+    vi.mocked(randomUUID).mockReturnValueOnce(FIXED_UUID)
     // The next rm call is the temp-file cleanup after the EISDIR rename
     vi.mocked(rm).mockImplementationOnce(async () => {
       throw new Error("EPERM: injected cleanup failure")
@@ -169,12 +183,36 @@ describe("atomicWriteFile", () => {
       /EISDIR/,
     )
 
-    // The temp path carries a random UUID, so only its shape is assertable
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to remove temp file", {
-      path: expect.stringMatching(/occupied\..+\.tmp$/),
+      path: join(vault, `.${FIXED_UUID}.tmp`),
       error: "[Error]: EPERM: injected cleanup failure",
     })
+  })
+
+  it("saves a note whose name is one byte under the filesystem's name limit", async () => {
+    const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
+
+    await atomicWriteFile({ filePath: target, content: "near the limit\n" }, logger)
+
+    expect(await readFile(target, "utf8")).toBe("near the limit\n")
+    expect(await readdir(vault)).toEqual([NAME_ONE_BYTE_UNDER_LIMIT])
+  })
+})
+
+describe("tempSavePath", () => {
+  it("names a hidden file in the target's folder: a dot, the UUID and .tmp", () => {
+    vi.mocked(randomUUID).mockReturnValueOnce(FIXED_UUID)
+
+    expect(tempSavePath("/vault/Notes/a.md")).toBe(`/vault/Notes/.${FIXED_UUID}.tmp`)
+  })
+
+  // Sync and the file watcher skip a hidden name, and a fixed length means a
+  // note's own name length never decides whether its save fits
+  it("gives a long name the same 41-byte temp name as a short one", () => {
+    vi.mocked(randomUUID).mockReturnValueOnce(FIXED_UUID)
+
+    expect(tempSavePath(`/vault/${NAME_ONE_BYTE_UNDER_LIMIT}`)).toBe(`/vault/.${FIXED_UUID}.tmp`)
   })
 })
 
@@ -200,8 +238,7 @@ describe("atomicWriteFileExclusive", () => {
 
   it("leaves no .tmp staging file behind on success", async () => {
     await atomicWriteFileExclusive({ filePath: join(vault, "clean.md"), content: "body\n" }, logger)
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(await readdir(vault)).toEqual(["clean.md"])
   })
 
   it("leaves no .tmp staging file behind when the target already exists", async () => {
@@ -212,8 +249,7 @@ describe("atomicWriteFileExclusive", () => {
     ).rejects.toMatchObject({
       code: "EEXIST",
     })
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    expect(await readdir(vault)).toEqual(["exists.md"])
   })
 
   it("logs the temp-file cleanup failure when the claim fails and the cleanup fails", async () => {
@@ -221,6 +257,7 @@ describe("atomicWriteFileExclusive", () => {
     await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
+    vi.mocked(randomUUID).mockReturnValueOnce(FIXED_UUID)
     // The next rm call is the finally block's temp-file cleanup, reached
     // after link throws EEXIST on the occupied target
     vi.mocked(rm).mockImplementationOnce(async () => {
@@ -235,14 +272,22 @@ describe("atomicWriteFileExclusive", () => {
 
     expect(warnSpy).toHaveBeenCalledTimes(1)
     expect(warnSpy).toHaveBeenCalledWith("failed to remove temp file", {
-      path: expect.stringMatching(/taken\.md\..+\.tmp$/),
+      path: join(vault, `.${FIXED_UUID}.tmp`),
       error: "[Error]: EPERM: injected cleanup failure",
     })
     // The intercepted cleanup genuinely left the staging file on disk, and
     // the occupied target survives untouched
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toHaveLength(1)
+    expect((await readdir(vault)).toSorted()).toEqual([`.${FIXED_UUID}.tmp`, "taken.md"])
     expect(await readFile(target, "utf8")).toBe("original\n")
+  })
+
+  it("creates a note whose name is one byte under the filesystem's name limit", async () => {
+    const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
+
+    await atomicWriteFileExclusive({ filePath: target, content: "near the limit\n" }, logger)
+
+    expect(await readFile(target, "utf8")).toBe("near the limit\n")
+    expect(await readdir(vault)).toEqual([NAME_ONE_BYTE_UNDER_LIMIT])
   })
 
   // Covers the rename fallback path taken on filesystems without hard-link
@@ -288,8 +333,19 @@ describe("atomicWriteFileExclusive", () => {
         },
         logger,
       )
-      const entries = await readdir(vault)
-      expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+      expect(await readdir(vault)).toEqual(["clean.md"])
+    })
+
+    it("creates a note whose name is one byte under the filesystem's name limit", async () => {
+      const target = join(vault, NAME_ONE_BYTE_UNDER_LIMIT)
+
+      await atomicWriteFileExclusive(
+        { filePath: target, content: "near the limit\n", hardLinksSupported: false },
+        logger,
+      )
+
+      expect(await readFile(target, "utf8")).toBe("near the limit\n")
+      expect(await readdir(vault)).toEqual([NAME_ONE_BYTE_UNDER_LIMIT])
     })
 
     it("logs the placeholder cleanup failure when both the swap and the cleanup fail", async () => {
@@ -2167,6 +2223,11 @@ describe("listAssets", () => {
     expect(files).toEqual(["assets/board.canvas", "assets/photo.png"])
   })
 
+  it("returns an empty listing when folder names a file", async () => {
+    const files = await listAssets({ vaultPath: vault, folder: "assets/photo.png" }, logger)
+    expect(files).toEqual([])
+  })
+
   it("includes a symlinked asset in the listing", async () => {
     await symlink("assets/photo.png", join(vault, "linked.png"))
     const files = await listAssets({ vaultPath: vault }, logger)
@@ -2935,6 +2996,30 @@ describe("readNoteOutline", () => {
     })
   })
 
+  it("outlines a note whose properties block is not valid YAML the way it outlines its body alone", async () => {
+    await writeFile(
+      join(vault, "broken-block.md"),
+      "---\ntitle: [unclosed\n---\nIntro\n\n## Plan\nStep one\n",
+      "utf8",
+    )
+    // The properties read refuses this block, so the outline below skips it
+    const propertiesRefusal = await captureRejection(
+      readNoteProperties({ vaultPath: vault, path: "broken-block.md" }, logger),
+    )
+    expect(describeRefusal(propertiesRefusal)).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
+
+    expect(await readNoteOutline({ vaultPath: vault, path: "broken-block.md" }, logger)).toEqual({
+      ...(await getExpectedFileMetadata("broken-block.md")),
+      leading_content: "Intro",
+      headings: [
+        { level: 2, text: "Plan", bytes: Buffer.byteLength("## Plan\nStep one\n", "utf8") },
+      ],
+    })
+  })
+
   it("returns the whole body as leading_content for a note with no headings", async () => {
     await writeFile(join(vault, "flat.md"), "just prose, no headings\n", "utf8")
     expect(await readNoteOutline({ vaultPath: vault, path: "flat.md" }, logger)).toEqual({
@@ -3224,6 +3309,21 @@ describe("readNoteSection", () => {
     ).rejects.toThrow('ambiguous heading: "Dup"')
   })
 
+  it("names file lines in the ambiguity error for a note with properties", async () => {
+    await writeFile(
+      join(vault, "amb-props.md"),
+      "---\na: 1\nb: 2\n---\n## Notes\nx\n## Notes\ny\n",
+      "utf8",
+    )
+    await expect(
+      readNoteSection({ vaultPath: vault, path: "amb-props.md", heading: "Notes" }, logger),
+    ).rejects.toThrow(
+      new Error(
+        'ambiguous heading: "Notes" matches 2 sections: ## Notes (line 5), ## Notes (line 7)',
+      ),
+    )
+  })
+
   it("throws note not found for a missing path", async () => {
     await expect(
       readNoteSection({ vaultPath: vault, path: "missing.md", heading: "Active" }, logger),
@@ -3247,6 +3347,28 @@ describe("readNoteSection", () => {
 
     const section = await readNoteSection(
       { vaultPath: vault, path: "list-block.md", heading: "Plan" },
+      logger,
+    )
+    expect(section).toBe("## Plan\nStep one\n")
+  })
+
+  it("reads a section of a note whose properties block is not valid YAML", async () => {
+    await writeFile(
+      join(vault, "broken-block.md"),
+      "---\ntitle: [unclosed\n---\n## Plan\nStep one\n\n## Later\nStep two\n",
+      "utf8",
+    )
+    // The properties read refuses this block, so the section read below skips it
+    const propertiesRefusal = await captureRejection(
+      readNoteProperties({ vaultPath: vault, path: "broken-block.md" }, logger),
+    )
+    expect(describeRefusal(propertiesRefusal)).toEqual({
+      kind: "invalid-yaml",
+      message: UNCLOSED_FLOW_MESSAGE,
+    })
+
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "broken-block.md", heading: "Plan" },
       logger,
     )
     expect(section).toBe("## Plan\nStep one\n")
@@ -3520,6 +3642,21 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "photo.png/inner.png", maxBytes: 1024 }, logger),
     ).rejects.toThrow('file not found: "photo.png/inner.png"')
+  })
+
+  it("rejects a file that grew between its size check and the read", async () => {
+    await writeFile(join(vault, "growing.bin"), "123456", "utf8")
+    // Report one byte fewer than the file holds, as a write landing right
+    // after the stat would
+    vi.mocked(stat).mockImplementationOnce(async (path) => {
+      const realStats = await stat(path)
+      return Object.assign(realStats, { size: realStats.size - 1 })
+    })
+    await expect(
+      readAsset({ vaultPath: vault, path: "growing.bin", maxBytes: 1024 }, logger),
+    ).rejects.toThrow(
+      'file changed while reading: "growing.bin" grew past its measured size — retry the read',
+    )
   })
 
   it("rejects a file over the byte cap before reading it", async () => {
