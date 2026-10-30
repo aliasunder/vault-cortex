@@ -220,6 +220,48 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     },
   )
 
+  it(
+    "leaves a note's row as it was when the parser has closed for shutdown",
+    { timeout: 15000 },
+    async () => {
+      const { promise: closedParseSeen, resolve: reportClosedParse } =
+        Promise.withResolvers<undefined>()
+      // Flips once, when the test closes the parser as the server's shutdown does
+      let parserClosed = false
+      const bodyTagParser: BodyTagParser = {
+        parse: async (params, parseLogger) => {
+          if (!parserClosed) return inProcessBodyTagParser.parse(params, parseLogger)
+
+          if (params.body.includes("secondversion")) reportClosedParse(undefined)
+          return { outcome: "closed" }
+        },
+        close: async () => {
+          parserClosed = true
+        },
+      }
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: index },
+        { stabilityThreshold: 200, pollInterval: 50 },
+        bodyTagParser,
+      )
+
+      await writeFile(join(vault, "shutdown.md"), "firstversion #kept\n", "utf8")
+      await waitFor(() => index.searchByTag({ tag: "kept" }, logger).length > 0)
+      await bodyTagParser.close()
+      await writeFile(join(vault, "shutdown.md"), "secondversion\n", "utf8")
+      // The watcher read the edit and asked the closed parser for its tags
+      await closedParseSeen
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      expect(index.fullTextSearch({ query: "secondversion" }, logger)).toEqual([])
+      expect(
+        index
+          .searchByTag({ tag: "kept" }, logger)
+          .map(({ path, body_tags }) => ({ path, body_tags })),
+      ).toEqual([{ path: "shutdown.md", body_tags: ["kept"] }])
+    },
+  )
+
   it("re-indexes a modified file", { timeout: 15000 }, async () => {
     await startWatcherWithoutRebuild(
       { vaultPath: vault, search: index },
