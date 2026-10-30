@@ -36,6 +36,8 @@ import {
   buildFtsMetadataText,
   escapeLikeWildcards,
   foldTag,
+  NOTE_METADATA_COLUMNS,
+  parseStringArray,
 } from "./search-helpers.js"
 import {
   parseNoteSkippingUnreadableBlock,
@@ -366,23 +368,16 @@ export type RebuildResult = {
   bodyTags: Promise<void>
 }
 
-const isStringArray = (value: unknown): value is string[] => {
-  return Array.isArray(value) && value.every((element) => typeof element === "string")
-}
-
-/** A note's body tags as stored before a rebuild; a value that is not a JSON
- *  string array reads as none, since the background pass replaces it anyway. */
+/** A note's body tags as stored before a rebuild, or none when the stored value
+ *  is damaged: the background pass replaces it anyway, and throwing here would
+ *  fail every startup. */
 const readStoredBodyTags = (params: { json: string; path: string }, logger: Logger): string[] => {
   const { json, path } = params
 
   try {
-    const storedValue: unknown = JSON.parse(json)
-
-    if (isStringArray(storedValue)) return storedValue
-    logger.warn("ignored stored body tags that are not a list of names", { path })
-    return []
+    return parseStringArray(json)
   } catch (error) {
-    logger.warn("ignored stored body tags that are not JSON", { path, error: describeError(error) })
+    logger.warn("ignored damaged stored body tags", { path, error: describeError(error) })
     return []
   }
 }
@@ -1152,9 +1147,7 @@ export const createSearchIndex = (
 
   /** Metadata lookup for notes found only via vector search. */
   const selectNoteMetadataStmt = db.prepare<[string], NoteRow>(
-    `SELECT path, title, tags, body_tags, related, folder, type, created, mtime,
-            properties, leading_callout, bytes
-     FROM notes WHERE path = ?`,
+    `SELECT ${NOTE_METADATA_COLUMNS} FROM notes WHERE path = ?`,
   )
 
   /** Resolves a wikilink target to a known non-markdown file path, or null
@@ -2747,7 +2740,7 @@ export const createSearchIndex = (
         const { body } = splitPropertiesBlock(note.content)
         const parseResult = await bodyTagParser.parse({ notePath: note.relativePath, body }, logger)
 
-        // The parser closes only when the server stops, and the pass stops with it
+        // The server's shutdown handler closes the parser, and the pass stops with it
         if (parseResult.outcome === "closed") {
           logger.info("body-tag pass stopped because the parser closed", {
             notes: indexedNoteSources.length,

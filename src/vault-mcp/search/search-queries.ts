@@ -22,6 +22,7 @@ import {
   nestedTagLikePattern,
   NESTED_TAG_PREDICATE,
   noteHasTagCondition,
+  NOTE_METADATA_COLUMNS,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
@@ -815,7 +816,7 @@ export const searchByTag = (
   })
 
   const sql = `
-    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT ${NOTE_METADATA_COLUMNS}
     FROM notes n
     WHERE ${condition}
     ORDER BY mtime DESC, path
@@ -857,7 +858,7 @@ export const searchByFolder = (
     : [escapedFolder, escapedFolder, limit]
 
   const sql = `
-    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT ${NOTE_METADATA_COLUMNS}
     FROM notes
     WHERE ${condition}
     ORDER BY mtime DESC, path
@@ -1229,7 +1230,7 @@ export const recentNotes = (
       : "ORDER BY mtime DESC, path" // SQL column is still `mtime`
 
   const sql = `
-    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT ${NOTE_METADATA_COLUMNS}
     FROM notes
     ${orderClause}
     LIMIT ?
@@ -1403,7 +1404,7 @@ export const searchByProperty = (
    *   JSON's decimal spelling can otherwise become a different SQLite int64.
    */
   const sql = `
-    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT ${NOTE_METADATA_COLUMNS}
     FROM notes n
     WHERE EXISTS (
       SELECT 1 FROM json_each(n.properties) property
@@ -1571,7 +1572,7 @@ export const findOrphans = (
   // Self-links (source = target) are excluded from the backlink subquery
   // so a note that only links to itself is still considered an orphan.
   const sql = `
-    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT ${NOTE_METADATA_COLUMNS}
     FROM notes
     WHERE path NOT IN (SELECT DISTINCT target FROM links WHERE source != target)
       ${whereClause}
@@ -1674,7 +1675,7 @@ export const modifiedOnDate = (
   const dayBounds = dayToEpochMsRange(params.date)
 
   const sql = `
-    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT ${NOTE_METADATA_COLUMNS}
     FROM notes
     WHERE mtime >= ? AND mtime < ?
     ORDER BY mtime DESC, path

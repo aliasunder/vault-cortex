@@ -140,7 +140,7 @@ const storedMtimeToIso = (mtimeMs: number): string => {
 /** Parses a JSON column that must contain a string array (tags, related,
  *  depends_on). Throws on corruption — these columns are serialized by the
  *  indexer, so a non-array value indicates index corruption. */
-const parseStringArray = (json: string): string[] => {
+export const parseStringArray = (json: string): string[] => {
   const parsed = parseJsonColumn(json)
 
   if (!Array.isArray(parsed) || !parsed.every(isString)) {
@@ -234,6 +234,11 @@ const bodyTagsField = (bodyTagsJson: string): { body_tags?: string[] } => {
   const uniqueBodyTags = [...new Set(parseStringArray(bodyTagsJson))]
   return uniqueBodyTags.length > 0 ? { body_tags: uniqueBodyTags } : {}
 }
+
+/** The notes columns rowToMetadata reads, for every query that returns note
+ *  metadata, so a new column is added in one place. */
+export const NOTE_METADATA_COLUMNS =
+  "path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes"
 
 /** Transforms a raw SQLite row (JSON strings) into a typed NoteMetadata object. */
 export const rowToMetadata = (row: NoteRow): NoteMetadata => ({

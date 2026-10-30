@@ -199,14 +199,18 @@ describe("createShutdownHandler", () => {
     vi.restoreAllMocks()
   })
 
-  it("closes the server and exits 0 once draining completes", () => {
+  const createClosingParser = () => ({ close: vi.fn(async () => undefined) })
+
+  it("closes the body-tag parser and the server, and exits 0 once draining completes", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     onTestFinished(() => exitSpy.mockRestore())
     // close() that immediately invokes its callback = drain completes at once.
     const close = vi.fn((callback: () => void) => callback())
+    const bodyTagParser = createClosingParser()
 
-    createShutdownHandler({ close })()
+    createShutdownHandler({ httpServer: { close }, bodyTagParser })()
 
+    expect(bodyTagParser.close).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
     expect(exitSpy).toHaveBeenCalledWith(0)
   })
@@ -217,11 +221,32 @@ describe("createShutdownHandler", () => {
     // close() that never invokes its callback = drain hangs.
     const close = vi.fn()
 
-    createShutdownHandler({ close }, 10_000)()
+    createShutdownHandler({
+      httpServer: { close },
+      bodyTagParser: createClosingParser(),
+      forceExitMs: 10_000,
+    })()
 
     expect(exitSpy).not.toHaveBeenCalled()
     vi.advanceTimersByTime(10_000)
     expect(exitSpy).toHaveBeenCalledWith(1)
+  })
+
+  it("logs a body-tag parser that fails to close and still drains", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
+    onTestFinished(() => exitSpy.mockRestore())
+    const close = vi.fn((callback: () => void) => callback())
+    const bodyTagParser = {
+      close: vi.fn(async () => Promise.reject(new Error("terminate failed"))),
+    }
+
+    createShutdownHandler({ httpServer: { close }, bodyTagParser })()
+    await vi.runAllTimersAsync()
+
+    expect(logger.warn).toHaveBeenCalledWith("body-tag parser did not close cleanly", {
+      error: "[Error]: terminate failed",
+    })
+    expect(exitSpy).toHaveBeenCalledWith(0)
   })
 })
 

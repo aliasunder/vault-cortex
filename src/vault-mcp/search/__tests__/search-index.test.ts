@@ -12,7 +12,6 @@ import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "..
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 import { statOrNull } from "../../../utils/fs.js"
-import { describeError } from "../../../utils/describe-error.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
 import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
@@ -9229,31 +9228,24 @@ describe("body tags", () => {
     })
   })
 
-  /** describeError's text for the error JSON.parse throws on `text`. */
-  const describeJsonParseError = (text: string): string => {
-    try {
-      JSON.parse(text)
-    } catch (error) {
-      return describeError(error)
-    }
-    throw new Error(`${text} is valid JSON`)
-  }
-
   it.each([
     {
       label: "not JSON",
       storedValue: "[oops",
       expectedWarning: [
-        "ignored stored body tags that are not JSON",
-        { path: "kept.md", error: describeJsonParseError("[oops") },
+        "ignored damaged stored body tags",
+        { path: "kept.md", error: "[IndexIntegrityError]: JSON column is not JSON: [oops" },
       ],
     },
     {
       label: "JSON but not a list of names",
       storedValue: '{"tag":"stored"}',
       expectedWarning: [
-        "ignored stored body tags that are not a list of names",
-        { path: "kept.md" },
+        "ignored damaged stored body tags",
+        {
+          path: "kept.md",
+          error: '[IndexIntegrityError]: expected string[] from JSON column, got: {"tag":"stored"}',
+        },
       ],
     },
   ])(
