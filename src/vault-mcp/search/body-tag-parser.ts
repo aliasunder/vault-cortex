@@ -82,8 +82,9 @@ const WORKER_ENTRY = new URL(
  *   queue wait and worker start-up never count against it.
  * - Past the limit, the worker is terminated and the note resolves
  *   "over-limit"; a parser throw, a worker crash or a worker exit resolves
- *   "failed". Each logs an error naming the note, and the next note gets a
- *   fresh worker.
+ *   "failed". Each logs an error naming the note. After the limit, a crash or
+ *   an exit the next note gets a fresh worker; a parser throw leaves the
+ *   worker, which is still healthy, in place.
  * - A worker that fails to start resolves the note "unavailable" and logs an
  *   error; the next note tries a fresh worker.
  * - A queued note whose signal aborted resolves "dropped" without parsing.
