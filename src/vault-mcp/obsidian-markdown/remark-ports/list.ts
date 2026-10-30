@@ -31,6 +31,9 @@
  *   exported for the Obsidian tokenizers) replaces `is-decimal`.
  * - The pedantic list-item path is dropped, because the parser never runs in
  *   pedantic mode.
+ * - The bullet rule is written once: the per-line scan reads a line's bullet
+ *   through the same `readBulletMarker` as the list's opening check, where
+ *   upstream repeats the rule inline.
  */
 
 import { getIndentation } from "./get-indentation.js"
@@ -302,24 +305,16 @@ const scanItemLine = (
   let currentMarker: string | null = null
 
   if (!indentedByItem) {
-    const character = value.charAt(index)
+    const bullet = readBulletMarker(value, index, commonmark)
 
-    if (character === ASTERISK || character === PLUS_SIGN || character === DASH) {
-      currentMarker = character
-      index += 1
-      size += 1
-    } else {
-      const digits = readDigits(value, index)
-      const afterDigits = value.charAt(index + digits.length)
+    // Without a bullet the line's own start is returned, so index and size
+    // stay where the indent left them
+    if (bullet) {
+      const markerWidth = bullet.markerIndex + 1 - index
 
-      // Without a marker the line's own start is returned, so this advance
-      // only matters when the digits turn out to be a bullet
-      index += digits.length + 1
-
-      if (digits && (afterDigits === DOT || (commonmark && afterDigits === RIGHT_PARENTHESIS))) {
-        currentMarker = afterDigits
-        size += digits.length + 1
-      }
+      currentMarker = bullet.marker
+      index += markerWidth
+      size += markerWidth
     }
 
     if (currentMarker) {

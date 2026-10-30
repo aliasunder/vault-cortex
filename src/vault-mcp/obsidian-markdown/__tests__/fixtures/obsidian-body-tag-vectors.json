@@ -2710,6 +2710,71 @@
       "label": "quoted inline footnote with a code span across lines",
       "input": "> ^[a\n|`` #b\n]#c\n#d",
       "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline math, escaped dollar right after the opener",
+      "input": "$\\$m$#x_y",
+      "expected": ["x_y"]
+    },
+    {
+      "label": "double dollar falling back to inline math with an escaped dollar",
+      "input": "$$\\$m$#x_y",
+      "expected": ["x_y"]
+    },
+    {
+      "label": "inline math holding only an escaped dollar",
+      "input": "$\\$$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "inline math holding only an escaped backslash",
+      "input": "$\\\\$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "inline math, escaped dollar then text",
+      "input": "$\\$ab$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 7411, case 1",
+      "input": "   $$\\$m$#x_y ([[\n[x]: #é==h== #é &#35;#a/",
+      "expected": ["x_y", "é", "é"]
+    },
+    {
+      "label": "inline math, escaped dollar before the closer",
+      "input": "$a\\$$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "display math holding an escaped dollar",
+      "input": "$$\\$$$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "unclosed inline math with an escaped dollar",
+      "input": "$\\$ab #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "inline math, escaped letter after the opener",
+      "input": "$\\am$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "list item with empty brackets is not a task",
+      "input": "- [] #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "list item with an empty task box",
+      "input": "- [ ] #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "list item with empty brackets then text",
+      "input": "- []a #x",
+      "expected": ["x"]
     }
   ]
 }

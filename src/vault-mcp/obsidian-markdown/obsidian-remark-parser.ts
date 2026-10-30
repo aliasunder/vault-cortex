@@ -420,9 +420,10 @@ const findInlineMathClose = (value: string): number => {
   if (isSpaceOrTab(value.charAt(1)) || value.charAt(1) === "$") return -1
 
   // The scan resumes after each rejected closer, so its index is mutable
-  // parser state. It starts at 2 so that the content holds at least one
-  // character.
-  let index = indexOfUnescaped(value, "$", 2)
+  // parser state. It starts at 1 so that a backslash there hides the `$`
+  // after it (`$\$m$`); a closer still lands at 2 or later, since the guard
+  // above has ruled out a `$` at 1.
+  let index = indexOfUnescaped(value, "$", 1)
 
   while (index !== -1) {
     const closesMath =
