@@ -9248,6 +9248,17 @@ describe("body tags", () => {
         },
       ],
     },
+    {
+      label: "a list holding a value that is not a name",
+      storedValue: '["stored",1]',
+      expectedWarning: [
+        "ignored damaged stored body tags",
+        {
+          path: "kept.md",
+          error: '[IndexIntegrityError]: expected string[] from JSON column, got: ["stored",1]',
+        },
+      ],
+    },
   ])(
     "reads stored body tags that are $label as none, with a warning, and keeps the note readable",
     async ({ storedValue, expectedWarning }) => {

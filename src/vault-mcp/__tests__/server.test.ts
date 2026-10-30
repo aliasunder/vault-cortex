@@ -211,8 +211,10 @@ describe("createShutdownHandler", () => {
     createShutdownHandler({ httpServer: { close }, bodyTagParser })()
 
     expect(bodyTagParser.close).toHaveBeenCalledOnce()
+    // The parser closes first, so the background pass stops before the drain
+    expect(bodyTagParser.close).toHaveBeenCalledBefore(close)
     expect(close).toHaveBeenCalledOnce()
-    expect(exitSpy).toHaveBeenCalledWith(0)
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(0)
   })
 
   it("forces exit 1 if the drain does not finish within the timeout", () => {
@@ -221,15 +223,17 @@ describe("createShutdownHandler", () => {
     // close() that never invokes its callback = drain hangs.
     const close = vi.fn()
 
+    // Not the 10-second default, so the test fails if forceExitMs is ignored
     createShutdownHandler({
       httpServer: { close },
       bodyTagParser: createClosingParser(),
-      forceExitMs: 10_000,
+      forceExitMs: 5_000,
     })()
 
+    vi.advanceTimersByTime(4_999)
     expect(exitSpy).not.toHaveBeenCalled()
-    vi.advanceTimersByTime(10_000)
-    expect(exitSpy).toHaveBeenCalledWith(1)
+    vi.advanceTimersByTime(1)
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
   })
 
   it("logs a body-tag parser that fails to close and still drains", async () => {
@@ -241,12 +245,13 @@ describe("createShutdownHandler", () => {
     }
 
     createShutdownHandler({ httpServer: { close }, bodyTagParser })()
-    await vi.runAllTimersAsync()
+    // Settles the rejected close without reaching the force-exit timer
+    await vi.advanceTimersByTimeAsync(0)
 
-    expect(logger.warn).toHaveBeenCalledWith("body-tag parser did not close cleanly", {
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith("body-tag parser did not close cleanly", {
       error: "[Error]: terminate failed",
     })
-    expect(exitSpy).toHaveBeenCalledWith(0)
+    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(0)
   })
 })
 
