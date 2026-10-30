@@ -11,6 +11,7 @@ import { loadConfig } from "../../../config.js"
 import { createSearchIndex, type SearchIndex } from "../../../search/search-index.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { logger, type Logger } from "../../../../logger.js"
+import { withBodyTags } from "../../../search/__tests__/body-tag-test-helpers.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -138,14 +139,14 @@ export const setupVault = async (
       await mkdir(dirname(fullPath), { recursive: true })
       await writeFile(fullPath, note.content, "utf8")
       search.upsertNote(
-        {
+        withBodyTags({
           filePath: note.path,
           rawContent: note.content,
           fileStat: {
             mtimeMs: note.mtime,
             size: Buffer.byteLength(note.content, "utf8"),
           },
-        },
+        }),
         log,
       )
     }
@@ -203,14 +204,14 @@ export const setupDailyReviewVault = async (options: {
 
   const search = createSearchIndex(":memory:")
   search.upsertNote(
-    {
+    withBodyTags({
       filePath: dailyPath,
       rawContent: dailyContent,
       fileStat: {
         mtimeMs: JUNE_16_MIDDAY_MS,
         size: Buffer.byteLength(dailyContent, "utf8"),
       },
-    },
+    }),
     logger,
   )
 
@@ -219,14 +220,14 @@ export const setupDailyReviewVault = async (options: {
     await mkdir(dirname(fullPath), { recursive: true })
     await writeFile(fullPath, note.content, "utf8")
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: note.path,
         rawContent: note.content,
         fileStat: {
           mtimeMs: note.mtimeMs ?? JUNE_16_MIDDAY_MS,
           size: Buffer.byteLength(note.content, "utf8"),
         },
-      },
+      }),
       logger,
     )
   }

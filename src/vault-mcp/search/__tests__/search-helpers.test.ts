@@ -142,6 +142,7 @@ const makeNoteRow = (overrides: Partial<NoteRow> = {}): NoteRow => ({
   path: "Projects/Alpha/note.md",
   title: "Test Note",
   tags: JSON.stringify(["project", "alpha"]),
+  body_tags: "[]",
   related: JSON.stringify(["Other.md"]),
   folder: "Projects/Alpha",
   type: "note",
@@ -627,6 +628,7 @@ describe("noteMatchesSearchFilters", () => {
     path: "Projects/Alpha/note.md",
     title: "Test",
     tags: JSON.stringify(["project", "project/alpha"]),
+    body_tags: "[]",
     related: JSON.stringify(["Other.md"]),
     folder: "Projects/Alpha",
     type: "note",
@@ -636,6 +638,23 @@ describe("noteMatchesSearchFilters", () => {
     leading_callout: null,
     bytes: 100,
   }
+
+  it("matches requested tags in the tags property, the body, or one in each", () => {
+    const splitRow = {
+      ...baseRow,
+      tags: JSON.stringify(["prop"]),
+      body_tags: JSON.stringify(["body"]),
+    }
+
+    expect(noteMatchesSearchFilters(splitRow, { tags: ["body"] })).toBe(true)
+    expect(noteMatchesSearchFilters(splitRow, { tags: ["prop", "body"] })).toBe(true)
+    expect(
+      noteMatchesSearchFilters({ ...splitRow, body_tags: "[]" }, { tags: ["prop", "body"] }),
+    ).toBe(false)
+    expect(noteMatchesSearchFilters({ ...splitRow, tags: "[]" }, { tags: ["prop", "body"] })).toBe(
+      false,
+    )
+  })
 
   it("passes when no filters are set", () => {
     expect(noteMatchesSearchFilters(baseRow, {})).toBe(true)

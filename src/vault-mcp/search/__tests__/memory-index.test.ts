@@ -7,6 +7,7 @@ import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
 import { createSearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
+import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
 /** Read-only inspection connection — needs the vec extension loaded so the
  *  memory_entry_vectors virtual table is queryable from outside the factory. */
@@ -100,11 +101,11 @@ describe("memory entry indexing", () => {
   it("indexes a memory file's dated entries as exact rows", async () => {
     const { index, inspect } = await createInspectableMemoryIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(selectEntryRows(inspect)).toEqual([
@@ -135,11 +136,11 @@ describe("memory entry indexing", () => {
   it("does not index entries for a note outside the memory dir", async () => {
     const { index, inspect } = await createInspectableMemoryIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/journal.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // The note itself was indexed (the trigger ran) — only the entry
@@ -153,11 +154,11 @@ describe("memory entry indexing", () => {
   it("does not index entries for a memory file whose name ends in .md twice", async () => {
     const { index, inspect } = await createInspectableMemoryIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // The note itself was indexed (the trigger ran) — only the entry
@@ -170,11 +171,11 @@ describe("memory entry indexing", () => {
   it("does not index entries for a note nested below the memory dir", async () => {
     const { index, inspect } = await createInspectableMemoryIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/archive/Old.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(selectEntryRows(inspect)).toEqual([])
@@ -185,11 +186,11 @@ describe("memory entry indexing", () => {
 
     if (embedder === undefined) throw new Error("embedder required")
     const sourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -208,11 +209,11 @@ describe("memory entry indexing", () => {
 
     if (embedder === undefined) throw new Error("embedder required")
     const originalSourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -232,11 +233,11 @@ describe("memory entry indexing", () => {
       "- **2026-07-11**: Newest opinion lands on top.\n- **2026-07-02**: Wrap function bodies in braces.",
     )
     const updatedSourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: withTopAppend,
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -261,11 +262,11 @@ describe("memory entry indexing", () => {
 
     if (embedder === undefined) throw new Error("embedder required")
     const originalSourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -283,11 +284,11 @@ describe("memory entry indexing", () => {
       "- **2026-05-07**: Immutable over mutable, always.",
     )
     const updatedSourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: withEdit,
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -317,11 +318,11 @@ describe("memory entry indexing", () => {
 
     if (embedder === undefined) throw new Error("embedder required")
     const sourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Routines.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -334,11 +335,11 @@ describe("memory entry indexing", () => {
 
     const withPrune = OPINIONS_V1.replace("- **2026-05-07**: Immutable over mutable.\n", "")
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Routines.md",
         rawContent: withPrune,
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     const remainingRows = selectEntryRows(inspect)
@@ -350,11 +351,11 @@ describe("memory entry indexing", () => {
   it("removeNote clears the file's entry rows, FTS rows, and vectors", async () => {
     const { index, inspect } = await createInspectableMemoryIndex()
     const sourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -377,11 +378,11 @@ describe("memory entry indexing", () => {
 
     if (embedder === undefined) throw new Error("embedder required")
     const originalSourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -397,11 +398,11 @@ describe("memory entry indexing", () => {
     // The watcher delivers a rename as unlink + add.
     index.removeNote("About Me/Opinions.md")
     const updatedSourceVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Beliefs.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
     await index.embedNote(
@@ -424,11 +425,11 @@ describe("memory entry indexing", () => {
       withEmbedder: false,
     })
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(selectEntryRows(inspect)).toHaveLength(3)
@@ -446,11 +447,11 @@ describe("memory entry indexing", () => {
     const dbPath = join(dir, "index.db")
     const index = createSearchIndex(dbPath)
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: OPINIONS_V1,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const inspect = new Database(dbPath, { readonly: true })
@@ -485,7 +486,11 @@ describe("memory embedding source versions", () => {
       return secondBatchModel.promise
     })
     const originalVersion = index.upsertNote(
-      { filePath: "About Me/Opinions.md", rawContent: content, fileStat: testStat(1000) },
+      withBodyTags({
+        filePath: "About Me/Opinions.md",
+        rawContent: content,
+        fileStat: testStat(1000),
+      }),
       logger,
     )
     const staleJob = index.embedNote(
@@ -502,11 +507,11 @@ describe("memory embedding source versions", () => {
     const replacementText = "- **2026-07-01**: Replacement practice improves recovery."
     const replacementContent = `## Practices\n\n${[...entryTexts.slice(0, 16), replacementText].join("\n")}`
     const replacementVersion = index.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: replacementContent,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     secondBatchModel.resolve([new Float32Array(DIMENSIONS).fill(0.9)])
@@ -567,7 +572,11 @@ describe("memory embedding source versions", () => {
       const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {})
       onTestFinished(() => debugSpy.mockRestore())
       const originalVersion = index.upsertNote(
-        { filePath: "About Me/Opinions.md", rawContent: content, fileStat: testStat(1000) },
+        withBodyTags({
+          filePath: "About Me/Opinions.md",
+          rawContent: content,
+          fileStat: testStat(1000),
+        }),
         logger,
       )
       const originalIds = inspect
@@ -591,11 +600,11 @@ describe("memory embedding source versions", () => {
         mutation === "delete"
           ? null
           : index.upsertNote(
-              {
+              withBodyTags({
                 filePath: "About Me/Opinions.md",
                 rawContent: replacementContent,
                 fileStat: testStat(1000),
-              },
+              }),
               logger,
             )
       batchModel.resolve(Array.from({ length: 16 }, () => new Float32Array(384).fill(0.1)))
@@ -673,7 +682,10 @@ title: Agents
 
   it("indexes and embeds entries from every memory file during rebuild", async () => {
     const { dir, index, inspect } = await createRebuiltVault()
-    const { embedding } = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const { embedding } = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await embedding
     const rows = selectEntryRows(inspect)
     expect(rows.map((row) => [row.file, row.entry_date])).toEqual([
@@ -687,14 +699,20 @@ title: Agents
 
   it("removes entries for a memory file deleted while the server was down", async () => {
     const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
-    const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const firstBuild = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await firstBuild.embedding
     // The deleted file's entries were present after the first rebuild —
     // the cleanup below has something real to remove.
     expect(selectEntryRows(inspect).some((row) => row.file === "Agents")).toBe(true)
 
     await unlink(join(memoryDirPath, "Agents.md"))
-    const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const secondBuild = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await secondBuild.embedding
 
     const rows = selectEntryRows(inspect)
@@ -708,7 +726,10 @@ title: Agents
   it("removes entries an earlier index held for a memory file whose name ends in .md twice", async () => {
     const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
     await writeFile(join(memoryDirPath, "Opinions.md.md"), OPINIONS_V1)
-    const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const firstBuild = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await firstBuild.embedding
     const writer = new Database(join(dir, "index.db"))
     onTestFinished(() => {
@@ -730,7 +751,10 @@ title: Agents
       "Opinions.md",
     ])
 
-    const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const secondBuild = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await secondBuild.embedding
 
     expect(selectEntryRows(inspect).map((row) => row.file)).toEqual([
@@ -743,7 +767,10 @@ title: Agents
 
   it("re-indexes a memory note's entries from its body when its block is not valid YAML", async () => {
     const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
-    const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const firstBuild = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await firstBuild.embedding
     expect(selectEntryRows(inspect)).toHaveLength(4)
 
@@ -753,7 +780,10 @@ title: Agents
       join(memoryDirPath, "Opinions.md"),
       "---\ntitle: [unclosed\n---\n# Opinions\n\n## Code patterns (newest first)\n\n- **2026-08-01**: Named over positional.\n",
     )
-    const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const secondBuild = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await secondBuild.embedding
 
     expect(warnSpy).toHaveBeenCalledExactlyOnceWith(
@@ -793,11 +823,17 @@ title: Agents
 
   it("embeds zero entries on a second rebuild with unchanged files", async () => {
     const { dir, index, embedder } = await createRebuiltVault()
-    const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const firstBuild = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await firstBuild.embedding
     embedder.embedBatch.mockClear()
 
-    const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    const secondBuild = await index.rebuildFromVault(
+      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await secondBuild.embedding
     expect(totalTextsEmbedded(embedder)).toBe(0)
   })

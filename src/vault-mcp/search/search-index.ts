@@ -37,7 +37,15 @@ import {
   escapeLikeWildcards,
   foldTag,
 } from "./search-helpers.js"
-import { parseNoteSkippingUnreadableBlock } from "../obsidian-markdown/frontmatter.js"
+import {
+  parseNoteSkippingUnreadableBlock,
+  splitPropertiesBlock,
+} from "../obsidian-markdown/frontmatter.js"
+import {
+  bodyTagsFromParseResult,
+  type BodyTagParser,
+  type BodyTagParseResult,
+} from "./body-tag-parser.js"
 import * as queries from "./search-queries.js"
 import { hybridSearch } from "./hybrid-search.js"
 
@@ -103,6 +111,8 @@ export type SearchResult = {
   snippet: string
   score: number
   tags: string[]
+  /** The `#tags` written in a note's body, each spelling once; absent when there are none. */
+  body_tags?: string[]
   folder: string
   type: string | null
   created?: string
@@ -123,6 +133,8 @@ export type NoteMetadata = {
   path: string
   title: string
   tags: string[]
+  /** The `#tags` written in the body, each spelling once; absent when there are none. */
+  body_tags?: string[]
   related: string[]
   folder: string
   type: string | null
@@ -169,6 +181,8 @@ export type NoteRow = {
   path: string
   title: string
   tags: string
+  /** JSON array of every body-tag occurrence, in Obsidian's order. */
+  body_tags: string
   related: string
   folder: string
   type: string | null
@@ -422,7 +436,8 @@ export const createSearchIndex = (
       properties  TEXT,
       leading_callout TEXT,
       bytes       INTEGER NOT NULL DEFAULT 0,
-      kanban_done_lanes TEXT
+      kanban_done_lanes TEXT,
+      body_tags   TEXT NOT NULL DEFAULT '[]'
     );
 
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -609,6 +624,11 @@ export const createSearchIndex = (
   if (!noteColumns.some((column) => column.name === "kanban_done_lanes")) {
     db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
   }
+  // The default keeps an older image's upsert, which names its columns and
+  // not this one, working against a database this version created
+  if (!noteColumns.some((column) => column.name === "body_tags")) {
+    db.exec(`ALTER TABLE notes ADD COLUMN body_tags TEXT NOT NULL DEFAULT '[]'`)
+  }
 
   // Same idempotent migration for tasks: depth/parent columns for sub-task
   // tracking.
@@ -659,8 +679,8 @@ export const createSearchIndex = (
   // Each returned statement retains its compiled SQL; preparing inside an
   // operation would compile it again on every invocation.
   const upsertNotesStmt = db.prepare(`
-    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes, body_tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
   const insertFtsStmt = db.prepare(
@@ -1098,7 +1118,7 @@ export const createSearchIndex = (
 
   /** Metadata lookup for notes found only via vector search. */
   const selectNoteMetadataStmt = db.prepare<[string], NoteRow>(
-    `SELECT path, title, tags, related, folder, type, created, mtime,
+    `SELECT path, title, tags, body_tags, related, folder, type, created, mtime,
             properties, leading_callout, bytes
      FROM notes WHERE path = ?`,
   )
@@ -1479,17 +1499,20 @@ export const createSearchIndex = (
   // combined with INSERT OR REPLACE cause FTS5 corruption.
 
   /** Indexes a note and returns its source version, a token embedNote checks so that an embed
-   *  of this content is dropped once a later write replaces it. Pass it with the same content. */
+   *  of this content is dropped once a later write replaces it. Pass it with the same content.
+   *  `bodyTags` are the body's tags from a body-tag parser, which runs off the main thread, so
+   *  the caller parses before calling and this function never does. */
   const upsertNote = (
     params: {
       filePath: string
       rawContent: string
       fileStat: { mtimeMs: number; size: number }
+      bodyTags: ReadonlyArray<string>
       skipLinks?: boolean
     },
     logger: Logger,
   ): symbol => {
-    const { filePath, rawContent, fileStat } = params
+    const { filePath, rawContent, fileStat, bodyTags } = params
     const skipLinks = params.skipLinks ?? false
     const {
       data: frontmatter,
@@ -1537,6 +1560,7 @@ export const createSearchIndex = (
       leading_callout: leadingCallout ? JSON.stringify(leadingCallout) : null,
       bytes: fileStat.size,
       kanban_done_lanes: kanbanDoneLanes,
+      body_tags: JSON.stringify(bodyTags),
     }
 
     const metadataText = buildFtsMetadataText(frontmatter)
@@ -1573,6 +1597,7 @@ export const createSearchIndex = (
         note.leading_callout,
         note.bytes,
         note.kanban_done_lanes,
+        note.body_tags,
       )
       insertFtsStmt.run(note.path, note.title, note.content, metadataText)
 
@@ -2106,10 +2131,10 @@ export const createSearchIndex = (
    * - The returned embedding promise rejects if the background pass fails. This function
    *   already logs that failure, so a caller may leave the promise unawaited. */
   const rebuildFromVault = async (
-    params: { vaultPath: string },
+    params: { vaultPath: string; bodyTagParser: BodyTagParser },
     logger: Logger,
   ): Promise<{ count: number; embedding: Promise<void> }> => {
-    const { vaultPath } = params
+    const { vaultPath, bodyTagParser } = params
     // Embedding work that outlived its source can leave vectors whose chunk or
     // memory entry is gone. They would take nearest-neighbour slots from live
     // vectors, so they are dropped before anything else.
@@ -2307,6 +2332,32 @@ export const createSearchIndex = (
     })
     const noteContents = noteContentResults.filter((entry) => entry !== null)
 
+    // Body tags are parsed here, before the write transaction, because the
+    // parser runs in a worker thread and the transaction cannot await
+    const parseNoteBodyTags = async (
+      note: RebuildFileContent,
+    ): Promise<{ relativePath: string; parseResult: BodyTagParseResult }> => {
+      const { body } = splitPropertiesBlock(note.content)
+      const parseResult = await bodyTagParser.parse({ notePath: note.relativePath, body }, logger)
+      return { relativePath: note.relativePath, parseResult }
+    }
+    const bodyTagParseStart = performance.now()
+    const bodyTagParses = await mapWithConcurrency({
+      items: noteContents,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
+      mapper: parseNoteBodyTags,
+    })
+    const bodyTagParseMs = Math.round(performance.now() - bodyTagParseStart)
+    const bodyTagsByPath = new Map(
+      bodyTagParses.map(({ relativePath, parseResult }) => [
+        relativePath,
+        bodyTagsFromParseResult(parseResult),
+      ]),
+    )
+    const countBodyTagOutcome = (outcome: BodyTagParseResult["outcome"]): number => {
+      return bodyTagParses.filter(({ parseResult }) => parseResult.outcome === outcome).length
+    }
+
     // Notes whose Pass 1 index write throws are skipped with a warning instead
     // of aborting the rebuild — one note must never prevent the server from
     // starting. An unreadable properties block is not such a failure,
@@ -2338,6 +2389,7 @@ export const createSearchIndex = (
                 filePath: note.relativePath,
                 rawContent: note.content,
                 fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
+                bodyTags: bodyTagsByPath.get(note.relativePath) ?? [],
                 skipLinks: true,
               },
               logger,
@@ -2472,6 +2524,11 @@ export const createSearchIndex = (
     logger.info("rebuilt index", {
       count: indexedNotes.length,
       totalBytes,
+      bodyTagsParsed: countBodyTagOutcome("parsed"),
+      bodyTagsWithoutCandidate: countBodyTagOutcome("no-candidate"),
+      bodyTagsOverLimit: countBodyTagOutcome("over-limit"),
+      bodyTagsFailed: countBodyTagOutcome("failed"),
+      bodyTagParseMs,
       orphanNoteVectorsRemoved,
       orphanFileVectorsRemoved,
       orphanMemoryVectorsRemoved,

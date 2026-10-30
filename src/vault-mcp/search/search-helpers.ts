@@ -80,6 +80,25 @@ export const nestedTagLikePattern = (input: string): string => {
   return `${escapeLikeWildcards(normalizeTagQuery(input))}/%`
 }
 
+/**
+ * SQL condition that one requested tag holds for a note row aliased `n`: the
+ * tag `predicate` matches a value of the tags property or of the body tags.
+ * Parenthesised, so a caller can AND one per requested tag; the predicate's
+ * parameters are returned twice, in placeholder order, one copy per column.
+ */
+export const noteHasTagCondition = (params: {
+  predicate: string
+  predicateParams: ReadonlyArray<string>
+}): { condition: string; conditionParams: string[] } => {
+  const { predicate, predicateParams } = params
+  return {
+    condition:
+      `(EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${predicate})` +
+      ` OR EXISTS (SELECT 1 FROM json_each(n.body_tags) WHERE ${predicate}))`,
+    conditionParams: [...predicateParams, ...predicateParams],
+  }
+}
+
 // ── Stored row integrity ───────────────────────────────────────
 
 /** A stored index row cannot be read back: a JSON column that is not JSON or
@@ -208,11 +227,20 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
 
 // ── Row mappers ────────────────────────────────────────────────
 
+/** A result's `body_tags` field: each stored spelling once, in first-seen
+ *  order, or no field when the note has none. The column keeps every
+ *  occurrence, because listAllTags counts them. */
+const bodyTagsField = (bodyTagsJson: string): { body_tags?: string[] } => {
+  const uniqueBodyTags = [...new Set(parseStringArray(bodyTagsJson))]
+  return uniqueBodyTags.length > 0 ? { body_tags: uniqueBodyTags } : {}
+}
+
 /** Transforms a raw SQLite row (JSON strings) into a typed NoteMetadata object. */
 export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   path: row.path,
   title: row.title,
   tags: parseStringArray(row.tags),
+  ...bodyTagsField(row.body_tags),
   related: parseStringArray(row.related),
   folder: row.folder,
   type: row.type,
@@ -260,7 +288,7 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
 export const noteRowToSearchResult = (params: {
   row: Pick<
     NoteRow,
-    "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime" | "bytes"
+    "path" | "title" | "tags" | "body_tags" | "folder" | "type" | "created" | "mtime" | "bytes"
   > & {
     leading_callout?: string | null
   }
@@ -273,6 +301,7 @@ export const noteRowToSearchResult = (params: {
   snippet: params.snippet,
   score: params.score,
   tags: parseStringArray(params.row.tags),
+  ...bodyTagsField(params.row.body_tags),
   folder: params.row.folder,
   type: params.row.type,
   kind: "note",
@@ -368,7 +397,8 @@ export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters):
   if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
 
   if (filters.tags) {
-    const noteTags = parseStringArray(note.tags)
+    // A requested tag may be in the tags property or written in the body
+    const noteTags = [...parseStringArray(note.tags), ...parseStringArray(note.body_tags)]
     const foldedQueries = filters.tags.map(normalizeTagQuery)
     const everyQueryMatches = foldedQueries.every((foldedQuery) => {
       return noteTags.some((storedTag) => tagMatchesQuery({ storedTag, foldedQuery }))

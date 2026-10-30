@@ -317,6 +317,38 @@ describe("default config", () => {
       expect(textContent(result)).toContain("Projects/alpha.md")
     })
 
+    it("vault_search_by_tag finds a tag written in a note's body and returns it in body_tags", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_search_by_tag",
+        args: { tag: "fixture-heading" },
+      })
+      expect(result.isError).not.toBe(true)
+      const notes: Array<{ path: string; tags: string[]; body_tags?: string[] }> = JSON.parse(
+        textContent(result),
+      )
+      expect(notes.map(({ path, tags, body_tags }) => ({ path, tags, body_tags }))).toEqual([
+        {
+          path: "Projects/body-tags.md",
+          tags: [],
+          body_tags: ["fixture-body", "fixture-heading", "fixture-comment"],
+        },
+      ])
+    })
+
+    it("vault_list_tags counts tags written in note bodies, and not one inside code", async () => {
+      const result = await callTool({ client, name: "vault_list_tags" })
+      expect(result.isError).not.toBe(true)
+      const tagCounts: Array<{ tag: string; count: number }> = JSON.parse(textContent(result))
+      // Only the fixture's tags are under test; the rest of the vault's tags vary with its notes
+      const fixtureTagCounts = tagCounts.filter(({ tag }) => tag.startsWith("fixture-"))
+      expect(fixtureTagCounts).toEqual([
+        { tag: "fixture-body", count: 1 },
+        { tag: "fixture-comment", count: 1 },
+        { tag: "fixture-heading", count: 1 },
+      ])
+    })
+
     it("vault_list_tags", async () => {
       const result = await callTool({ client, name: "vault_list_tags" })
       expect(result.isError).not.toBe(true)

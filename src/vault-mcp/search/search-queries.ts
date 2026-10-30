@@ -21,6 +21,7 @@ import {
   normalizeTagQuery,
   nestedTagLikePattern,
   NESTED_TAG_PREDICATE,
+  noteHasTagCondition,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
@@ -185,12 +186,16 @@ export const fullTextSearch = (
   }
 
   if (params.filters?.tags) {
-    // Each listed tag matches the tag itself or any tag nested under it, as
-    // Obsidian's tag: search operator does; the JavaScript mirror is
-    // noteMatchesSearchFilters
+    // Each listed tag matches the tag itself or any tag nested under it, in the
+    // tags property or the body, as Obsidian's tag: search operator does; the
+    // JavaScript mirror is noteMatchesSearchFilters
     for (const tag of params.filters.tags) {
-      conditions.push(`EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${NESTED_TAG_PREDICATE})`)
-      queryParams.push(nestedTagLikePattern(tag))
+      const { condition, conditionParams } = noteHasTagCondition({
+        predicate: NESTED_TAG_PREDICATE,
+        predicateParams: [nestedTagLikePattern(tag)],
+      })
+      conditions.push(condition)
+      queryParams.push(...conditionParams)
     }
   }
 
@@ -307,7 +312,7 @@ export const fullTextSearch = (
   const sql = `
     SELECT n.path, n.title,
            snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
-           rank * -1 as score, n.tags, n.folder, n.type, n.created, n.mtime,
+           rank * -1 as score, n.tags, n.body_tags, n.folder, n.type, n.created, n.mtime,
            n.bytes${includeLeadingCallout ? ", n.leading_callout" : ""}
     FROM notes_fts
     JOIN notes n ON n.path = notes_fts.path
@@ -322,7 +327,15 @@ export const fullTextSearch = (
         unknown[],
         Pick<
           NoteRow,
-          "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime" | "bytes"
+          | "path"
+          | "title"
+          | "tags"
+          | "body_tags"
+          | "folder"
+          | "type"
+          | "created"
+          | "mtime"
+          | "bytes"
         > & {
           snippet: string
           score: number
@@ -779,8 +792,9 @@ export const memoryRecall = async (
 
 // ── Discovery queries ──────────────────────────────────────────
 
-/** Finds notes with a tag, ignoring letter case. Unless `exact` is set, a tag
- *  nested under it matches too (`project` matches `project/a`, not `projects`). */
+/** Finds notes with a tag in the tags property or the body, ignoring letter
+ *  case. Unless `exact` is set, a tag nested under it matches too (`project`
+ *  matches `project/a`, not `projects`). */
 export const searchByTag = (
   context: SearchQueryContext,
   params: {
@@ -795,16 +809,20 @@ export const searchByTag = (
   const tagMatch = params.exact
     ? { predicate: "fold_tag(value) = ?", boundValue: normalizeTagQuery(params.tag) }
     : { predicate: NESTED_TAG_PREDICATE, boundValue: nestedTagLikePattern(params.tag) }
+  const { condition, conditionParams } = noteHasTagCondition({
+    predicate: tagMatch.predicate,
+    predicateParams: [tagMatch.boundValue],
+  })
 
   const sql = `
-    SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes n
-    WHERE EXISTS (SELECT 1 FROM json_each(n.tags) WHERE ${tagMatch.predicate})
+    WHERE ${condition}
     ORDER BY mtime DESC, path
     LIMIT ?
   `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(tagMatch.boundValue, limit)
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...conditionParams, limit)
   const results = rows.map(rowToMetadata)
   logger.info("search by tag", {
     tag: params.tag,
@@ -839,7 +857,7 @@ export const searchByFolder = (
     : [escapedFolder, escapedFolder, limit]
 
   const sql = `
-    SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes
     WHERE ${condition}
     ORDER BY mtime DESC, path
@@ -1143,29 +1161,38 @@ export const listTasks = (
   return { total, tasks: taskEntries }
 }
 
-/** Returns all tags in the vault with their note counts, spellings that differ
- *  only in letter case merged under the most-used spelling. */
+/** Returns all tags in the vault, from the tags property and from note bodies,
+ *  with their note counts, spellings that differ only in letter case merged
+ *  under the most-used spelling. */
 export const listAllTags = (
   context: SearchQueryContext,
   _params: Record<string, never>,
   logger: Logger,
 ): TagCount[] => {
-  // Spellings that fold to the same lowercase tag form one group:
+  // Every tag occurrence, property and body alike, is one row. Spellings that
+  // fold to the same lowercase tag form one group:
   // - the group's count is the number of distinct notes carrying any of its
-  //   spellings, so a note tagged both `Project` and `project` counts once;
+  //   spellings in either place, so a note tagged both `Project` and `#project`
+  //   counts once;
   // - the spelling shown is the one with the most occurrences, a repeat within
   //   one note counting again, which is Obsidian's Tags view rule;
   // - a tie goes to the spelling first in SQLite's default BINARY collation
   //   (byte order).
+  // `notes.path` is qualified because json_each has a `path` column of its own.
   const sql = `
-    WITH spelling AS (
-      SELECT fold_tag(value) AS folded, value AS tag, COUNT(*) AS occurrences
-      FROM notes, json_each(notes.tags)
+    WITH occurrence AS (
+      SELECT notes.path AS note_path, value AS tag FROM notes, json_each(notes.tags)
+      UNION ALL
+      SELECT notes.path AS note_path, value AS tag FROM notes, json_each(notes.body_tags)
+    ),
+    spelling AS (
+      SELECT fold_tag(tag) AS folded, tag, COUNT(*) AS occurrences
+      FROM occurrence
       GROUP BY folded, tag
     ),
     folded_count AS (
-      SELECT fold_tag(value) AS folded, COUNT(DISTINCT notes.path) AS count
-      FROM notes, json_each(notes.tags)
+      SELECT fold_tag(tag) AS folded, COUNT(DISTINCT note_path) AS count
+      FROM occurrence
       GROUP BY folded
     ),
     ranked AS (
@@ -1202,7 +1229,7 @@ export const recentNotes = (
       : "ORDER BY mtime DESC, path" // SQL column is still `mtime`
 
   const sql = `
-    SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes
     ${orderClause}
     LIMIT ?
@@ -1376,7 +1403,7 @@ export const searchByProperty = (
    *   JSON's decimal spelling can otherwise become a different SQLite int64.
    */
   const sql = `
-    SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes n
     WHERE EXISTS (
       SELECT 1 FROM json_each(n.properties) property
@@ -1544,7 +1571,7 @@ export const findOrphans = (
   // Self-links (source = target) are excluded from the backlink subquery
   // so a note that only links to itself is still considered an orphan.
   const sql = `
-    SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes
     WHERE path NOT IN (SELECT DISTINCT target FROM links WHERE source != target)
       ${whereClause}
@@ -1647,7 +1674,7 @@ export const modifiedOnDate = (
   const dayBounds = dayToEpochMsRange(params.date)
 
   const sql = `
-    SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
+    SELECT path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes
     WHERE mtime >= ? AND mtime < ?
     ORDER BY mtime DESC, path
@@ -1671,12 +1698,13 @@ export const vaultStats = (
   _params: Record<string, never>,
   logger: Logger,
 ): VaultStats => {
-  // Conditional aggregation: count all rows, then conditionally count rows
-  // whose tags/properties are the empty-JSON sentinel set by upsertNote.
+  // Conditional aggregation counts all rows, then the rows whose tags and
+  // properties are the empty-JSON values upsertNote stores; a note is untagged
+  // only when neither its tags property nor its body holds a tag.
   const sql = `
     SELECT
       COUNT(*) as totalNotes,
-      COALESCE(SUM(CASE WHEN tags = '[]' THEN 1 ELSE 0 END), 0) as untaggedNotes,
+      COALESCE(SUM(CASE WHEN tags = '[]' AND body_tags = '[]' THEN 1 ELSE 0 END), 0) as untaggedNotes,
       COALESCE(SUM(CASE WHEN properties = '{}' THEN 1 ELSE 0 END), 0) as noPropertiesNotes
     FROM notes
   `

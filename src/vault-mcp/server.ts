@@ -5,6 +5,7 @@ import type { Request, Response, NextFunction } from "express"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
+import { createBodyTagParser } from "./search/body-tag-parser.js"
 import { createEmbedder } from "./search/embedder.js"
 import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
@@ -80,6 +81,12 @@ export const bootstrapMemoryIfEnabled = async (
 /** Matches `*`, `?`, or `[` — `find -path` glob metacharacters. */
 const GLOB_CHARS = /[*?[]/
 
+/** How long one note's body tags may take to parse before the note is indexed
+ *  without them. Normal notes parse in about a millisecond, so only a
+ *  pathological note reaches it, and each such note adds at most this to the
+ *  startup rebuild. */
+const BODY_TAG_PARSE_TIMEOUT_MS = 2_000
+
 const startServer = async (): Promise<void> => {
   const config = loadConfig()
   // Trim so a stray trailing space or newline on MCP_AUTH_TOKEN in .env
@@ -151,11 +158,19 @@ const startServer = async (): Promise<void> => {
   // Before the watcher starts, so its template writes are not held and re-read.
   await bootstrapMemoryIfEnabled(config, vaultPath)
 
+  // Lives for the process; its worker is unref'd, so exiting needs no close()
+  const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
+
   // watchVaultAndBuildIndex also returns the rebuild's embedding promise. Startup
   // does not wait for it, so the server takes requests while the embedding pass
   // is still running, and rebuildFromVault logs an embedding failure itself.
   const { count } = await watchVaultAndBuildIndex(
-    { vaultPath, search, watcherOptions: { usePolling: config.windowsBindMount } },
+    {
+      vaultPath,
+      search,
+      bodyTagParser,
+      watcherOptions: { usePolling: config.windowsBindMount },
+    },
     logger,
   )
   logger.info("initial index built", { notesIndexedByRebuild: count })

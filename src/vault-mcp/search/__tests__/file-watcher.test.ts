@@ -25,6 +25,8 @@ import type { SearchIndex } from "../search-index.js"
 import { watchVaultAndBuildIndex } from "../file-watcher.js"
 import { atomicWriteFile } from "../../vault-operations/vault-filesystem.js"
 import { logger } from "../../../logger.js"
+import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
+import type { BodyTagParser } from "../body-tag-parser.js"
 
 // Auto-spy chokidar: spy: true keeps the real implementation, so the
 // integration tests below watch real temp dirs, while the "watch options" suite
@@ -49,15 +51,43 @@ type WatcherOptions = NonNullable<Parameters<typeof watchVaultAndBuildIndex>[0][
 const startWatcherWithoutRebuild = async (
   target: Readonly<{ vaultPath: string; search: SearchIndex }>,
   watcherOptions?: WatcherOptions,
+  bodyTagParser: BodyTagParser = inProcessBodyTagParser,
 ): Promise<void> => {
   vi.spyOn(target.search, "rebuildFromVault").mockResolvedValue({
     count: 0,
     embedding: Promise.resolve(),
   })
   await watchVaultAndBuildIndex(
-    { ...target, ...(watcherOptions ? { watcherOptions } : {}) },
+    { ...target, ...(watcherOptions ? { watcherOptions } : {}), bodyTagParser },
     logger,
   )
+}
+
+/** A body-tag parser that holds its first request until `releaseFirstParse()`,
+ *  standing in for a note that parses slowly, and answers later requests at
+ *  once. `firstParseSignal` resolves with that request's abort signal once it
+ *  arrives. */
+const createParserHoldingFirstRequest = () => {
+  const { promise: firstParseHeld, resolve: resolveFirstParse } = Promise.withResolvers<undefined>()
+  const releaseFirstParse = (): void => resolveFirstParse(undefined)
+  const { promise: firstParseSignal, resolve: reportFirstParse } = Promise.withResolvers<
+    AbortSignal | undefined
+  >()
+  // Flips once, when the first request arrives
+  let firstRequestSeen = false
+
+  const bodyTagParser: BodyTagParser = {
+    parse: async (params, parseLogger) => {
+      if (firstRequestSeen) return inProcessBodyTagParser.parse(params, parseLogger)
+
+      firstRequestSeen = true
+      reportFirstParse(params.signal)
+      await firstParseHeld
+      return inProcessBodyTagParser.parse(params, parseLogger)
+    },
+    close: async () => undefined,
+  }
+  return { bodyTagParser, releaseFirstParse, firstParseSignal }
 }
 
 /** Poll until a condition is met, with timeout. */
@@ -131,6 +161,61 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       await waitFor(() => index.fullTextSearch({ query: "savedopal" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "savedopal" }, logger)
       expect(results.map((result) => result.path)).toEqual(["saved.md"])
+    },
+  )
+
+  it(
+    "leaves no row for a note deleted while its body tags were parsing",
+    { timeout: 15000 },
+    async () => {
+      const { bodyTagParser, releaseFirstParse, firstParseSignal } =
+        createParserHoldingFirstRequest()
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: index },
+        { stabilityThreshold: 200, pollInterval: 50 },
+        bodyTagParser,
+      )
+
+      await writeFile(join(vault, "race.md"), "racing content #race\n", "utf8")
+      const heldParseSignal = await firstParseSignal
+      await unlink(join(vault, "race.md"))
+      // The removal aborts the held parse, which shows the delete was handled
+      // while the parse was still pending
+      await waitFor(() => heldParseSignal?.aborted === true)
+      releaseFirstParse()
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      expect(index.fullTextSearch({ query: "racing" }, logger)).toEqual([])
+      expect(index.searchByTag({ tag: "race" }, logger)).toEqual([])
+    },
+  )
+
+  it(
+    "keeps a newer edit when an older read's body tags finish parsing later",
+    { timeout: 15000 },
+    async () => {
+      const { bodyTagParser, releaseFirstParse, firstParseSignal } =
+        createParserHoldingFirstRequest()
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: index },
+        { stabilityThreshold: 200, pollInterval: 50 },
+        bodyTagParser,
+      )
+
+      await writeFile(join(vault, "edit.md"), "firstversion #one\n", "utf8")
+      const heldParseSignal = await firstParseSignal
+      await writeFile(join(vault, "edit.md"), "secondversion #two\n", "utf8")
+      await waitFor(() => index.fullTextSearch({ query: "secondversion" }, logger).length > 0)
+      releaseFirstParse()
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      expect(heldParseSignal?.aborted).toBe(true)
+      expect(index.fullTextSearch({ query: "firstversion" }, logger)).toEqual([])
+      expect(
+        index
+          .searchByTag({ tag: "two" }, logger)
+          .map(({ path, body_tags }) => ({ path, body_tags })),
+      ).toEqual([{ path: "edit.md", body_tags: ["two"] }])
     },
   )
 
@@ -710,7 +795,11 @@ describe("file watcher — obsolete events and embedding queues", () => {
         edges: [],
       })
     search.upsertNote(
-      { filePath: "target.md", rawContent: "targetamber", fileStat: { mtimeMs: 1000, size: 11 } },
+      withBodyTags({
+        filePath: "target.md",
+        rawContent: "targetamber",
+        fileStat: { mtimeMs: 1000, size: 11 },
+      }),
       logger,
     )
     search.upsertNonMdFile("board.canvas", 100)
@@ -1550,7 +1639,11 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
     })
     for (const [fileName, content] of Object.entries(setup?.seedNotes ?? {})) {
       search.upsertNote(
-        { filePath: fileName, rawContent: content, fileStat: { mtimeMs: 0, size: content.length } },
+        withBodyTags({
+          filePath: fileName,
+          rawContent: content,
+          fileStat: { mtimeMs: 0, size: content.length },
+        }),
         logger,
       )
     }
@@ -1576,7 +1669,7 @@ describe("watchVaultAndBuildIndex — changes during startup", () => {
       ...(newDirectoryRescanDelay ? { newDirectoryRescanDelay } : {}),
     }
     const startup = watchVaultAndBuildIndex(
-      { vaultPath: testVault, search, watcherOptions },
+      { vaultPath: testVault, search, watcherOptions, bodyTagParser: inProcessBodyTagParser },
       logger,
     )
     watcher.emit("ready")
@@ -2765,6 +2858,7 @@ describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCH
           vaultPath: testVault,
           search,
           watcherOptions: { stabilityThreshold: 100, pollInterval: 25 },
+          bodyTagParser: inProcessBodyTagParser,
         },
         logger,
       )
@@ -3016,7 +3110,12 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
       })
       const { fireAddDir } = installFakeChokidar({})
       const startup = watchVaultAndBuildIndex(
-        { vaultPath: vault, search: index, watcherOptions: RESCAN_TEST_OPTIONS },
+        {
+          vaultPath: vault,
+          search: index,
+          watcherOptions: RESCAN_TEST_OPTIONS,
+          bodyTagParser: inProcessBodyTagParser,
+        },
         logger,
       )
       await vi.waitFor(() => {
@@ -3063,6 +3162,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
         filePath: "new-folder/missed.md",
         rawContent: "missed sibling note\n",
         fileStat: { mtimeMs: expect.any(Number), size: 20 },
+        bodyTags: [],
       },
       logger,
     )
@@ -3232,6 +3332,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
           filePath: "new-folder/settled.md",
           rawContent: "settled beside a cycle\n",
           fileStat: { mtimeMs: expect.any(Number), size: 23 },
+          bodyTags: [],
         },
         logger,
       )
@@ -3270,6 +3371,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
         filePath: "new-folder/settled.md",
         rawContent: "settled beside a broken link\n",
         fileStat: { mtimeMs: expect.any(Number), size: 29 },
+        bodyTags: [],
       },
       logger,
     )

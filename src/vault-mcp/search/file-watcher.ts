@@ -14,6 +14,8 @@ import {
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
+import { bodyTagsFromParseResult, type BodyTagParser } from "./body-tag-parser.js"
+import { splitPropertiesBlock } from "../obsidian-markdown/frontmatter.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import type { Logger } from "../../logger.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
@@ -69,6 +71,9 @@ type FileWatcherOptions = Readonly<{
 type WatchVaultParams = Readonly<{
   vaultPath: string
   search: SearchIndex
+  /** Finds each note's body tags off the main thread, for the rebuild and for
+   *  every changed note. */
+  bodyTagParser: BodyTagParser
   watcherOptions?: FileWatcherOptions
 }>
 
@@ -132,7 +137,7 @@ type HoldingWatcher = Readonly<{
  * search index for the process lifetime.
  */
 const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingWatcher => {
-  const { vaultPath, search, watcherOptions } = params
+  const { vaultPath, search, bodyTagParser, watcherOptions } = params
 
   // Each path's latest embedding job. A new job for the path waits for this one,
   // so a note edited many times runs one model job at a time. A job that still
@@ -152,6 +157,18 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    *   drops what it read.
    */
   const currentEvents = new Map<string, symbol>()
+
+  /** Each path's body-tag parse still waiting in the parser's queue. A newer
+   *  event or a removal for the path aborts it, because its result would be
+   *  dropped as superseded anyway, so a slow note saved repeatedly is parsed
+   *  once instead of once per save. */
+  const pendingBodyTagParses = new Map<string, AbortController>()
+
+  /** Aborts a path's pending body-tag parse, when there is one. */
+  const abortPendingBodyTagParse = (relativePath: string): void => {
+    pendingBodyTagParses.get(relativePath)?.abort()
+    pendingBodyTagParses.delete(relativePath)
+  }
 
   // Reassigned, so `let`: going live ends holding, and a failed startup closes
   // the watcher.
@@ -308,7 +325,31 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           return null
         }
       }
+      const readNoteBodyTags = async (content: string): Promise<string[]> => {
+        const parseController = new AbortController()
+        pendingBodyTagParses.set(relativePath, parseController)
+
+        try {
+          const parseResult = await bodyTagParser.parse(
+            {
+              notePath: relativePath,
+              body: splitPropertiesBlock(content).body,
+              signal: parseController.signal,
+            },
+            logger,
+          )
+          return bodyTagsFromParseResult(parseResult)
+        } finally {
+          if (pendingBodyTagParses.get(relativePath) === parseController) {
+            pendingBodyTagParses.delete(relativePath)
+          }
+        }
+      }
+
       const noteSource = await readNoteSource()
+      // Parsed before the token check, with no await between that check and the
+      // write, so a delete or newer event that lands during a slow parse wins
+      const bodyTags = noteSource ? await readNoteBodyTags(noteSource.content) : []
 
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
       if (!noteSource) return { status: "vanished" }
@@ -320,6 +361,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           filePath: relativePath,
           rawContent: content,
           fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+          bodyTags,
         },
         logger,
       )
@@ -385,6 +427,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // Taken before the first await, so events take their tokens in the order
     // their handlers start, and the read that starts last is the one indexed.
     const eventToken = Symbol()
+    abortPendingBodyTagParse(relativePath)
     currentEvents.set(relativePath, eventToken)
 
     // Awaited inside the try, so the token is released only once indexing ends.
@@ -437,6 +480,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // Dropping the path's token makes a read still in flight for it return
     // "superseded", so that read cannot re-add the file removed here.
     currentEvents.delete(relativePath)
+    abortPendingBodyTagParse(relativePath)
 
     if (!filePath.endsWith(".md")) {
       const removeAssetRow = (): boolean => {
@@ -1012,7 +1056,7 @@ export const watchVaultAndBuildIndex = async (
   params: WatchVaultParams,
   logger: Logger,
 ): Promise<{ count: number; embedding: Promise<void> }> => {
-  const { vaultPath, search, watcherOptions } = params
+  const { vaultPath, search, bodyTagParser, watcherOptions } = params
   const holdingWatcher = startHoldingWatcher(params, logger)
   await holdingWatcher.ready
 
@@ -1023,7 +1067,7 @@ export const watchVaultAndBuildIndex = async (
     embedding: Promise<void>
   }> => {
     try {
-      return await search.rebuildFromVault({ vaultPath }, logger)
+      return await search.rebuildFromVault({ vaultPath, bodyTagParser }, logger)
     } catch (error) {
       await holdingWatcher.close()
       throw error
