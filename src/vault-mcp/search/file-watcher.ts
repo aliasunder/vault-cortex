@@ -14,7 +14,11 @@ import {
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
 import type { RebuildResult, SearchIndex } from "./search-index.js"
-import { bodyTagsFromParseResult, type BodyTagParser } from "./body-tag-parser.js"
+import {
+  bodyTagsFromParseResult,
+  type BodyTagParser,
+  type BodyTagParseResult,
+} from "./body-tag-parser.js"
 import { splitPropertiesBlock } from "../obsidian-markdown/frontmatter.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import type { Logger } from "../../logger.js"
@@ -105,9 +109,6 @@ type ChangeIndexResult =
   // A newer event or a removal for the same path replaced this read's token
   // before the read finished, so its content was dropped.
   | { status: "superseded" }
-  // The server is shutting down and has closed the body-tag parser, so the
-  // note's row was left as it was.
-  | { status: "parser-closed" }
   // A note's read, stat or index write failed, or a non-md file's stat or
   // asset-table write did; already logged. A non-md file whose content alone
   // could not be read, extracted or indexed is still "file-indexed".
@@ -330,13 +331,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         }
       }
 
-      /** The note's body tags, or null once the parser has closed. */
-      const readNoteBodyTags = async (content: string): Promise<string[] | null> => {
+      const parseNoteBodyTags = async (content: string): Promise<BodyTagParseResult> => {
         const parseController = new AbortController()
         pendingBodyTagParses.set(relativePath, parseController)
 
         try {
-          const parseResult = await bodyTagParser.parse(
+          return await bodyTagParser.parse(
             {
               notePath: relativePath,
               body: splitPropertiesBlock(content).body,
@@ -344,7 +344,6 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
             },
             logger,
           )
-          return parseResult.outcome === "closed" ? null : bodyTagsFromParseResult(parseResult)
         } finally {
           if (pendingBodyTagParses.get(relativePath) === parseController) {
             pendingBodyTagParses.delete(relativePath)
@@ -357,22 +356,24 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
       // A newer event or a removal during the read would drop the parse's
       // result, so this check runs before parsing
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+      if (!noteSource) return { status: "vanished" }
+
+      const { content, fileStat } = noteSource
 
       // Parsed before the second token check, with no await between that check
       // and the write, so a delete or newer event that lands during a slow parse wins.
-      // An aborted parse returns no tags, but every abort comes with such an event,
-      // so that check discards it
-      const bodyTags = noteSource ? await readNoteBodyTags(noteSource.content) : []
+      // An aborted parse resolves "dropped", but every abort comes with such an
+      // event, so that check discards it
+      const parseResult = await parseNoteBodyTags(content)
 
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
-      if (!noteSource) return { status: "vanished" }
 
-      // The parser closes only when the server shuts down. A write with no body
-      // tags then would replace the stored ones, which the next startup keeps
-      // until its pass parses the note again
-      if (!bodyTags) return { status: "parser-closed" }
-
-      const { content, fileStat } = noteSource
+      // A worker that cannot start, or a parser the server's shutdown closed,
+      // says nothing about the note, so the note keeps its stored tags, as it
+      // does in the startup pass
+      const parseSaysNothing =
+        parseResult.outcome === "unavailable" || parseResult.outcome === "closed"
+      const bodyTags = parseSaysNothing ? "keep-stored" : bodyTagsFromParseResult(parseResult)
 
       const sourceVersion = search.upsertNote(
         {

@@ -744,6 +744,9 @@ export const createSearchIndex = (
     `SELECT path, body_tags FROM notes`,
   )
   const updateBodyTagsStmt = db.prepare(`UPDATE notes SET body_tags = ? WHERE path = ?`)
+  const selectBodyTagsStmt = db.prepare<[string], { body_tags: string }>(
+    `SELECT body_tags FROM notes WHERE path = ?`,
+  )
 
   /** Canvas saves share this catalog until a committed note write or rebuild changes it. */
   let cachedCanvasNotePaths: readonly string[] | undefined
@@ -1530,15 +1533,16 @@ export const createSearchIndex = (
 
   /** Indexes a note and returns its source version, a token embedNote checks so that an embed
    *  of this content is dropped once a later write replaces it. Pass it with the same content.
-   *  `bodyTags` are the tags a body-tag parser found in the text after the properties block.
-   *  The parser runs off the main thread, so the caller parses before calling and this
-   *  function never does. */
+   *  - `bodyTags` are the tags a body-tag parser found in the text after the properties block.
+   *    The parser runs off the main thread, so the caller parses before calling.
+   *  - `"keep-stored"` keeps the tags stored for the path (none for a new path), for a
+   *    caller whose parse said nothing about the note. */
   const upsertNote = (
     params: {
       filePath: string
       rawContent: string
       fileStat: { mtimeMs: number; size: number }
-      bodyTags: ReadonlyArray<string>
+      bodyTags: ReadonlyArray<string> | "keep-stored"
       skipLinks?: boolean
     },
     logger: Logger,
@@ -1574,6 +1578,15 @@ export const createSearchIndex = (
     }
     const kanbanDoneLanes = getKanbanDoneLanes()
 
+    const getBodyTagsToStore = (): ReadonlyArray<string> => {
+      if (bodyTags !== "keep-stored") return bodyTags
+
+      const storedRow = selectBodyTagsStmt.get(filePath)
+      return storedRow
+        ? readStoredBodyTags({ bodyTagsJson: storedRow.body_tags, path: filePath }, logger)
+        : []
+    }
+
     const note = {
       path: filePath,
       title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
@@ -1591,7 +1604,7 @@ export const createSearchIndex = (
       leading_callout: leadingCallout ? JSON.stringify(leadingCallout) : null,
       bytes: fileStat.size,
       kanban_done_lanes: kanbanDoneLanes,
-      body_tags: JSON.stringify(bodyTags),
+      body_tags: JSON.stringify(getBodyTagsToStore()),
     }
 
     const metadataText = buildFtsMetadataText(frontmatter)

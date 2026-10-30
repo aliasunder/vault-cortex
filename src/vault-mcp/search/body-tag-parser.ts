@@ -5,10 +5,12 @@ import type { Logger } from "../../logger.js"
 import { hasTagCandidate } from "../obsidian-markdown/body-tags.js"
 import { describeError } from "../../utils/describe-error.js"
 
-/** How one note's body-tag parse ended. Only "parsed" carries tags; every
- *  other outcome means the note is indexed with no body tags. "unavailable"
- *  means the worker could not start, which says nothing about the note, so a
- *  caller holding the note's earlier tags may keep them. */
+/** How one note's body-tag parse ended.
+ *  - "parsed" carries the tags; "no-candidate", "over-limit" and "failed"
+ *    index the note with none.
+ *  - "unavailable" (the worker could not start) and "closed" (the server is
+ *    shutting down) say nothing about the note, so the index keeps its stored tags.
+ *  - "dropped" comes only with a newer event for the note, whose own read replaces it. */
 export type BodyTagParseResult =
   | { outcome: "parsed"; tags: string[] }
   | { outcome: "no-candidate" }

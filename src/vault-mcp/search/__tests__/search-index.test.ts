@@ -8906,6 +8906,38 @@ describe("body tags", () => {
     expect(tagCounts).toEqual([{ tag: "topic", count: 2 }])
   })
 
+  it("keeps the tags stored for a note's path when given keep-stored, and stores none for a new path", () => {
+    const bodyTagIndex = createIndexWithNotes([
+      { path: "kept.md", content: "firstversion #kept\n" },
+    ])
+
+    bodyTagIndex.upsertNote(
+      {
+        filePath: "kept.md",
+        rawContent: "secondversion\n",
+        fileStat: testStat(2000),
+        bodyTags: "keep-stored",
+      },
+      logger,
+    )
+    bodyTagIndex.upsertNote(
+      {
+        filePath: "new.md",
+        rawContent: "secondversion #new\n",
+        fileStat: testStat(3000),
+        bodyTags: "keep-stored",
+      },
+      logger,
+    )
+
+    const editedNotes = bodyTagIndex.fullTextSearch({ query: "secondversion" }, logger)
+
+    expect(editedNotes.map(({ path, body_tags }) => ({ path, body_tags }))).toEqual([
+      { path: "kept.md", body_tags: ["kept"] },
+      { path: "new.md" },
+    ])
+  })
+
   it("counts a note whose only tag is in its body as tagged", () => {
     const bodyTagIndex = createIndexWithNotes([
       { path: "body-only.md", content: "Note #tagged\n" },
