@@ -245,7 +245,9 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       await writeFile(join(vault, "stopped.md"), "firstversion #kept\n", "utf8")
       await waitFor(() => index.searchByTag({ tag: "kept" }, logger).length > 0)
       parserStopped = true
-      await writeFile(join(vault, "stopped.md"), "secondversion\n", "utf8")
+      // A tag candidate, so the real parser would hand this edit to the worker
+      // instead of answering "no-candidate" itself
+      await writeFile(join(vault, "stopped.md"), "secondversion #changed\n", "utf8")
       await waitFor(() => index.fullTextSearch({ query: "secondversion" }, logger).length > 0)
 
       expect(
