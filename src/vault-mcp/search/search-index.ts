@@ -377,7 +377,10 @@ const readStoredBodyTags = (params: { json: string; path: string }, logger: Logg
 
   try {
     const storedValue: unknown = JSON.parse(json)
-    return isStringArray(storedValue) ? storedValue : []
+
+    if (isStringArray(storedValue)) return storedValue
+    logger.warn("ignored stored body tags that are not a list of names", { path })
+    return []
   } catch (error) {
     logger.warn("ignored stored body tags that are not JSON", { path, error: describeError(error) })
     return []
@@ -2745,7 +2748,13 @@ export const createSearchIndex = (
         const parseResult = await bodyTagParser.parse({ notePath: note.relativePath, body }, logger)
 
         // The parser closes only when the server stops, and the pass stops with it
-        if (parseResult.outcome === "closed") break
+        if (parseResult.outcome === "closed") {
+          logger.info("body-tag pass stopped because the parser closed", {
+            notes: indexedNoteSources.length,
+            notesReached: noteResults.length,
+          })
+          return
+        }
 
         // Checked again after the parse, with no await before the write, so a
         // write or removal during the parse wins

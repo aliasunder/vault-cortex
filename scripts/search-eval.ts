@@ -62,7 +62,10 @@ import type { Logger } from "../src/logger.js"
 import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
 import { createReranker } from "../src/vault-mcp/search/reranker.js"
 import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
-import { createBodyTagParser } from "../src/vault-mcp/search/body-tag-parser.js"
+import {
+  BODY_TAG_PARSE_TIMEOUT_MS,
+  createBodyTagParser,
+} from "../src/vault-mcp/search/body-tag-parser.js"
 
 // ── Counting logger ────────────────────────────────────────────
 
@@ -218,8 +221,8 @@ const main = async (): Promise<void> => {
   } else {
     console.log("rebuilding index (FTS + embedding — this takes minutes)…")
     const rebuildStartMs = performance.now()
-    // The server's 2 s per-note limit, so the eval indexes what production does
-    const bodyTagParser = createBodyTagParser({ timeoutMs: 2_000 })
+    // The server's per-note limit, so the eval indexes what production does
+    const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
     const { count, embedding, bodyTags } = await search.rebuildFromVault(
       { vaultPath: snapshotDir, bodyTagParser },
       logger,

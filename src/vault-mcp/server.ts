@@ -5,7 +5,7 @@ import type { Request, Response, NextFunction } from "express"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
-import { createBodyTagParser } from "./search/body-tag-parser.js"
+import { BODY_TAG_PARSE_TIMEOUT_MS, createBodyTagParser } from "./search/body-tag-parser.js"
 import { createEmbedder } from "./search/embedder.js"
 import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
@@ -80,12 +80,6 @@ export const bootstrapMemoryIfEnabled = async (
 
 /** Matches `*`, `?`, or `[` — `find -path` glob metacharacters. */
 const GLOB_CHARS = /[*?[]/
-
-/** How long one note's body tags may take to parse before the note is indexed
- *  without them. Normal notes parse in about a millisecond, so only a
- *  pathological note reaches it, and each such note delays the notes queued
- *  behind it by at most this. */
-const BODY_TAG_PARSE_TIMEOUT_MS = 2_000
 
 const startServer = async (): Promise<void> => {
   const config = loadConfig()

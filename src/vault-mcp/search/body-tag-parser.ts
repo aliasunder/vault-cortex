@@ -23,6 +23,12 @@ export type BodyTagParser = {
   close: () => Promise<void>
 }
 
+/** The server's limit on one note's body-tag parse, before the note is indexed
+ *  without body tags. Normal notes parse in about a millisecond, so only a
+ *  pathological note reaches it, and each such note delays the notes queued
+ *  behind it by at most this. */
+export const BODY_TAG_PARSE_TIMEOUT_MS = 2_000
+
 /** The tags a parse result gives the index, which are none unless it parsed. */
 export const bodyTagsFromParseResult = (result: BodyTagParseResult): string[] => {
   return result.outcome === "parsed" ? result.tags : []

@@ -9106,15 +9106,29 @@ describe("body tags", () => {
       parse: vi.fn(async () => ({ outcome: "closed" as const })),
       close: async () => undefined,
     }
+    const rebuildLogger = { ...logger, info: vi.fn() }
     const rebuildIndex = createSearchIndex(":memory:")
 
     const { bodyTags } = await rebuildIndex.rebuildFromVault(
       { vaultPath: vaultDir, bodyTagParser: closedParser },
-      logger,
+      rebuildLogger,
     )
     await bodyTags
 
     expect(closedParser.parse).toHaveBeenCalledTimes(1)
     expect(pathsTaggedIn(rebuildIndex, "a")).toEqual([])
+    // Only the rebuild's own line and the stop line, so no "complete" line either
+    expect(rebuildLogger.info).toHaveBeenCalledTimes(2)
+    expect(rebuildLogger.info).toHaveBeenCalledWith("rebuilt index", {
+      count: 2,
+      totalBytes: 14,
+      orphanNoteVectorsRemoved: 0,
+      orphanFileVectorsRemoved: 0,
+      orphanMemoryVectorsRemoved: 0,
+    })
+    expect(rebuildLogger.info).toHaveBeenCalledWith(
+      "body-tag pass stopped because the parser closed",
+      { notes: 2, notesReached: 0 },
+    )
   })
 })

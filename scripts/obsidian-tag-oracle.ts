@@ -39,7 +39,8 @@ const isWorkerTagEntry = (value: unknown): value is WorkerTagEntry => {
 const isWorkerReply = (value: unknown): value is WorkerReply => {
   if (value === null) return true
   if (typeof value !== "object") return false
-  if (!("tags" in value) || !value.tags) return true
+  // Only a missing tags field means none; a falsy one such as 0 is malformed
+  if (!("tags" in value) || value.tags === undefined || value.tags === null) return true
   return Array.isArray(value.tags) && value.tags.every(isWorkerTagEntry)
 }
 
