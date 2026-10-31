@@ -304,11 +304,6 @@ export const createTestClient = async (port: number): Promise<Client> => {
     },
   })
   const client = new Client({ name: "integration-test", version: "1.0.0" })
-  // SDK's StreamableHTTPClientTransport.sessionId is `string | undefined` but
-  // the Transport interface declares `sessionId?: string` — incompatible under
-  // exactOptionalPropertyTypes. Once the SDK fixes the type, the directive
-  // below fails the build as unused, flagging it for deletion.
-  // @ts-expect-error — SDK type misalignment (sessionId optionality)
   await client.connect(transport)
   return client
 }
