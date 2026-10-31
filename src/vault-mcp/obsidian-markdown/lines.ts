@@ -16,9 +16,17 @@
  *  (Windows) notes split into LF-only lines. The single home for this
  *  normalization: every site that turns a note's body into lines for parsing or
  *  editing should use it, so heading/section/callout parsing and empty-line
- *  handling behave identically regardless of the file's line endings. */
-export const splitIntoLines = (content: string): string[] =>
-  content.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+ *  handling behave identically regardless of the file's line endings.
+ *  - A CR at the very end of the content ends a line, as Obsidian's editor reads
+ *    it: `"a\n\r"` splits like `"a\n\n"`, so its last line is kept as empty.
+ *  - Any other CR not followed by LF is text and stays in its line. */
+export const splitIntoLines = (content: string): string[] => {
+  const lineBrokenContent = content.endsWith("\r") ? `${content}\n` : content
+
+  return lineBrokenContent
+    .split("\n")
+    .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+}
 
 // ── Line paging ────────────────────────────────────────────────
 
@@ -54,8 +62,9 @@ export const pageTextByLines = (params: {
   const { text, path, startLine, limit } = params
 
   const splitLines = splitIntoLines(text)
-  // wc -l semantics: a rendition ending in "\n" splits into a trailing ""
-  // that isn't a line of content — drop exactly that one element.
+  // wc -l semantics: a rendition ending in a line break (an LF, or a CR that
+  // closes it) splits into a trailing "" that isn't a line of content — drop
+  // exactly that one element.
   const hasTrailingNewlineArtifact =
     splitLines.length > 0 && splitLines[splitLines.length - 1] === ""
   const contentLines = hasTrailingNewlineArtifact ? splitLines.slice(0, -1) : splitLines
