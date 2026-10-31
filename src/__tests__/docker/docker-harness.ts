@@ -625,10 +625,6 @@ export const createClient = async (port: number, token: string): Promise<Client>
     requestInit: { headers: { Authorization: `Bearer ${token}` } },
   })
   const client = new Client({ name: "remote-boot-test", version: "1.0.0" })
-  // SDK's StreamableHTTPClientTransport.sessionId is `string | undefined` but
-  // the Transport interface declares `sessionId?: string` — incompatible under
-  // exactOptionalPropertyTypes. Self-cleans when the SDK fixes the type.
-  // @ts-expect-error — SDK type misalignment (sessionId optionality)
   await client.connect(transport)
   return client
 }
