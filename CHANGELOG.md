@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.55.5] — 2026-10-31
+
+### Bug Fixes
+
+- **tools:** Append at the end of a note no longer adds a blank line first (#688)
+
+### Maintenance
+
+- **deps:** Bump the production group across 1 directory with 3 updates (#723)
+- **deps:** Bump docker/login-action from 4.6.0 to 4.7.0 (#718)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.39.0 to 4.39.1 (#721)
+- **deps:** Bump tailscale/github-action from 4.2.0 to 4.3.0 (#722)
+
 ## [0.55.4] — 2026-10-30
 
 ### Bug Fixes
