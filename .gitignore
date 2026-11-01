@@ -5,6 +5,8 @@ dist/
 *.db
 *.sqlite
 *.log
+# The search models download beside the index, so INDEX_DB_PATH=index.db puts them here
+/models/
 CLAUDE.local.md
 .serena/
 # .claude/ is local state except the committed session hooks (a trailing-slash
