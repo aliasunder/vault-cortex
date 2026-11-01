@@ -118,7 +118,8 @@ const startServer = async (): Promise<void> => {
     )
   }
 
-  const indexDbPath = env.get("INDEX_DB_PATH").asString()
+  // An empty INDEX_DB_PATH counts as unset, as it does in the :remote init scripts.
+  const indexDbPath = env.get("INDEX_DB_PATH").asString() || undefined
   // /data is the Docker volume where the container persists indexes and logs
   const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
