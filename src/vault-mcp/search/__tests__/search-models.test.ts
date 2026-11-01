@@ -53,6 +53,7 @@ describe("createSearchModels", () => {
     )
 
     expect(transformersState.cacheDir).toBe("/test-data/models")
+    expect(transformersState.imports).toBe(1)
     expect(models).toEqual({ embedder: EMBEDDER_API, reranker: RERANKER_API })
   })
 
