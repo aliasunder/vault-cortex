@@ -5,7 +5,7 @@ dist/
 *.db
 *.sqlite
 *.log
-# The search models download beside the index, so INDEX_DB_PATH=index.db puts them here
+# The search models download beside the index, so INDEX_DB_PATH=index.db puts them in the repo root
 /models/
 CLAUDE.local.md
 .serena/

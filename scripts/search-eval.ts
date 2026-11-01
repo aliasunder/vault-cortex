@@ -67,9 +67,8 @@ import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
 // ── Counting logger ────────────────────────────────────────────
 
 /** Silences the index's per-query info logs, records warn/error lines so
- *  the embedding pass can be failed on any logged problem, and tallies the
- *  note-KNN "vector search" lines (knnHits vs uniqueNotes) — the dedup
- *  collapse ratio shows when one note's chunks flood the KNN window. */
+ *  the embedding pass can be failed on any logged problem, and keeps each
+ *  "vector search" line's knnHits and uniqueNotes for the diversity report. */
 const createCountingLogger = (): {
   logger: Logger
   problems: { level: string; message: string }[]
@@ -224,6 +223,9 @@ const main = async (): Promise<void> => {
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
     await embedding
+
+    // This finds the embedding pass's warn/error lines by their wording, so a
+    // message renamed without "embed" in it would slip past the check.
     const embedProblems = problems.filter((problem) => {
       return problem.message.includes("embed")
     })
@@ -296,7 +298,12 @@ const main = async (): Promise<void> => {
   }
 
   // ── Report ──────────────────────────────────────────────────
-  const primaryLimit = limits[0] ?? 20
+  const [primaryLimit] = limits
+
+  if (!primaryLimit) {
+    throw new Error("--limits resolved to an empty list")
+  }
+
   console.log(
     `\n=== ${cliArgs.label} · fileLegWeight=${fileLegWeight ?? "default"} · kindPrefix=${String(cliArgs["kind-prefix"])} ===`,
   )

@@ -10,6 +10,7 @@ import { describeError } from "../../utils/describe-error.js"
 
 const MODEL_NAME = "Xenova/bge-small-en-v1.5"
 
+/** MODEL_NAME's vector width; search-index.ts's vec0 tables declare it as `float[384]`. */
 export const EMBEDDING_DIMENSIONS = 384
 
 /** SHA-256 content hash — used to skip re-embedding unchanged chunks. */
@@ -37,8 +38,8 @@ export const createEmbedder = (params: { modelCacheDir: string }, logger: Logger
       try {
         const startMs = performance.now()
         const { env, pipeline } = await import("@huggingface/transformers")
-        // pipeline() ignores its cache_dir option when it reads the model's
-        // config.json, so only the library-wide folder keeps every file cached.
+        // pipeline() ignores its cache_dir option for config.json, so set the process-wide
+        // folder; the reranker's from_pretrained calls honour cache_dir for every file.
         env.cacheDir = modelCacheDir
         const instance = await pipeline("feature-extraction", MODEL_NAME, {
           dtype: "q8",
@@ -78,7 +79,7 @@ export const createEmbedder = (params: { modelCacheDir: string }, logger: Logger
   const embedText = async (text: string): Promise<Float32Array> => {
     const pipe = await getPipeline()
     const output = await pipe(text, { pooling: "mean", normalize: true })
-    return new Float32Array(toFloat32Array(output.data))
+    return toFloat32Array(output.data)
   }
 
   /** Embed multiple texts in a single pipeline call. Returns one Float32Array per input. */
@@ -90,12 +91,9 @@ export const createEmbedder = (params: { modelCacheDir: string }, logger: Logger
 
     // The pipeline returns all embeddings concatenated in a single flat array
     // (e.g. 3 inputs × 384 dims = 1152 floats). Slice out each input's embedding.
-    return texts.map(
-      (_text, index) =>
-        new Float32Array(
-          data.slice(index * EMBEDDING_DIMENSIONS, (index + 1) * EMBEDDING_DIMENSIONS),
-        ),
-    )
+    return texts.map((_text, index) => {
+      return data.slice(index * EMBEDDING_DIMENSIONS, (index + 1) * EMBEDDING_DIMENSIONS)
+    })
   }
 
   return { embedText, embedBatch }

@@ -77,7 +77,7 @@ export const bootstrapMemoryIfEnabled = async (
   await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
 }
 
-/** Matches `*`, `?`, or `[` — `find -path` glob metacharacters. */
+/** Matches `*`, `?`, or `[`, which the `:remote` init scripts' `find -path` reads as wildcards. */
 const GLOB_CHARS = /[*?[]/
 
 const startServer = async (): Promise<void> => {
@@ -91,6 +91,7 @@ const startServer = async (): Promise<void> => {
   if (GLOB_CHARS.test(vaultPath)) {
     throw new Error("VAULT_PATH must not contain glob characters (*, ?, [)")
   }
+
   const publicUrl = env.get("PUBLIC_URL").required().asString()
   const serverUrl = new URL(publicUrl)
 
@@ -99,14 +100,18 @@ const startServer = async (): Promise<void> => {
       "PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)",
     )
   }
+
   // Credentials in the URL would be minted into every token's `iss`
   // claim and served by the discovery documents — refuse to start.
   if (urlHasCredentials(serverUrl)) {
     throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
   }
+
+  // A bare trailing ? or # parses to an empty search or hash, so check the raw string.
   if (publicUrl.includes("?") || publicUrl.includes("#")) {
     throw new Error("PUBLIC_URL must be a bare origin — no query string or fragment")
   }
+
   if (serverUrl.pathname.replace(/\/+$/, "") !== "") {
     throw new Error(
       "PUBLIC_URL must be a bare origin — path prefixes are not supported (e.g. https://vault.example.com)",
@@ -114,15 +119,17 @@ const startServer = async (): Promise<void> => {
   }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
-  // /data is the Docker volume where the container persists indexes, logs
-  // and the search models
+  // /data is the Docker volume where the container persists indexes and logs
   const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
+
   // oauth.db sits beside the search index, so INDEX_DB_PATH moves both.
   const oauthDbPath = `${dataDir}/oauth.db`
-  // The transformers library's default cache folder, under /app, is writable
-  // only by UID 1000 and is lost each time the container is recreated.
+
+  // The search models download beside the index too. The library's default, under /app,
+  // is lost on every recreate, and a server run with a PUID other than 1000 can't write it.
   const modelCacheDir = `${dataDir}/models`
+
   const port = env.get("PORT").default("8000").asPortNumber()
   const host = env.get("HOST").default("0.0.0.0").asString()
 
@@ -141,10 +148,13 @@ const startServer = async (): Promise<void> => {
   })
 
   const embedder = config.embeddingEnabled ? createEmbedder({ modelCacheDir }, logger) : undefined
+
+  // EMBEDDING_ENABLED=false turns off both models, so neither one downloads.
   const reranker =
     config.embeddingEnabled && config.rerankMode === "blended"
       ? createReranker({ modelCacheDir }, logger)
       : undefined
+
   // The status registry is captured at boot so listings and writes classify
   // with one map; format and date toggles are read live per task write.
   const { statusRegistry } = await readTaskFormatConfig(vaultPath, logger)
@@ -233,8 +243,8 @@ const startServer = async (): Promise<void> => {
 
   // Started after listen so a large trash backlog (unlinks at bind-mount
   // latency) can never stall /healthz past container health-check budgets.
-  // Sync deploys never trash (the delete handler bypasses to "none") and a
-  // read-only server never modifies the vault, so neither runs.
+  // Sync deploys never trash (their deletes skip .trash/ and remove the note
+  // for good) and a read-only server never modifies the vault, so neither runs.
   const trashBookkeepingEnabled = !config.readOnlyMode && !config.obsidianSyncEnabled
 
   process.on("SIGTERM", createShutdownHandler(httpServer))

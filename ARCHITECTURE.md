@@ -443,7 +443,7 @@ Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts
 | **Vector KNN** | sqlite-vec (brute-force)                                                                 | in DB    | <1ms                   | negligible  |
 | **RRF fusion** | application-layer                                                                        | —        | <1ms                   | negligible  |
 
-Both models lazy-load on first use (~1–2s cold start each, cached after). The first load downloads them into `models/` beside the search index, on the data volume, so a recreated container reuses them. Total disk: ~59MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
+Both models lazy-load on first use (~1–2s cold start each, kept in memory after). The first load downloads them into `models/` beside the search index, on the data volume, so a recreated container reuses them. Total disk: ~59MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
 
 ### Query fusion
 
@@ -926,8 +926,8 @@ graph LR
    `INDEX_DB_PATH`, relocated under `STORAGE_ROOT` when set, and `PUBLIC_URL`
    filled from the hosting platform's variable when unset — see "Single-volume
    layout" below) → `init-setup-user` (adjusts the `obsidian` user to
-   PUID/PGID and fixes ownership of the vault, index, and config directories
-   plus `/home/obsidian`) →
+   PUID/PGID and fixes ownership of the vault and config directories, the
+   index directory with the search models in it, and `/home/obsidian`) →
    `init-check-auth` (looks for the Sync token in the env var, then in the
    Sync client's own credential file on the config volume; with neither,
    the boot switches to [setup mode](#setup-mode) instead of stopping) →
