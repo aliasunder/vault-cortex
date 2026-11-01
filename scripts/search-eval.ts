@@ -50,6 +50,7 @@
 import { parseArgs } from "node:util"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
+import { join } from "node:path"
 import {
   countUnexpectedFilesInWindow,
   judgmentFileSchema,
@@ -200,8 +201,10 @@ const main = async (): Promise<void> => {
   }
 
   const { logger, problems, vectorSearchStats } = createCountingLogger()
-  const embedder = createEmbedder(logger)
-  const reranker = createReranker(logger)
+  // The work dir outlives each run, so later runs reuse the downloaded models.
+  const modelCacheDir = join(workDir, "models")
+  const embedder = createEmbedder({ modelCacheDir }, logger)
+  const reranker = createReranker({ modelCacheDir }, logger)
   const search = createSearchIndex(indexDbPath, embedder, reranker, {
     memoryDir: "About Me",
     fileToolsEnabled: true,

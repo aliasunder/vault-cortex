@@ -114,11 +114,15 @@ const startServer = async (): Promise<void> => {
   }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
-  // /data is the Docker volume where the container persists indexes and logs
+  // /data is the Docker volume where the container persists indexes, logs
+  // and the search models
   const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
   // oauth.db sits beside the search index, so INDEX_DB_PATH moves both.
   const oauthDbPath = `${dataDir}/oauth.db`
+  // The transformers library's default cache folder, under /app, is writable
+  // only by UID 1000 and is lost each time the container is recreated.
+  const modelCacheDir = `${dataDir}/models`
   const port = env.get("PORT").default("8000").asPortNumber()
   const host = env.get("HOST").default("0.0.0.0").asString()
 
@@ -136,9 +140,11 @@ const startServer = async (): Promise<void> => {
     trashRetentionDays: config.trashRetentionDays ?? "none",
   })
 
-  const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
+  const embedder = config.embeddingEnabled ? createEmbedder({ modelCacheDir }, logger) : undefined
   const reranker =
-    config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
+    config.embeddingEnabled && config.rerankMode === "blended"
+      ? createReranker({ modelCacheDir }, logger)
+      : undefined
   // The status registry is captured at boot so listings and writes classify
   // with one map; format and date toggles are read live per task write.
   const { statusRegistry } = await readTaskFormatConfig(vaultPath, logger)

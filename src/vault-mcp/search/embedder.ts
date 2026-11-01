@@ -1,7 +1,7 @@
 /** Lazy-loading embedding pipeline for local ONNX models.
  *
- * Factory-closure pattern: `createEmbedder(logger)` returns the embed API.
- * The model is downloaded on first use and cached by the transformers library.
+ * Factory-closure pattern: `createEmbedder({ modelCacheDir }, logger)` returns
+ * the embed API. The model is downloaded on first use into `modelCacheDir`.
  * Bi-encoder for vector embeddings — see `reranker.ts` for the cross-encoder. */
 
 import { createHash } from "node:crypto"
@@ -17,7 +17,9 @@ export const contentHash = (text: string): string => createHash("sha256").update
 
 export type Embedder = ReturnType<typeof createEmbedder>
 
-export const createEmbedder = (logger: Logger) => {
+export const createEmbedder = (params: { modelCacheDir: string }, logger: Logger) => {
+  const { modelCacheDir } = params
+
   type TransformersPipeline = Awaited<
     ReturnType<typeof import("@huggingface/transformers").pipeline<"feature-extraction">>
   >
@@ -37,6 +39,7 @@ export const createEmbedder = (logger: Logger) => {
         const { pipeline } = await import("@huggingface/transformers")
         const instance = await pipeline("feature-extraction", MODEL_NAME, {
           dtype: "q8",
+          cache_dir: modelCacheDir,
           // Pin ONNX to 1 thread — bge-small-en-v1.5 Q8 is too small for
           // intra-op parallelism to offset thread dispatch overhead, and the
           // default (0 = all cores) saturates the CPU on low-vCPU hosts.

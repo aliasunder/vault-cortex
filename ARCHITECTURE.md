@@ -443,7 +443,7 @@ Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts
 | **Vector KNN** | sqlite-vec (brute-force)                                                                 | in DB    | <1ms                   | negligible  |
 | **RRF fusion** | application-layer                                                                        | —        | <1ms                   | negligible  |
 
-Both models lazy-load on first use (~1–2s cold start each, cached after). Total disk: ~45MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
+Both models lazy-load on first use (~1–2s cold start each, cached after). The first load downloads them into `models/` beside the search index, on the data volume, so a recreated container reuses them. Total disk: ~45MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
 
 ### Query fusion
 
@@ -917,7 +917,7 @@ graph LR
     B --> C["svc-vault-mcp<br/>(UID 1000)<br/>MCP server :8000"]
     B -.->|shared volume| D[("/vault<br/>source of truth")]
     C -.->|shared volume| D
-    C -.->|index + OAuth| E[("/data<br/>index.db + oauth.db")]
+    C -.->|index, OAuth, models| E[("/data<br/>index.db + oauth.db + models/")]
     B -.->|sync state| F[("config volume<br/>/home/obsidian/.config")]
 ```
 
@@ -1093,7 +1093,7 @@ layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
 rejected at startup because `find -path` treats them as wildcards):
 
 - `$STORAGE_ROOT/vault` → `VAULT_PATH`
-- `$STORAGE_ROOT/data/index.db` → `INDEX_DB_PATH` (OAuth state lives beside it)
+- `$STORAGE_ROOT/data/index.db` → `INDEX_DB_PATH` (OAuth state and the search models live beside it)
 - `$STORAGE_ROOT/data/logs` → `LOG_DIR`
 - `$STORAGE_ROOT/config` → `XDG_CONFIG_HOME` — the
   [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/)

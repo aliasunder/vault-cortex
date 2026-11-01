@@ -4,6 +4,8 @@ import { logger } from "../../../logger.js"
 
 // ── Mock for cross-encoder factory tests ──────────────────────
 
+const MODEL_CACHE_DIR = "/test-data/models"
+
 // Deterministic mock: each (query, document) pair produces a score
 // derived from the document text length, so different documents give
 // distinguishable scores. The actual scoring logic is in the model —
@@ -181,7 +183,7 @@ describe("createReranker", () => {
 
   const loadReranker = async () => {
     const { createReranker } = await import("../reranker.js")
-    return createReranker(logger)
+    return createReranker({ modelCacheDir: MODEL_CACHE_DIR }, logger)
   }
 
   describe("rerankPairs", () => {
@@ -241,6 +243,31 @@ describe("createReranker", () => {
         "Xenova/ms-marco-MiniLM-L-6-v2",
         {
           dtype: "q8",
+          cache_dir: MODEL_CACHE_DIR,
+          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
+        },
+      )
+    })
+
+    it("downloads the tokenizer and model into the cache folder it was given", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedAutoTokenizer = vi.mocked(transformers.AutoTokenizer)
+      const mockedAutoModel = vi.mocked(transformers.AutoModelForSequenceClassification)
+
+      const reranker = await loadReranker()
+      await reranker.rerankPairs("trigger load", ["doc"])
+
+      expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledTimes(1)
+      expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledWith(
+        "Xenova/ms-marco-MiniLM-L-6-v2",
+        { cache_dir: "/test-data/models" },
+      )
+      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledTimes(1)
+      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledWith(
+        "Xenova/ms-marco-MiniLM-L-6-v2",
+        {
+          dtype: "q8",
+          cache_dir: "/test-data/models",
           session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
         },
       )

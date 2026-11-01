@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { contentHash, EMBEDDING_DIMENSIONS } from "../embedder.js"
 import { logger } from "../../../logger.js"
 
+const MODEL_CACHE_DIR = "/test-data/models"
+
 // First input gets fill 0.1, second gets 0.2, etc.
 const MOCK_EMBEDDING_FIRST = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)
 
@@ -31,7 +33,7 @@ describe("createEmbedder", () => {
   // Import inside the test so the mock is active
   const loadEmbedder = async () => {
     const { createEmbedder } = await import("../embedder.js")
-    return createEmbedder(logger)
+    return createEmbedder({ modelCacheDir: MODEL_CACHE_DIR }, logger)
   }
 
   describe("embedText", () => {
@@ -74,6 +76,26 @@ describe("createEmbedder", () => {
         "Xenova/bge-small-en-v1.5",
         {
           dtype: "q8",
+          cache_dir: MODEL_CACHE_DIR,
+          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
+        },
+      )
+    })
+
+    it("downloads the model into the cache folder it was given", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedPipeline = vi.mocked(transformers.pipeline)
+
+      const embedder = await loadEmbedder()
+      await embedder.embedText("trigger load")
+
+      expect(mockedPipeline).toHaveBeenCalledTimes(1)
+      expect(mockedPipeline).toHaveBeenCalledWith(
+        "feature-extraction",
+        "Xenova/bge-small-en-v1.5",
+        {
+          dtype: "q8",
+          cache_dir: "/test-data/models",
           session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
         },
       )

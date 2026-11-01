@@ -11,12 +11,14 @@ export type Reranker = ReturnType<typeof createReranker>
 
 /** Lazy-loading cross-encoder reranker for query-document relevance scoring.
  *
- *  Factory-closure pattern: `createReranker(logger)` returns the rerank API.
- *  The model is downloaded on first use and cached by the transformers library.
+ *  Factory-closure pattern: `createReranker({ modelCacheDir }, logger)` returns
+ *  the rerank API. The model is downloaded on first use into `modelCacheDir`.
  *  Uses `AutoModelForSequenceClassification` + `AutoTokenizer` (not the
  *  `pipeline()` API) because text-classification pipelines do not support
  *  the `text_pair` tokenizer input needed for cross-encoder scoring. */
-export const createReranker = (logger: Logger) => {
+export const createReranker = (params: { modelCacheDir: string }, logger: Logger) => {
+  const { modelCacheDir } = params
+
   type TransformersModule = typeof import("@huggingface/transformers")
   type TokenizerInstance = Awaited<
     ReturnType<TransformersModule["AutoTokenizer"]["from_pretrained"]>
@@ -47,12 +49,13 @@ export const createReranker = (logger: Logger) => {
         const { AutoTokenizer, AutoModelForSequenceClassification } =
           await import("@huggingface/transformers")
         const [loadedTokenizer, loadedModel] = await Promise.all([
-          AutoTokenizer.from_pretrained(RERANKER_MODEL),
+          AutoTokenizer.from_pretrained(RERANKER_MODEL, { cache_dir: modelCacheDir }),
           // INT8 quantization — halves model size (~20MB vs ~80MB) with
           // negligible quality loss for cross-encoders (full-attention
           // pair scoring is robust to reduced precision).
           AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
             dtype: "q8",
+            cache_dir: modelCacheDir,
             // Pin ONNX to 1 thread — ms-marco-MiniLM is scored one pair at
             // a time and is too small for intra-op parallelism to help.
             // Explicit pinning prevents CPU saturation on low-vCPU hosts
