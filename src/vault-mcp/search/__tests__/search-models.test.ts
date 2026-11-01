@@ -1,42 +1,38 @@
 import { describe, it, expect, vi, beforeEach, onTestFinished } from "vitest"
 import { logger } from "../../../logger.js"
 
-// What the transformers.js mock saw: how many times the library was imported,
-// the cache folder it holds, and whether setting that folder should fail.
-const transformersState = vi.hoisted(() => {
-  const state: { imports: number; cacheDir: string; failSetup: boolean } = {
-    imports: 0,
-    cacheDir: "/library-default-cache/",
-    failSetup: false,
-  }
-  return state
-})
+const LIBRARY_DEFAULT_CACHE_DIR = "/library-default-cache/"
 
-vi.mock("@huggingface/transformers", () => {
+// What the transformers.js mock saw: how many times the library was imported,
+// and the cache folder it holds.
+const transformersState = { imports: 0, cacheDir: LIBRARY_DEFAULT_CACHE_DIR }
+
+const mockTransformers = () => {
   transformersState.imports += 1
+
   return {
     env: {
       get cacheDir(): string {
         return transformersState.cacheDir
       },
       set cacheDir(folder: string) {
-        if (transformersState.failSetup) throw new Error("runtime unavailable")
         transformersState.cacheDir = folder
       },
     },
   }
-})
+}
 
 const EMBEDDER_API = { embedText: expect.any(Function), embedBatch: expect.any(Function) }
 const RERANKER_API = { rerankPairs: expect.any(Function) }
 
 describe("createSearchModels", () => {
   beforeEach(() => {
-    // A fresh module registry per test, so each test counts its own library imports.
     vi.resetModules()
     transformersState.imports = 0
-    transformersState.cacheDir = "/library-default-cache/"
-    transformersState.failSetup = false
+    transformersState.cacheDir = LIBRARY_DEFAULT_CACHE_DIR
+    // vi.resetModules keeps a mocked module's first result, so the mock is registered again
+    // per test. Otherwise only the file's first test would count its library import.
+    vi.doMock("@huggingface/transformers", mockTransformers)
   })
 
   const loadCreateSearchModels = async () => {
@@ -78,12 +74,16 @@ describe("createSearchModels", () => {
 
     expect(models).toEqual({ embedder: undefined, reranker: undefined })
     expect(transformersState.imports).toBe(0)
-    expect(transformersState.cacheDir).toBe("/library-default-cache/")
+    expect(transformersState.cacheDir).toBe(LIBRARY_DEFAULT_CACHE_DIR)
   })
 
-  it("logs a failed model runtime setup and still returns the models", async () => {
-    transformersState.failSetup = true
-    const errorSpy = vi.spyOn(logger, "error")
+  it("logs a failed model runtime import and still returns the models", async () => {
+    // Importing the library fails the way it does when the ONNX runtime can't load.
+    vi.doMock("@huggingface/transformers", () => {
+      transformersState.imports += 1
+      throw new Error("runtime unavailable")
+    })
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => undefined)
     onTestFinished(() => errorSpy.mockRestore())
     const createSearchModels = await loadCreateSearchModels()
 
@@ -92,10 +92,16 @@ describe("createSearchModels", () => {
       logger,
     )
 
+    expect(transformersState.imports).toBe(1)
     expect(errorSpy).toHaveBeenCalledTimes(1)
+    // Vitest wraps an error thrown by a mock factory in its own error, whose text it owns.
     expect(errorSpy).toHaveBeenCalledWith(
       "search model runtime failed to load, falling back to keyword-only search",
-      { error: "[Error]: runtime unavailable" },
+      {
+        error: expect.stringMatching(
+          /^\[Error\]: \[vitest\] There was an error when mocking a module\./,
+        ),
+      },
     )
     expect(models).toEqual({ embedder: EMBEDDER_API, reranker: RERANKER_API })
   })
