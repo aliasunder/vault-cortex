@@ -50,9 +50,9 @@ export const createReranker = (params: { modelCacheDir: string }, logger: Logger
           await import("@huggingface/transformers")
         const [loadedTokenizer, loadedModel] = await Promise.all([
           AutoTokenizer.from_pretrained(RERANKER_MODEL, { cache_dir: modelCacheDir }),
-          // INT8 quantization — halves model size (~20MB vs ~80MB) with
-          // negligible quality loss for cross-encoders (full-attention
-          // pair scoring is robust to reduced precision).
+          // INT8 quantization — a quarter of the full-precision size (~23MB
+          // vs ~91MB), with negligible quality loss for cross-encoders
+          // (full-attention pair scoring is robust to reduced precision).
           AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
             dtype: "q8",
             cache_dir: modelCacheDir,

@@ -438,12 +438,12 @@ Alongside tools, the server registers MCP **prompts** (`prompts/list` / `prompts
 
 | Component      | Model                                                                                    | Download | Query latency          | Peak memory |
 | -------------- | ---------------------------------------------------------------------------------------- | -------- | ---------------------- | ----------- |
-| **Embedding**  | [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (33M, q8)           | ~25MB    | ~8ms                   | ~200MB      |
-| **Reranker**   | [ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2) (22M, q8) | ~20MB    | ~200ms (20 candidates) | ~100MB      |
+| **Embedding**  | [bge-small-en-v1.5](https://huggingface.co/Xenova/bge-small-en-v1.5) (33M, q8)           | ~35MB    | ~8ms                   | ~200MB      |
+| **Reranker**   | [ms-marco-MiniLM-L-6-v2](https://huggingface.co/Xenova/ms-marco-MiniLM-L-6-v2) (22M, q8) | ~24MB    | ~200ms (20 candidates) | ~100MB      |
 | **Vector KNN** | sqlite-vec (brute-force)                                                                 | in DB    | <1ms                   | negligible  |
 | **RRF fusion** | application-layer                                                                        | —        | <1ms                   | negligible  |
 
-Both models lazy-load on first use (~1–2s cold start each, cached after). The first load downloads them into `models/` beside the search index, on the data volume, so a recreated container reuses them. Total disk: ~45MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
+Both models lazy-load on first use (~1–2s cold start each, cached after). The first load downloads them into `models/` beside the search index, on the data volume, so a recreated container reuses them. Total disk: ~59MB. Total peak memory: ~300MB above baseline. Opt-out: `EMBEDDING_ENABLED=false` disables both models; `RERANK_MODE=none` keeps vectors but skips the cross-encoder.
 
 ### Query fusion
 
@@ -1418,7 +1418,7 @@ Docker hardening, and durability seatbelts above.
 
 **Local-only** is free — Docker on your machine, vault bind-mounted. No VPS, no Sync subscription.
 
-**Remote** adds a VPS (the reference deployment uses Lightsail) and [Obsidian Sync](https://obsidian.md/sync) ($4 USD/mo). The server runs on modest hardware — a 2 GiB instance handles full semantic search for a typical vault (~1,000 notes); 4 GiB adds headroom for concurrent ONNX inference and larger vaults. Skip semantic search entirely (`EMBEDDING_ENABLED=false`) and even smaller instances work — the keyword-only footprint is under 200 MiB. Embeddings are generated locally by in-process ONNX models (~45 MB total) — no external API, no per-query cost.
+**Remote** adds a VPS (the reference deployment uses Lightsail) and [Obsidian Sync](https://obsidian.md/sync) ($4 USD/mo). The server runs on modest hardware — a 2 GiB instance handles full semantic search for a typical vault (~1,000 notes); 4 GiB adds headroom for concurrent ONNX inference and larger vaults. Skip semantic search entirely (`EMBEDDING_ENABLED=false`) and even smaller instances work — the keyword-only footprint is under 200 MiB. Embeddings are generated locally by in-process ONNX models (~59 MB total) — no external API, no per-query cost.
 
 | Component          | Cost                                               |
 | ------------------ | -------------------------------------------------- |
