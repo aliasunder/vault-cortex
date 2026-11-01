@@ -1,7 +1,7 @@
 /** Lazy-loading embedding pipeline for local ONNX models.
  *
  * Factory-closure pattern: `createEmbedder(logger)` returns the embed API. The
- * model is downloaded on first use into the folder `setModelCacheDir` sets.
+ * model is downloaded on first use into the folder `createSearchModels` sets.
  * Bi-encoder for vector embeddings — see `reranker.ts` for the cross-encoder. */
 
 import { createHash } from "node:crypto"

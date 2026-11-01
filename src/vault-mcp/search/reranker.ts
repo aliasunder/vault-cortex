@@ -12,7 +12,7 @@ export type Reranker = ReturnType<typeof createReranker>
 /** Lazy-loading cross-encoder reranker for query-document relevance scoring.
  *
  *  Factory-closure pattern: `createReranker(logger)` returns the rerank API. The
- *  model is downloaded on first use into the folder `setModelCacheDir` sets.
+ *  model is downloaded on first use into the folder `createSearchModels` sets.
  *  Uses `AutoModelForSequenceClassification` + `AutoTokenizer` (not the
  *  `pipeline()` API) because text-classification pipelines do not support
  *  the `text_pair` tokenizer input needed for cross-encoder scoring. */

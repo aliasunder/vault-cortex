@@ -5,9 +5,7 @@ import type { Request, Response, NextFunction } from "express"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
-import { createEmbedder } from "./search/embedder.js"
-import { createReranker } from "./search/reranker.js"
-import { setModelCacheDir } from "./search/model-cache.js"
+import { createSearchModels } from "./search/search-models.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { readTaskFormatConfig } from "./vault-operations/task-format-config.js"
 import { trashSweeper } from "./vault-operations/trash-sweeper.js"
@@ -149,24 +147,10 @@ const startServer = async (): Promise<void> => {
     trashRetentionDays: config.trashRetentionDays ?? "none",
   })
 
-  // Skipped with embeddings off, because setModelCacheDir's import loads the ONNX runtime.
-  if (config.embeddingEnabled) {
-    // Like any model failure, a failed load leaves search keyword-only and the server running.
-    // Node caches the failed import, so no model can later load into the library's default folder.
-    try {
-      await setModelCacheDir(modelCacheDir)
-    } catch (error) {
-      logger.error("ONNX runtime failed to load, falling back to FTS-only search", {
-        error: describeError(error),
-      })
-    }
-  }
-
-  const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
-
-  // EMBEDDING_ENABLED=false turns off both models, so neither one downloads.
-  const reranker =
-    config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
+  const { embedder, reranker } = await createSearchModels(
+    { embeddingEnabled: config.embeddingEnabled, rerankMode: config.rerankMode, modelCacheDir },
+    logger,
+  )
 
   // The status registry is captured at boot so listings and writes classify
   // with one map; format and date toggles are read live per task write.
