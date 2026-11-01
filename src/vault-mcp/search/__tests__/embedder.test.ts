@@ -2,21 +2,12 @@ import { describe, it, expect, vi, beforeEach, onTestFinished } from "vitest"
 import { contentHash, EMBEDDING_DIMENSIONS } from "../embedder.js"
 import { logger } from "../../../logger.js"
 
-const MODEL_CACHE_DIR = "/test-data/models"
-
 // First input gets fill 0.1, second gets 0.2, etc.
 const MOCK_EMBEDDING_FIRST = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)
-
-// The library cache folder each pipeline() load saw, in load order.
-const pipelineLoads = vi.hoisted(() => {
-  const cacheDirs: Array<string | null> = []
-  return { cacheDirs }
-})
 
 // Each input gets a distinct fill value (0.1 * (inputIndex + 1)) so batch
 // slicing can be verified — identical fills would mask offset errors.
 vi.mock("@huggingface/transformers", () => {
-  const env = { cacheDir: "/library-default-cache/" }
   const embeddingPipe = vi.fn().mockImplementation((texts: string | string[]) => {
     const count = Array.isArray(texts) ? texts.length : 1
     const data = new Float32Array(count * EMBEDDING_DIMENSIONS)
@@ -29,13 +20,7 @@ vi.mock("@huggingface/transformers", () => {
     return Promise.resolve({ data })
   })
 
-  return {
-    env,
-    pipeline: vi.fn().mockImplementation(() => {
-      pipelineLoads.cacheDirs.push(env.cacheDir)
-      return Promise.resolve(embeddingPipe)
-    }),
-  }
+  return { pipeline: vi.fn().mockResolvedValue(embeddingPipe) }
 })
 
 describe("createEmbedder", () => {
@@ -46,7 +31,7 @@ describe("createEmbedder", () => {
   // Import inside the test so the mock is active
   const loadEmbedder = async () => {
     const { createEmbedder } = await import("../embedder.js")
-    return createEmbedder({ modelCacheDir: MODEL_CACHE_DIR }, logger)
+    return createEmbedder(logger)
   }
 
   describe("embedText", () => {
@@ -94,18 +79,6 @@ describe("createEmbedder", () => {
           session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
         },
       )
-    })
-
-    it("points the library's cache folder at the given folder before loading the model", async () => {
-      const transformers = await import("@huggingface/transformers")
-      // Earlier tests already moved the folder; start from the library default.
-      transformers.env.cacheDir = "/library-default-cache/"
-      pipelineLoads.cacheDirs.length = 0
-
-      const embedder = await loadEmbedder()
-      await embedder.embedText("trigger load")
-
-      expect(pipelineLoads.cacheDirs).toEqual(["/test-data/models"])
     })
 
     it("throws a descriptive error when pipeline returns non-Float32Array data", async () => {

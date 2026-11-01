@@ -62,6 +62,7 @@ import { createVaultSnapshot, snapshotMatchesProvenance } from "./search-eval-sn
 import type { Logger } from "../src/logger.js"
 import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
 import { createReranker } from "../src/vault-mcp/search/reranker.js"
+import { setModelCacheDir } from "../src/vault-mcp/search/model-cache.js"
 import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
 
 // ── Counting logger ────────────────────────────────────────────
@@ -201,9 +202,9 @@ const main = async (): Promise<void> => {
 
   const { logger, problems, vectorSearchStats } = createCountingLogger()
   // The work dir outlives each run, so later runs reuse the downloaded models.
-  const modelCacheDir = join(workDir, "models")
-  const embedder = createEmbedder({ modelCacheDir }, logger)
-  const reranker = createReranker({ modelCacheDir }, logger)
+  await setModelCacheDir(join(workDir, "models"))
+  const embedder = createEmbedder(logger)
+  const reranker = createReranker(logger)
   const search = createSearchIndex(indexDbPath, embedder, reranker, {
     memoryDir: "About Me",
     fileToolsEnabled: true,

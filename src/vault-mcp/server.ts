@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
 import { createEmbedder } from "./search/embedder.js"
 import { createReranker } from "./search/reranker.js"
+import { setModelCacheDir } from "./search/model-cache.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { readTaskFormatConfig } from "./vault-operations/task-format-config.js"
 import { trashSweeper } from "./vault-operations/trash-sweeper.js"
@@ -148,13 +149,16 @@ const startServer = async (): Promise<void> => {
     trashRetentionDays: config.trashRetentionDays ?? "none",
   })
 
-  const embedder = config.embeddingEnabled ? createEmbedder({ modelCacheDir }, logger) : undefined
+  // Skipped with embeddings off, because setModelCacheDir's import loads the ONNX runtime.
+  if (config.embeddingEnabled) {
+    await setModelCacheDir(modelCacheDir)
+  }
+
+  const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
 
   // EMBEDDING_ENABLED=false turns off both models, so neither one downloads.
   const reranker =
-    config.embeddingEnabled && config.rerankMode === "blended"
-      ? createReranker({ modelCacheDir }, logger)
-      : undefined
+    config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
 
   // The status registry is captured at boot so listings and writes classify
   // with one map; format and date toggles are read live per task write.

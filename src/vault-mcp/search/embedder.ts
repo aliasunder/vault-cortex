@@ -1,7 +1,7 @@
 /** Lazy-loading embedding pipeline for local ONNX models.
  *
- * Factory-closure pattern: `createEmbedder({ modelCacheDir }, logger)` returns
- * the embed API. The model is downloaded on first use into `modelCacheDir`.
+ * Factory-closure pattern: `createEmbedder(logger)` returns the embed API. The
+ * model is downloaded on first use into the folder `setModelCacheDir` sets.
  * Bi-encoder for vector embeddings — see `reranker.ts` for the cross-encoder. */
 
 import { createHash } from "node:crypto"
@@ -18,9 +18,7 @@ export const contentHash = (text: string): string => createHash("sha256").update
 
 export type Embedder = ReturnType<typeof createEmbedder>
 
-export const createEmbedder = (params: { modelCacheDir: string }, logger: Logger) => {
-  const { modelCacheDir } = params
-
+export const createEmbedder = (logger: Logger) => {
   type TransformersPipeline = Awaited<
     ReturnType<typeof import("@huggingface/transformers").pipeline<"feature-extraction">>
   >
@@ -37,12 +35,7 @@ export const createEmbedder = (params: { modelCacheDir: string }, logger: Logger
     pipelineLoading = (async () => {
       try {
         const startMs = performance.now()
-        const { env, pipeline } = await import("@huggingface/transformers")
-
-        // pipeline() drops its cache_dir option when it reads config.json and checks for
-        // tokenizer_config.json, so point the process-wide folder at the cache instead.
-        env.cacheDir = modelCacheDir
-
+        const { pipeline } = await import("@huggingface/transformers")
         const instance = await pipeline("feature-extraction", MODEL_NAME, {
           dtype: "q8",
           // Pin ONNX to 1 thread — bge-small-en-v1.5 Q8 is too small for

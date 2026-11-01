@@ -4,8 +4,6 @@ import { logger } from "../../../logger.js"
 
 // ── Mock for cross-encoder factory tests ──────────────────────
 
-const MODEL_CACHE_DIR = "/test-data/models"
-
 // The mock model scores every (query, document) pair 0.95; a test that needs
 // distinct scores per document queues them with mockResolvedValueOnce.
 const mockTokenizer = vi.fn().mockReturnValue({
@@ -19,33 +17,15 @@ const mockModel = vi.fn().mockImplementation(() =>
   }),
 )
 
-// The library cache folder each tokenizer and model load saw, in load order.
-const libraryLoads = vi.hoisted(() => {
-  const tokenizerCacheDirs: Array<string | null> = []
-  const modelCacheDirs: Array<string | null> = []
-  return { tokenizerCacheDirs, modelCacheDirs }
-})
-
-vi.mock("@huggingface/transformers", () => {
-  const env = { cacheDir: "/library-default-cache/" }
-
-  return {
-    env,
-    pipeline: vi.fn().mockResolvedValue(vi.fn()),
-    AutoTokenizer: {
-      from_pretrained: vi.fn().mockImplementation(() => {
-        libraryLoads.tokenizerCacheDirs.push(env.cacheDir)
-        return Promise.resolve(mockTokenizer)
-      }),
-    },
-    AutoModelForSequenceClassification: {
-      from_pretrained: vi.fn().mockImplementation(() => {
-        libraryLoads.modelCacheDirs.push(env.cacheDir)
-        return Promise.resolve(mockModel)
-      }),
-    },
-  }
-})
+vi.mock("@huggingface/transformers", () => ({
+  pipeline: vi.fn().mockResolvedValue(vi.fn()),
+  AutoTokenizer: {
+    from_pretrained: vi.fn().mockResolvedValue(mockTokenizer),
+  },
+  AutoModelForSequenceClassification: {
+    from_pretrained: vi.fn().mockResolvedValue(mockModel),
+  },
+}))
 
 describe("normalizeScores", () => {
   it("normalizes a range to [0, 1]", () => {
@@ -199,7 +179,7 @@ describe("createReranker", () => {
 
   const loadReranker = async () => {
     const { createReranker } = await import("../reranker.js")
-    return createReranker({ modelCacheDir: MODEL_CACHE_DIR }, logger)
+    return createReranker(logger)
   }
 
   describe("rerankPairs", () => {
@@ -277,22 +257,6 @@ describe("createReranker", () => {
       expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledWith(
         "Xenova/ms-marco-MiniLM-L-6-v2",
       )
-    })
-
-    it("points the library's cache folder at the given folder before loading the tokenizer and model", async () => {
-      const transformers = await import("@huggingface/transformers")
-      // Earlier tests already moved the folder; start from the library default.
-      transformers.env.cacheDir = "/library-default-cache/"
-      libraryLoads.tokenizerCacheDirs.length = 0
-      libraryLoads.modelCacheDirs.length = 0
-
-      const reranker = await loadReranker()
-      await reranker.rerankPairs("trigger load", ["doc"])
-
-      expect(libraryLoads).toEqual({
-        tokenizerCacheDirs: ["/test-data/models"],
-        modelCacheDirs: ["/test-data/models"],
-      })
     })
 
     it("retries after a model load failure", async () => {

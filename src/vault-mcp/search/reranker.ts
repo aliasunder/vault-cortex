@@ -11,14 +11,12 @@ export type Reranker = ReturnType<typeof createReranker>
 
 /** Lazy-loading cross-encoder reranker for query-document relevance scoring.
  *
- *  Factory-closure pattern: `createReranker({ modelCacheDir }, logger)` returns
- *  the rerank API. The model is downloaded on first use into `modelCacheDir`.
+ *  Factory-closure pattern: `createReranker(logger)` returns the rerank API. The
+ *  model is downloaded on first use into the folder `setModelCacheDir` sets.
  *  Uses `AutoModelForSequenceClassification` + `AutoTokenizer` (not the
  *  `pipeline()` API) because text-classification pipelines do not support
  *  the `text_pair` tokenizer input needed for cross-encoder scoring. */
-export const createReranker = (params: { modelCacheDir: string }, logger: Logger) => {
-  const { modelCacheDir } = params
-
+export const createReranker = (logger: Logger) => {
   type TransformersModule = typeof import("@huggingface/transformers")
   type TokenizerInstance = Awaited<
     ReturnType<TransformersModule["AutoTokenizer"]["from_pretrained"]>
@@ -46,13 +44,8 @@ export const createReranker = (params: { modelCacheDir: string }, logger: Logger
     modelLoading = (async () => {
       try {
         const startMs = performance.now()
-        const { env, AutoTokenizer, AutoModelForSequenceClassification } =
+        const { AutoTokenizer, AutoModelForSequenceClassification } =
           await import("@huggingface/transformers")
-
-        // from_pretrained's cache_dir option misses the tokenizer's check for
-        // tokenizer_config.json, so point the process-wide folder at the cache instead.
-        env.cacheDir = modelCacheDir
-
         const [loadedTokenizer, loadedModel] = await Promise.all([
           AutoTokenizer.from_pretrained(RERANKER_MODEL),
           // INT8 quantization — a quarter of the full-precision model file (~23MB
