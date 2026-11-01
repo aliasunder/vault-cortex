@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, onTestFinished } from "vitest"
 import { contentHash, EMBEDDING_DIMENSIONS } from "../embedder.js"
 import { logger } from "../../../logger.js"
 
@@ -67,14 +67,15 @@ describe("createEmbedder", () => {
 
     it("logs model load time on first call", async () => {
       const infoSpy = vi.spyOn(logger, "info")
+      onTestFinished(() => infoSpy.mockRestore())
       const embedder = await loadEmbedder()
       await embedder.embedText("hello")
 
       expect(infoSpy).toHaveBeenCalledWith(
         "embedding model loaded",
-        expect.objectContaining({ model: "Xenova/bge-small-en-v1.5" }),
+        // The load time varies run to run; its presence and type are the contract.
+        { model: "Xenova/bge-small-en-v1.5", elapsedMs: expect.any(Number) },
       )
-      infoSpy.mockRestore()
     })
 
     it("pins ONNX to single-threaded execution to prevent CPU saturation", async () => {
@@ -84,6 +85,7 @@ describe("createEmbedder", () => {
       const embedder = await loadEmbedder()
       await embedder.embedText("trigger load")
 
+      expect(mockedPipeline).toHaveBeenCalledTimes(1)
       expect(mockedPipeline).toHaveBeenCalledWith(
         "feature-extraction",
         "Xenova/bge-small-en-v1.5",
@@ -109,11 +111,8 @@ describe("createEmbedder", () => {
     it("throws a descriptive error when pipeline returns non-Float32Array data", async () => {
       const transformers = await import("@huggingface/transformers")
       const mockedPipeline = vi.mocked(transformers.pipeline)
-      // Override the pipeline factory to return a function that produces
-      // Float64Array instead of Float32Array — triggers the toFloat32Array guard
-      // The pipeline type is a complex 24-member union that vi.fn() can't satisfy —
-      // cast through unknown since this is a test-only mock and the production
-      // code has a runtime toFloat32Array guard that catches the wrong type.
+      // A pipeline that returns Float64Array data trips the toFloat32Array guard.
+      // vi.fn() can't satisfy the pipeline's 24-member union type, so cast through unknown.
       const badPipeline = vi.fn().mockResolvedValue({
         data: new Float64Array(EMBEDDING_DIMENSIONS).fill(0.1),
       }) as unknown as Awaited<ReturnType<typeof mockedPipeline>>
@@ -121,7 +120,7 @@ describe("createEmbedder", () => {
 
       const embedder = await loadEmbedder()
       await expect(embedder.embedText("test")).rejects.toThrow(
-        "expected Float32Array from embedding pipeline",
+        new Error("expected Float32Array from embedding pipeline, got object"),
       )
     })
 
@@ -131,21 +130,19 @@ describe("createEmbedder", () => {
       mockedPipeline.mockRejectedValueOnce(new Error("model download failed"))
 
       const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
       const embedder = await loadEmbedder()
 
-      await expect(embedder.embedText("test")).rejects.toThrow("model download failed")
-      expect(warnSpy).toHaveBeenCalledWith(
-        "embedding model failed to load",
-        expect.objectContaining({ model: "Xenova/bge-small-en-v1.5" }),
-      )
+      await expect(embedder.embedText("test")).rejects.toThrow(new Error("model download failed"))
+      expect(warnSpy).toHaveBeenCalledWith("embedding model failed to load", {
+        model: "Xenova/bge-small-en-v1.5",
+        error: "[Error]: model download failed",
+      })
 
       // pipelineLoading was reset in the catch block, allowing retry.
       // The pipeline mock reverts to its default (success), proving retry works.
       const result = await embedder.embedText("retry text")
-      expect(result).toBeInstanceOf(Float32Array)
-      expect(result).toHaveLength(EMBEDDING_DIMENSIONS)
-
-      warnSpy.mockRestore()
+      expect(result).toEqual(MOCK_EMBEDDING_FIRST)
     })
   })
 
@@ -180,14 +177,12 @@ describe("createEmbedder", () => {
   })
 })
 
-/** Matches a 64-character lowercase hex string (SHA-256 digest). */
-const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/
-
 describe("contentHash", () => {
   it("returns a hex SHA-256 hash", () => {
     const hash = contentHash("hello world")
 
-    expect(hash).toMatch(SHA256_HEX_REGEX)
+    // The published SHA-256 digest of "hello world".
+    expect(hash).toBe("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
   })
 
   it("returns the same hash for the same input", () => {
