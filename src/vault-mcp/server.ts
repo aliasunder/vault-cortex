@@ -151,7 +151,15 @@ const startServer = async (): Promise<void> => {
 
   // Skipped with embeddings off, because setModelCacheDir's import loads the ONNX runtime.
   if (config.embeddingEnabled) {
-    await setModelCacheDir(modelCacheDir)
+    // Like any model failure, a failed load leaves search keyword-only and the server running.
+    // Node caches the failed import, so no model can later load into the library's default folder.
+    try {
+      await setModelCacheDir(modelCacheDir)
+    } catch (error) {
+      logger.error("ONNX runtime failed to load, falling back to FTS-only search", {
+        error: describeError(error),
+      })
+    }
   }
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
