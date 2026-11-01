@@ -7,23 +7,36 @@ const MODEL_CACHE_DIR = "/test-data/models"
 // First input gets fill 0.1, second gets 0.2, etc.
 const MOCK_EMBEDDING_FIRST = new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)
 
+// The library cache folder each pipeline() load saw, in load order.
+const pipelineLoads = vi.hoisted(() => {
+  const cacheDirs: Array<string | null> = []
+  return { cacheDirs }
+})
+
 // Each input gets a distinct fill value (0.1 * (inputIndex + 1)) so batch
 // slicing can be verified — identical fills would mask offset errors.
-vi.mock("@huggingface/transformers", () => ({
-  pipeline: vi.fn().mockResolvedValue(
-    vi.fn().mockImplementation((texts: string | string[]) => {
-      const count = Array.isArray(texts) ? texts.length : 1
-      const data = new Float32Array(count * EMBEDDING_DIMENSIONS)
-      for (let inputIndex = 0; inputIndex < count; inputIndex++) {
-        const fillValue = 0.1 * (inputIndex + 1)
-        for (let dim = 0; dim < EMBEDDING_DIMENSIONS; dim++) {
-          data[inputIndex * EMBEDDING_DIMENSIONS + dim] = fillValue
-        }
+vi.mock("@huggingface/transformers", () => {
+  const env = { cacheDir: "/library-default-cache/" }
+  const embeddingPipe = vi.fn().mockImplementation((texts: string | string[]) => {
+    const count = Array.isArray(texts) ? texts.length : 1
+    const data = new Float32Array(count * EMBEDDING_DIMENSIONS)
+    for (let inputIndex = 0; inputIndex < count; inputIndex++) {
+      const fillValue = 0.1 * (inputIndex + 1)
+      for (let dim = 0; dim < EMBEDDING_DIMENSIONS; dim++) {
+        data[inputIndex * EMBEDDING_DIMENSIONS + dim] = fillValue
       }
-      return Promise.resolve({ data })
+    }
+    return Promise.resolve({ data })
+  })
+
+  return {
+    env,
+    pipeline: vi.fn().mockImplementation(() => {
+      pipelineLoads.cacheDirs.push(env.cacheDir)
+      return Promise.resolve(embeddingPipe)
     }),
-  ),
-}))
+  }
+})
 
 describe("createEmbedder", () => {
   beforeEach(() => {
@@ -76,29 +89,21 @@ describe("createEmbedder", () => {
         "Xenova/bge-small-en-v1.5",
         {
           dtype: "q8",
-          cache_dir: MODEL_CACHE_DIR,
           session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
         },
       )
     })
 
-    it("downloads the model into the cache folder it was given", async () => {
+    it("points the library's cache folder at the given folder before loading the model", async () => {
       const transformers = await import("@huggingface/transformers")
-      const mockedPipeline = vi.mocked(transformers.pipeline)
+      // Earlier tests already moved the folder; start from the library default.
+      transformers.env.cacheDir = "/library-default-cache/"
+      pipelineLoads.cacheDirs.length = 0
 
       const embedder = await loadEmbedder()
       await embedder.embedText("trigger load")
 
-      expect(mockedPipeline).toHaveBeenCalledTimes(1)
-      expect(mockedPipeline).toHaveBeenCalledWith(
-        "feature-extraction",
-        "Xenova/bge-small-en-v1.5",
-        {
-          dtype: "q8",
-          cache_dir: "/test-data/models",
-          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
-        },
-      )
+      expect(pipelineLoads.cacheDirs).toEqual(["/test-data/models"])
     })
 
     it("throws a descriptive error when pipeline returns non-Float32Array data", async () => {

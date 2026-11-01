@@ -36,10 +36,12 @@ export const createEmbedder = (params: { modelCacheDir: string }, logger: Logger
     pipelineLoading = (async () => {
       try {
         const startMs = performance.now()
-        const { pipeline } = await import("@huggingface/transformers")
+        const { env, pipeline } = await import("@huggingface/transformers")
+        // pipeline() ignores its cache_dir option when it reads the model's
+        // config.json, so only the library-wide folder keeps every file cached.
+        env.cacheDir = modelCacheDir
         const instance = await pipeline("feature-extraction", MODEL_NAME, {
           dtype: "q8",
-          cache_dir: modelCacheDir,
           // Pin ONNX to 1 thread — bge-small-en-v1.5 Q8 is too small for
           // intra-op parallelism to offset thread dispatch overhead, and the
           // default (0 = all cores) saturates the CPU on low-vCPU hosts.
