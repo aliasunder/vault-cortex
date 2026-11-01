@@ -49,18 +49,17 @@ export const createReranker = (params: { modelCacheDir: string }, logger: Logger
         const { env, AutoTokenizer, AutoModelForSequenceClassification } =
           await import("@huggingface/transformers")
 
-        // cache_dir places every download, but the tokenizer checks for tokenizer_config.json
-        // in the process-wide folder, so an offline load needs that folder set too.
+        // from_pretrained's cache_dir option misses the tokenizer's check for
+        // tokenizer_config.json, so point the process-wide folder at the cache instead.
         env.cacheDir = modelCacheDir
 
         const [loadedTokenizer, loadedModel] = await Promise.all([
-          AutoTokenizer.from_pretrained(RERANKER_MODEL, { cache_dir: modelCacheDir }),
+          AutoTokenizer.from_pretrained(RERANKER_MODEL),
           // INT8 quantization — a quarter of the full-precision model file (~23MB
           // vs ~91MB), with negligible quality loss for cross-encoders
           // (full-attention pair scoring is robust to reduced precision).
           AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
             dtype: "q8",
-            cache_dir: modelCacheDir,
             // Pin ONNX to 1 thread — ms-marco-MiniLM is scored one pair at
             // a time and is too small for intra-op parallelism to help.
             // Explicit pinning prevents CPU saturation on low-vCPU hosts

@@ -19,10 +19,11 @@ const mockModel = vi.fn().mockImplementation(() =>
   }),
 )
 
-// The library cache folder each tokenizer load saw, in load order.
-const tokenizerLoads = vi.hoisted(() => {
-  const cacheDirs: Array<string | null> = []
-  return { cacheDirs }
+// The library cache folder each tokenizer and model load saw, in load order.
+const libraryLoads = vi.hoisted(() => {
+  const tokenizerCacheDirs: Array<string | null> = []
+  const modelCacheDirs: Array<string | null> = []
+  return { tokenizerCacheDirs, modelCacheDirs }
 })
 
 vi.mock("@huggingface/transformers", () => {
@@ -33,12 +34,15 @@ vi.mock("@huggingface/transformers", () => {
     pipeline: vi.fn().mockResolvedValue(vi.fn()),
     AutoTokenizer: {
       from_pretrained: vi.fn().mockImplementation(() => {
-        tokenizerLoads.cacheDirs.push(env.cacheDir)
+        libraryLoads.tokenizerCacheDirs.push(env.cacheDir)
         return Promise.resolve(mockTokenizer)
       }),
     },
     AutoModelForSequenceClassification: {
-      from_pretrained: vi.fn().mockResolvedValue(mockModel),
+      from_pretrained: vi.fn().mockImplementation(() => {
+        libraryLoads.modelCacheDirs.push(env.cacheDir)
+        return Promise.resolve(mockModel)
+      }),
     },
   }
 })
@@ -257,48 +261,25 @@ describe("createReranker", () => {
         "Xenova/ms-marco-MiniLM-L-6-v2",
         {
           dtype: "q8",
-          cache_dir: MODEL_CACHE_DIR,
           session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
         },
       )
     })
 
-    it("downloads the tokenizer and model into the cache folder it was given", async () => {
-      const transformers = await import("@huggingface/transformers")
-      const mockedAutoTokenizer = vi.mocked(transformers.AutoTokenizer)
-      const mockedAutoModel = vi.mocked(transformers.AutoModelForSequenceClassification)
-
-      const reranker = await loadReranker()
-      await reranker.rerankPairs("trigger load", ["doc"])
-
-      expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledTimes(1)
-      expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledWith(
-        "Xenova/ms-marco-MiniLM-L-6-v2",
-        { cache_dir: "/test-data/models" },
-      )
-      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledTimes(1)
-      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledWith(
-        "Xenova/ms-marco-MiniLM-L-6-v2",
-        {
-          dtype: "q8",
-          cache_dir: "/test-data/models",
-          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
-        },
-      )
-    })
-
-    // The tokenizer checks for tokenizer_config.json in the library's folder,
-    // not cache_dir, so an offline load fails unless that folder is set too.
-    it("points the library's cache folder at the given folder before loading the tokenizer", async () => {
+    it("points the library's cache folder at the given folder before loading the tokenizer and model", async () => {
       const transformers = await import("@huggingface/transformers")
       // Earlier tests already moved the folder; start from the library default.
       transformers.env.cacheDir = "/library-default-cache/"
-      tokenizerLoads.cacheDirs.length = 0
+      libraryLoads.tokenizerCacheDirs.length = 0
+      libraryLoads.modelCacheDirs.length = 0
 
       const reranker = await loadReranker()
       await reranker.rerankPairs("trigger load", ["doc"])
 
-      expect(tokenizerLoads.cacheDirs).toEqual(["/test-data/models"])
+      expect(libraryLoads).toEqual({
+        tokenizerCacheDirs: ["/test-data/models"],
+        modelCacheDirs: ["/test-data/models"],
+      })
     })
 
     it("retries after a model load failure", async () => {
