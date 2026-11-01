@@ -1,7 +1,6 @@
 /** MCP server entry point — config, mount routes, listen. */
 
-import express from "express"
-import type { Request, Response, NextFunction } from "express"
+import express, { type Request, type Response, type NextFunction } from "express"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
@@ -14,8 +13,7 @@ import { createOAuthProvider } from "./oauth/oauth-provider.js"
 import { createOAuthRoutes } from "./oauth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-core/mcp-router.js"
 import { renderSetupPage } from "./setup/setup-page.js"
-import { loadConfig } from "./config.js"
-import type { VaultConfig } from "./config.js"
+import { loadConfig, type VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
@@ -126,8 +124,9 @@ const startServer = async (): Promise<void> => {
   // oauth.db sits beside the search index, so INDEX_DB_PATH moves both.
   const oauthDbPath = `${dataDir}/oauth.db`
 
-  // The search models download beside the index too. The library's default, under /app,
-  // is lost on every recreate, and a server run with a PUID other than 1000 can't write it.
+  // The search models download beside the index too. transformers.js's default folder, under
+  // /app, is lost whenever the container is re-created, and a server run with a PUID other than
+  // 1000 can't write it.
   const modelCacheDir = `${dataDir}/models`
 
   const port = env.get("PORT").default("8000").asPortNumber()
