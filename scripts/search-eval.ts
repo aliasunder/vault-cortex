@@ -201,6 +201,7 @@ const main = async (): Promise<void> => {
   }
 
   const { logger, problems, vectorSearchStats } = createCountingLogger()
+
   // The work dir outlives each run, so later runs reuse the downloaded models.
   await setModelCacheDir(join(workDir, "models"))
   const embedder = createEmbedder(logger)
