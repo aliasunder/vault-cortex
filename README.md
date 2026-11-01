@@ -233,7 +233,7 @@ Hybrid search fuses the keyword and vector rankings via [Reciprocal Rank Fusion]
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
 - **Reranker** (cross-encoder) refines ordering by scoring each query-document pair jointly — rescues intent-heavy queries where keywords and vectors both miss
 
-All models run locally (~45MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
+All models run locally (~59MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
 
 See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search) for model details, blend weights, and the full pipeline breakdown.
 

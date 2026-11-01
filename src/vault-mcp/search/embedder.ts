@@ -38,9 +38,11 @@ export const createEmbedder = (params: { modelCacheDir: string }, logger: Logger
       try {
         const startMs = performance.now()
         const { env, pipeline } = await import("@huggingface/transformers")
-        // pipeline() ignores its cache_dir option for config.json, so set the process-wide
-        // folder; the reranker's from_pretrained calls honour cache_dir for every file.
+
+        // pipeline() drops its cache_dir option when it reads config.json and checks for
+        // tokenizer_config.json, so point the process-wide folder at the cache instead.
         env.cacheDir = modelCacheDir
+
         const instance = await pipeline("feature-extraction", MODEL_NAME, {
           dtype: "q8",
           // Pin ONNX to 1 thread — bge-small-en-v1.5 Q8 is too small for

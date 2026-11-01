@@ -19,15 +19,29 @@ const mockModel = vi.fn().mockImplementation(() =>
   }),
 )
 
-vi.mock("@huggingface/transformers", () => ({
-  pipeline: vi.fn().mockResolvedValue(vi.fn()),
-  AutoTokenizer: {
-    from_pretrained: vi.fn().mockResolvedValue(mockTokenizer),
-  },
-  AutoModelForSequenceClassification: {
-    from_pretrained: vi.fn().mockResolvedValue(mockModel),
-  },
-}))
+// The library cache folder each tokenizer load saw, in load order.
+const tokenizerLoads = vi.hoisted(() => {
+  const cacheDirs: Array<string | null> = []
+  return { cacheDirs }
+})
+
+vi.mock("@huggingface/transformers", () => {
+  const env = { cacheDir: "/library-default-cache/" }
+
+  return {
+    env,
+    pipeline: vi.fn().mockResolvedValue(vi.fn()),
+    AutoTokenizer: {
+      from_pretrained: vi.fn().mockImplementation(() => {
+        tokenizerLoads.cacheDirs.push(env.cacheDir)
+        return Promise.resolve(mockTokenizer)
+      }),
+    },
+    AutoModelForSequenceClassification: {
+      from_pretrained: vi.fn().mockResolvedValue(mockModel),
+    },
+  }
+})
 
 describe("normalizeScores", () => {
   it("normalizes a range to [0, 1]", () => {
@@ -271,6 +285,20 @@ describe("createReranker", () => {
           session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
         },
       )
+    })
+
+    // The tokenizer checks for tokenizer_config.json in the library's folder,
+    // not cache_dir, so an offline load fails unless that folder is set too.
+    it("points the library's cache folder at the given folder before loading the tokenizer", async () => {
+      const transformers = await import("@huggingface/transformers")
+      // Earlier tests already moved the folder; start from the library default.
+      transformers.env.cacheDir = "/library-default-cache/"
+      tokenizerLoads.cacheDirs.length = 0
+
+      const reranker = await loadReranker()
+      await reranker.rerankPairs("trigger load", ["doc"])
+
+      expect(tokenizerLoads.cacheDirs).toEqual(["/test-data/models"])
     })
 
     it("retries after a model load failure", async () => {

@@ -46,8 +46,13 @@ export const createReranker = (params: { modelCacheDir: string }, logger: Logger
     modelLoading = (async () => {
       try {
         const startMs = performance.now()
-        const { AutoTokenizer, AutoModelForSequenceClassification } =
+        const { env, AutoTokenizer, AutoModelForSequenceClassification } =
           await import("@huggingface/transformers")
+
+        // cache_dir places every download, but the tokenizer checks for tokenizer_config.json
+        // in the process-wide folder, so an offline load needs that folder set too.
+        env.cacheDir = modelCacheDir
+
         const [loadedTokenizer, loadedModel] = await Promise.all([
           AutoTokenizer.from_pretrained(RERANKER_MODEL, { cache_dir: modelCacheDir }),
           // INT8 quantization — a quarter of the full-precision model file (~23MB
