@@ -266,6 +266,19 @@ describe("createReranker", () => {
       )
     })
 
+    it("loads the reranker model's tokenizer with no per-call options", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedAutoTokenizer = vi.mocked(transformers.AutoTokenizer)
+
+      const reranker = await loadReranker()
+      await reranker.rerankPairs("trigger load", ["doc"])
+
+      expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledTimes(1)
+      expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledWith(
+        "Xenova/ms-marco-MiniLM-L-6-v2",
+      )
+    })
+
     it("points the library's cache folder at the given folder before loading the tokenizer and model", async () => {
       const transformers = await import("@huggingface/transformers")
       // Earlier tests already moved the folder; start from the library default.
