@@ -83,21 +83,30 @@ describe("createEmbedder", () => {
       )
     })
 
-    it("throws a descriptive error when pipeline returns non-Float32Array data", async () => {
-      const transformers = await import("@huggingface/transformers")
-      const mockedPipeline = vi.mocked(transformers.pipeline)
-      // A pipeline that returns Float64Array data trips the toFloat32Array guard.
-      // vi.fn() can't satisfy the pipeline's 24-member union type, so cast through unknown.
-      const badPipeline = vi.fn().mockResolvedValue({
-        data: new Float64Array(EMBEDDING_DIMENSIONS).fill(0.1),
-      }) as unknown as Awaited<ReturnType<typeof mockedPipeline>>
-      mockedPipeline.mockResolvedValueOnce(badPipeline)
+    it.each([
+      {
+        label: "another typed array",
+        output: { data: new Float64Array(EMBEDDING_DIMENSIONS).fill(0.1) },
+        receivedType: "Float64Array",
+      },
+      { label: "no data", output: {}, receivedType: "undefined" },
+    ])(
+      "names what the pipeline returned when it returns $label instead of a Float32Array",
+      async ({ output, receivedType }) => {
+        const transformers = await import("@huggingface/transformers")
+        const mockedPipeline = vi.mocked(transformers.pipeline)
+        // vi.fn() can't satisfy the pipeline's 24-member union type, so cast through unknown.
+        const badPipeline = vi.fn().mockResolvedValue(output) as unknown as Awaited<
+          ReturnType<typeof mockedPipeline>
+        >
+        mockedPipeline.mockResolvedValueOnce(badPipeline)
 
-      const embedder = await loadEmbedder()
-      await expect(embedder.embedText("test")).rejects.toThrow(
-        new Error("expected Float32Array from embedding pipeline, got Float64Array"),
-      )
-    })
+        const embedder = await loadEmbedder()
+        await expect(embedder.embedText("test")).rejects.toThrow(
+          new Error(`expected Float32Array from embedding pipeline, got ${receivedType}`),
+        )
+      },
+    )
 
     it("retries after a pipeline load failure", async () => {
       const transformers = await import("@huggingface/transformers")

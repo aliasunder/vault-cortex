@@ -281,11 +281,38 @@ describe("resolveDataPaths", () => {
     })
   })
 
-  it("puts the OAuth database and the search models beside INDEX_DB_PATH", () => {
-    expect(resolveDataPaths("/persist/data/index.db")).toEqual({
-      searchDbPath: "/persist/data/index.db",
-      oauthDbPath: "/persist/data/oauth.db",
-      modelCacheDir: "/persist/data/models",
-    })
-  })
+  it.each([
+    {
+      label: "an absolute path",
+      indexDbPathSetting: "/persist/data/index.db",
+      expectedPaths: {
+        searchDbPath: "/persist/data/index.db",
+        oauthDbPath: "/persist/data/oauth.db",
+        modelCacheDir: "/persist/data/models",
+      },
+    },
+    {
+      label: "a relative path",
+      indexDbPathSetting: ".data/index.db",
+      expectedPaths: {
+        searchDbPath: ".data/index.db",
+        oauthDbPath: ".data/oauth.db",
+        modelCacheDir: ".data/models",
+      },
+    },
+    {
+      label: "a bare file name",
+      indexDbPathSetting: "index.db",
+      expectedPaths: {
+        searchDbPath: "index.db",
+        oauthDbPath: "./oauth.db",
+        modelCacheDir: "./models",
+      },
+    },
+  ])(
+    "puts the OAuth database and the search models beside INDEX_DB_PATH when it is $label",
+    ({ indexDbPathSetting, expectedPaths }) => {
+      expect(resolveDataPaths(indexDbPathSetting)).toEqual(expectedPaths)
+    },
+  )
 })
