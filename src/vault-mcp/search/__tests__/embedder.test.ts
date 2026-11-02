@@ -50,12 +50,14 @@ describe("createEmbedder", () => {
       expect(result).toEqual(MOCK_EMBEDDING_FIRST)
     })
 
-    it("logs model load time on first call", async () => {
+    it("logs model load time on first call only", async () => {
       const infoSpy = vi.spyOn(logger, "info")
       onTestFinished(() => infoSpy.mockRestore())
       const embedder = await loadEmbedder()
       await embedder.embedText("hello")
+      await embedder.embedText("again")
 
+      expect(infoSpy).toHaveBeenCalledTimes(1)
       expect(infoSpy).toHaveBeenCalledWith(
         "embedding model loaded",
         // The load time varies run to run; its presence and type are the contract.
@@ -93,7 +95,7 @@ describe("createEmbedder", () => {
 
       const embedder = await loadEmbedder()
       await expect(embedder.embedText("test")).rejects.toThrow(
-        new Error("expected Float32Array from embedding pipeline, got object"),
+        new Error("expected Float32Array from embedding pipeline, got Float64Array"),
       )
     })
 

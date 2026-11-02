@@ -7,6 +7,7 @@ import {
   bootstrapMemoryIfEnabled,
   createErrorMiddleware,
   createShutdownHandler,
+  resolveDataPaths,
 } from "../server.js"
 import { loadConfig } from "../config.js"
 import { logger } from "../../logger.js"
@@ -265,5 +266,26 @@ describe("bootstrapMemoryIfEnabled", () => {
     await bootstrapMemoryIfEnabled(loadConfig({ MEMORY_ENABLED: "false" }), vault)
 
     expect(await readdir(vault)).toEqual([])
+  })
+})
+
+describe("resolveDataPaths", () => {
+  it.each([
+    { label: "unset", indexDbPathSetting: undefined },
+    { label: "empty", indexDbPathSetting: "" },
+  ])("keeps everything in /data when INDEX_DB_PATH is $label", ({ indexDbPathSetting }) => {
+    expect(resolveDataPaths(indexDbPathSetting)).toEqual({
+      searchDbPath: "/data/search.db",
+      oauthDbPath: "/data/oauth.db",
+      modelCacheDir: "/data/models",
+    })
+  })
+
+  it("puts the OAuth database and the search models beside INDEX_DB_PATH", () => {
+    expect(resolveDataPaths("/persist/data/index.db")).toEqual({
+      searchDbPath: "/persist/data/index.db",
+      oauthDbPath: "/persist/data/oauth.db",
+      modelCacheDir: "/persist/data/models",
+    })
   })
 })

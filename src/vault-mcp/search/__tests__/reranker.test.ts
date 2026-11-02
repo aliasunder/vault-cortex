@@ -204,12 +204,14 @@ describe("createReranker", () => {
       expect(scores).toEqual([])
     })
 
-    it("logs model load time on first call", async () => {
+    it("logs model load time on first call only", async () => {
       const infoSpy = vi.spyOn(logger, "info")
       onTestFinished(() => infoSpy.mockRestore())
       const reranker = await loadReranker()
       await reranker.rerankPairs("query", ["doc"])
+      await reranker.rerankPairs("again", ["doc"])
 
+      expect(infoSpy).toHaveBeenCalledTimes(1)
       expect(infoSpy).toHaveBeenCalledWith(
         "reranker model loaded",
         // The load time varies run to run; its presence and type are the contract.

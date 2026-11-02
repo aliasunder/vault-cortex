@@ -67,7 +67,8 @@ export const createEmbedder = (logger: Logger) => {
    *  using an `as` cast. */
   const toFloat32Array = (data: unknown): Float32Array => {
     if (data instanceof Float32Array) return data
-    throw new Error(`expected Float32Array from embedding pipeline, got ${typeof data}`)
+    const receivedType = data instanceof Object ? data.constructor.name : typeof data
+    throw new Error(`expected Float32Array from embedding pipeline, got ${receivedType}`)
   }
 
   /** Embed a single text. Returns a 384-dim Float32Array (mean-pooled, L2-normalized). */

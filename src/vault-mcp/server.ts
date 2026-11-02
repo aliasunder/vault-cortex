@@ -74,6 +74,26 @@ export const bootstrapMemoryIfEnabled = async (
   await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
 }
 
+type DataPaths = { searchDbPath: string; oauthDbPath: string; modelCacheDir: string }
+
+/** Where the server keeps its state: beside INDEX_DB_PATH, or in /data when it is unset. */
+export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPaths => {
+  // An empty INDEX_DB_PATH counts as unset, as it does in the :remote init scripts.
+  const indexDbPath = indexDbPathSetting || undefined
+  // /data is the Docker volume where the container persists indexes and logs
+  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
+
+  return {
+    searchDbPath: indexDbPath ?? `${dataDir}/search.db`,
+    // oauth.db sits beside the search index, so INDEX_DB_PATH moves both.
+    oauthDbPath: `${dataDir}/oauth.db`,
+    // The search models download beside the index too. transformers.js's default folder, under
+    // /app, is lost whenever the container is re-created, and a server run with a PUID other
+    // than 1000 can't write it.
+    modelCacheDir: `${dataDir}/models`,
+  }
+}
+
 /** Matches `*`, `?`, or `[`, which the `:remote` init scripts' `find -path` reads as wildcards. */
 const GLOB_CHARS = /[*?[]/
 
@@ -115,20 +135,9 @@ const startServer = async (): Promise<void> => {
     )
   }
 
-  // An empty INDEX_DB_PATH counts as unset, as it does in the :remote init scripts.
-  const indexDbPath = env.get("INDEX_DB_PATH").asString() || undefined
-  // /data is the Docker volume where the container persists indexes and logs
-  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
-  const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
-
-  // oauth.db sits beside the search index, so INDEX_DB_PATH moves both.
-  const oauthDbPath = `${dataDir}/oauth.db`
-
-  // The search models download beside the index too. transformers.js's default folder, under
-  // /app, is lost whenever the container is re-created, and a server run with a PUID other than
-  // 1000 can't write it.
-  const modelCacheDir = `${dataDir}/models`
-
+  const { searchDbPath, oauthDbPath, modelCacheDir } = resolveDataPaths(
+    env.get("INDEX_DB_PATH").asString(),
+  )
   const port = env.get("PORT").default("8000").asPortNumber()
   const host = env.get("HOST").default("0.0.0.0").asString()
 
