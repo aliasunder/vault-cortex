@@ -7,7 +7,7 @@ import { createReranker, type Reranker } from "./reranker.js"
 type SearchModels = { embedder: Embedder | undefined; reranker: Reranker | undefined }
 
 /** Builds the search models the config turns on, with transformers.js's cache folder set to
- *  `modelCacheDir` first. */
+ *  `modelCacheDir` first. Builds neither model when transformers.js fails to import. */
 export const createSearchModels = async (
   params: Pick<VaultConfig, "embeddingEnabled" | "rerankMode"> & { modelCacheDir: string },
   logger: Logger,
