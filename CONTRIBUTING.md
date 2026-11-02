@@ -68,7 +68,7 @@ Vault Cortex can run in three modes during development:
 The fastest feedback loop — runs the MCP server directly with hot reload:
 
 ```bash
-PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/your-vault npm run dev:mcp
+mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/your-vault INDEX_DB_PATH=.data/index.db npm run dev:mcp
 ```
 
 ### Docker (local)
@@ -86,13 +86,14 @@ Interactive browser UI for testing all tools:
 
 ```bash
 # Terminal 1 — start the server
-PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/your-vault npm run dev:mcp
+mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/your-vault INDEX_DB_PATH=.data/index.db npm run dev:mcp
 
 # Terminal 2 — launch the inspector
 npx @modelcontextprotocol/inspector
 ```
 
-See the [README](./README.md#development) for full details on each mode.
+The [README's Development section](./README.md#development) also gives the full
+check suite command, plus the URL and token the MCP Inspector asks for.
 
 ## Agent command setup
 
@@ -322,7 +323,7 @@ Variables, in the order the deploy form shows them (everything after the six inp
 | `SYNC_EXCLUDED_FOLDERS`           | _(optional input)_                    | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Leave empty to exclude nothing                                                                                                                                                                                                                                                                       |
 | `MCP_AUTH_TOKEN`                  | `${{secret(64, "0123456789abcdef")}}` | Generated for you — the token your MCP client enters on the consent page                                                                                                                                                                                                                                                                                                                                  |
 | `PORT`                            | `8000`                                | The port the image listens on. Leave as is.                                                                                                                                                                                                                                                                                                                                                               |
-| `STORAGE_ROOT`                    | `/persist`                            | Where the volume is mounted — vault, search index, Sync device state, and logs live under it. Leave as is.                                                                                                                                                                                                                                                                                                |
+| `STORAGE_ROOT`                    | `/persist`                            | Where the volume is mounted — vault, search index and its models, Sync device state, and logs live under it. Leave as is.                                                                                                                                                                                                                                                                                 |
 | `DEVICE_NAME`                     | `vault-cortex`                        | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                                                                                                                               |
 | `TRUST_PROXY_HOPS`                | `2`                                   | Railway proxies between a visitor and the container, so the server sees the visitor's real address                                                                                                                                                                                                                                                                                                        |
 | `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | How long Railway waits for the first health check — the first start downloads the vault and builds the index                                                                                                                                                                                                                                                                                              |

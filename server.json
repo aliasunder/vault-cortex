@@ -39,7 +39,7 @@
         {
           "type": "named",
           "name": "-v",
-          "description": "Named volume for persistent state under /data — search index, OAuth token DB, and any log files. Keeps OAuth sessions alive across container restarts.",
+          "description": "Named volume for persistent state under /data — search index, OAuth token DB, search models, and any log files. Keeps OAuth sessions alive across container restarts.",
           "value": "vault-cortex-data:/data"
         }
       ],

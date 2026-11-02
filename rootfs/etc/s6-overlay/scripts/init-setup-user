@@ -52,7 +52,8 @@ fi
 
 # Ensure the vault, index, and config directories exist.
 # The index directory (INDEX_DB_PATH's parent) must follow PUID/PGID
-# alongside the vault so svc-vault-mcp can write the search index.
+# alongside the vault so svc-vault-mcp can write the search index and
+# download the search models into it.
 mkdir -p "$VAULT_PATH" "$DATA_DIR" "$CONFIG_HOME"
 
 APPLIED_IDS=$(cat "$APPLIED_IDS_FILE" 2>/dev/null || true)

@@ -1,12 +1,10 @@
 /** MCP server entry point — config, mount routes, listen. */
 
-import express from "express"
-import type { Request, Response, NextFunction } from "express"
+import express, { type Request, type Response, type NextFunction } from "express"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
-import { createEmbedder } from "./search/embedder.js"
-import { createReranker } from "./search/reranker.js"
+import { createSearchModels } from "./search/search-models.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
 import { readTaskFormatConfig } from "./vault-operations/task-format-config.js"
 import { trashSweeper } from "./vault-operations/trash-sweeper.js"
@@ -15,8 +13,7 @@ import { createOAuthProvider } from "./oauth/oauth-provider.js"
 import { createOAuthRoutes } from "./oauth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-core/mcp-router.js"
 import { renderSetupPage } from "./setup/setup-page.js"
-import { loadConfig } from "./config.js"
-import type { VaultConfig } from "./config.js"
+import { loadConfig, type VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
@@ -77,7 +74,25 @@ export const bootstrapMemoryIfEnabled = async (
   await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
 }
 
-/** Matches `*`, `?`, or `[` — `find -path` glob metacharacters. */
+type DataPaths = { searchDbPath: string; oauthDbPath: string; modelCacheDir: string }
+
+/** Where the server keeps its state: beside INDEX_DB_PATH, or in /data when it is unset. */
+export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPaths => {
+  // An empty INDEX_DB_PATH counts as unset, as it does in the :remote init scripts.
+  const indexDbPath = indexDbPathSetting || undefined
+  // /data is the Docker volume where the container persists its databases, models and logs
+  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
+
+  return {
+    searchDbPath: indexDbPath ?? `${dataDir}/search.db`,
+    oauthDbPath: `${dataDir}/oauth.db`,
+    // transformers.js's default model folder, under /app, is lost whenever the container is
+    // re-created, and a server run with a PUID other than 1000 can't write it.
+    modelCacheDir: `${dataDir}/models`,
+  }
+}
+
+/** Matches `*`, `?`, or `[`, which the `:remote` init scripts' `find -path` reads as wildcards. */
 const GLOB_CHARS = /[*?[]/
 
 const startServer = async (): Promise<void> => {
@@ -91,6 +106,7 @@ const startServer = async (): Promise<void> => {
   if (GLOB_CHARS.test(vaultPath)) {
     throw new Error("VAULT_PATH must not contain glob characters (*, ?, [)")
   }
+
   const publicUrl = env.get("PUBLIC_URL").required().asString()
   const serverUrl = new URL(publicUrl)
 
@@ -99,26 +115,27 @@ const startServer = async (): Promise<void> => {
       "PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)",
     )
   }
+
   // Credentials in the URL would be minted into every token's `iss`
   // claim and served by the discovery documents — refuse to start.
   if (urlHasCredentials(serverUrl)) {
     throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
   }
+
+  // A bare trailing ? or # parses to an empty search or hash, so check the raw string.
   if (publicUrl.includes("?") || publicUrl.includes("#")) {
     throw new Error("PUBLIC_URL must be a bare origin — no query string or fragment")
   }
+
   if (serverUrl.pathname.replace(/\/+$/, "") !== "") {
     throw new Error(
       "PUBLIC_URL must be a bare origin — path prefixes are not supported (e.g. https://vault.example.com)",
     )
   }
 
-  const indexDbPath = env.get("INDEX_DB_PATH").asString()
-  // /data is the Docker volume where the container persists indexes and logs
-  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
-  const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
-  // oauth.db sits beside the search index, so INDEX_DB_PATH moves both.
-  const oauthDbPath = `${dataDir}/oauth.db`
+  const { searchDbPath, oauthDbPath, modelCacheDir } = resolveDataPaths(
+    env.get("INDEX_DB_PATH").asString(),
+  )
   const port = env.get("PORT").default("8000").asPortNumber()
   const host = env.get("HOST").default("0.0.0.0").asString()
 
@@ -136,9 +153,11 @@ const startServer = async (): Promise<void> => {
     trashRetentionDays: config.trashRetentionDays ?? "none",
   })
 
-  const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
-  const reranker =
-    config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
+  const { embedder, reranker } = await createSearchModels(
+    { embeddingEnabled: config.embeddingEnabled, rerankMode: config.rerankMode, modelCacheDir },
+    logger,
+  )
+
   // The status registry is captured at boot so listings and writes classify
   // with one map; format and date toggles are read live per task write.
   const { statusRegistry } = await readTaskFormatConfig(vaultPath, logger)
@@ -227,8 +246,8 @@ const startServer = async (): Promise<void> => {
 
   // Started after listen so a large trash backlog (unlinks at bind-mount
   // latency) can never stall /healthz past container health-check budgets.
-  // Sync deploys never trash (the delete handler bypasses to "none") and a
-  // read-only server never modifies the vault, so neither runs.
+  // Sync deploys never trash (their deletes skip .trash/ and remove the note
+  // for good) and a read-only server never modifies the vault, so neither runs.
   const trashBookkeepingEnabled = !config.readOnlyMode && !config.obsidianSyncEnabled
 
   process.on("SIGTERM", createShutdownHandler(httpServer))

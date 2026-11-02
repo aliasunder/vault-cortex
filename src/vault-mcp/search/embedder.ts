@@ -1,7 +1,7 @@
 /** Lazy-loading embedding pipeline for local ONNX models.
  *
- * Factory-closure pattern: `createEmbedder(logger)` returns the embed API.
- * The model is downloaded on first use and cached by the transformers library.
+ * Factory-closure pattern: `createEmbedder(logger)` returns the embed API. The
+ * model is downloaded on first use into the folder `createSearchModels` sets.
  * Bi-encoder for vector embeddings — see `reranker.ts` for the cross-encoder. */
 
 import { createHash } from "node:crypto"
@@ -10,6 +10,7 @@ import { describeError } from "../../utils/describe-error.js"
 
 const MODEL_NAME = "Xenova/bge-small-en-v1.5"
 
+/** MODEL_NAME's vector width; search-index.ts's vec0 tables declare it as `float[384]`. */
 export const EMBEDDING_DIMENSIONS = 384
 
 /** SHA-256 content hash — used to skip re-embedding unchanged chunks. */
@@ -60,20 +61,35 @@ export const createEmbedder = (logger: Logger) => {
     return pipelineLoading
   }
 
+  /** Names a value's class, or its type when it has no class to name. */
+  const describeReceivedType = (data: unknown): string => {
+    // typeof reports null as "object"
+    if (data === null) return "null"
+    // An object can set its own `constructor` key to a non-function; reading `.name`
+    // off a null one throws a TypeError that hides the embedding error
+    if (data instanceof Object && typeof data.constructor === "function") {
+      // An unnamed class's name is "", which would end the message at "got "
+      return data.constructor.name || typeof data
+    }
+    return typeof data
+  }
+
   /** The transformers pipeline returns a Tensor whose `.data` is typed as
    *  `DataArray` (a union of typed arrays). Feature-extraction with mean
    *  pooling always produces Float32Array — guard at runtime rather than
    *  using an `as` cast. */
   const toFloat32Array = (data: unknown): Float32Array => {
     if (data instanceof Float32Array) return data
-    throw new Error(`expected Float32Array from embedding pipeline, got ${typeof data}`)
+    throw new Error(
+      `expected Float32Array from embedding pipeline, got ${describeReceivedType(data)}`,
+    )
   }
 
   /** Embed a single text. Returns a 384-dim Float32Array (mean-pooled, L2-normalized). */
   const embedText = async (text: string): Promise<Float32Array> => {
     const pipe = await getPipeline()
     const output = await pipe(text, { pooling: "mean", normalize: true })
-    return new Float32Array(toFloat32Array(output.data))
+    return toFloat32Array(output.data)
   }
 
   /** Embed multiple texts in a single pipeline call. Returns one Float32Array per input. */
@@ -85,12 +101,9 @@ export const createEmbedder = (logger: Logger) => {
 
     // The pipeline returns all embeddings concatenated in a single flat array
     // (e.g. 3 inputs × 384 dims = 1152 floats). Slice out each input's embedding.
-    return texts.map(
-      (_text, index) =>
-        new Float32Array(
-          data.slice(index * EMBEDDING_DIMENSIONS, (index + 1) * EMBEDDING_DIMENSIONS),
-        ),
-    )
+    return texts.map((_text, index) => {
+      return data.slice(index * EMBEDDING_DIMENSIONS, (index + 1) * EMBEDDING_DIMENSIONS)
+    })
   }
 
   return { embedText, embedBatch }

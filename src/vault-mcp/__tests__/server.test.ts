@@ -7,6 +7,7 @@ import {
   bootstrapMemoryIfEnabled,
   createErrorMiddleware,
   createShutdownHandler,
+  resolveDataPaths,
 } from "../server.js"
 import { loadConfig } from "../config.js"
 import { logger } from "../../logger.js"
@@ -266,4 +267,52 @@ describe("bootstrapMemoryIfEnabled", () => {
 
     expect(await readdir(vault)).toEqual([])
   })
+})
+
+describe("resolveDataPaths", () => {
+  it.each([
+    { label: "unset", indexDbPathSetting: undefined },
+    { label: "empty", indexDbPathSetting: "" },
+  ])("keeps everything in /data when INDEX_DB_PATH is $label", ({ indexDbPathSetting }) => {
+    expect(resolveDataPaths(indexDbPathSetting)).toEqual({
+      searchDbPath: "/data/search.db",
+      oauthDbPath: "/data/oauth.db",
+      modelCacheDir: "/data/models",
+    })
+  })
+
+  it.each([
+    {
+      label: "an absolute path",
+      indexDbPathSetting: "/persist/data/index.db",
+      expectedPaths: {
+        searchDbPath: "/persist/data/index.db",
+        oauthDbPath: "/persist/data/oauth.db",
+        modelCacheDir: "/persist/data/models",
+      },
+    },
+    {
+      label: "a relative path",
+      indexDbPathSetting: ".data/index.db",
+      expectedPaths: {
+        searchDbPath: ".data/index.db",
+        oauthDbPath: ".data/oauth.db",
+        modelCacheDir: ".data/models",
+      },
+    },
+    {
+      label: "a bare file name",
+      indexDbPathSetting: "index.db",
+      expectedPaths: {
+        searchDbPath: "index.db",
+        oauthDbPath: "./oauth.db",
+        modelCacheDir: "./models",
+      },
+    },
+  ])(
+    "puts the OAuth database and the search models beside INDEX_DB_PATH when it is $label",
+    ({ indexDbPathSetting, expectedPaths }) => {
+      expect(resolveDataPaths(indexDbPathSetting)).toEqual(expectedPaths)
+    },
+  )
 })

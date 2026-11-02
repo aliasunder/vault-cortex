@@ -11,8 +11,8 @@ export type Reranker = ReturnType<typeof createReranker>
 
 /** Lazy-loading cross-encoder reranker for query-document relevance scoring.
  *
- *  Factory-closure pattern: `createReranker(logger)` returns the rerank API.
- *  The model is downloaded on first use and cached by the transformers library.
+ *  Factory-closure pattern: `createReranker(logger)` returns the rerank API. The
+ *  model is downloaded on first use into the folder `createSearchModels` sets.
  *  Uses `AutoModelForSequenceClassification` + `AutoTokenizer` (not the
  *  `pipeline()` API) because text-classification pipelines do not support
  *  the `text_pair` tokenizer input needed for cross-encoder scoring. */
@@ -48,9 +48,9 @@ export const createReranker = (logger: Logger) => {
           await import("@huggingface/transformers")
         const [loadedTokenizer, loadedModel] = await Promise.all([
           AutoTokenizer.from_pretrained(RERANKER_MODEL),
-          // INT8 quantization — halves model size (~20MB vs ~80MB) with
-          // negligible quality loss for cross-encoders (full-attention
-          // pair scoring is robust to reduced precision).
+          // INT8 quantization — a quarter of the full-precision model file (~23MB
+          // vs ~91MB), with negligible quality loss for cross-encoders
+          // (full-attention pair scoring is robust to reduced precision).
           AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL, {
             dtype: "q8",
             // Pin ONNX to 1 thread — ms-marco-MiniLM is scored one pair at
@@ -128,8 +128,8 @@ export const createReranker = (logger: Logger) => {
 
 /** Logistic sigmoid — maps a raw cross-encoder logit to (0, 1). ms-marco
  *  models were trained with a binary relevance objective, so sigmoid(logit)
- *  reads as a calibrated probability-of-relevance; memoryRecall's selection
- *  cut thresholds on it. */
+ *  reads as a calibrated probability-of-relevance, which memory recall's
+ *  relevance floor in search-queries.ts compares against fixed bounds. */
 export const sigmoid = (logit: number): number => 1 / (1 + Math.exp(-logit))
 
 /** Min-max normalization to [0, 1].
@@ -147,6 +147,12 @@ export const normalizeScores = (scores: readonly number[]): number[] => {
   if (range === 0) return scores.map(() => 0.5)
 
   return scores.map((score) => (score - min) / range)
+}
+
+const rrfWeightForRank = (rank: number): number => {
+  if (rank <= 3) return 0.75
+  if (rank <= 10) return 0.5
+  return 0.4
 }
 
 /** Position-aware score blending — combines RRF retrieval scores with
@@ -177,10 +183,10 @@ export const blendScores = (params: {
       throw new Error(`score array length mismatch at index ${index}`)
     }
 
-    const midOrLowWeight = rank <= 10 ? 0.5 : 0.4
-    const rrfWeight = rank <= 3 ? 0.75 : midOrLowWeight
+    const rrfWeight = rrfWeightForRank(rank)
     const rerankWeight = 1 - rrfWeight
 
+    // Search results report every score to four significant digits.
     return Number((rrfNorm * rrfWeight + rerankNorm * rerankWeight).toPrecision(4))
   })
 }
