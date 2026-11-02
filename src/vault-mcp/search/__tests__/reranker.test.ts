@@ -284,16 +284,16 @@ describe("createReranker", () => {
 
     it("scores each document independently", async () => {
       // A distinct score per model call shows each document gets its own
-      // call, and that scores come back in document order.
+      // call. The scores are out of order, so sorting them either way fails.
       mockModel
+        .mockResolvedValueOnce({ logits: { data: [0.3] } })
         .mockResolvedValueOnce({ logits: { data: [0.1] } })
         .mockResolvedValueOnce({ logits: { data: [0.2] } })
-        .mockResolvedValueOnce({ logits: { data: [0.3] } })
 
       const reranker = await loadReranker()
       const scores = await reranker.rerankPairs("query", ["a", "b", "c"])
 
-      expect(scores).toEqual([0.1, 0.2, 0.3])
+      expect(scores).toEqual([0.3, 0.1, 0.2])
       expect(mockModel).toHaveBeenCalledTimes(3)
     })
   })
