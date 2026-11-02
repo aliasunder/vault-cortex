@@ -92,7 +92,7 @@ mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-toke
 npx @modelcontextprotocol/inspector
 ```
 
-See the [README](./README.md#development) for full details on each mode.
+The [README's Development section](./README.md#development) also lists the test and full-check commands.
 
 ## Agent command setup
 
