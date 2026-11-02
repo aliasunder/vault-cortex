@@ -90,6 +90,12 @@ describe("createEmbedder", () => {
         receivedType: "Float64Array",
       },
       { label: "no data", output: {}, receivedType: "undefined" },
+      { label: "null data", output: { data: null }, receivedType: "null" },
+      {
+        label: "an object whose constructor is not a function",
+        output: { data: { constructor: undefined } },
+        receivedType: "object",
+      },
     ])(
       "names what the pipeline returned when it returns $label instead of a Float32Array",
       async ({ output, receivedType }) => {
