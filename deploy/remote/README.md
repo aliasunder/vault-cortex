@@ -159,7 +159,7 @@ docker run -d --name vault-cortex \
 Container hosting platforms that allow one volume per service can't attach
 the three mounts the Compose file and `docker run` command use. Mount the one
 volume anywhere and set `STORAGE_ROOT` to the same path — the container keeps
-the vault, the search index, Obsidian Sync state, and log files under that
+the vault, the search index and its models, Obsidian Sync state, and log files under that
 directory
 ([how the paths are laid out →](../../ARCHITECTURE.md#single-volume-layout)).
 
