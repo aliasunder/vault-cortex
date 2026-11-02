@@ -77,7 +77,7 @@ describe("createSearchModels", () => {
     expect(transformersState.cacheDir).toBe(LIBRARY_DEFAULT_CACHE_DIR)
   })
 
-  it("logs a failed model runtime import and still returns the models", async () => {
+  it("logs a failed model runtime import and builds no models", async () => {
     // Importing the library fails the way it does when the ONNX runtime can't load.
     vi.doMock("@huggingface/transformers", () => {
       transformersState.imports += 1
@@ -103,6 +103,6 @@ describe("createSearchModels", () => {
         ),
       },
     )
-    expect(models).toEqual({ embedder: EMBEDDER_API, reranker: RERANKER_API })
+    expect(models).toEqual({ embedder: undefined, reranker: undefined })
   })
 })

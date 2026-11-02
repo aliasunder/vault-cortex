@@ -24,11 +24,12 @@ export const createSearchModels = async (
     const { env } = await import("@huggingface/transformers")
     env.cacheDir = modelCacheDir
   } catch (error) {
-    // Like any model failure, this leaves search keyword-only and the server running. Node
-    // caches the failed import, so no model can later load into the library's default folder.
+    // Node caches the failed import, so models built now could never load. Return none, so
+    // search stays keyword-only and the server keeps running.
     logger.error("search model runtime failed to load, falling back to keyword-only search", {
       error: describeError(error),
     })
+    return { embedder: undefined, reranker: undefined }
   }
 
   return {
