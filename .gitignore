@@ -7,6 +7,8 @@ dist/
 *.log
 # The search models download beside the index, so INDEX_DB_PATH=index.db puts them in the repo root
 /models/
+# The dev commands in README.md and CONTRIBUTING.md keep the index, OAuth state and models here
+/.data/
 CLAUDE.local.md
 .serena/
 # .claude/ is local state except the committed session hooks (a trailing-slash

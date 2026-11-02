@@ -68,7 +68,7 @@ Vault Cortex can run in three modes during development:
 The fastest feedback loop — runs the MCP server directly with hot reload:
 
 ```bash
-PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/your-vault npm run dev:mcp
+mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/your-vault INDEX_DB_PATH=.data/index.db npm run dev:mcp
 ```
 
 ### Docker (local)
@@ -86,7 +86,7 @@ Interactive browser UI for testing all tools:
 
 ```bash
 # Terminal 1 — start the server
-PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/your-vault npm run dev:mcp
+mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/your-vault INDEX_DB_PATH=.data/index.db npm run dev:mcp
 
 # Terminal 2 — launch the inspector
 npx @modelcontextprotocol/inspector

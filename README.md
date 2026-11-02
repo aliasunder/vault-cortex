@@ -517,7 +517,7 @@ Built a deployment for another platform? Open a PR to add it here.
 
 ```bash
 # Run locally with hot reload
-PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault npm run dev:mcp
+mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault INDEX_DB_PATH=.data/index.db npm run dev:mcp
 
 # Tests
 npm test
