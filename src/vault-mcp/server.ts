@@ -85,11 +85,9 @@ export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPa
 
   return {
     searchDbPath: indexDbPath ?? `${dataDir}/search.db`,
-    // oauth.db sits beside the search index, so INDEX_DB_PATH moves both.
     oauthDbPath: `${dataDir}/oauth.db`,
-    // The search models download beside the index too. transformers.js's default folder, under
-    // /app, is lost whenever the container is re-created, and a server run with a PUID other
-    // than 1000 can't write it.
+    // transformers.js's default model folder, under /app, is lost whenever the container is
+    // re-created, and a server run with a PUID other than 1000 can't write it.
     modelCacheDir: `${dataDir}/models`,
   }
 }
