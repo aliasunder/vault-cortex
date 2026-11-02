@@ -61,14 +61,25 @@ export const createEmbedder = (logger: Logger) => {
     return pipelineLoading
   }
 
+  /** Names a value's class, or its type for null and primitives. typeof alone
+   *  reports null as "object". */
+  const describeReceivedType = (data: unknown): string => {
+    if (data === null) return "null"
+    if (data instanceof Object && typeof data.constructor === "function") {
+      return data.constructor.name
+    }
+    return typeof data
+  }
+
   /** The transformers pipeline returns a Tensor whose `.data` is typed as
    *  `DataArray` (a union of typed arrays). Feature-extraction with mean
    *  pooling always produces Float32Array — guard at runtime rather than
    *  using an `as` cast. */
   const toFloat32Array = (data: unknown): Float32Array => {
     if (data instanceof Float32Array) return data
-    const receivedType = data instanceof Object ? data.constructor.name : typeof data
-    throw new Error(`expected Float32Array from embedding pipeline, got ${receivedType}`)
+    throw new Error(
+      `expected Float32Array from embedding pipeline, got ${describeReceivedType(data)}`,
+    )
   }
 
   /** Embed a single text. Returns a 384-dim Float32Array (mean-pooled, L2-normalized). */

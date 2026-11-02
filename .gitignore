@@ -3,6 +3,9 @@ dist/
 .sst/
 .env
 *.db
+# SQLite's working files, left beside a database when the server stops without closing it
+*.db-wal
+*.db-shm
 *.sqlite
 *.log
 # The search models download into models/Xenova/ beside the index, wherever a relative
