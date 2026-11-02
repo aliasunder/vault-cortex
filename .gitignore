@@ -5,8 +5,9 @@ dist/
 *.db
 *.sqlite
 *.log
-# The search models download beside the index, so INDEX_DB_PATH=index.db puts them in the repo root
-/models/
+# The search models download into models/Xenova/ beside the index, wherever a relative
+# INDEX_DB_PATH puts it; matching Xenova/ leaves any source folder named models/ tracked
+**/models/Xenova/
 # The dev commands in README.md and CONTRIBUTING.md keep the index, OAuth state and models here
 /.data/
 CLAUDE.local.md
