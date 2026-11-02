@@ -92,7 +92,8 @@ mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-toke
 npx @modelcontextprotocol/inspector
 ```
 
-The [README's Development section](./README.md#development) also lists the test and full-check commands.
+The [README's Development section](./README.md#development) also gives the full
+check suite command, plus the URL and token the MCP Inspector asks for.
 
 ## Agent command setup
 
