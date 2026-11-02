@@ -222,6 +222,26 @@ describe("task-mutations", () => {
       )
     })
 
+    it("keeps a last line that holds only a carriage return", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", "---\ntitle: Tasks\n---\n- [ ] Buy groceries\n\r")
+
+      await taskMutations.updateTask(
+        {
+          statusRegistry: DEFAULT_STATUS_REGISTRY,
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 4,
+          status: "in_progress",
+        },
+        logger,
+      )
+
+      expect(await readTestNote(vault, "tasks.md")).toBe(
+        "---\ntitle: Tasks\n---\n- [/] Buy groceries\n\n",
+      )
+    })
+
     it("sets a task to in_progress", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)

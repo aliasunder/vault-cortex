@@ -50,6 +50,7 @@
 import { parseArgs } from "node:util"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
+import { join } from "node:path"
 import {
   countUnexpectedFilesInWindow,
   judgmentFileSchema,
@@ -59,8 +60,7 @@ import {
 import type { JudgmentQuery } from "./search-eval-plan.js"
 import { createVaultSnapshot, snapshotMatchesProvenance } from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
-import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
-import { createReranker } from "../src/vault-mcp/search/reranker.js"
+import { createSearchModels } from "../src/vault-mcp/search/search-models.js"
 import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
 import {
   BODY_TAG_PARSE_TIMEOUT_MS,
@@ -70,9 +70,8 @@ import {
 // ── Counting logger ────────────────────────────────────────────
 
 /** Silences the index's per-query info logs, records warn/error lines so
- *  the embedding pass can be failed on any logged problem, and tallies the
- *  note-KNN "vector search" lines (knnHits vs uniqueNotes) — the dedup
- *  collapse ratio shows when one note's chunks flood the KNN window. */
+ *  the embedding pass can be failed on any logged problem, and keeps each
+ *  "vector search" line's knnHits and uniqueNotes for the diversity report. */
 const createCountingLogger = (): {
   logger: Logger
   problems: { level: string; message: string }[]
@@ -204,8 +203,12 @@ const main = async (): Promise<void> => {
   }
 
   const { logger, problems, vectorSearchStats } = createCountingLogger()
-  const embedder = createEmbedder(logger)
-  const reranker = createReranker(logger)
+
+  // The work dir outlives each run, so later runs reuse the downloaded models.
+  const { embedder, reranker } = await createSearchModels(
+    { embeddingEnabled: true, rerankMode: "blended", modelCacheDir: join(workDir, "models") },
+    logger,
+  )
   const search = createSearchIndex(indexDbPath, embedder, reranker, {
     memoryDir: "About Me",
     fileToolsEnabled: true,
@@ -235,6 +238,9 @@ const main = async (): Promise<void> => {
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
     await embedding
+
+    // This finds the embedding pass's warn/error lines by their wording, so a
+    // message renamed without "embed" in it would slip past the check.
     const embedProblems = problems.filter((problem) => {
       return problem.message.includes("embed")
     })
@@ -307,7 +313,12 @@ const main = async (): Promise<void> => {
   }
 
   // ── Report ──────────────────────────────────────────────────
-  const primaryLimit = limits[0] ?? 20
+  const [primaryLimit] = limits
+
+  if (!primaryLimit) {
+    throw new Error("--limits resolved to an empty list")
+  }
+
   console.log(
     `\n=== ${cliArgs.label} · fileLegWeight=${fileLegWeight ?? "default"} · kindPrefix=${String(cliArgs["kind-prefix"])} ===`,
   )

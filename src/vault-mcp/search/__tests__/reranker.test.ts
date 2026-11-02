@@ -1,13 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, onTestFinished } from "vitest"
 import { normalizeScores, blendScores } from "../reranker.js"
 import { logger } from "../../../logger.js"
 
 // ── Mock for cross-encoder factory tests ──────────────────────
 
-// Deterministic mock: each (query, document) pair produces a score
-// derived from the document text length, so different documents give
-// distinguishable scores. The actual scoring logic is in the model —
-// the mock just needs to produce stable, distinct values.
+// The mock model scores every (query, document) pair 0.95; a test that needs
+// distinct scores per document queues them with mockResolvedValueOnce.
 const mockTokenizer = vi.fn().mockReturnValue({
   input_ids: { data: [1, 2, 3] },
   attention_mask: { data: [1, 1, 1] },
@@ -189,8 +187,7 @@ describe("createReranker", () => {
       const reranker = await loadReranker()
       const scores = await reranker.rerankPairs("query", ["doc1", "doc2", "doc3"])
 
-      expect(scores).toHaveLength(3)
-      scores.forEach((score) => expect(typeof score).toBe("number"))
+      expect(scores).toEqual([0.95, 0.95, 0.95])
     })
 
     it("returns the logit value from the model output", async () => {
@@ -207,22 +204,26 @@ describe("createReranker", () => {
       expect(scores).toEqual([])
     })
 
-    it("logs model load time on first call", async () => {
+    it("logs model load time on first call only", async () => {
       const infoSpy = vi.spyOn(logger, "info")
+      onTestFinished(() => infoSpy.mockRestore())
       const reranker = await loadReranker()
       await reranker.rerankPairs("query", ["doc"])
+      await reranker.rerankPairs("again", ["doc"])
 
+      expect(infoSpy).toHaveBeenCalledTimes(1)
       expect(infoSpy).toHaveBeenCalledWith(
         "reranker model loaded",
-        expect.objectContaining({ model: "Xenova/ms-marco-MiniLM-L-6-v2" }),
+        // The load time varies run to run; its presence and type are the contract.
+        { model: "Xenova/ms-marco-MiniLM-L-6-v2", elapsedMs: expect.any(Number) },
       )
-      infoSpy.mockRestore()
     })
 
     it("passes query and document as text_pair to the tokenizer", async () => {
       const reranker = await loadReranker()
       await reranker.rerankPairs("search query", ["relevant document"])
 
+      expect(mockTokenizer).toHaveBeenCalledTimes(1)
       expect(mockTokenizer).toHaveBeenCalledWith("search query", {
         text_pair: "relevant document",
         padding: true,
@@ -237,6 +238,7 @@ describe("createReranker", () => {
       const reranker = await loadReranker()
       await reranker.rerankPairs("trigger load", ["doc"])
 
+      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledTimes(1)
       expect(mockedAutoModel.from_pretrained).toHaveBeenCalledWith(
         "Xenova/ms-marco-MiniLM-L-6-v2",
         {
@@ -246,43 +248,53 @@ describe("createReranker", () => {
       )
     })
 
+    it("loads the reranker model's tokenizer with no per-call options", async () => {
+      const transformers = await import("@huggingface/transformers")
+      const mockedAutoTokenizer = vi.mocked(transformers.AutoTokenizer)
+
+      const reranker = await loadReranker()
+      await reranker.rerankPairs("trigger load", ["doc"])
+
+      expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledTimes(1)
+      expect(mockedAutoTokenizer.from_pretrained).toHaveBeenCalledWith(
+        "Xenova/ms-marco-MiniLM-L-6-v2",
+      )
+    })
+
     it("retries after a model load failure", async () => {
       const transformers = await import("@huggingface/transformers")
       const mockedAutoModel = vi.mocked(transformers.AutoModelForSequenceClassification)
       mockedAutoModel.from_pretrained.mockRejectedValueOnce(new Error("download failed"))
 
       const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
       const reranker = await loadReranker()
 
-      await expect(reranker.rerankPairs("q", ["d"])).rejects.toThrow("download failed")
-      expect(warnSpy).toHaveBeenCalledWith(
-        "reranker model failed to load",
-        expect.objectContaining({ model: "Xenova/ms-marco-MiniLM-L-6-v2" }),
-      )
+      await expect(reranker.rerankPairs("q", ["d"])).rejects.toThrow(new Error("download failed"))
+      expect(warnSpy).toHaveBeenCalledWith("reranker model failed to load", {
+        model: "Xenova/ms-marco-MiniLM-L-6-v2",
+        error: "[Error]: download failed",
+      })
 
       // modelLoading was reset in the catch block, allowing retry.
       // The mock reverts to its default (success), proving retry works.
       const scores = await reranker.rerankPairs("retry", ["doc"])
-      expect(scores).toHaveLength(1)
-
-      warnSpy.mockRestore()
+      expect(scores).toEqual([0.95])
     })
 
     it("scores each document independently", async () => {
-      // Make the model return different scores per call to verify
-      // each document is scored separately
-      let callCount = 0
-      mockModel.mockImplementation(() => {
-        callCount++
-        return Promise.resolve({ logits: { data: [callCount * 0.1] } })
-      })
+      // A distinct score per model call shows each document gets its own
+      // call. The scores are out of order, so sorting them either way fails.
+      mockModel
+        .mockResolvedValueOnce({ logits: { data: [0.3] } })
+        .mockResolvedValueOnce({ logits: { data: [0.1] } })
+        .mockResolvedValueOnce({ logits: { data: [0.2] } })
 
       const reranker = await loadReranker()
       const scores = await reranker.rerankPairs("query", ["a", "b", "c"])
 
-      expect(scores).toHaveLength(3)
-      expect(scores[0]).not.toBe(scores[1])
-      expect(scores[1]).not.toBe(scores[2])
+      expect(scores).toEqual([0.3, 0.1, 0.2])
+      expect(mockModel).toHaveBeenCalledTimes(3)
     })
   })
 })

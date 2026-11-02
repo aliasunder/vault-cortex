@@ -128,9 +128,9 @@ export const splitPropertiesBlock = (
 export const findBodyStartLine = (content: string): number => {
   const { body } = splitPropertiesBlock(content)
 
-  // The body is a suffix of the note, and splitIntoLines breaks lines at `\n`
-  // alone, so a BOM or a `\r` changes neither count: the lines above the body
-  // are the note's lines minus the body's
+  // The body is a suffix of the note, so the lines above it are the note's
+  // lines minus the body's. A BOM is no line break, and a `\r` that ends the
+  // note right after the closer (`---\r`) is the closer's line break.
   return splitIntoLines(content).length - splitIntoLines(body).length
 }
 

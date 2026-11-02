@@ -3,8 +3,16 @@ dist/
 .sst/
 .env
 *.db
+# SQLite's working files, left beside a database when the server stops without closing it
+*.db-wal
+*.db-shm
 *.sqlite
 *.log
+# The search models download into models/Xenova/ beside the index, wherever a relative
+# INDEX_DB_PATH puts it; matching Xenova/ leaves any source folder named models/ tracked
+**/models/Xenova/
+# The dev commands in README.md and CONTRIBUTING.md keep the index, OAuth state and models here
+/.data/
 CLAUDE.local.md
 .serena/
 # .claude/ is local state except the committed session hooks (a trailing-slash

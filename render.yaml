@@ -23,8 +23,8 @@ services:
     autoDeployTrigger: off
     disk:
       name: vault-cortex-storage
-      # Must equal STORAGE_ROOT below: the vault, search index, Sync device
-      # state, and logs all live under this one disk.
+      # Must equal STORAGE_ROOT below: the vault, search index and its models,
+      # Sync device state, and logs all live under this one disk.
       mountPath: /persist
       sizeGB: 5
     envVars:

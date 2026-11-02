@@ -233,7 +233,7 @@ Hybrid search fuses the keyword and vector rankings via [Reciprocal Rank Fusion]
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
 - **Reranker** (cross-encoder) refines ordering by scoring each query-document pair jointly — rescues intent-heavy queries where keywords and vectors both miss
 
-All models run locally (~45MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
+All models run locally (~59MB total, no external API). Set `EMBEDDING_ENABLED=false` for keyword-only search, or `RERANK_MODE=none` to skip reranking for lower latency.
 
 See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search) for model details, blend weights, and the full pipeline breakdown.
 
@@ -379,7 +379,7 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `OBSIDIAN_AUTH_TOKEN`       | —           | —                                                                                | Obsidian Sync auth token. Leave empty to sign in through the `/setup` page after deploy; or the CLI's [`get-sync-token`](./cli/README.md#get-sync-token) captures it for you                                                                                                                                                                    |
 | `VAULT_NAME`                | Remote only | —                                                                                | Exact name of your Obsidian vault (case-sensitive)                                                                                                                                                                                                                                                                                              |
 | `VAULT_PASSWORD`            | Remote only | —                                                                                | End-to-end encryption password, if your vault has one. Leave empty otherwise.                                                                                                                                                                                                                                                                   |
-| `STORAGE_ROOT`              | —           | —                                                                                | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path. Must not contain `*`, `?`, or `[` — rejected at startup.                                 |
+| `STORAGE_ROOT`              | —           | —                                                                                | One directory for everything that must persist — the vault, the search index and its models, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path. Must not contain `*`, `?`, or `[` — rejected at startup.                  |
 | `EMBEDDING_ENABLED`         | —           | `true`                                                                           | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                                                                                                                                           |
 | `RERANK_MODE`               | —           | `blended`                                                                        | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true.                                                                                                                                              |
 | `MEMORY_ENABLED`            | —           | `true`                                                                           | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` still supplies the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` when `false`.                                                                                                               |
@@ -517,7 +517,7 @@ Built a deployment for another platform? Open a PR to add it here.
 
 ```bash
 # Run locally with hot reload
-PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault npm run dev:mcp
+mkdir -p .data && PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vault INDEX_DB_PATH=.data/index.db npm run dev:mcp
 
 # Tests
 npm test

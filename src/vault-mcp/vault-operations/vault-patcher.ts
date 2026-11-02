@@ -79,30 +79,47 @@ const leadingHeadingOfContent = (contentLines: readonly string[]): HeadingInfo |
  *  and displaces nothing. */
 const findDisplacedLeadingContent = (lines: readonly string[]): DisplacedLeadingContent | null => {
   const headings = parseHeadings(lines)
-  const regionLines = trimBlankEdgeLines(linesBeforeFirstHeading(lines, headings))
+  const linesAboveFirstHeading = trimBlankEdgeLines(linesBeforeFirstHeading(lines, headings))
 
-  if (regionLines.length === 0) return null
+  if (linesAboveFirstHeading.length === 0) return null
   const firstHeading = headings[0]
   return {
-    bytes: Buffer.byteLength(regionLines.join("\n"), "utf8"),
+    bytes: Buffer.byteLength(linesAboveFirstHeading.join("\n"), "utf8"),
     firstHeading: firstHeading ? { text: firstHeading.text, level: firstHeading.level } : null,
   }
 }
 
+/** Appends `contentLines` to a body that ends just before line `bodyEndLine`.
+ *  - At the note's end, a final line break splits off an empty last element
+ *    that only ends the line before it, so the content goes above that element
+ *    (`"a\n"` → `["a", ""]` → content at index 1).
+ *  - A body ending at a heading keeps its last empty line, and the content goes
+ *    below it. One ending at a trailing `%% %%` comment block stops above the
+ *    empty lines before the block, so the content goes above them. */
+const appendToBody = (params: {
+  lines: readonly string[]
+  contentLines: readonly string[]
+  bodyEndLine: number
+}): string[] => {
+  const { lines, contentLines, bodyEndLine } = params
+  const endsWithLineTerminator = bodyEndLine === lines.length && lines.at(-1) === ""
+  const insertionLine = endsWithLineTerminator ? bodyEndLine - 1 : bodyEndLine
+
+  return [...lines.slice(0, insertionLine), ...contentLines, ...lines.slice(insertionLine)]
+}
+
 /** Splices new content into a line array at the position determined by operation and target. */
-const applySectionOperation = (
-  lines: readonly string[],
-  contentLines: readonly string[],
-  target: HeadingInfo,
-  operation: Operation,
-): string[] => {
+const applySectionOperation = (params: {
+  lines: readonly string[]
+  contentLines: readonly string[]
+  target: HeadingInfo
+  operation: Operation
+}): string[] => {
+  const { lines, contentLines, target, operation } = params
+
   switch (operation) {
     case "append":
-      return [
-        ...lines.slice(0, target.bodyEndLine),
-        ...contentLines,
-        ...lines.slice(target.bodyEndLine),
-      ]
+      return appendToBody({ lines, contentLines, bodyEndLine: target.bodyEndLine })
     case "prepend":
       return [
         ...lines.slice(0, target.bodyStartLine),
@@ -197,8 +214,9 @@ const countTrailingEmptyLines = (lines: readonly string[]): number => {
 
 /** Consecutive line breaks in `text` that end just before index `end`. */
 const countLineBreaksEndingAt = (text: string, end: number): number => {
-  // A cursor walks back one character at a time, so the cost is the run's
-  // length rather than the text's; callers measure a run at every match.
+  // A cursor walks back from `end` instead of matching a regex against the
+  // text, so the cost is the run's length rather than the text's; callers
+  // measure a run at every match.
   let start = end
   while (start > 0 && text[start - 1] === "\n") {
     start--
@@ -208,8 +226,9 @@ const countLineBreaksEndingAt = (text: string, end: number): number => {
 
 /** Consecutive line breaks in `text` that start at index `start`. */
 const countLineBreaksStartingAt = (text: string, start: number): number => {
-  // A cursor walks forward one character at a time, so the cost is the run's
-  // length rather than the text's; callers measure a run at every match.
+  // A cursor walks forward from `start` instead of matching a regex against
+  // the text, so the cost is the run's length rather than the text's; callers
+  // measure a run at every match.
   let end = start
   while (end < text.length && text[end] === "\n") {
     end++
@@ -217,22 +236,25 @@ const countLineBreaksStartingAt = (text: string, start: number): number => {
   return end - start
 }
 
-/** Empty lines that a run of line breaks puts between a match and the text
- *  beyond the run. Between two lines of text, n breaks leave n − 1 empty lines
- *  (`A\n\nB` has one); with only the body's edge beyond the run, all n count. */
+/** Empty lines, as `""` elements of the line array, that a run of line breaks
+ *  puts between a match and the text beyond the run:
+ *  - between two lines of text, n breaks leave n − 1 (`A\n\nB` has one);
+ *  - with only the body's edge beyond, all n count (`A\n\n` → `["A", "", ""]`). */
 const countEmptyLinesInBreaks = (params: {
   lineBreaks: number
   hasTextBeyond: boolean
 }): number => {
-  const breaksEndingText = params.hasTextBeyond ? 1 : 0
+  const breaksEndingTextBeyond = params.hasTextBeyond ? 1 : 0
 
-  return Math.max(0, params.lineBreaks - breaksEndingText)
+  return Math.max(0, params.lineBreaks - breaksEndingTextBeyond)
 }
 
 /** A run of consecutive line breaks in a string, as a half-open offset range. */
 type LineBreakRun = Readonly<{ start: number; end: number }>
 
-/** Edit points for a `replaceInNote` deletion. `bodyParts` is the body split at
+/** Edit points for a `replaceInNote` deletion, from which
+ *  collapseEmptyLineRunsAtEdits shrinks each run of empty lines a point touches
+ *  to its widest gap, never below one line. `bodyParts` is the body split at
  *  every removed match, so `bodyParts.join(removedText)` is the original body.
  *  - Every line break is a single `\n`: the body comes from splitIntoLines, and
  *    replaceInNote converts old_text's `\r\n` breaks before matching.
@@ -257,7 +279,8 @@ const listTextDeletionEdits = (params: {
   // would be quadratic in its length. Starts as an empty range before the body.
   let lastLineBreakRun: LineBreakRun = { start: -1, end: -1 }
   /** The run of line breaks in `body` around `position`. Reuses the last run
-   *  measured when `position` falls inside it, and remembers each new one. */
+   *  measured when `position` falls inside it or on one of its edges, and
+   *  remembers each new one. */
   const findLineBreakRunAt = (position: number): LineBreakRun => {
     // The run found around a position always has start <= position <= end, so
     // a position at either end of the last run measures that same run.
@@ -281,8 +304,9 @@ const listTextDeletionEdits = (params: {
   let updatedBodyOffset = 0
   let updatedLineIndex = 0
   for (const [earlierMatchCount, partBeforeMatch] of partsBeforeMatches.entries()) {
+    const lineBreaksInPart = partBeforeMatch.split("\n").length - 1
     updatedBodyOffset += partBeforeMatch.length
-    updatedLineIndex += partBeforeMatch.split("\n").length - 1
+    updatedLineIndex += lineBreaksInPart
 
     // The removal leaves an empty line when a line break or the body's edge
     // sits on both sides of the point where the match was.
@@ -296,18 +320,21 @@ const listTextDeletionEdits = (params: {
     // Offsets into the original body add back the text of every earlier match.
     const matchStart = updatedBodyOffset + earlierMatchCount * removedText.length
     const matchEnd = matchStart + removedText.length
-    const breaksAboveMatch = matchStart - findLineBreakRunAt(matchStart).start
-    const breaksBelowMatch = findLineBreakRunAt(matchEnd).end - matchEnd
-    const hasTextAboveRun = breaksAboveMatch < matchStart
-    const hasTextBelowRun = matchEnd + breaksBelowMatch < body.length
+    const runAboveMatch = findLineBreakRunAt(matchStart)
+    const runBelowMatch = findLineBreakRunAt(matchEnd)
+    const breaksAboveMatch = matchStart - runAboveMatch.start
+    const breaksBelowMatch = runBelowMatch.end - matchEnd
+    const hasTextAboveRun = runAboveMatch.start > 0
+    const hasTextBelowRun = runBelowMatch.end < body.length
 
     // - Each gap is measured to the match's text, not its edge, so line breaks
     //   at the match's own start or end count toward the gap they sat in.
     // - A match made only of line breaks counts them on both sides. Its gap
     //   below then covers every break from the match to the end of its run,
-    //   more than the removal leaves there, so none of that run is dropped:
-    //   removing `\n\n` from the start of `\n\n\n\nB` leaves two empty lines,
-    //   and the gap below counts three.
+    //   more than the removal leaves there, and a gap wider than its run keeps
+    //   the whole run, so none of that run is dropped: removing `\n\n` from
+    //   the start of `\n\n\n\nB` leaves two empty lines, and the gap below
+    //   counts three.
     edits.push({
       boundary: updatedLineIndex,
       gapAbove: countEmptyLinesInBreaks({
@@ -327,8 +354,9 @@ const listTextDeletionEdits = (params: {
  *  searching at or after `fromLine`. The match must be unique by default:
  *  throws a not-found error on no match, or an ambiguous error on more than
  *  one — unless `firstMatch` allows taking the first. `role` labels the error
- *  messages ("start"/"end") and notes the end anchor's restricted search;
- *  omit it for a single-anchor tool where the qualifier would be misleading. */
+ *  messages ("start"/"end"), and "end" adds that the search began at the start
+ *  anchor, so pass it only with `fromLine` set to the start anchor's line. Omit
+ *  it for a single-anchor tool where the qualifier would be misleading. */
 const resolveAnchorLine = (params: {
   lines: readonly string[]
   anchor: string
@@ -413,6 +441,10 @@ const patchNote = async (
   logger: Logger,
 ): Promise<PatchNoteResult> => {
   const { path, operation, content, heading, headingLevel, includeChildren } = params
+
+  if (content === "") {
+    throw new Error("content cannot be empty")
+  }
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
@@ -442,7 +474,9 @@ const patchNote = async (
         : null
 
       const updatedLines =
-        operation === "append" ? [...lines, ...contentLines] : [...contentLines, ...lines]
+        operation === "append"
+          ? appendToBody({ lines, contentLines, bodyEndLine: lines.length })
+          : [...contentLines, ...lines]
       const afterBytes = await writePatchedNote(
         { fullPath, textBeforeBody, lines: updatedLines },
         logger,
@@ -469,7 +503,7 @@ const patchNote = async (
       level: headingLevel,
       bodyStartFileLine,
     })
-    const targetDesc = `${"#".repeat(target.level)} ${target.text}`
+    const targetHeadingMarkdown = `${"#".repeat(target.level)} ${target.text}`
 
     // Heading-targeted ops keep the matched heading, so a content that begins
     // with that same heading would duplicate it. Reject with remediation rather
@@ -482,7 +516,7 @@ const patchNote = async (
 
     if (contentRepeatsTargetHeading) {
       throw new Error(
-        `content begins with the heading "${targetDesc}", which would duplicate it — ` +
+        `content begins with the heading "${targetHeadingMarkdown}", which would duplicate it — ` +
           `heading-targeted ops keep the matched heading, so omit the heading line from content.`,
       )
     }
@@ -502,12 +536,12 @@ const patchNote = async (
         const childList = childHeadings.map((child) => child.text).join(", ")
         const noun = childHeadings.length === 1 ? "child heading" : "child headings"
         throw new Error(
-          `section "${targetDesc}" has ${childHeadings.length} ${noun} (${childList})`,
+          `section "${targetHeadingMarkdown}" has ${childHeadings.length} ${noun} (${childList})`,
         )
       }
     }
 
-    const updatedLines = applySectionOperation(lines, contentLines, target, operation)
+    const updatedLines = applySectionOperation({ lines, contentLines, target, operation })
 
     const afterBytes = await writePatchedNote(
       { fullPath, textBeforeBody, lines: updatedLines },
@@ -516,12 +550,12 @@ const patchNote = async (
     logger.info("patched note", {
       path,
       operation,
-      target: targetDesc,
+      target: targetHeadingMarkdown,
       beforeBytes,
       afterBytes,
     })
     return {
-      message: `Applied ${operation} to ${path} → ${targetDesc}`,
+      message: `Applied ${operation} to ${path} → ${targetHeadingMarkdown}`,
       displacedLeadingContent: null,
     }
   })
@@ -549,8 +583,9 @@ const replaceInNote = async (
   // The body is matched with LF line breaks (readNoteForPatch splits it with
   // splitIntoLines), so old_text's `\r\n` breaks become `\n` too:
   // - text copied from a raw read of a CRLF note then matches;
-  // - replaceAll never empties a non-empty string, unlike splitIntoLines, which
-  //   would turn old_text "\r" into "", a search text that matches at offset 0.
+  // - replaceAll converts only `\r\n`, so a `\r` that ends old_text stays a
+  //   carriage return; splitIntoLines would read it as a line break, and
+  //   old_text "\r" would then match every line break in the body.
   const searchText = oldText.replaceAll("\r\n", "\n")
 
   const lockPath = resolveSafePath(params.vaultPath, path)
@@ -572,15 +607,16 @@ const replaceInNote = async (
       ? body.split(searchText)
       : [body.slice(0, firstMatchOffset), body.slice(firstMatchOffset + searchText.length)]
     const count = bodyParts.length - 1
-    // Split as patchNote, replaceSpan and insertAtAnchor split content: a `\r`
-    // the edit leaves before a line break is dropped, one inside a line stays
+    // Split as patchNote, replaceSpan and insertAtAnchor split content. A `\r`
+    // the edit leaves before a line break is dropped, one that ends the body
+    // ends a line, and one inside a line stays.
     const updatedLines = splitIntoLines(bodyParts.join(newText))
 
     // A deletion stacks the empty lines from both sides of each match into one
     // run, so that run is shrunk back. A replacement keeps new text between
     // them, and its line breaks are written where the caller put them. A
-    // new_text of "\r" is dropped before a line break, but is not a deletion
-    // the caller asked for.
+    // new_text of "\r" is dropped before a line break and ends a line at the
+    // end of the body, but is not a deletion the caller asked for.
     const isDeletion = newText === ""
     const writtenLines = isDeletion
       ? collapseEmptyLineRunsAtEdits({

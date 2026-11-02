@@ -93,7 +93,7 @@ src/
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
       tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers
-    search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, chunker, file-watcher, body-tag-parser + body-tag-worker (body tags parsed in a worker thread)
+    search/ # SQLite FTS5, hybrid search, file watching, embedding: search-index, search-queries, fts-query, hybrid-search, search-helpers, rrf, embedder, reranker, search-models, chunker, file-watcher, body-tag-parser + body-tag-worker (body tags parsed in a worker thread)
     oauth/ # OAuth 2.1: oauth-provider, oauth-routes, consent-page
     setup/ # Setup mode (browser sign-in to Obsidian Sync while the :remote image has no working token): setup-server (entry), setup-routes, setup-page, obsidian-api, vault-key, sync-token-store
 ```

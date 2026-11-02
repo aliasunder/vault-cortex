@@ -15,9 +15,9 @@
 # $HOME/.config).
 #
 # STORAGE_ROOT set — container hosting platforms that allow a single
-# persistent mount (Railway, Render): the vault, the index, log files,
-# and Obsidian Sync state all live under it, so one volume carries
-# everything that must survive a redeploy. LOG_DIR defaults to
+# persistent mount (Railway, Render): the vault, the index and its search
+# models, log files, and Obsidian Sync state all live under it, so one
+# volume carries everything that must survive a redeploy. LOG_DIR defaults to
 # $STORAGE_ROOT/data/logs (matching the remote Compose file's default-on
 # behavior); LOG_DIR=none turns log files off.
 set -eu

@@ -428,6 +428,28 @@ describe("updateMemory", () => {
     expect(lines[1]).toContain("2026-05-06")
   })
 
+  it("keeps a last line that holds only a carriage return", async () => {
+    await writeFile(
+      join(vault, "About Me/CrTail.md"),
+      "## Notes (newest first)\n- **2026-05-01**: old entry\n\r",
+      "utf8",
+    )
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "CrTail",
+        section: "Notes (newest first)",
+        entry: "new entry",
+        date: "2026-05-08",
+      },
+      logger,
+    )
+
+    expect(await readFile(join(vault, "About Me/CrTail.md"), "utf8")).toBe(
+      "## Notes (newest first)\n- **2026-05-08**: new entry\n- **2026-05-01**: old entry\n\n",
+    )
+  })
+
   it("inserts entry at bottom when position is 'bottom'", async () => {
     await updateMemory(
       {
