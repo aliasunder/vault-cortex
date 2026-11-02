@@ -96,6 +96,16 @@ describe("createEmbedder", () => {
         output: { data: { constructor: undefined } },
         receivedType: "object",
       },
+      {
+        label: "an instance of an unnamed class",
+        // The class expression is inline so it gets no inferred name.
+        output: {
+          data: new (class {
+            values = [0.1]
+          })(),
+        },
+        receivedType: "object",
+      },
     ])(
       "names what the pipeline returned when it returns $label instead of a Float32Array",
       async ({ output, receivedType }) => {

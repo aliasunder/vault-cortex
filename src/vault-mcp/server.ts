@@ -80,7 +80,7 @@ type DataPaths = { searchDbPath: string; oauthDbPath: string; modelCacheDir: str
 export const resolveDataPaths = (indexDbPathSetting: string | undefined): DataPaths => {
   // An empty INDEX_DB_PATH counts as unset, as it does in the :remote init scripts.
   const indexDbPath = indexDbPathSetting || undefined
-  // /data is the Docker volume where the container persists indexes and logs
+  // /data is the Docker volume where the container persists its databases, models and logs
   const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
 
   return {

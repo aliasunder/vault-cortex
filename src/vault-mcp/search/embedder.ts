@@ -61,12 +61,13 @@ export const createEmbedder = (logger: Logger) => {
     return pipelineLoading
   }
 
-  /** Names a value's class, or its type for null and primitives. typeof alone
-   *  reports null as "object". */
+  /** Names a value's class, or its type when it has no class name (null, primitives,
+   *  unnamed classes). typeof alone reports null as "object". */
   const describeReceivedType = (data: unknown): string => {
     if (data === null) return "null"
     if (data instanceof Object && typeof data.constructor === "function") {
-      return data.constructor.name
+      // An unnamed class's name is "", which would end the message at "got "
+      return data.constructor.name || typeof data
     }
     return typeof data
   }
