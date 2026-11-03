@@ -20,7 +20,7 @@ const collectRawTagNames = (root: ParsedNode): string[] => {
   const deferredFootnotes: ParsedNode[] = []
 
   // Both walks fill the arrays above in visiting order, so they mutate them
-  const walk = (node: ParsedNode, deferFootnotes: boolean): void => {
+  const walk = (node: ParsedNode, insideFootnote: boolean): void => {
     // The tag tokenizer always sets a non-empty value; the check narrows the
     // optional field
     if (node.type === "tag" && node.value) {
@@ -28,20 +28,18 @@ const collectRawTagNames = (root: ParsedNode): string[] => {
       return
     }
 
-    if (node.type === "inlineFootnote" && deferFootnotes) {
+    if (node.type === "inlineFootnote" && !insideFootnote) {
       deferredFootnotes.push(node)
       return
     }
 
-    for (const child of node.children ?? []) walk(child, deferFootnotes)
+    for (const child of node.children ?? []) walk(child, insideFootnote)
   }
 
-  walk(root, true)
+  walk(root, false)
 
   for (const footnote of deferredFootnotes) {
-    // A footnote nested in a deferred one keeps its place among that
-    // footnote's tags rather than waiting for a third pass
-    for (const child of footnote.children ?? []) walk(child, false)
+    for (const child of footnote.children ?? []) walk(child, true)
   }
 
   return rawNames
