@@ -491,10 +491,9 @@ The rest are the author's responsibility at write time.
   converters go input noun → output noun. No trailing `Of`
   (`laneRecordOf` → `findLaneRecord`); rename an existing one only when a
   change already touches it. A docstring never excuses a vague name.
-- Booleans are named for the affirmative state (`hardLinksSupported:
-false`, never `hardLinksUnsupported: true`); guard booleans name the
-  action they control (`needsStatusFilter`). A double negative is a
-  smell.
+- Booleans are named for the affirmative state: `hardLinksSupported: false`,
+  never `hardLinksUnsupported: true`. Guard booleans name the action they
+  control (`needsStatusFilter`). A double negative is a smell.
 - No planning-session coinages in identifiers; sweep new identifiers
   before landing.
 - Wire names (`snake_case`) and internal names (`camelCase`) are two
@@ -544,8 +543,8 @@ false`, never `hardLinksUnsupported: true`); guard booleans name the
   are used.
 - Platform built-ins over hand-rolled parsing: check Node 24's stdlib
   (static `URL.parse`) before `split`/slice/regex over URLs, paths,
-  headers or dates; next, exact-value comparison; a doc-commented regex
-  with named groups only when values genuinely vary.
+  headers or dates. With no built-in parser, compare exact values; use a
+  doc-commented regex with named groups only when values genuinely vary.
 - Cut user-visible text on whole graphemes: apply a code-point limit,
   then back up to the start of any grapheme the cut splits
   (`Intl.Segmenter`); never slice UTF-16 units. Internal byte caps only
@@ -975,10 +974,10 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   in `afterEach`/`onTestFinished` at creation time, because trailing
   `rm`/`close()` is skipped when an assertion throws.
 - Every test abstraction justifies its existence by removing real
-  duplication. A mock can't create a condition production can't produce,
-  and it preserves the dimension under test (order, timing, ranking,
-  size) with deliberate variation and decoys; when it can't, test against
-  the real component.
+  duplication. A mock must not create a condition production cannot
+  produce, and it preserves the dimension under test (order, timing,
+  ranking, size) with deliberate variation and decoys; when it cannot,
+  test against the real component.
 - Error paths and boundaries are covered, not just the happy path:
   zero/one/empty inputs expose the special-case bugs, and filter tests
   seed data both inside and outside the filter.
