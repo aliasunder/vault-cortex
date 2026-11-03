@@ -1152,6 +1152,20 @@ describe("OAuth pending consent request expiry", () => {
       new Error("No pending request"),
     )
   })
+
+  it("refuses to approve a consent request older than ten minutes", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    const requestId = await startAuthFlow(oauth, client)
+
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS + 1000)
+
+    expect(() => oauth.approveRequest(requestId, testLogger)).toThrow(
+      new Error("No pending request"),
+    )
+    const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
+    expect(expiryLogs).toEqual([{ level: "info", message: "oauth_request_expired", data: {} }])
+  })
 })
 
 describe("OAuth token audience and issuer", () => {
