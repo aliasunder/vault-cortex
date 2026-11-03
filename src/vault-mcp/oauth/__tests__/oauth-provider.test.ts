@@ -884,6 +884,14 @@ describe("OAuth audit logging", () => {
         },
       },
     ])
+    // The rejected attempt left the code redeemable by the client it was issued to.
+    const ownerTokens = await exchangeAuthorizationCode(oauth, client, code)
+    expect(await verifyAccessToken(oauth, ownerTokens.access_token)).toEqual({
+      token: ownerTokens.access_token,
+      clientId: "test-client",
+      scopes: ["vault"],
+      expiresAt: expect.any(Number),
+    })
   })
 
   it("logs oauth_token_refreshed on successful refresh", async () => {

@@ -598,8 +598,8 @@ export const createOAuthProvider = ({
 
     /** RFC 6749 §4.1.3: the code must have been issued to the authenticated
      *  client. `redirect_uri` is not compared because OAuth 2.1 removed it
-     *  from the token request; PKCE already ties the code to the client that
-     *  asked for it. https://www.rfc-editor.org/rfc/rfc6749#section-4.1.3 */
+     *  from the token request: mandatory S256 PKCE already stops an injected
+     *  code. https://www.rfc-editor.org/rfc/rfc6749#section-4.1.3 */
     async exchangeAuthorizationCode(
       client: OAuthClientInformationFull,
       authorizationCode: string,
