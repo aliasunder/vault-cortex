@@ -3778,7 +3778,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const replaceInNoteRetrySentence =
-    "A repeated call replaces the next match of old_text if one remains, so after a timeout or lost response, re-read the note before retrying."
+    "A repeated call replaces old_text again if the note still holds it, even inside text the first call wrote, so after a timeout or lost response, re-read the note before retrying."
 
   it.each([
     {
