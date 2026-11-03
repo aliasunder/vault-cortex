@@ -176,6 +176,88 @@ describe("readAssetContent — PDF extraction", () => {
     })
   })
 
+  it("keeps an RTL line's items in stream order instead of sorting them by x", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 2_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: { Title: "RTL Doc" } })
+    // pdfjs emits RTL runs in reading order, so the first word in the stream
+    // sits further right. The baked space joins the words in either order,
+    // which leaves the word order as the only thing under test.
+    const rtlItemMetrics = {
+      y: 780,
+      height: 10.5,
+      fontSize: 10.5,
+      fontFamily: "sans-serif",
+      dir: "rtl",
+      hasEOL: false,
+    }
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          { ...rtlItemMetrics, str: "שלום ", x: 300, width: 35 },
+          { ...rtlItemMetrics, str: "עולם", x: 200, width: 28 },
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "rtl.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      path: "rtl.pdf",
+      text: ["Title: RTL Doc | Pages: 1", "", "שלום עולם"].join("\n"),
+    })
+  })
+
+  it("keeps a space baked into either edge of a tight cross-font junction", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 2_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: { Title: "Junction Doc" } })
+    // Each item starts where the one before it ends, so neither junction has
+    // a word-sized gap. Only the space at the end of "Run " and the start of
+    // " now" can put a space back once each font run's text is trimmed.
+    const itemMetrics = {
+      y: 780,
+      height: 10.5,
+      fontSize: 10.5,
+      dir: "ltr",
+      hasEOL: false,
+    }
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          { ...itemMetrics, str: "Run ", x: 42, width: 28, fontFamily: "sans-serif" },
+          { ...itemMetrics, str: "kubectl", x: 70, width: 49, fontFamily: "monospace" },
+          { ...itemMetrics, str: " now", x: 119, width: 28, fontFamily: "sans-serif" },
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "junction.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      path: "junction.pdf",
+      text: ["Title: Junction Doc | Pages: 1", "", "Run `kubectl` now"].join("\n"),
+    })
+  })
+
   it("deduplicates links in the footer", async () => {
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("fake-pdf"),
