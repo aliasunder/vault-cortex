@@ -71,10 +71,10 @@ const getPdfEngine = (): Promise<PdfEngine> => {
   if (!pdfEnginePromise) {
     // A failed init drops the memo, so one failed start does not poison
     // every later PDF read:
-    // - The next call retries. That recovers a failure outside module
-    //   evaluation, such as resolving pdfjs-dist's asset folders. A module
-    //   whose first evaluation threw stays failed until the process
-    //   restarts, because Node caches that failure.
+    // - The next call retries. That recovers an import that failed because
+    //   its files were missing (an install still running), which Node does
+    //   not cache. A module whose first evaluation threw stays failed until
+    //   the process restarts, because Node caches that failure.
     // - Every caller sharing this promise sees one rejection: a generic
     //   message with the original error as its cause, because a module-load
     //   error quotes the server's install paths, which must not reach a

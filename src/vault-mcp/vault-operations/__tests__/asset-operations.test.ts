@@ -810,8 +810,8 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       logger,
     )
 
-    // The proxy carries the font/canvas configuration — rendering from raw
-    // bytes instead would silently rebuild an unconfigured document.
+    // The proxy carries the font configuration — rendering from raw bytes
+    // instead would silently rebuild an unconfigured document.
     expect(mockRenderPageAsImage).toHaveBeenCalledWith(configuredProxy, 1, {
       canvasImport: mockCanvasImport,
       scale: 2,
