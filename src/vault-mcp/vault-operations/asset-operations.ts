@@ -50,10 +50,11 @@ const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
   ".base",
 ])
 
-/** Fixed cap on text output (passthrough files and canvas renditions) so a
- *  huge text asset can't blow a client's response limit. Deliberately not an
- *  env var — the image budget is the tunable surface; text past this size
- *  is read in line windows, not raised into a bigger blob. */
+/** Fixed cap on text output (passthrough files, canvas renditions and
+ *  PDF-extracted text) so a huge text asset can't blow a client's response
+ *  limit. Deliberately not an env var — the image budget is the tunable
+ *  surface; text past this size is read in line windows, not raised into a
+ *  bigger blob. */
 const MAX_TEXT_OUTPUT_BYTES = 102_400
 
 type RenderedPdfPage = Readonly<{
