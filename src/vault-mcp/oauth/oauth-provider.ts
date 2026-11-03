@@ -48,9 +48,9 @@ const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
 const AUTH_CODE_TTL_S = 10 * 60
 // 10 minutes for the user to approve a consent request before it expires.
 const PENDING_REQUEST_TTL_S = 10 * 60
-// The one scope the server grants; also what the static token carries
-// (see verifyAccessToken) and what the metadata advertises as
-// scopes_supported.
+// The scope granted to a request that names none (see authorize); also what
+// the static token carries (see verifyAccessToken) and what the metadata
+// advertises as scopes_supported.
 export const DEFAULT_SCOPE = "vault" as const
 
 /** `authorize` fills in the default scope before storing a request, so scopes is always set. */
@@ -544,17 +544,17 @@ export const createOAuthProvider = ({
   const isRevoked = (token: string): boolean => !!selectRevokedTokenStmt.get(token)
 
   // Methods below implement OAuthServerProvider from the MCP SDK.
-  // They appear unused locally but are called by mcpAuthRouter() and
-  // requireBearerAuth() in server.ts during the OAuth lifecycle.
+  // They appear unused locally but are called by mcpAuthRouter() in
+  // oauth-routes.ts and requireBearerAuth() in mcp-core/mcp-router.ts.
   const provider: OAuthServerProvider = {
     get clientsStore(): OAuthRegisteredClientsStore {
       return store
     },
 
-    /** A request that names no scope is granted the server's one scope.
-     *  The default is applied here, before the request is stored, so the
-     *  consent page, the code exchange, and every later refresh read the
-     *  same value. */
+    /** A request that names no scope is granted DEFAULT_SCOPE; named scopes
+     *  are granted as requested. The default is applied here, before the
+     *  request is stored, so the consent page, the code exchange, and every
+     *  later refresh read the same value. */
     async authorize(
       client: OAuthClientInformationFull,
       params: AuthorizationParams,

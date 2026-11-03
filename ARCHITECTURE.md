@@ -776,10 +776,10 @@ cryptographic or binding checks. The binding claims
   is fine. A mismatch is answered with `invalid_target` before any code or
   refresh token is consumed; clients that send no `resource` are accepted.
 
-`vault` is the server's only scope: a client that requests it gets it, and a
-client that requests no scope is granted it at authorization time, so the
-consent page, the access token, and every refresh carry the same value as the
-static token.
+`vault` is the only scope the server advertises: a client that requests it
+gets it, and a client that requests no scope is granted it at authorization
+time, so the consent page, the access token, and every refresh carry the same
+value as the static token.
 
 **Token storage:** what each credential is and where it lives.
 
