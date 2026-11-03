@@ -425,9 +425,9 @@ Before integrating agent command setup, read [Agent command setup](./CONTRIBUTIN
 
 ## Code style
 
-<!-- distilled from vault Reference/code-standards-* on 2026-09-23; refresh: run the sync-code-standards skill -->
+<!-- distilled from vault Reference/code-standards-* on 2026-11-03; refresh (merges, keeps hand edits): run the sync-code-standards skill -->
 
-These rules are authoring guidance, not a review checklist — apply them
+These rules are authoring guidance, not a review checklist. Apply them
 while writing, not after. `eslint.config.ts` enforces this subset:
 
 - No `function` declarations, and `type` over `interface`.
@@ -443,318 +443,318 @@ while writing, not after. `eslint.config.ts` enforces this subset:
 - The Module layering bans (layer imports, `config.readOnlyMode`, a local
   `TOOL_NAMES`).
 
-The rest are the author's responsibility at write time. The list below
-covers both kinds, with reasons:
+The rest are the author's responsibility at write time.
 
-- Functional over OOP. Arrow functions over `function` declarations.
-- Factory/closure pattern for stateful modules (see search-index.ts).
-- `type` over `interface` unless `interface` is specifically required.
-- TypeScript strict mode. `node:` prefix for built-ins.
-- Explicit return types on exports. Zod for MCP tool schemas.
-- No `any`, `as` casts, or `!` (`as const` is allowed); use runtime
-  guards or schema validation instead. When a library method returns
-  `T | null` but the null case is unreachable (e.g.
-  `DateTime.now().toISO()`), throw on null — never fall back to `?? ""` or
-  another sentinel, which passes the type checker and hides the bug
-  downstream.
-- Blank lines separate logical sections — a declaration never runs
-  straight into the guard that consumes it.
-- Model states in the type system — reach for a discriminated union, a
-  user-defined [type predicate](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates)
-  (`value is Type`), or `never`-exhaustiveness before reshaping
-  an API to route around the checker. Optional fields doc-commented
-  "present only in mode X" are the cue for a discriminated union; a
-  callback param with a closed set of instantiations becomes a
-  discriminated field naming the domain choice (every caller passes one of
-  two formatters → `format: "date" | "datetime"`). Reuse type predicates
-  in filters over union members. Keep `x is T` guard bodies simple —
-  predicates are compiler-trusted, not verified. A
-  short `&&` chain is fine; when checks need a negated `in` or `||`
-  branches, early returns read clearer.
-- One discriminant represents one outcome. When two result shapes encode
-  the same statuses and need a converter between them (a boolean `ok` result
-  beside a `status` result for the same outcomes), use one
-  status-discriminated union instead.
-- Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
-  `.finally()` is the natural idiom (e.g. promise-chain serialization
-  queues), use it with a comment explaining the pattern.
-- Per-operation try/catch — each catch encloses one operation with
-  one failure meaning. Broad catch-alls are banned; bare `try/finally`
-  for resource scoping is fine.
-- Every catch logs or re-throws — `.catch(() => {})` and empty catch
-  blocks are banned; a swallowed error hides the failure.
-- Three tiers at input boundaries: invalid input → reject with a
-  clear error; valid input with a surprising structural consequence →
-  non-blocking advisory; machine-derived values (the stored value
-  byte-exactly matches the tool's own earlier output) →
-  auto-correct and report. User-authored values never auto-corrected.
-- Required inputs enforced at every entry point — fail fast at
-  boot/load, not only the friendliest launcher. Making an
-  already-expected value mandatory is a bug fix, not a breaking change.
-- Luxon `DateTime` over the native `Date` API, because Luxon is immutable
-  and avoids manual millisecond arithmetic and `setDate()` mutation: use
-  `DateTime.now()`, `.toISO()`, `.toISODate()`, `.toUnixInteger()`.
-- Platform built-ins over manual string parsing — before hand-rolling
-  `split`/slice/regex over structured data (URLs, paths, headers,
-  dates), check Node 24's stdlib (e.g. static `URL.parse` returning
-  `URL | null`). A regex is the floor only when no built-in parser
-  exists for the format, and then it gets a doc comment.
-- Standalone scripts are TypeScript (`.ts`, tsx-compatible) — never
-  `.mjs`/`.js`; `scripts/` meets the same type-safety and readability
-  bar as `src/`.
+### Tooling and project defaults
+
+- TypeScript strict mode. `node:` prefix for built-ins. Explicit return
+  types on exports. Zod for MCP tool schemas.
+- Factory/closure pattern for stateful modules (see `search-index.ts`);
+  export style is under "Module layering" above.
+- Luxon `DateTime` over the native `Date` API (`DateTime.now()`,
+  `.toISO()`, `.toISODate()`, `.toUnixInteger()`); no manual millisecond
+  arithmetic or `setDate()` mutation.
+- Standalone scripts are TypeScript (`.ts`, tsx-compatible), never
+  `.mjs`/`.js`; `scripts/` meets the same bar as `src/`.
 - Default-on features get an explicit sentinel off switch
-  (`SYNC_CONFIGS=none`), never empty/unset semantics — the sentinel is
+  (`SYNC_CONFIGS=none`), never empty/unset semantics: the sentinel is
   greppable and keeps `${VAR:-default}` compose interpolation working.
 - Public config switches are named for the user's mental model
-  (`READONLY_MODE` — the term users search for), not internal family
-  symmetry (`WRITE_TOOLS_ENABLED`); consistency governs internal code,
-  not the public surface.
-- Immutable by default. Avoid `let` — carry state in a reduce that
-  returns a _new_ accumulator each step, use early returns, or
-  destructure conditional results. A bit of duplication is acceptable to
-  keep code immutable and clear. When `let` is necessary (caching, parser
-  state), add a comment justifying why mutation is needed here.
-  Readability is the deciding gate — never refactor working, readable
-  code into a more "functional" shape for its own sake.
-- Helpers do not mutate their inputs. Type collection parameters as
-  `ReadonlyArray`, `ReadonlySet`, or `Readonly<T>` views and return new
-  values. A `const` local collection may be mutated in a plain `for…of` loop.
-- Don't disguise mutation as a fold. A `reduce` that mutates its
-  accumulator (`acc.push(...)`, `acc.count += …`, then `return acc`) is
-  the worst of both worlds — it reads as declarative but isn't, so a
-  reader has to mentally run it to see what it builds. Pick one and be
-  honest: a genuine immutable fold (return a new value each step) for a
-  real reduction to a single value, or a plain `for…of` loop with a
-  justifying comment when the state is inherently sequential (a parser
-  threading line-by-line state). A map-plus-sum is not a reduce —
-  `items.map(rewrite)` then a separate, named count sum reads on its own.
-- Explicit names over abbreviations. Variable names should describe
-  what the value _is_, not use shorthand (`availableHeadings` not
-  `available`, `searchText` not `needle`, `fileContent` not `raw`,
-  `filesIndexed` not `count`).
-  This applies everywhere: function params, callback params (`row`
-  not `r`, `entry` not `e`, `orphan` not `o`), SQL aliases
-  (`element` not `je`), destructured bindings, and loop variables.
-  For constants representing a category, name them for the domain
-  contrast they represent — `CONCRETE_STATUSES` communicates the
-  virtual/concrete distinction; `ALL_REAL_STATUSES` doesn't (what
-  makes a status "real"?).
-  When a value flows through a multi-step pipeline (input →
-  normalized → expanded → deduplicated), keep a consistent prefix
-  so every variable clearly belongs to the same chain:
-  `statusInput` → `statusValues` → `statusValuesWithExpansions` →
-  `expandedStatusValues`, not `input` → `values` → `withExpansions`
-  → `expanded`. A reader scanning the function should see the domain
-  noun on every intermediate, not just the first and last.
-- Alias generic destructured keys with their source when use sites do
-  not show the destructure: `{ on: modifiedOn }` from `filters.modified`.
-  Keep bare keys when they are self-describing or every use stays nearby.
-- Lean toward named records over positional tuples, and named locals over
-  inline expressions, where it helps a line read on its own — `{ start, end }`
-  over `[start, end] as const` destructured as `[spanStart, spanEnd]`;
-  `const linkText = match[0]` over an inline `match[0].length`. Judgment,
-  not a hard rule: an inline expression that's obvious in its context is
-  fine. Optimize for readability in context, not mechanical extraction.
-- Break nested functional composition into named intermediate steps.
-  `[...new Set(items.flatMap(transform))]` nests three operations
-  (spread, Set, flatMap) — a reader has to unpack inside-out. Split into
-  `const withExpansions = items.flatMap(transform)` then
-  `const deduplicated = [...new Set(withExpansions)]` so each line reads
-  top-to-bottom. The threshold is ~2 nesting levels; a single
-  `items.map(f)` or `[...new Set(items)]` is fine inline.
-- Extract multi-step callbacks into named functions when a
-  `.map()`/`.reduce()` callback builds multiple intermediates or nests
-  chains — the parent becomes `items.map(formatItem).join("\n")`.
-  Conditional spreads (`...(cond ? [item] : [])`) and `.filter(Boolean)`
-  assembly are both fine — pick whichever reads clearer; don't convert
-  one to the other mechanically. Name non-trivial `.filter()` predicates.
-- A boolean mode param means the function does two things — split it;
+  (`READONLY_MODE`, the term users search for), not internal symmetry
+  (`WRITE_TOOLS_ENABLED`).
+- Pin what must match across machines: overrides to exact versions; a dev
+  tool used locally and in CI to one version plus each platform's archive
+  SHA-256, verified on first download, never a package manager's current
+  version or an npm wrapper fetching an unverified binary.
+- Vet a new dependency (maintainers, releases, downloads) before adopting
+  it; at negligible adoption with a small core, write it locally.
+  Established high-adoption libraries are exempt.
+
+### Naming
+
+- Values are named for what they are: `availableHeadings` not
+  `available`, `searchText` not `needle`, `filesIndexed` not `count`.
+  This holds everywhere, including callback params (`entry` not `e`),
+  SQL aliases (`element` not `je`) and loop variables. A placeholder
+  (`row`, `item`) fails whenever a domain noun exists.
+- Category constants name the domain contrast they represent
+  (`CONCRETE_STATUSES`, not `ALL_REAL_STATUSES`), and pipeline
+  intermediates keep the domain noun on every step (`statusInput` →
+  `statusValues` → `expandedStatusValues`).
+- Alias generic destructured keys with their source when the use sites
+  do not show the destructure (`{ on: modifiedOn }` from
+  `filters.modified`). Bare keys are fine when self-describing or when
+  every use stays nearby.
+- Functions are named for their point. Side-effect functions say what
+  they do (`collectWikilinksFrom` not `collect`); value-returning
+  functions name the return (`getPdfEngine`, not `ensurePdfEngine`);
+  converters go input noun → output noun. No trailing `Of`
+  (`laneRecordOf` → `findLaneRecord`); rename an existing one only when a
+  change already touches it. A docstring never excuses a vague name.
+- Booleans are named for the affirmative state (`hardLinksSupported:
+false`, never `hardLinksUnsupported: true`); guard booleans name the
+  action they control (`needsStatusFilter`). A double negative is a
+  smell.
+- No planning-session coinages in identifiers; sweep new identifiers
+  before landing.
+- Wire names (`snake_case`) and internal names (`camelCase`) are two
+  layers mapped at the handler boundary; see "MCP naming conventions".
+
+### Structure and control flow
+
+- Early return from the simpler branch so the main path flows linearly;
+  in loops, `if (cond) { …; continue }` over `if/else if` chains.
+- `while (condition)` over `for (;;)` + `break` when the exit condition
+  fits the loop head.
+- Never a chained ternary or a `let` assigned through if/else branches:
+  one `if … return` per branch in a small helper, or one named const per
+  step.
+- Extract a multi-clause condition into a named boolean:
+  `if (hasDeletedNotes)` over
+  `if (deletedPaths.length > 0 && deleteVectorsForNoteStmt && …)`.
+- Blank lines separate logical sections inside a function; a comment
+  never glues onto the previous statement.
+- Block bodies `{}` for any multiline function response; expression
+  bodies only for trivial one-liners.
+- Break nested composition into named steps at about two nesting levels
+  (`[...new Set(items.flatMap(transform))]` becomes two named consts); a
+  single `items.map(f)` stays inline.
+- Extract multi-step `.map()`/`.reduce()` callbacks into named functions
+  when they build intermediates or nest chains; name non-trivial
+  `.filter()` predicates. Conditional spreads and `.filter(Boolean)`
+  assembly are both fine; don't convert one to the other.
+- Named params when a positional value hides its role at the call site,
+  even for one literal; always above two args or for adjacent same-typed
+  args. Keep a clear one- or two-arg call positional.
+- A boolean mode param means the function does two things: split it;
   the caller owns the gating.
-- Block bodies `{}` for any multiline function response (guards,
-  multi-clause booleans, multiline returns); expression bodies only
-  for trivial one-liners.
-- Use named params when a positional value hides its role at the call
-  site, even for one literal. Always use them above two args or for
-  adjacent same-typed args that could transpose silently. Keep a
-  clear one- or two-arg call positional.
-- Scope constants to where they're used — module level overstates
-  visibility.
-- Function and helper names state what they _do_, specifically — a reader
-  should know what a function does without reading its body
-  (`collectWikilinksFrom` not `collect`,
-  `convertFrontmatterDatesToIsoStrings` not `normalizeDates`).
-  Value-returning functions name what they _return_ (`getPdfEngine`,
-  not `ensurePdfEngine` — "ensure" reads side-effect when the return is
-  the point). A docstring
-  complements a self-documenting name; it never excuses a vague one.
-- No planning-session coinages in identifiers — a term invented during
-  design means nothing to a stranger reading one file; sweep new
-  identifiers before landing.
-- **Comment decision at write time** (use `/** */`; only when earned):
-  1. Can a reader understand this function from its name, params, and
-     return type? → **No comment.** This is most functions.
-  2. Something non-obvious? → One-line JSDoc stating the constraint or
-     behavior the signature doesn't convey.
-  3. Does the JSDoc restate the function name in different words? →
-     **Delete it.** `/** Gets the PDF engine. */` on `getPdfEngine`
-     is noise.
-  4. Does it explain _what_ the code does instead of _why_? → Rewrite
-     to the constraint: why this shape, what breaks if changed.
-  5. More than 2 lines? → Pick the format the reader absorbs quickest
-     — bullets for parallel items, numbered steps for a sequence —
-     never multi-paragraph prose that "breaks down" the blob into
-     smaller blobs. If no structure fits, the comment covers too many
-     concerns — trim to the one why.
-- Inline comments at the relevant line, not everything in the
-  docstring. The docstring states the outward contract; line-level
-  concerns (why this guard, why this ordering) go as inline comments
-  directly above the line they explain. When code moves into a helper,
-  inline why-comments stay beside the call.
-- SQL with branching logic (CASE, EXISTS subqueries) needs a comment
+- Decomposition must earn its seams; DRY targets shared decisions, not
+  repeated text. A one-expression SDK or Zod wrapper stays inline; a
+  parameter a function only forwards is a wrong seam (compile config into
+  a closure); files that only import each other need an independent
+  consumer.
+- Plain values over thunks: when every caller passes
+  `() => alreadyComputed`, accept the value.
+- Named records over positional tuples (`{ start, end }` over
+  `[start, end] as const`) and named locals over cryptic sub-expressions,
+  where it helps a line read on its own; this is judgment, not mechanical
+  extraction.
+- Named constants over bare mode, permission and other magic literals,
+  with the one-line why at the definition; scope constants to where they
+  are used.
+- Platform built-ins over hand-rolled parsing: check Node 24's stdlib
+  (static `URL.parse`) before `split`/slice/regex over URLs, paths,
+  headers or dates; next, exact-value comparison; a doc-commented regex
+  with named groups only when values genuinely vary.
+- Cut user-visible text on whole graphemes: apply a code-point limit,
+  then back up to the start of any grapheme the cut splits
+  (`Intl.Segmenter`); never slice UTF-16 units. Internal byte caps only
+  need whole code points.
+- Cross-process locks use a kernel-released primitive (`flock`), never a
+  lock file with a takeover; in-process concurrency uses the language's
+  own primitives.
+- Prefer simple over clever; working is the floor, not the bar. Before
+  settling, ask whether fewer moving parts and fewer lines do the job.
+  Each line says what it does on its own.
+
+### Immutability and data flow
+
+- `const` by default; no unjustified `let`. Prefer the immutable methods
+  (`toSorted`, `with`, `at(-1)`) and stage multi-step work as named consts
+  or pure helpers. A `let` that is necessary (caching, parser state) gets
+  a comment saying why. Readability gates any refactor toward a more
+  functional shape.
+- Never disguise mutation as a fold: a `reduce` that mutates its
+  accumulator (`acc.push(…)`, then `return acc`) is banned. A genuine
+  immutable fold returns a new value each step; a plain commented
+  `for…of` loop carries inherently sequential state (a parser threading
+  line-by-line state). A map plus a named sum is not a reduce.
+- A helper never mutates its inputs, and its signature says so: type
+  collection params as `ReadonlyArray`, `ReadonlySet` or `Readonly<T>` and
+  return new values. A `const` local collection may be mutated in a plain
+  `for…of` loop.
+- LLM-facing wire contracts omit an optional field whose absence is
+  unambiguous; no always-present zero placeholders. Keep a field when
+  `0`/`[]` is a legitimate value or it is structural attribution.
+- One meaning per result field. Data from another source gets its own
+  field (`body_tags` beside `tags`) so a caller can tell what it may
+  edit, and each field's description names the tool that edits it.
+- Data-layer functions do not truncate output or return observability
+  data: presentation limits belong to the consumer, and the function has
+  the logger, so it logs at the site.
+
+### Types
+
+- No `as` or `!` (`as const` exempt); runtime guards or type-guard
+  functions instead. When a library returns `T | null` and the null case
+  is unreachable (`DateTime.now().toISO()`), throw on null, never
+  `?? ""` or another sentinel.
+- Truthy/falsy checks over explicit comparisons (`if (!taskLine)`),
+  unless `0`, `""` or `false` are legitimate values. Optional chaining
+  and nullish coalescing flatten guards (`heading?.text ?? "(none)"`).
+  `Boolean(x)` over `!!x`. TS ≥5.5 infers `.filter()` predicates from
+  bare null/undefined comparisons; `filter(Boolean)` does not narrow.
+- A param consumed only for truthiness is a boolean: type it `boolean`,
+  name it for the action it controls, and drop the dead value-or-`""`
+  sentinel.
+- `type` over `interface` unless declaration merging or `implements` is
+  genuinely needed. Type-only imports over structural duplication.
+- Model states in the type system. A field doc-commented "present only
+  in mode X" becomes a discriminated union; a callback param with a
+  closed set of instantiations becomes a discriminated field naming the
+  domain choice (`format: "date" | "datetime"`). Branch on a union of
+  outcomes with an exhaustive `switch` naming every member, never an `if`
+  plus a ternary whose fallback catches the rest unnamed. Reuse
+  [type predicates](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates)
+  in filters over union members; keep `x is T` bodies to a short `&&`
+  chain, and turn a negated `in` or `||` into early returns.
+- One discriminant per fact. Two result shapes for the same outcome plus
+  a converter between them is a smell: merge into one
+  status-discriminated union, and add new cases as members, never a
+  second vocabulary.
+
+### Errors
+
+- Per-operation try/catch: each catch encloses one operation with one
+  failure meaning. Broad catch-alls are banned; bare `try/finally` for
+  resource scoping is fine. `async/await` over `.then()`/`.catch()`
+  chains; where `.then()` or `.finally()` is the natural idiom
+  (promise-chain serialization queues), use it with a comment.
+- Every catch logs or re-throws: `.catch(() => {})` and empty catch
+  blocks are banned. Content rules are in "Logging" above.
+- Three tiers at input boundaries: invalid → reject; valid with a
+  surprising structural consequence → non-blocking advisory;
+  machine-derived values (the stored value byte-exactly matches the
+  tool's own earlier output) → auto-correct and report. User-authored
+  values are never auto-corrected.
+- Required inputs are enforced at every entry point: fail fast at
+  boot/load, not only the friendliest launcher. Making an
+  already-expected value mandatory is a bug fix, not a breaking change.
+  Breaking means a documented, supported call or read stops working;
+  accidental behaviour and undocumented wire fields can change.
+- A declared schema and the runtime say the same thing: never advertise
+  a rejection the runtime doesn't perform. A stricter contract is a
+  runtime change first, then the schema.
+- A guard that cannot engage fails closed (lock not taken, settings file
+  present but unparseable): refuse and log why; never run unguarded. A
+  missing settings file takes the defaults; readers affecting only reads
+  or formatting fall back with a `warn`.
+- Error messages use the layer's own names (`includeChildren`, not
+  `include_children`); a remedy that names an API param belongs in the
+  tool layer. The API-surface rule is under "Logging" above.
+- A misleading error that invites destructive recovery is a bug: detect
+  the real condition; refuse honestly at minimum, and implement the real
+  behaviour when it traces small.
+- Prevent a failure rather than document its remedy: make the input
+  impossible to get wrong, or accept it, so no `Errors:` entry is needed.
+  Code whose only effect is a clearer message for a rare, non-default
+  misconfiguration earns no place when it prevents no failure and removes
+  no documented error text.
+
+### Modules, SQL and lint
+
+- Layering, dependency direction and `utils/` admission are under
+  "Module layering" above; genericize to decouple
+  (`assertPathHasExtension(path, ".md")`) rather than moving domain
+  policy into `utils/`.
+- Prepared statements at factory scope, compiled once; filter inside the
+  query before any `LIMIT`/`k` window.
+- SQL with branching logic (CASE, EXISTS subqueries) gets a comment
   explaining the overall strategy before the query.
-- Regex constants get doc comments explaining what they match.
-- Durable rationale only — never transition history, decision
-  narrative, or the maintainer's own infrastructure details. OSS boundary:
-  issue/PR numbers, incident dates, deployment names, task-board IDs, remediation
-  narration, and investigation chronology never enter any public
-  artifact — committed files, PR descriptions, or comments.
-- No nested ternaries — a chained `a ? b : c ? d : e` forces the reader to
-  simulate branches. Decompose into named const steps or an early-return
-  guard with a trailing ternary.
-- Early returns over nested `if/else` — reduces indentation depth
-  and cognitive load. Prefer `if (done) return` over wrapping 15
-  lines in `if (!done) { ... }`. In loops, prefer
-  `if (cond) { …; continue }` over `if/else if` chains — each branch is
-  self-contained and the reader doesn't have to track mutual
-  exclusivity across the chain.
-- Extract multi-clause conditionals into a named boolean when the `if`
-  condition spans more than one line or combines unrelated checks. A
-  reader should understand the guard's intent from the variable name
-  without parsing the expression: `if (hasDeletedNotes) {` over
-  `if (deletedPaths.length > 0 && deleteVectorsForNoteStmt && ...) {`.
-- Name booleans (params, flags, locals) for the affirmative state, and
-  let the value carry the negation: `hardLinksSupported: false` reads
-  clearer than `hardLinksUnsupported: true`, and a double negative like
-  `if (!notReady)` is a smell. This extends to guard booleans: name
-  them for the action the guard controls — `needsStatusFilter` over
-  `!isUnfiltered`, because the guard's intent is "do we need a filter?"
-  not "is it not unfiltered?". A positively-named flag also keeps the
-  guard's condition positive (`if (hardLinksSupported) { … return }`),
-  so it pairs naturally with the early-return rule above — the common
-  path returns, the fallback flows beneath it, no `else`.
-- Prefer truthy/falsy checks over verbose comparisons for optional
-  values. `if (!taskLine)` over `if (taskLine === undefined)`;
-  `if (!finding.suggestion)` over
-  `if (finding.suggestion === null || finding.suggestion === "")`.
-  Leverage optional chaining and nullish coalescing to flatten
-  guard chains: `heading?.text ?? "(none)"` over a nested
-  `if (heading) { heading.text } else { "(none)" }`. Only use
-  explicit comparisons when the falsy set is wrong (e.g. `0` or
-  `false` are valid values).
-- TS ≥5.5 infers `.filter()` predicate types from bare comparisons —
-  `xs.filter((x) => x !== null)` narrows without `(x): x is T`.
-  `filter(Boolean)` still does not narrow. `Boolean(x)` over `!!x`.
-- A param consumed only for truthiness is a boolean — a value-or-`""`
-  sentinel whose content is never read is a boolean wearing a string
-  costume; type it `boolean` and drop the dead value.
-- Don't use a thunk or callback when a plain value suffices. A
-  function accepting `() => T` where `T` would do adds indirection
-  without benefit — the caller has to reason about evaluation timing,
-  and the function body gains nothing from deferred computation. If
-  the value is already available at the call site, pass it directly.
-- Data-layer helpers should not truncate or lossy-transform their
-  output — the consumer decides presentation limits. A function that
-  silently caps its return to N characters loses information the
-  caller may need; if truncation is wanted, apply it at the call
-  site. Extraction and presentation are separate concerns.
-- Don't return observability data computed only for logging — the
-  function has the logger; log at the site.
-- Prepared statements at factory scope — compile SQL once, not per call.
-- Multiplying config axes get a declarative registry + predicate chain,
-  never per-flag branching. Declare per-item metadata once (reuse
-  metadata items already carry) and compute the enabled set through
-  AND-composed predicates — a new axis is one predicate; generated
-  cross-references key on the enabled set, not on flags. Don't preserve
-  alias/indirection layers to dodge migration churn — price the actual
-  cost (usually mechanical import edits).
-- Lint-enforce the mechanically-checkable conventions — layering via
+- Multiplying config axes get a declarative registry plus an AND-composed
+  predicate chain, never per-flag branching: a new axis is one predicate,
+  generated cross-references key on the enabled set, and no alias layer
+  survives to dodge migration churn.
+- A dead-code-path claim is proven by enumerating every trigger, not by
+  log silence; if the path runs, remove it or switch off its trigger.
+- Lint-enforce the mechanically checkable conventions: layering via
   per-layer `no-restricted-imports` (`allowTypeImports: true`; tests
   exempt), style via core/typescript-eslint rules. Trial candidates
-  against the codebase first; curated exceptions over blanket bans;
-  never adopt a rule that fights an established idiom; a justified
-  `eslint-disable` + why-comment beats weakening the rule.
+  against the codebase first; curated exceptions over blanket bans; never
+  adopt a rule that fights an established idiom; a justified
+  `eslint-disable` with a why-comment beats weakening the rule.
 - **knip** (`knip.json`, pre-commit + CI) flags unused exports, types,
-  dependencies, and files. Remove a flagged `export` (nothing imports it)
-  rather than adding an ignore comment.
-- **markdownlint** (`.markdownlint-cli2.jsonc`, lint-staged with
-  `--fix` + CI) enforces markdown structure: blank lines around fences,
-  a language on every fenced block, no bare URLs. Ignores are documented
-  in the config.
+  dependencies and files. Remove a flagged `export` rather than adding an
+  ignore comment.
+- **markdownlint** (`.markdownlint-cli2.jsonc`, lint-staged with `--fix`,
+  and CI) enforces blank lines around fences, a language on every fenced
+  block and no bare URLs. Ignores are documented in the config.
 - **ShellCheck** (`npm run lint:shell`, lint-staged + CI) checks only the
   scripts `SHELL_SCRIPT_GLOBS` in `scripts/lint-shell.ts` lists, so add a
   new shell script's path there. ShellCheck cannot read
   `#!/command/with-contenv sh`, so s6 scripts that start with it carry
   `# shellcheck shell=sh`. A disable directive gets a comment saying why.
-- Simple code over clever code when the same outcome is achievable.
-  A person should be able to read and follow the code without
-  unnecessary cognitive overload. Working is the floor, not the bar — if
-  "it passes" were enough, code review wouldn't matter. The first
-  structure that compiles is rarely the simplest: before settling, ask
-  whether it can be done with fewer moving parts and in fewer lines, and
-  whether this is the shape that makes the most sense or just the first
-  that came to mind. Each line should say what it does on its own — a
-  reader shouldn't have to simulate the code to follow it.
+
+### Comments
+
+- Comment decision at write time (`/** */`, only when earned): the
+  signature says it → no comment, which is most functions; something
+  non-obvious → one-line JSDoc of the constraint the signature can't
+  convey; restates the name (`/** Gets the PDF engine. */` on
+  `getPdfEngine`) → delete it; explains what instead of why → rewrite as
+  the constraint; over two lines → bullets or numbered steps, never
+  prose that breaks the blob into smaller blobs.
+- Inline comments at the relevant line, not everything in the docstring.
+  The docstring states the outward contract; a guard or branch comment
+  states the scenario, the mechanism and what breaks without it. When
+  code moves into a helper, inline why-comments stay beside the call.
+- Chosen numbers in declarative config (caps, timeouts, cadences,
+  retention) get a comment directly above stating the why; fixed facts
+  need none. Regex constants get a doc comment explaining what they
+  match. Borrowed standard terms get a one-line gloss and a link.
+- Comment prose uses short complete sentences, with no colon-hinged
+  labels and no verbless fragments.
+- Durable rationale only, never transition history, decision narrative or
+  the maintainer's own infrastructure details. A genuine risk of
+  retracing an abandoned error is rationale, not history. OSS boundary:
+  issue/PR numbers, incident dates, deployment names, task-board IDs,
+  remediation narration and investigation chronology never enter any
+  public artifact (committed files, PR descriptions or comments).
 
 ### MCP tool definitions
 
-These rules cover the two parts of a tool's definition that carry prose,
-which are the description and the input schema with each parameter's Zod
-`.describe()` text.
+These rules cover the two parts of a tool's definition that carry prose:
+the description and each parameter's Zod `.describe()` text.
 
 - **MCP tool descriptions include `Example:`, `When to use:`, and
   `Returns:` sections.** Include `Errors:` whenever the tool has
-  failure modes (with remediation guidance) or a no-match /
-  empty-result contract worth clarifying (e.g. "returns an empty
-  array, not an error"); omit it only for tools that cannot
-  meaningfully fail. Include `Obsidian syntax:` on write tools.
-- **`Errors:` gets one bullet per distinct remedy (errors of one kind
-  with short remedies may share one bullet that names each remedy), and
-  every bullet keeps its remedy.** Messages that share a remedy share one
-  bullet, which lists only the messages that tool can raise: for example
-  `"absolute path blocked"`, `"path traversal blocked"`, and
-  `"hidden path blocked"`.
-- **Split parameter facts between `.describe()` and the tool description.**
-  The calling model receives each parameter's Zod `.describe()` text
-  inside the input schema, so the tool description earns its space
-  (and its score from graders such as Glama's Tool Definition Quality
-  Score, TDQS) only with what that text doesn't say:
-  - `.describe()` gives the parameter's plain meaning: what it is,
-    its format, and its default.
-  - The description gives what `.describe()` can't: interactions
-    between parameters, consequences, and non-obvious semantics.
-  - When a semantic fact appears in both, keep it in the description
-    and cut `.describe()` back to the plain meaning. Format and
-    default stay in `.describe()`. Never drop a fact only
-    `.describe()` carries.
+  failure modes or a no-match / empty-result contract worth clarifying
+  ("returns an empty array, not an error"); omit it only for tools that
+  cannot meaningfully fail. Include `Obsidian syntax:` on write tools.
+- **`Errors:` lists only failures a client can receive, each proven end
+  to end.** A message appears only when a schema-valid call over the
+  real transport returns it and a test in
+  `server-error-contracts.test.ts` makes that call; a message the input
+  schema rejects first is not listed, and a quoted message is the exact
+  text the server sends.
+- **Errors sharing a remedy share one bullet.** The message carries the
+  remedy, so the bullet names which reading needs which fix and lists
+  only the messages that tool can raise (`"absolute path blocked"`,
+  `"path traversal blocked"`, `"hidden path blocked"`). Every bullet
+  still keeps a remedy.
+- **Split parameter facts between `.describe()` and the tool
+  description.** The calling model receives `.describe()` inside the
+  input schema, so the description earns its space (and its grader
+  score, such as Glama's TDQS) only with what that text doesn't say.
+  `.describe()` gives the parameter's plain meaning, format and default;
+  the description gives interactions between parameters, consequences
+  and non-obvious semantics. A semantic fact in both stays in the
+  description. Never drop a fact only `.describe()` carries.
 - **Every sentence changes what a calling agent does.** A sentence earns
   its place when it changes which tool or values the agent sends, what it
-  does with the result or an error, or when it corrects a wrong assumption
-  the rest of the definition leaves open. Judge each claim in a sentence on
-  its own, and keep only the claims that meet this test. How the server
-  carries out the call (which `.obsidian` file holds a setting, what the
-  search index holds, how a save stages its write) goes in ARCHITECTURE.md,
-  however accurate it is; the outcome the caller sees stays in the
-  description.
-- **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich validation
-  (format, date validity, mutual exclusivity) lives in the data layer or
-  handler, where failures flow through `safeHandler` as structured tool
-  errors with remediation text and get logged as `tool_error`. Zod
-  schema failures surface as protocol-level invalid-params errors that
-  bypass both, and a `.refine` predicate can't be serialized into the
-  JSON schema clients see anyway — so it adds no discoverability, only a
-  second copy of a guard the data layer must enforce regardless (drift
-  risk). `.min(1)` is the floor because it does serialize (`minLength`)
-  and its default failure message is self-explanatory.
+  does with the result or an error, whether it picks the tool at all (a
+  purpose or sibling-contrast sentence stays), or when it corrects a
+  wrong assumption the rest of the definition leaves open. Judge each
+  claim on its own. How the server carries out the call (which
+  `.obsidian` file holds a setting, how a save stages its write) goes in
+  ARCHITECTURE.md, however accurate; the outcome the caller sees stays.
+- **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich
+  validation (format, date validity, mutual exclusivity) lives in the
+  data layer or handler, where failures flow through `safeHandler` as
+  structured tool errors with remediation text and are logged as
+  `tool_error`. A Zod failure surfaces as a protocol-level invalid-params
+  error that bypasses both, and `.refine` does not serialize into the
+  JSON schema clients see; `.min(1)` does (`minLength`).
 - **Edit only the tools a change is meant for.** A grader re-scores
   every definition whose text changes, so apply a shared wording change
   tool by tool and leave every other tool's text as it is.
@@ -828,11 +828,10 @@ from tools:
   returns a valid fallback message; a prompt must not hard-fail the client.
 - **`memory-review` is append-only by design** — it reads the memory layer
   as a dated **evolution** (never "newest supersedes older"), proposes only
-  append updates, and never prunes "stale" entries. The one exception: a
-  memory file whose frontmatter declares `entry-policy: living` is a
-  current-state snapshot, and the review may propose pruning its expired
-  entries (the policy is surfaced by `vault_list_memory_files`; absent
-  means append-only).
+  append updates, and never prunes "stale" entries. The one exception is a
+  memory file whose frontmatter declares `entry-policy: living` (surfaced
+  by `vault_list_memory_files`; absent means append-only): a current-state
+  snapshot whose expired entries the review may propose pruning.
 
 ### MCP naming conventions
 
@@ -854,26 +853,22 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 
 ### MCP path conventions
 
-- **Note-path tool inputs must end in `.md`.** Inputs naming a single markdown
-  note — `path` on read/write/patch/replace/delete/update_properties, the anchor
-  tools (delete_span/replace_span/insert_at_anchor), and the task tools,
-  `new_path` on move — require the full filename with extension; a bare
-  `Projects/Plan` is rejected. Enforced by the generic
+- **Note-path tool inputs must end in `.md`.** Every input naming a single
+  markdown note (`path` on read/write/patch/replace/delete/update_properties,
+  the anchor tools and the task tools; `new_path` on move) requires the
+  full filename; a bare `Projects/Plan` is rejected. The generic
   `assertPathHasExtension(path, ".md")` util
-  (`src/utils/assert-path-has-extension.ts`), called in the data-layer function
-  each tool routes through (one rule, every layer). Folder, glob, and
-  memory-file (`file`) inputs are exempt. **Backlinks/outgoing_links accept
-  `.md` or `.canvas`** — both note and canvas paths are valid graph queries
-  (`assertPathHasExtension(path, [".md", ".canvas"])`). **`vault_move_note`'s
-  `old_path`** also accepts `.md` or `.canvas` at the handler boundary — the
-  handler runs a backlinks lookup before the data-layer move, so `old_path`
-  is validated by the wider extension set; the data-layer `.md`-only check
-  runs second.
+  (`src/utils/assert-path-has-extension.ts`) enforces it in the data-layer
+  function each tool routes through. Folder, glob and memory-file (`file`)
+  inputs are exempt. **Backlinks/outgoing_links accept `.md` or `.canvas`**
+  (`assertPathHasExtension(path, [".md", ".canvas"])`), and so does
+  **`vault_move_note`'s `old_path`** at the handler boundary, because the
+  handler runs a backlinks lookup before the data-layer `.md`-only check.
 - **`vault_read_file` is the deliberate inverse.** Its `path` names any
-  non-markdown file and **must not** end in `.md` — `vaultFs.readAsset`
-  rejects notes so the `.md` boundary stays a single rule with two sides
+  non-markdown file and **must not** end in `.md`; `vaultFs.readAsset`
+  rejects notes so the `.md` boundary stays one rule with two sides
   (notes → `vault_read_note`, everything else → `vault_read_file`). Error
-  messages never name tools; the routing guidance lives in each tool's
+  messages never name tools; routing guidance lives in each tool's
   description.
 
 ### Test conventions
@@ -884,84 +879,62 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `src/__tests__/runs-as-root.ts`. CI runs it as a normal user. To run
   these tests from a root shell, such as a cloud session, use
   `npm run test:as-nobody`; it takes the same arguments as `vitest run`.
-- Tests read as a behavioral spec. One focused `it()` per
-  behavior — a failing test name should identify which behavior
-  regressed without reading the body.
-- `const` per test over `let` in `beforeEach` — this is the strong
-  default, not a soft preference. When setup is cheap (in-memory DB,
-  small fixtures), use a factory helper and
-  `const index = createTestIndex()` at the top of each test. `beforeEach` is only
-  justified when per-test creation is genuinely impractical (expensive
-  resources, complex multi-step setup that would obscure the test body).
-- Every test must actually verify the behavior it claims to test.
-  A folder-filter test must include data both inside and outside the
-  folder to confirm exclusion works — not just data inside.
-- Tests must fail when the verified behavior breaks. If a test
-  claims "body is unchanged", it must assert the full body — not
-  a substring that would still match if the body were modified.
-- A test must pass **only** for the intended reason — not for an
-  unintended or coincidental one. These are two separate bars, and
-  both must hold: (1) the test fails when the behavior is wrong
-  (above), and (2) it passes _because the intended behavior
-  occurred_, not because of a no-op or a different code path that
-  happens to leave the asserted state. Guard against the second:
-  - **Silent no-op.** A test asserting "the folder is retained /
-    state X is preserved" passes even if the triggering operation
-    never ran. Also assert the trigger happened — that the note was
-    actually deleted / actually moved — so retention can't be
-    satisfied by doing nothing.
-  - **Wrong-error pass.** `rejects.toThrow()` with no argument
-    matches _any_ error, so a test meant to verify "rejected for
-    reason A" can pass on an unrelated failure (e.g. a missing
-    fixture throwing ENOENT). Assert the specific message, and set
-    up the fixture so the intended rejection is the only one
-    possible.
-  - **Early-return pass.** A returned `0`/empty/`false` can come
-    from the guard you're testing _or_ from the function bailing out
-    before reaching it. Assert a side effect that only the intended
-    path produces (e.g. the expected `warn` was logged) so the
-    happy-accident return can't pass.
-  - **Wrong-item pass.** Seeding multiple items, querying one, then
-    asserting only "something came back" — assert the specific
-    expected item (path/id/content).
-  - **Coincidental-equality hazard.** When production and test read
-    the same source (e.g. `err.stack`), both being `undefined` passes
-    trivially — set a predictable value and assert it exactly.
+- Tests read as a behavioral spec: one focused `it()` per behavior, named
+  so a failure identifies the regressed behavior without reading the
+  body, and matching what is asserted. For every guard or invariant,
+  write the test that catches the unrelated change that would silently
+  undo it.
+- The two-bar rule: a test (1) fails when the behavior breaks and
+  (2) passes only because the intended behavior occurred. Five traps
+  against bar 2:
+  - **Silent no-op.** "State X is retained" passes even if the operation
+    never ran; also assert the trigger happened (the note was actually
+    deleted or moved).
+  - **Wrong-error pass.** `rejects.toThrow()` with no argument matches
+    any error; assert the specific message and build the fixture so the
+    intended rejection is the only one possible.
+  - **Early-return pass.** A returned `0`/empty/`false` can come from the
+    guard under test or from bailing before it; assert a side effect
+    only the intended path produces (the expected `warn`).
+  - **Wrong-item pass.** Seeding several items and asserting only
+    "something came back"; assert the specific item (path/id/content).
+  - **Coincidental-equality hazard.** When production and test read the
+    same source (`err.stack`), both being `undefined` passes trivially;
+    set a predictable value and assert it exactly. `expect.any(String)`
+    still matches `""`.
 
-  For any of these, when in doubt, mutate the code (break the specific
-  behavior) and confirm the test fails for _that_ reason — not a compile
-  error or an unrelated assertion.
+  When in doubt, mutate the code and confirm the test fails for that
+  reason, not a compile error or an unrelated assertion.
 
-- Exact assertions (`toHaveLength(2)`, `toBe("value")`) over
-  loose matchers (`toBeGreaterThanOrEqual(1)`, `toBeDefined()`)
-  when the expected value is known.
-- Prefer an exact assertion on the **whole** value (`toBe` on the
-  full output/object) over `contains`/substring checks when the
-  output is deterministic and you control the inputs — `contains`
-  silently tolerates ordering changes, formatting drift, and
-  accidental duplication. Reserve `contains` for when only a
-  fragment is genuinely under test (one branch among many, or an
-  excerpt of large output).
-- Never decompose: `toHaveLength(1)` + index property checks is
-  weaker than `expect(results.map(result => result.path)).toEqual(["foo"])` —
-  the decomposed form misses extra items, ordering, and unexpected
-  properties.
-- Deterministic error messages get exact assertions — if the message
-  is a hardcoded literal in production code, no `stringContaining`.
-- Explicit callback parameter names — `orphan` not `o`, `entry`
-  not `e`, `link` not `l`. Same naming rules as production code.
-- Test names match what they assert. If the test asserts 1 result,
-  don't name it "returns multiple results."
-- Use vitest helpers (`onTestFinished`, `vi.mocked`, `vi.each`)
-  before hand-rolling test plumbing.
-- No cleanup after assertions — trailing `rm`/`close()` at the end
-  of a test body is skipped when an assertion throws; register
-  cleanup in `afterEach`/`onTestFinished` at creation time.
+- Assert the full result (`toEqual` on the whole object, `toBe` on
+  complete content) when output is deterministic and inputs are
+  controlled; `toContain`/`toMatch`/`arrayContaining`/`toHaveLength` on
+  deterministic output tolerate drift, so reserve them for a genuine
+  fragment-only check. A looser neighboring test is never the standard:
+  fix loose siblings in a file the PR already edits as a separate
+  test-only commit; in a file the PR does not touch, card them.
+- Never decompose: `toHaveLength(1)` plus index checks is weaker than
+  `expect(results.map(result => result.path)).toEqual(["foo"])`.
+  Ordered collections get positional assertions; deterministic error
+  messages get exact assertions (pass `new Error(message)` to `toThrow`,
+  which Vitest compares whole); objects are matched whole, not with
+  `objectContaining`.
+- Test-owned expected values for drift-catching tests: define the
+  expected prompt text, config default or rendered output in the test
+  file; importing the production constant makes both sides drift
+  together.
+- Assert mock interactions through the matcher API
+  (`toHaveBeenCalledTimes(1)` + `toHaveBeenCalledWith(exactArgs)`), never
+  positional call-log readback. Derive an expected value test-side with
+  the mechanism production uses; production is never its own oracle.
+- `const` per test via factory helpers (`const index = createTestIndex()`)
+  is the strong default; `beforeEach` plus shared `let` only when
+  per-test creation is genuinely impractical.
 - Every test file maps to a real source module and lives in the
-  `__tests__/` folder next to the module it tests — not in a
-  centralized test directory higher up the tree. Don't spawn a
-  standalone test file just to mock differently; use
-  `vi.mock(path, { spy: true })` to keep the real implementation.
+  `__tests__/` folder next to the module it tests, not in a centralized
+  test directory higher up the tree. Don't spawn a standalone test file
+  just to mock differently; use `vi.mock(path, { spy: true })` to keep
+  the real implementation.
 
   **Exception — shell scripts outside vitest's include paths.** These
   scripts are not TypeScript modules, and vitest's include paths (`src/`,
@@ -993,55 +966,57 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   suite (`src/__tests__/docker/`, see "Remote image boot tests — when to
   add"); the branches inside one script stay in that script's test file.
 
-- Separate `it()` blocks over callback-pattern `it.each` when
-  assertions are structurally different — `it.each` is for genuinely
-  identical assertion shapes (input → expected). Use labeled case objects
-  and `$label` in the title when values alone do not name the scenario.
-- Error paths and boundaries are covered, not just the happy path.
-  Zero/one/empty inputs expose the special-case bugs.
+- Separate `it()` blocks over callback-pattern `it.each` when assertions
+  are structurally different. `it.each` is for identical assertion
+  shapes, with labeled case objects and `$label` in the title, never
+  printf `%s` over positional arrays.
+- Vitest helpers (`onTestFinished`, `vi.mocked`, `vi.restoreAllMocks`)
+  before hand-rolled plumbing. No cleanup after assertions: register it
+  in `afterEach`/`onTestFinished` at creation time, because trailing
+  `rm`/`close()` is skipped when an assertion throws.
+- Every test abstraction justifies its existence by removing real
+  duplication. A mock can't create a condition production can't produce,
+  and it preserves the dimension under test (order, timing, ranking,
+  size) with deliberate variation and decoys; when it can't, test against
+  the real component.
+- Error paths and boundaries are covered, not just the happy path:
+  zero/one/empty inputs expose the special-case bugs, and filter tests
+  seed data both inside and outside the filter.
 - Prefer a controllable seam over fake timers for retry/polling logic
-  — an injected timeout/deadline param, or a named wrapper around the
-  retrying operation mocked with controlled outcomes. Fake timers
-  (`vi.useFakeTimers`) are legitimate when timing is itself the
-  contract (debounce, TTL, deadline expiry) or when a wrapper seam
-  would exist only for tests — but assert outcomes after advancing
-  the clock, never the tick-by-tick schedule.
-- Production type rules apply in tests: no `!` (guard or restructure
-  instead) — but `?.` and `?? fallback` are legitimate narrowing.
-- Test-owned expected values for drift-catching tests — when a test
-  verifies the content of a production constant (prompt text, config
-  defaults, rendered output), define the expected value in the test
-  file; importing the constant means both sides drift together and the
-  test passes trivially on any change.
-- Assert mock interactions through the matcher API —
-  `toHaveBeenCalledTimes(1)` + `toHaveBeenCalledWith(exactArgs)` —
-  never positional call-log readback (`mock.calls[0][0]` + `toEqual`).
-  When an expected value needs derivation (resolved paths, URLs),
-  derive it test-side with the same mechanism production uses —
-  production must not be its own oracle.
-- Production code never carries test-serving structure — no cache
-  keying, extra branches, or widened semantics whose only job is
-  isolating tests from shared state. Tests own their isolation
-  (`vi.resetModules`, factory-created instances per test); review
-  findings proposing production changes for test-only scenarios get
-  declined.
-- Mocks must preserve the dimension under test. Give a stand-in varied
-  order, timing, ranking, or size with decoys when the behavior depends
-  on that dimension. If the stand-in cannot model that variation, test
-  against the real component.
-- CI shell snippets are tested under `bash -e` before committing —
-  Actions runs `run:` steps with errexit, so a failing
-  `[ test ] && cmd` short-circuit aborts the job; use `if/then/fi`.
+  (an injected deadline, or a named wrapper mocked with controlled
+  outcomes). Fake timers are legitimate when timing is the contract
+  (debounce, TTL, deadline expiry) or a wrapper seam would exist only for
+  tests; assert outcomes after advancing the clock, never the
+  tick-by-tick schedule.
+- Production type rules apply in tests: no `!`, but `?.` and
+  `?? fallback` are legitimate narrowing, and callback params are spelled
+  out (`entry` not `e`).
+- Production code never carries test-serving structure (cache keying,
+  extra branches, widened semantics whose only job is isolating tests);
+  tests own their isolation (`vi.resetModules`, factory-created
+  instances), and review findings proposing production changes for
+  test-only scenarios get declined. A single `process.env.X ?? defaultUrl`
+  at module scope that unlocks an otherwise impossible test tier is
+  acceptable; anything more is not.
+- Real integration with blast-radius controls beats a structural check
+  when the risky path touches an external system: run the real thing
+  with the write path disabled (pull-only mode, throwaway identifiers).
+- Mirroring a vendor's undocumented behaviour: the vendor's own code is
+  the oracle. Extract the functions verbatim from the pinned bundle, pin
+  their outputs for fixed inputs as test-owned vectors (each commented
+  with its source), and keep the live end-to-end run as the final oracle.
+- CI shell snippets are tested under `bash -e` before committing: Actions
+  runs `run:` steps with errexit, so use `if/then/fi` over
+  `[ test ] && cmd`.
 
 ### Integration tests — when to add
 
 Integration tests (`src/__tests__/integration/`) boot a real server
-and call tools over real HTTP via the MCP SDK Client. They catch what
-unit tests structurally can't — handler miscalls, config-gated surface
-mismatches, transport-layer bugs. The deciding question: **would this
-bug survive unit tests but break in production?** If the unit test
-already uses real I/O (temp dirs, real SQLite), skip the integration
-test.
+and call tools over real HTTP via the MCP SDK Client, catching handler
+miscalls, config-gated surface mismatches and transport-layer bugs. The
+deciding question: **would this bug survive unit tests but break in
+production?** If the unit test already uses real I/O (temp dirs, real
+SQLite), skip the integration test.
 
 **Always add:**
 
