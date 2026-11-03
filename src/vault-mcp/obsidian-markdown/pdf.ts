@@ -451,9 +451,8 @@ export const extractPdfText = async (pdfData: Uint8Array): Promise<PdfTextResult
   const proxy = await createPdfDocumentProxy(pdfData)
   try {
     const meta = await getMeta(proxy)
-    const pdfTitle = meta.info?.Title ?? undefined
     const { totalPages, items } = await extractTextItems(proxy)
-    const linkResult = await extractLinks(proxy)
+    const { links: linksByPage } = await extractLinks(proxy)
 
     const hasContent = items.flat().some((item) => item.str.trim().length > 0)
 
@@ -461,10 +460,10 @@ export const extractPdfText = async (pdfData: Uint8Array): Promise<PdfTextResult
 
     return {
       text: reconstructPdfMarkdown({
-        title: pdfTitle,
+        title: meta.info.Title,
         totalPages,
         items,
-        pdfLinks: linkResult.links.flat(),
+        pdfLinks: linksByPage.flat(),
       }),
       totalPages,
     }

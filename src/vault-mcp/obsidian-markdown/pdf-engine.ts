@@ -18,11 +18,11 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  *
  * The fix:
  * 1. Inject @napi-rs/canvas's DOMMatrix, Path2D and ImageData into
- *    globalThis before pdfjs loads, overwriting any existing value. unpdf
- *    installs a minimal DOMMatrix stub before it loads pdfjs (no
- *    `invertSelf` or `multiplySelf`, which pdfjs's canvas code calls), and
- *    pdfjs fills in only the globals that are missing, so without this the
- *    stub stays in place.
+ *    globalThis before pdfjs loads, overwriting any existing value. pdfjs
+ *    fills in DOMMatrix and Path2D only when they are missing, and unpdf
+ *    does the same for DOMMatrix with a stub that lacks the `invertSelf` and
+ *    `multiplySelf` pdfjs's canvas code calls, so whichever value is set
+ *    first is the one pdfjs draws with.
  * 2. Swap in `pdfjs-dist/legacy/build/pdf.mjs` (the Node-targeted build with
  *    runtime polyfills; the modern build requires newer JS APIs than Node 24
  *    ships, e.g. `Math.sumPrecise`).
@@ -34,24 +34,29 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  *    literal path and fails.
  */
 
+/** The proxy options a started engine supplies, under pdfjs's option names;
+ *  the canvas globals and pdfjs module it also sets are process-wide state. */
 type PdfEngine = Readonly<{
   standardFontDataUrl: string
   cMapUrl: string
 }>
 
-/** The one canvas-module importer every PDF surface shares — the global
- *  injection below, page rendering, and tests. pdfjs-dist's Node build draws
- *  every canvas with its own `require("@napi-rs/canvas")`, so this import must
- *  resolve to that same copy, or its contexts reject the injected Path2D. */
+/** The one canvas-module importer every PDF surface shares: the global
+ *  injection below, page rendering (unpdf's `canvasImport` option takes a
+ *  function), and tests.
+ *  - pdfjs-dist's Node build draws every canvas with its own
+ *    `require("@napi-rs/canvas")`, and its contexts reject a Path2D from
+ *    another copy of the package.
+ *  - npm installs one copy for both, because the @napi-rs/canvas version
+ *    package.json pins satisfies pdfjs-dist's range; a pdf-engine test fails
+ *    on a second copy. */
 export const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> =>
   import("@napi-rs/canvas")
 
 /** Resolves pdfjs-dist's bundled font and cMap directories as plain paths
- *  (trailing slash required — pdfjs concatenates the file name directly). */
-const resolvePdfjsAssetPaths = (): {
-  standardFontDataUrl: string
-  cMapUrl: string
-} => {
+ *  (trailing slash required — pdfjs concatenates the file name directly, and
+ *  `join` keeps a trailing slash). */
+const resolvePdfjsAssetPaths = (): PdfEngine => {
   const require = createRequire(import.meta.url)
   const pdfjsPackageRoot = dirname(require.resolve("pdfjs-dist/package.json"))
   return {
@@ -62,6 +67,7 @@ const resolvePdfjsAssetPaths = (): {
 
 const initializePdfEngine = async (): Promise<PdfEngine> => {
   const canvasModule = await canvasImport()
+
   // Step 1 — overwrite rather than set only when missing, so a stub left by
   // an earlier unpdf or pdfjs load in this process is replaced too.
   Object.assign(globalThis, {
@@ -69,9 +75,11 @@ const initializePdfEngine = async (): Promise<PdfEngine> => {
     Path2D: canvasModule.Path2D,
     ImageData: canvasModule.ImageData,
   })
+
   // Step 2 — every later unpdf call uses this module. unpdf loads it on first
-  // use, so load it here: a load failure then rejects inside this init, whose
-  // wrapper keeps the module's install path out of the client's error.
+  // use, so load it here: a load failure then rejects inside this init, and
+  // getPdfEngine's catch keeps the module's install path out of the client's
+  // error.
   definePDFJSModule(() => import("pdfjs-dist/legacy/build/pdf.mjs"))
   await getResolvedPDFJS()
   return resolvePdfjsAssetPaths()
@@ -84,16 +92,16 @@ let pdfEnginePromise: Promise<PdfEngine> | undefined
 
 const getPdfEngine = (): Promise<PdfEngine> => {
   if (!pdfEnginePromise) {
-    // Memoize only a fulfilled init, so one failed start does not poison
+    // A failed init drops the memo, so one failed start does not poison
     // every later PDF read:
-    // - The catch drops the memo, so the next call retries. That recovers a
-    //   failure after the modules load. A module whose first load failed
-    //   stays failed until the process restarts, because Node caches a
-    //   failed module evaluation.
-    // - Every caller sharing this promise sees one rejection: the server's
-    //   own sentence, with the original error as its cause, because a
-    //   module-load error quotes the server's install paths, which must not
-    //   reach a client.
+    // - The next call retries. That recovers a failure outside module
+    //   evaluation, such as resolving pdfjs-dist's asset folders. A module
+    //   whose first evaluation threw stays failed until the process
+    //   restarts, because Node caches that failure.
+    // - Every caller sharing this promise sees one rejection: a generic
+    //   message with the original error as its cause, because a module-load
+    //   error quotes the server's install paths, which must not reach a
+    //   client.
     pdfEnginePromise = initializePdfEngine().catch((error: unknown) => {
       pdfEnginePromise = undefined
       throw new Error("PDF reader could not start", { cause: error })
@@ -116,6 +124,6 @@ export const createPdfDocumentProxy = async (pdfData: Uint8Array): Promise<PDFDo
     disableFontFace: true,
     standardFontDataUrl: engine.standardFontDataUrl,
     cMapUrl: engine.cMapUrl,
-    cMapPacked: true,
+    cMapPacked: true, // pdfjs-dist ships its cMaps as packed .bcmap files
   })
 }

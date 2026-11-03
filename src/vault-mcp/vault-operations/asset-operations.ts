@@ -344,7 +344,6 @@ const readAssetContent = async (
       const proxy = await openPdfDocument({ pdfData, path, bytes: asset.bytes })
       try {
         const meta = await getMeta(proxy)
-        const pdfTitle = meta.info?.Title ?? undefined
         const totalPages = proxy.numPages
         const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
 
@@ -368,7 +367,7 @@ const readAssetContent = async (
         return {
           kind: "pages",
           pages,
-          title: pdfTitle,
+          title: meta.info.Title,
           totalPages,
           pagesRendered: pages.length,
           path,
