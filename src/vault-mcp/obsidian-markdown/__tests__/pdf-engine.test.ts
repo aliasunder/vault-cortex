@@ -66,10 +66,11 @@ const isRed = ({ red, green, blue }: PixelColor): boolean => {
 
 describe("createPdfDocumentProxy", () => {
   it("renders glyphs from bundled font data, independent of system fonts", async () => {
-    // The fixture uses non-embedded base-14 Helvetica — the case that renders
-    // ONLY when pdfjs loads its bundled standard fonts (useSystemFonts is
-    // false), so this fails if the font-data plumbing breaks: the module
-    // swap, the standard-font path shape, or the option set.
+    // The fixture uses non-embedded base-14 Helvetica, which pdfjs draws from
+    // its bundled standard fonts. On a host with no system fonts (the Docker
+    // image), a broken module swap or font path drops every glyph and this
+    // fails. A host with system fonts falls back to them and still passes, so
+    // the configuration test below pins the option set as well.
     const proxy = await createPdfDocumentProxy(fixtureBytes())
     onTestFinished(async () => {
       await proxy.loadingTask.destroy()
@@ -158,8 +159,8 @@ describe("createPdfDocumentProxy", () => {
 
   it("injects the same canvas classes that pdfjs-dist draws with", async () => {
     // pdfjs-dist's Node canvas factory requires @napi-rs/canvas from its own
-    // folder, while the engine injects classes from canvasImport. Two copies
-    // would make pdfjs's contexts reject the injected Path2D.
+    // folder, while the engine and unpdf's page render take classes from
+    // canvasImport. Two copies would make pdfjs's contexts reject those classes.
     const engineCanvas = await canvasImport()
     const pdfjsRequire = createRequire(join(expectedPdfjsRoot, "package.json"))
     const pdfjsCanvas: typeof engineCanvas = pdfjsRequire("@napi-rs/canvas")

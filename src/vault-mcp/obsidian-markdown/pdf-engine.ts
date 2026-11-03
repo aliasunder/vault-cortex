@@ -16,13 +16,11 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  * glyph is silently dropped while vector graphics still draw.
  *
  * The fix:
- * 1. Inject @napi-rs/canvas's DOMMatrix, Path2D and ImageData into
- *    globalThis before pdfjs loads, overwriting any existing value.
- *    - Path2D: pdfjs and unpdf fill it in only when it is missing, so the
- *      first value set is the one pdfjs draws with.
- *    - DOMMatrix: unpdf installs a stub without `invertSelf` or
- *      `multiplySelf` when it is missing, and sets @napi-rs/canvas's class
- *      before each page render; injecting it first keeps the stub out.
+ * 1. Set @napi-rs/canvas's DOMMatrix on globalThis before pdfjs loads,
+ *    overwriting any existing value. unpdf installs a stub without
+ *    `invertSelf` or `multiplySelf` when DOMMatrix is missing, and pdfjs
+ *    keeps whatever is there; setting it first keeps the stub out. (pdfjs
+ *    fills in Path2D from @napi-rs/canvas itself.)
  * 2. Swap in `pdfjs-dist/legacy/build/pdf.mjs` (the Node-targeted build with
  *    runtime polyfills; the modern build requires newer JS APIs than Node 24
  *    ships, e.g. `Math.sumPrecise`).
@@ -35,7 +33,7 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  */
 
 /** The proxy options a started engine supplies, under pdfjs's option names;
- *  the canvas globals and pdfjs module it also sets are process-wide state. */
+ *  the DOMMatrix global and pdfjs module it also sets are process-wide state. */
 type PdfEngine = Readonly<{
   standardFontDataUrl: string
   cMapUrl: string
@@ -45,8 +43,8 @@ type PdfEngine = Readonly<{
  *  injection below, page rendering (unpdf's `canvasImport` option takes a
  *  function), and tests.
  *  - pdfjs-dist's Node build draws every canvas with its own
- *    `require("@napi-rs/canvas")`, and its contexts reject a Path2D from
- *    another copy of the package.
+ *    `require("@napi-rs/canvas")`, and its contexts reject canvas classes
+ *    from another copy of the package.
  *  - npm installs one copy for both, because the @napi-rs/canvas version
  *    package.json pins satisfies pdfjs-dist's range; a pdf-engine test fails
  *    on a second copy. */
@@ -70,11 +68,7 @@ const initializePdfEngine = async (): Promise<PdfEngine> => {
 
   // Step 1 — overwrite rather than set only when missing, so a stub left by
   // an earlier unpdf or pdfjs load in this process is replaced too.
-  Object.assign(globalThis, {
-    DOMMatrix: canvasModule.DOMMatrix,
-    Path2D: canvasModule.Path2D,
-    ImageData: canvasModule.ImageData,
-  })
+  Object.assign(globalThis, { DOMMatrix: canvasModule.DOMMatrix })
 
   // Step 2 — every later unpdf call uses this module. unpdf loads it on first
   // use, so load it here: a load failure then rejects inside this init, and
