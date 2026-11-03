@@ -93,7 +93,7 @@ export type AssetReadResult =
     }>
 
 /** Compares with undefined, not truthiness, so a 0 still counts as a line
- *  window request and gets the invalid-line-range error. */
+ *  window request and is rejected rather than ignored. */
 const requestsLineWindow = (params: {
   startLine?: number | undefined
   limit?: number | undefined

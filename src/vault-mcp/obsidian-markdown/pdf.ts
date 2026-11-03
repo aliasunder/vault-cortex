@@ -446,7 +446,12 @@ const reconstructPdfMarkdown = (params: {
     if (pageIndex > 0) {
       outputLines.push("", `--- Page ${pageIndex + 1} ---`, "")
     }
-    outputLines.push(...renderPageLines(lines, headingLevels))
+
+    // Each line is pushed on its own, because spreading a page's lines as call
+    // arguments overflows the stack once a page renders to about 120,000 lines
+    for (const pageLine of renderPageLines(lines, headingLevels)) {
+      outputLines.push(pageLine)
+    }
   }
 
   if (uniqueLinks.length > 0) {
