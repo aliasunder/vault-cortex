@@ -17,13 +17,12 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  * also cannot read font/cMap data from disk at all (no `node:fs`).
  *
  * The fix:
- * 1. Inject @napi-rs/canvas constructors into globalThis, overwriting any
- *    existing value — pdfjs's legacy build installs its own Path2D polyfill
- *    when the global is missing, @napi-rs/canvas contexts reject those
- *    polyfill objects (`ctx.clip` throws InvalidArg), and unpdf's own
- *    injection sets Path2D only when it is missing, so it keeps the polyfill
- *    once installed. Injecting before the pdfjs import keeps the polyfill
- *    from ever activating.
+ * 1. Inject @napi-rs/canvas's DOMMatrix, Path2D and ImageData into
+ *    globalThis before pdfjs loads, overwriting any existing value. unpdf
+ *    installs a minimal DOMMatrix stub before it loads pdfjs (no
+ *    `invertSelf` or `multiplySelf`, which pdfjs's canvas code calls), and
+ *    pdfjs fills in only the globals that are missing, so without this the
+ *    stub stays in place.
  * 2. Swap in `pdfjs-dist/legacy/build/pdf.mjs` (the Node-targeted build with
  *    runtime polyfills; the modern build requires newer JS APIs than Node 24
  *    ships, e.g. `Math.sumPrecise`).
@@ -63,8 +62,8 @@ const resolvePdfjsAssetPaths = (): {
 
 const initializePdfEngine = async (): Promise<PdfEngine> => {
   const canvasModule = await canvasImport()
-  // Step 1 — the overwrite (not set-if-undefined) is the load-bearing part;
-  // running before the pdfjs import below is defense in depth. See docstring.
+  // Step 1 — overwrite rather than set only when missing, so a stub left by
+  // an earlier unpdf or pdfjs load in this process is replaced too.
   Object.assign(globalThis, {
     DOMMatrix: canvasModule.DOMMatrix,
     Path2D: canvasModule.Path2D,

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
 import { getDocumentProxy, renderPageAsImage, extractText } from "unpdf"
-import { createPdfDocumentProxy } from "../pdf-engine.js"
+import { canvasImport, createPdfDocumentProxy } from "../pdf-engine.js"
 import { buildMinimalPdf } from "./pdf-fixture.js"
 
 // Spy mode keeps the real unpdf implementation — the rendering tests below
@@ -124,13 +124,15 @@ describe("createPdfDocumentProxy", () => {
     expect(existsSync(join(expectedPdfjsRoot, "cmaps/", "78-H.bcmap"))).toBe(true)
   })
 
-  it("loads the same @napi-rs/canvas copy that pdfjs-dist draws with", () => {
+  it("injects the same canvas classes that pdfjs-dist draws with", async () => {
     // pdfjs-dist's Node canvas factory requires @napi-rs/canvas from its own
-    // folder; the engine injects Path2D from the copy this package resolves.
-    // Two copies would make pdfjs's contexts reject the injected Path2D.
+    // folder, while the engine injects classes from canvasImport. Two copies
+    // would make pdfjs's contexts reject the injected Path2D.
+    const engineCanvas = await canvasImport()
     const pdfjsRequire = createRequire(join(expectedPdfjsRoot, "package.json"))
-    const engineRequire = createRequire(import.meta.url)
+    const pdfjsCanvas: typeof engineCanvas = pdfjsRequire("@napi-rs/canvas")
 
-    expect(pdfjsRequire.resolve("@napi-rs/canvas")).toBe(engineRequire.resolve("@napi-rs/canvas"))
+    expect(pdfjsCanvas.Path2D).toBe(engineCanvas.Path2D)
+    expect(pdfjsCanvas.DOMMatrix).toBe(engineCanvas.DOMMatrix)
   })
 })
