@@ -279,9 +279,9 @@ describe("client registration sweep", () => {
     const kept = await registerClient(port)
     await before.cleanup()
 
-    // Backdate both past the sweep's one-week age on disk. Only `stale`
-    // is tokenless: `kept` gets a refresh token row seeded under an
-    // unrelated key, the state a rotation leaves behind.
+    // Backdate both past the sweep's one-week age on disk. Neither signed
+    // in, but `kept` gets a refresh token row seeded under an unrelated
+    // key, the state a rotation leaves behind, so only `stale` is swept.
     const oauthDb = new Database(join(dataDir, "oauth.db"))
     onTestFinished(() => {
       oauthDb.close()
@@ -370,6 +370,51 @@ describe("refresh-token reuse detection", () => {
     // Re-consent produces a working grant
     const reissued = await authorize({ port, client, authToken: TOKEN_A })
     expect(await mcpStatusWithBearer(port, reissued.access_token)).toBe(200)
+  }, 60_000)
+
+  it("keeps a revoked client's registration through the sweep, so it signs in again under the same client_id", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-reuse-sweep-"))
+    onTestFinished(async () => {
+      await rm(dataDir, { recursive: true, force: true })
+    })
+    const sameDataDir = { MCP_AUTH_TOKEN: TOKEN_A, INDEX_DB_PATH: join(dataDir, "search.db") }
+    const port = await freePort()
+
+    const before = await startServer(port, sameDataDir)
+    const client = await registerClient(port)
+    const issued = await authorize({ port, client, authToken: TOKEN_A })
+    const rotated = await refresh({ port, client, refreshToken: issued.refresh_token })
+    expect(rotated.status).toBe(200)
+    const replay = await refresh({ port, client, refreshToken: issued.refresh_token })
+    expect(replay.status).toBe(400)
+    await before.cleanup()
+
+    // The state a week later: registered more than seven days ago, no
+    // refresh token left after the revocation, and the revocation record
+    // purged after six hours.
+    const oauthDb = new Database(join(dataDir, "oauth.db"))
+    onTestFinished(() => {
+      oauthDb.close()
+    })
+    const eightDaysAgo = DateTime.now().minus({ days: 8 }).toUnixInteger()
+    oauthDb
+      .prepare(
+        "UPDATE clients SET data = json_set(data, '$.client_id_issued_at', ?) WHERE client_id = ?",
+      )
+      .run(eightDaysAgo, client.client_id)
+    oauthDb.prepare("DELETE FROM revoked_clients WHERE client_id = ?").run(client.client_id)
+    const remainingTokenRows = oauthDb
+      .prepare<[string], { token: string }>("SELECT token FROM refresh_tokens WHERE client_id = ?")
+      .all(client.client_id)
+    expect(remainingTokenRows).toEqual([])
+
+    // The reboot's sweep runs before any request.
+    const rebootedPort = await freePort()
+    const after = await startServer(rebootedPort, sameDataDir)
+    onTestFinished(() => after.cleanup())
+
+    const reissued = await authorize({ port: rebootedPort, client, authToken: TOKEN_A })
+    expect(await mcpStatusWithBearer(rebootedPort, reissued.access_token)).toBe(200)
   }, 60_000)
 })
 

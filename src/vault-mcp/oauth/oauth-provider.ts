@@ -83,11 +83,35 @@ const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
 // JWT signature, which uses the same key (see jwt.ts).
 const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
-// A registration older than this that holds no unexpired refresh token is swept.
-// Consent mints a refresh token within minutes of registering, so a row
-// still without one after a week never finished consent (clients register
-// more than once per connect) or had its last token expire.
-const TOKENLESS_CLIENT_MAX_AGE_S = 7 * 24 * 60 * 60
+// A registration older than this that never signed in is swept. Signing in
+// mints a refresh token within minutes of registering, so a row still
+// unsigned after a week never finished consent (clients register more than
+// once per connect, and only one registration signs in).
+const NEVER_SIGNED_IN_CLIENT_MAX_AGE_S = 7 * 24 * 60 * 60
+
+/** Adds clients.signed_in_at to a database created before it existed and
+ *  stamps every row already there, returning how many rows it stamped (0
+ *  when the column was already present). Every row is stamped because the
+ *  old schema cannot tell which clients signed in: one whose tokens were
+ *  already purged looks like one that never did. */
+const addSignedInAtColumn = (db: Database.Database): number => {
+  // The column and its stamps commit together. A column added without them
+  // would let the sweep delete every signed-in client, and the next boot
+  // would find the column and never stamp.
+  const addColumnAndStampRows = db.transaction((): number => {
+    const hasSignedInAt = db
+      .prepare("SELECT 1 FROM pragma_table_info('clients') WHERE name = 'signed_in_at'")
+      .get()
+
+    if (hasSignedInAt) return 0
+    db.exec("ALTER TABLE clients ADD COLUMN signed_in_at INTEGER")
+    const { changes: stampedRowCount } = db
+      .prepare("UPDATE clients SET signed_in_at = ?")
+      .run(DateTime.now().toUnixInteger())
+    return stampedRowCount
+  })
+  return addColumnAndStampRows()
+}
 
 const initDb = (dbPath: string, logger: Logger): Database.Database => {
   const db = new Database(dbPath)
@@ -95,7 +119,8 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
   db.exec(`
     CREATE TABLE IF NOT EXISTS clients (
       client_id TEXT PRIMARY KEY,
-      data TEXT NOT NULL
+      data TEXT NOT NULL,
+      signed_in_at INTEGER
     );
     CREATE TABLE IF NOT EXISTS refresh_tokens (
       token TEXT PRIMARY KEY,
@@ -129,6 +154,11 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
   if (!hasExpiresAt) {
     db.exec("ALTER TABLE refresh_tokens ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
   }
+  const markedClientCount = addSignedInAtColumn(db)
+
+  if (markedClientCount > 0) {
+    logger.info("oauth_clients_marked_signed_in", { markedClientCount })
+  }
   // Rows whose key lacks the prefix hold raw tokens written by a version
   // that stored them in plaintext; the keyed lookup can never match them,
   // so clear them on every boot. Each affected client re-authorizes once
@@ -149,7 +179,8 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
 class SqliteClientsStore implements OAuthRegisteredClientsStore {
   private readonly selectClientStmt: Database.Statement<[string], { data: string }>
   private readonly insertClientStmt: Database.Statement<[string, string]>
-  private readonly deleteTokenlessClientsStmt: Database.Statement<[number, number]>
+  private readonly markSignedInStmt: Database.Statement<[number, string]>
+  private readonly deleteNeverSignedInClientsStmt: Database.Statement<[number, number]>
 
   constructor(
     private db: Database.Database,
@@ -157,37 +188,49 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   ) {
     this.selectClientStmt = db.prepare("SELECT data FROM clients WHERE client_id = ?")
     this.insertClientStmt = db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)")
-    // An unexpired row counts even when a rotation made it unreachable, so
-    // a client active before the rotation keeps its registration through
-    // it. Expired rows are purged only when a token is minted, so the
-    // check excludes them itself rather than waiting for that.
-    this.deleteTokenlessClientsStmt = db.prepare(`
+    this.markSignedInStmt = db.prepare(
+      "UPDATE clients SET signed_in_at = ? WHERE client_id = ? AND signed_in_at IS NULL",
+    )
+    // Deletes an old registration only when both hold:
+    // - it never signed in (signed_in_at is NULL);
+    // - it holds no unexpired refresh token. This keeps a client that signed
+    //   in while an older image, which never stamps rows, was running. A row
+    //   a rotation made unreachable still counts, and expired rows are purged
+    //   only when a token is minted, so the query compares expires_at itself.
+    this.deleteNeverSignedInClientsStmt = db.prepare(`
       DELETE FROM clients
-      WHERE json_extract(data, '$.client_id_issued_at') < ?
+      WHERE signed_in_at IS NULL
+        AND json_extract(data, '$.client_id_issued_at') < ?
         AND NOT EXISTS (
           SELECT 1 FROM refresh_tokens
           WHERE refresh_tokens.client_id = clients.client_id
             AND refresh_tokens.expires_at >= ?
         )
     `)
-    this.sweepTokenlessClients()
+    this.sweepNeverSignedInClients()
   }
 
-  /** Deletes registrations older than TOKENLESS_CLIENT_MAX_AGE_S that hold
-   *  no unexpired refresh token. Runs at boot and before every
-   *  registration, so the table only grows with clients that completed
-   *  consent. A swept client that still presents its old client_id gets
-   *  invalid_client and registers again. */
-  private sweepTokenlessClients(): void {
+  /** Deletes registrations older than NEVER_SIGNED_IN_CLIENT_MAX_AGE_S that
+   *  never signed in. Runs at boot and before every registration. A client
+   *  that signed in is never swept, because it keeps presenting its
+   *  client_id, and /authorize rejects an unknown one in the browser, where
+   *  the client never sees the error and so never registers again. */
+  private sweepNeverSignedInClients(): void {
     const now = DateTime.now().toUnixInteger()
-    const issuedBefore = now - TOKENLESS_CLIENT_MAX_AGE_S
-    const { changes: sweptClientCount } = this.deleteTokenlessClientsStmt.run(issuedBefore, now)
+    const issuedBefore = now - NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
+    const { changes: sweptClientCount } = this.deleteNeverSignedInClientsStmt.run(issuedBefore, now)
 
     if (sweptClientCount === 0) return
     this.logger.info("oauth_clients_swept", {
       sweptClientCount,
-      maxAgeSeconds: TOKENLESS_CLIENT_MAX_AGE_S,
+      maxAgeSeconds: NEVER_SIGNED_IN_CLIENT_MAX_AGE_S,
     })
+  }
+
+  /** Stamps the first time the client is issued a refresh token; later
+   *  calls leave the stamp unchanged. */
+  markSignedIn(clientId: string): void {
+    this.markSignedInStmt.run(DateTime.now().toUnixInteger(), clientId)
   }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
@@ -218,7 +261,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       client_secret: randomBytes(32).toString("hex"),
       client_secret_expires_at: 0,
     }
-    this.sweepTokenlessClients()
+    this.sweepNeverSignedInClients()
     this.insertClientStmt.run(full.client_id, JSON.stringify(full))
     this.logger.info("oauth_client_registered", {
       clientId: full.client_id,
@@ -397,29 +440,26 @@ export const createOAuthProvider = ({
     )
   }
 
-  /** Stores a refresh token under its storage key. Expired rows are
-   *  purged here as well as on read: a row is only read when its own
-   *  token is presented, so rows left by dormant clients — or made
-   *  unreachable by a rotation — would otherwise stay forever. */
-  const saveRefreshToken = ({
-    token,
-    clientId,
-    scopes,
-  }: {
-    token: string
-    clientId: string
-    scopes: string[]
-  }): void => {
-    const now = DateTime.now()
-    deleteExpiredRefreshTokensStmt.run(now.toUnixInteger())
-    deleteExpiredConsumedTokensStmt.run(now.toUnixInteger())
-    insertRefreshTokenStmt.run(
-      refreshTokenStorageKey(token),
-      clientId,
-      scopes.join(" "),
-      now.plus({ seconds: REFRESH_TOKEN_TTL_S }).toUnixInteger(),
-    )
-  }
+  /** Stores a refresh token under its storage key. In the same transaction:
+   *  - marks the token's client as signed in, so the client sweep keeps it
+   *    after the token is gone;
+   *  - purges expired rows. A row is only read when its own token is
+   *    presented, so rows left by dormant clients — or made unreachable by a
+   *    rotation — would otherwise stay forever. */
+  const saveRefreshToken = db.transaction(
+    ({ token, clientId, scopes }: { token: string; clientId: string; scopes: string[] }): void => {
+      const now = DateTime.now()
+      deleteExpiredRefreshTokensStmt.run(now.toUnixInteger())
+      deleteExpiredConsumedTokensStmt.run(now.toUnixInteger())
+      insertRefreshTokenStmt.run(
+        refreshTokenStorageKey(token),
+        clientId,
+        scopes.join(" "),
+        now.plus({ seconds: REFRESH_TOKEN_TTL_S }).toUnixInteger(),
+      )
+      store.markSignedIn(clientId)
+    },
+  )
 
   /** Deletes a live refresh row and records its key as consumed in one
    *  transaction — a crash between the two would silently drop reuse
