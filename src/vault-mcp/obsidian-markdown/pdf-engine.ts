@@ -61,10 +61,10 @@ const initializePdfEngine = async (): Promise<PdfEngine> => {
   return resolvePdfjsAssetPaths()
 }
 
-// Init runs once per process and concurrent callers share its in-flight
-// promise, because the module swap must happen before any pdfjs use and
-// definePDFJSModule drops unpdf's loaded module on every call. The `let` is
-// justified because memoization is inherently stateful.
+// A successful init runs once per process and concurrent callers share its
+// in-flight promise, because the module swap must happen before any pdfjs
+// use and definePDFJSModule drops unpdf's loaded module on every call. The
+// `let` is justified because memoization is inherently stateful.
 let pdfEnginePromise: Promise<PdfEngine> | undefined
 
 const getPdfEngine = (): Promise<PdfEngine> => {
