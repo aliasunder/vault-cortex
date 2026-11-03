@@ -124,12 +124,15 @@ npm run sst -- state remove VaultCortexVm --stage "${STAGE}"
 npm run deploy -- --stage "${STAGE}"
 ```
 
-You'll need to re-run the post-provision steps from the README
-(populate `.env`, `docker compose up -d`, etc.). Vault content
+You'll need to re-run the post-provision steps in
+[DEPLOY.md → Deploy](./DEPLOY.md#deploy) (populate `.env`,
+`docker compose up -d`, etc.). Vault content
 repopulates automatically via Obsidian Sync on first `vault-cortex`
 container start, and the FTS5 index rebuilds itself once the MCP
-server boots. OAuth state is gone — clients will re-auth on
-their next token refresh.
+server boots.
+
+OAuth state is gone, so every client must sign in again; see
+[Auth implications after any restore](#auth-implications-after-any-restore).
 
 ## Intentional replace (bundle upgrade, etc.)
 
@@ -234,16 +237,21 @@ downtime.
 
 - **Existing JWTs (6h)** keep working until expiry — `/mcp` validation
   is stateless HMAC signature checking. Clients hold these silently.
-- **Refresh tokens** are in `oauth.db` on the restored disk. What happens
-  next depends on the snapshot:
+- **Refresh tokens** are in `oauth.db`. What happens next depends on the
+  snapshot:
   - Recent snapshot (Scenario B), `MCP_AUTH_TOKEN` unchanged: refresh tokens
     carry over and clients silently get new JWTs on their next refresh.
   - Snapshot from before refresh tokens were stored under their HMAC key:
     the first boot clears the raw rows and each client re-auths once — when
     its access JWT expires, within 6 hours.
   - Fresh instance with no snapshot to restore (Scenario C): `oauth.db`
-    starts empty, so every client re-auths via the consent page on its next
-    token refresh — minor inconvenience, no data loss.
+    starts empty, so every client must sign in again; your vault is
+    unaffected. A client may still present the `client_id` the old
+    `oauth.db` issued and be rejected with `invalid_client` until you clear
+    its stored sign-in for this server; the local guide's
+    [Troubleshooting](./deploy/local/README.md#troubleshooting) lists the
+    steps for each client (use your server's `/mcp` URL where they show
+    `localhost`).
 - **`MCP_AUTH_TOKEN`** signs access JWTs and keys the lookup of stored
   refresh tokens. It's in SST secrets and gets redeployed to
   `/opt/vault-cortex/.env` on any fresh boot. If you also rotated it during

@@ -862,20 +862,32 @@ reverse proxy.) A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
-**Registrations that never consented:** every MCP client registers itself
+**Registrations that never signed in:** every MCP client registers itself
 through `/register` on first connect, and some register more than once per
 connect, so the `clients` table would grow with rows no client ever uses.
-A registration older than a week that holds no unexpired refresh token is
-deleted at boot and before each new registration, logged as `oauth_clients_swept`:
+A registration older than a week that never signed in is deleted at boot
+and before each new registration, logged as `oauth_clients_swept`:
 
-- Consent mints a refresh token within minutes, so such a row never
-  finished consent or had its last token expire
-- A swept client that still presents its `client_id` gets `invalid_client`
-  and registers again
-- Refresh-token rows made unreachable by a rotation stay until they expire,
-  so a rotation does not sweep the clients that were active before it
-- The per-IP `/register` rate limit bounds how fast rows can appear and the
-  sweep bounds how long they stay
+- A registration has signed in once the server has saved a refresh token
+  for it, which sets its `signed_in_at` column
+- Signing in follows registration within minutes, so a row not signed in
+  after a week never finished consent
+- A client that has signed in is never swept, even after its grant is
+  revoked or its last refresh token expires
+- Such a client cannot recover from a sweep on its own: it keeps presenting
+  its `client_id`, `/authorize` rejects an unknown one with `invalid_client`
+  in the browser, where the client never sees the error, and its stored
+  sign-in has to be cleared by hand
+- Signing a client in requires entering `MCP_AUTH_TOKEN` on the consent
+  page, so only the owner adds rows that stay
+- The per-IP `/register` rate limit bounds how fast rows that never sign in
+  can appear, and the sweep bounds how long they stay
+- Adding `signed_in_at` to an existing `oauth.db` sets it on every row
+  already there, in the same transaction, and logs
+  `oauth_clients_marked_signed_in` with the count when there was at least
+  one row
+- The old schema cannot tell which rows signed in, so every registration
+  present at the upgrade is kept, including any that never signed in
 
 **Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
 then redeploy both

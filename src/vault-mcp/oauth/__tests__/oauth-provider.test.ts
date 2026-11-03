@@ -1,4 +1,4 @@
-import { describe, it, expect, onTestFinished } from "vitest"
+import { describe, it, expect, onTestFinished, vi } from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -106,8 +106,9 @@ const exchangeAuthorizationCode = (
   client: OAuthClientInformationFull,
   code: string,
 ): Promise<OAuthTokens> => {
-  if (!oauth.provider.exchangeAuthorizationCode)
+  if (!oauth.provider.exchangeAuthorizationCode) {
     throw new Error("exchangeAuthorizationCode not implemented")
+  }
   return oauth.provider.exchangeAuthorizationCode(client, code)
 }
 
@@ -1061,6 +1062,51 @@ const startAuthFlow = async (
   if (!match?.[1]) throw new Error("no request_id in consent HTML")
   return match[1]
 }
+
+describe("OAuth pending consent request expiry", () => {
+  const TEN_MINUTES_MS = 10 * 60 * 1000
+
+  /** Freezes the clock at the returned start time; Luxon reads Date.now. */
+  const freezeClock = (): number => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const startedAt = DateTime.fromISO("2026-11-02T12:00:00Z").toMillis()
+    vi.setSystemTime(startedAt)
+    return startedAt
+  }
+
+  it("keeps a consent request pending for ten minutes", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    const requestId = await startAuthFlow(oauth, client)
+
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS)
+    const pending = oauth.getPendingRequest(requestId, testLogger)
+
+    expect(pending?.client).toEqual(client)
+    const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
+    expect(expiryLogs).toEqual([])
+  })
+
+  it("expires a consent request older than ten minutes and logs oauth_request_expired", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    const requestId = await startAuthFlow(oauth, client)
+
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS + 1000)
+    const pending = oauth.getPendingRequest(requestId, testLogger)
+
+    expect(pending).toBeUndefined()
+    const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
+    expect(expiryLogs).toEqual([{ level: "info", message: "oauth_request_expired", data: {} }])
+    // Expiry deletes the request, so a later approval finds nothing.
+    expect(() => oauth.approveRequest(requestId, testLogger)).toThrow(
+      new Error("No pending request"),
+    )
+  })
+})
 
 describe("OAuth token audience and issuer", () => {
   const decodeJwtPayload = (token: string): Record<string, unknown> => {
@@ -2028,49 +2074,207 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
   })
 })
 
-describe("OAuth tokenless client sweep", () => {
-  const EIGHT_DAYS_AGO = DateTime.now().minus({ days: 8 }).toUnixInteger()
-  const SIX_DAYS_AGO = DateTime.now().minus({ days: 6 }).toUnixInteger()
-  const SIXTY_DAYS_AHEAD = DateTime.now().plus({ days: 60 }).toUnixInteger()
+const EIGHT_DAYS_AGO = DateTime.now().minus({ days: 8 }).toUnixInteger()
+const SIX_DAYS_AGO = DateTime.now().minus({ days: 6 }).toUnixInteger()
+const SIXTY_DAYS_AHEAD = DateTime.now().plus({ days: 60 }).toUnixInteger()
 
+const createOAuthDbPath = async (): Promise<string> => {
+  const dir = await mkdtemp(join(tmpdir(), "oauth-clients-test-"))
+  onTestFinished(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+  return join(dir, "oauth.db")
+}
+
+const openDb = (dbPath: string): Database.Database => {
+  const db = new Database(dbPath)
+  onTestFinished(() => {
+    db.close()
+  })
+  return db
+}
+
+const seedClientIssuedAt = (db: Database.Database, clientId: string, issuedAt: number): void => {
+  const client = {
+    client_id: clientId,
+    client_id_issued_at: issuedAt,
+    client_secret: "test-secret",
+    client_secret_expires_at: 0,
+    redirect_uris: ["https://example.com/cb"],
+    token_endpoint_auth_method: "none",
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+  }
+  db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)").run(
+    clientId,
+    JSON.stringify(client),
+  )
+}
+
+const stampSignedIn = (db: Database.Database, clientId: string, signedInAt: number): void => {
+  db.prepare("UPDATE clients SET signed_in_at = ? WHERE client_id = ?").run(signedInAt, clientId)
+}
+
+/** Each client's ID mapped to whether its row is stamped as signed in. */
+const signInStates = (db: Database.Database): Record<string, boolean> => {
+  const clientRows = db
+    .prepare<[], { client_id: string; signed_in_at: number | null }>(
+      "SELECT client_id, signed_in_at FROM clients",
+    )
+    .all()
+  return Object.fromEntries(
+    clientRows.map((clientRow) => [clientRow.client_id, clientRow.signed_in_at !== null]),
+  )
+}
+
+/** The clients table as a version without signed_in_at created it, beside
+ *  the refresh_tokens table of that version. */
+const createDbWithoutSignedInAt = (dbPath: string): Database.Database => {
+  const oldDb = new Database(dbPath)
+  oldDb.exec(`
+    CREATE TABLE clients (
+      client_id TEXT PRIMARY KEY,
+      data TEXT NOT NULL
+    );
+    CREATE TABLE refresh_tokens (
+      token TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL,
+      scopes TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+  `)
+  return oldDb
+}
+
+describe("OAuth client sign-in stamp", () => {
+  const createStampTest = async (): Promise<{ oauth: OAuthProvider; db: Database.Database }> => {
+    const dbPath = await createOAuthDbPath()
+    const oauth = createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+    return { oauth, db: openDb(dbPath) }
+  }
+
+  it("stamps the client a code exchange issues tokens to, and no other client", async () => {
+    const { oauth, db } = await createStampTest()
+    const signingIn = await registerClient(oauth, {
+      client_name: "signing-in",
+      redirect_uris: ["https://example.com/cb"],
+    })
+    const bystander = await registerClient(oauth, {
+      client_name: "bystander",
+      redirect_uris: ["https://example.com/cb"],
+    })
+
+    await issueTokens(oauth, signingIn)
+
+    expect(signInStates(db)).toEqual({
+      [signingIn.client_id]: true,
+      [bystander.client_id]: false,
+    })
+  })
+
+  it("stamps every row of a database created before the stamp existed, and logs the count", async () => {
+    const dbPath = await createOAuthDbPath()
+    const oldDb = createDbWithoutSignedInAt(dbPath)
+    seedClientIssuedAt(oldDb, "holds-refresh-token", EIGHT_DAYS_AGO)
+    oldDb
+      .prepare(
+        "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(refreshTokenKey("live-token"), "holds-refresh-token", "vault", SIXTY_DAYS_AHEAD)
+    // No token rows left, the state of a client whose tokens were revoked
+    // or expired and then purged before the upgrade.
+    seedClientIssuedAt(oldDb, "old-without-tokens", EIGHT_DAYS_AGO)
+    seedClientIssuedAt(oldDb, "recent-without-tokens", SIX_DAYS_AGO)
+    oldDb.close()
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(signInStates(openDb(dbPath))).toEqual({
+      "holds-refresh-token": true,
+      "old-without-tokens": true,
+      "recent-without-tokens": true,
+    })
+    const markedLogs = logs.filter((log) => log.message === "oauth_clients_marked_signed_in")
+    expect(markedLogs).toEqual([
+      {
+        level: "info",
+        message: "oauth_clients_marked_signed_in",
+        data: { component: "oauth", markedClientCount: 3 },
+      },
+    ])
+  })
+
+  it("stamps existing rows only on the boot that adds the column", async () => {
+    const dbPath = await createOAuthDbPath()
+    const oldDb = createDbWithoutSignedInAt(dbPath)
+    seedClientIssuedAt(oldDb, "present-at-upgrade", SIX_DAYS_AGO)
+    oldDb.close()
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "registered-after-upgrade", SIX_DAYS_AGO)
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(signInStates(db)).toEqual({
+      "present-at-upgrade": true,
+      "registered-after-upgrade": false,
+    })
+    const markedLogs = logs.filter((log) => log.message === "oauth_clients_marked_signed_in")
+    expect(markedLogs).toEqual([])
+  })
+
+  it("adds no column when stamping the existing rows fails, so the next boot upgrades again", async () => {
+    const dbPath = await createOAuthDbPath()
+    const oldDb = createDbWithoutSignedInAt(dbPath)
+    seedClientIssuedAt(oldDb, "present-at-upgrade", EIGHT_DAYS_AGO)
+    oldDb.exec(`
+      CREATE TRIGGER block_stamp BEFORE UPDATE ON clients
+      BEGIN SELECT RAISE(ABORT, 'stamp blocked'); END;
+    `)
+    oldDb.close()
+
+    const bootOnBlockedStamp = (): void => {
+      createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+    }
+
+    expect(bootOnBlockedStamp).toThrow(
+      new Database.SqliteError("stamp blocked", "SQLITE_CONSTRAINT_TRIGGER"),
+    )
+    const db = openDb(dbPath)
+    const columns = db
+      .prepare<[], { name: string }>("SELECT name FROM pragma_table_info('clients')")
+      .all()
+    expect(columns.map((column) => column.name)).toEqual(["client_id", "data"])
+
+    db.exec("DROP TRIGGER block_stamp")
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+    expect(signInStates(db)).toEqual({ "present-at-upgrade": true })
+  })
+})
+
+describe("OAuth never-signed-in client sweep", () => {
   const createSweepTest = async (): Promise<{
     dbPath: string
     logs: LogCall[]
   }> => {
-    const dir = await mkdtemp(join(tmpdir(), "oauth-sweep-test-"))
-    const dbPath = join(dir, "oauth.db")
+    const dbPath = await createOAuthDbPath()
     // A first boot creates the schema so clients can be seeded before the
     // boot under test.
     createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
-    onTestFinished(async () => {
-      await rm(dir, { recursive: true, force: true })
-    })
     return { dbPath, logs: [] }
-  }
-
-  const openDb = (dbPath: string): Database.Database => {
-    const db = new Database(dbPath)
-    onTestFinished(() => {
-      db.close()
-    })
-    return db
-  }
-
-  const seedClientIssuedAt = (db: Database.Database, clientId: string, issuedAt: number): void => {
-    const client = {
-      client_id: clientId,
-      client_id_issued_at: issuedAt,
-      client_secret: "test-secret",
-      client_secret_expires_at: 0,
-      redirect_uris: ["https://example.com/cb"],
-      token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-    }
-    db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)").run(
-      clientId,
-      JSON.stringify(client),
-    )
   }
 
   const registeredClientIds = (db: Database.Database): string[] => {
@@ -2080,10 +2284,10 @@ describe("OAuth tokenless client sweep", () => {
       .map((clientRow) => clientRow.client_id)
   }
 
-  it("sweeps a client older than seven days that holds no refresh token at boot", async () => {
+  it("sweeps a client older than seven days that never signed in, at boot", async () => {
     const { dbPath, logs } = await createSweepTest()
     const db = openDb(dbPath)
-    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+    seedClientIssuedAt(db, "old-never-signed-in", EIGHT_DAYS_AGO)
 
     createOAuthProvider({
       ...TEST_URLS,
@@ -2101,10 +2305,10 @@ describe("OAuth tokenless client sweep", () => {
     })
   })
 
-  it("keeps a client younger than seven days that holds no refresh token", async () => {
+  it("keeps a client younger than seven days that never signed in", async () => {
     const { dbPath, logs } = await createSweepTest()
     const db = openDb(dbPath)
-    seedClientIssuedAt(db, "recent-tokenless", SIX_DAYS_AGO)
+    seedClientIssuedAt(db, "recent-never-signed-in", SIX_DAYS_AGO)
 
     createOAuthProvider({
       ...TEST_URLS,
@@ -2113,43 +2317,24 @@ describe("OAuth tokenless client sweep", () => {
       logger: recordingLogger(logs),
     })
 
-    expect(registeredClientIds(db)).toEqual(["recent-tokenless"])
-    expect(logs.map((log) => log.message)).not.toContain("oauth_clients_swept")
+    expect(registeredClientIds(db)).toEqual(["recent-never-signed-in"])
+    const sweepLogs = logs.filter((log) => log.message === "oauth_clients_swept")
+    expect(sweepLogs).toEqual([])
   })
 
-  it("keeps an old client whose refresh token was keyed under a previous auth token", async () => {
+  it("keeps an old client that signed in but holds no tokens", async () => {
     const { dbPath } = await createSweepTest()
     const db = openDb(dbPath)
-    seedClientIssuedAt(db, "rotated-client", EIGHT_DAYS_AGO)
-    db.prepare(
-      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
-    ).run(
-      refreshTokenKey("pre-rotation-token", "previous-auth-token"),
-      "rotated-client",
-      "vault",
-      SIXTY_DAYS_AHEAD,
-    )
+    // It has no token rows, as after its grant was revoked and its
+    // revocation record purged.
+    seedClientIssuedAt(db, "signed-in-without-tokens", EIGHT_DAYS_AGO)
+    stampSignedIn(db, "signed-in-without-tokens", EIGHT_DAYS_AGO)
+    // The same boot must sweep this one, which proves the sweep ran.
+    seedClientIssuedAt(db, "old-never-signed-in", EIGHT_DAYS_AGO)
 
     createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
-    expect(registeredClientIds(db)).toEqual(["rotated-client"])
-  })
-
-  it("sweeps an old client whose only refresh token has expired", async () => {
-    const { dbPath } = await createSweepTest()
-    const db = openDb(dbPath)
-    seedClientIssuedAt(db, "expired-token-client", EIGHT_DAYS_AGO)
-    seedRefreshToken(
-      db,
-      "long-expired-token",
-      "expired-token-client",
-      ["vault"],
-      DateTime.now().minus({ days: 1 }).toUnixInteger(),
-    )
-
-    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
-
-    expect(registeredClientIds(db)).toEqual([])
+    expect(registeredClientIds(db)).toEqual(["signed-in-without-tokens"])
   })
 
   it("sweeps before each registration so the table does not wait for a reboot", async () => {
@@ -2162,7 +2347,7 @@ describe("OAuth tokenless client sweep", () => {
       logger,
     })
     // Seeded after the boot so the registration itself has to sweep it.
-    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+    seedClientIssuedAt(db, "old-never-signed-in", EIGHT_DAYS_AGO)
     const { clientsStore } = oauth.provider
 
     if (!clientsStore.registerClient) {
