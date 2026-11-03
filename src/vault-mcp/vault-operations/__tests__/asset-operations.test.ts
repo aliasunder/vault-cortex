@@ -5,6 +5,8 @@ import { logger } from "../../../logger.js"
 vi.mock("../vault-filesystem.js", () => ({
   vaultFs: {
     readAsset: vi.fn(),
+    listAssets: vi.fn(),
+    statAssets: vi.fn(),
   },
 }))
 
@@ -52,6 +54,8 @@ import { vaultFs } from "../vault-filesystem.js"
 import { fitImageToByteBudget } from "../../../utils/fit-image-to-byte-budget.js"
 
 const mockedReadAsset = vi.mocked(vaultFs.readAsset)
+const mockedListAssets = vi.mocked(vaultFs.listAssets)
+const mockedStatAssets = vi.mocked(vaultFs.statAssets)
 const mockedFitImage = vi.mocked(fitImageToByteBudget)
 
 const defaultParams = {
@@ -1310,5 +1314,34 @@ describe("readAssetContent — line paging", () => {
           "its image block is the delivered form",
       ),
     )
+  })
+})
+
+describe("buildAssetListing", () => {
+  it("counts quickly when nearly every file has an extension of its own", async () => {
+    // Dated backups give each file its own extension; counting that copies the
+    // counts for each file took over 10 seconds at this size
+    const fileCount = 10_000
+    const assetPaths = Array.from({ length: fileCount }, (_, index) => `backups/vault.${index}`)
+    mockedListAssets.mockResolvedValue(assetPaths)
+    mockedStatAssets.mockResolvedValue([{ path: "backups/vault.0", bytes: 10 }])
+
+    const startedAt = performance.now()
+    const listing = await assetOperations.buildAssetListing(
+      { vaultPath: "/vault", limit: 1 },
+      logger,
+    )
+    const elapsedMs = performance.now() - startedAt
+
+    const expectedCounts = Object.fromEntries(
+      assetPaths.map((_, index) => [`.${index}`, 1] as const),
+    )
+    expect(listing).toEqual({
+      assets: [{ path: "backups/vault.0", extension: ".0", bytes: 10 }],
+      extensionCounts: expectedCounts,
+      total: fileCount,
+      truncated: true,
+    })
+    expect(elapsedMs).toBeLessThan(1_000)
   })
 })

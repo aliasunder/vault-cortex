@@ -498,14 +498,13 @@ const buildAssetListing = async (
     ? assetPaths.filter((assetPath) => extensionFilter.has(getListingExtension(assetPath)))
     : assetPaths
 
-  const filteredExtensions = filteredPaths.map(getListingExtension)
-  const extensionCounts = filteredExtensions.reduce<Record<string, number>>(
-    (counts, extension) => ({
-      ...counts,
-      [extension]: (counts[extension] ?? 0) + 1,
-    }),
-    {},
-  )
+  // Counted in place, because a fold that copies the counts for each file
+  // costs files × distinct extensions, and dated backups or rotated logs
+  // give nearly every file an extension of its own
+  const extensionCounts: Record<string, number> = {}
+  for (const extension of filteredPaths.map(getListingExtension)) {
+    extensionCounts[extension] = (extensionCounts[extension] ?? 0) + 1
+  }
 
   const returnedPaths = filteredPaths.slice(0, params.limit)
   // statAssets drops assets deleted since the listing, so `assets` can fall
