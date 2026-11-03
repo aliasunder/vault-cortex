@@ -288,9 +288,11 @@ describe("readAssetContent — PDF extraction", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "scans/receipt.pdf" }, logger),
     ).rejects.toThrow(
-      'PDF has no extractable text: "scans/receipt.pdf" exists ' +
-        "(5000000 bytes, 12 pages) but contains no text content " +
-        "— it may be a scanned document or image-only PDF",
+      new Error(
+        'PDF has no extractable text: "scans/receipt.pdf" exists ' +
+          "(5000000 bytes, 12 pages) but contains no text content " +
+          "— it may be a scanned document or image-only PDF",
+      ),
     )
   })
 
@@ -308,9 +310,11 @@ describe("readAssetContent — PDF extraction", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "empty.pdf" }, logger),
     ).rejects.toThrow(
-      'PDF has no extractable text: "empty.pdf" exists ' +
-        "(1000 bytes, 1 pages) but contains no text content " +
-        "— it may be a scanned document or image-only PDF",
+      new Error(
+        'PDF has no extractable text: "empty.pdf" exists ' +
+          "(1000 bytes, 1 pages) but contains no text content " +
+          "— it may be a scanned document or image-only PDF",
+      ),
     )
   })
 
@@ -333,7 +337,9 @@ describe("readAssetContent — PDF extraction", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "huge.pdf" }, logger),
     ).rejects.toThrow(
-      'text output too large: "huge.pdf" renders to 200024 bytes ' + "(cap 102400 bytes)",
+      new Error(
+        'text output too large: "huge.pdf" renders to 200024 bytes ' + "(cap 102400 bytes)",
+      ),
     )
   })
 
@@ -347,10 +353,12 @@ describe("readAssetContent — PDF extraction", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "audio/song.mp3" }, logger),
     ).rejects.toThrow(
-      'unsupported file type ".mp3": "audio/song.mp3" exists ' +
-        "(10000 bytes). Readable types: images " +
-        "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats " +
-        "(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)",
+      new Error(
+        'unsupported file type ".mp3": "audio/song.mp3" exists ' +
+          "(10000 bytes). Readable types: images " +
+          "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats " +
+          "(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)",
+      ),
     )
   })
 
@@ -472,7 +480,13 @@ describe("readAssetContent — PDF extraction", () => {
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "scanned.pdf" }, logger),
-    ).rejects.toThrow("PDF has no extractable text")
+    ).rejects.toThrow(
+      new Error(
+        'PDF has no extractable text: "scanned.pdf" exists ' +
+          "(1000 bytes, 1 pages) but contains no text content " +
+          "— it may be a scanned document or image-only PDF",
+      ),
+    )
 
     expect(mockDestroy).toHaveBeenCalledOnce()
   })
@@ -774,8 +788,10 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'PDF page rendering failed: "broken.pdf" exists ' +
-        "(50000 bytes, 2 pages) but no pages could be rendered",
+      new Error(
+        'PDF page rendering failed: "broken.pdf" exists ' +
+          "(50000 bytes, 2 pages) but no pages could be rendered",
+      ),
     )
   })
 
@@ -824,7 +840,12 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
         { ...defaultParams, path: "fail.pdf", raw: true, maxPdfRenderPages: 1 },
         logger,
       ),
-    ).rejects.toThrow("PDF page rendering failed")
+    ).rejects.toThrow(
+      new Error(
+        'PDF page rendering failed: "fail.pdf" exists ' +
+          "(50000 bytes, 1 pages) but no pages could be rendered",
+      ),
+    )
 
     expect(mockDestroy).toHaveBeenCalledOnce()
   })
@@ -1020,7 +1041,9 @@ describe("readAssetContent — line paging", () => {
         { ...defaultParams, path: "data.csv", startLine: 0 },
         logger,
       ),
-    ).rejects.toThrow('invalid line range: "data.csv" needs a start line and limit of at least 1')
+    ).rejects.toThrow(
+      new Error('invalid line range: "data.csv" needs a start line and limit of at least 1'),
+    )
   })
 
   it("rejects a limit below 1", async () => {
@@ -1028,7 +1051,9 @@ describe("readAssetContent — line paging", () => {
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "data.csv", limit: 0 }, logger),
-    ).rejects.toThrow('invalid line range: "data.csv" needs a start line and limit of at least 1')
+    ).rejects.toThrow(
+      new Error('invalid line range: "data.csv" needs a start line and limit of at least 1'),
+    )
   })
 
   it("rejects a start line past the end stating the total line count", async () => {
@@ -1039,7 +1064,7 @@ describe("readAssetContent — line paging", () => {
         { ...defaultParams, path: "data.csv", startLine: 4 },
         logger,
       ),
-    ).rejects.toThrow('start line past the end: "data.csv" renders to 3 lines')
+    ).rejects.toThrow(new Error('start line past the end: "data.csv" renders to 3 lines'))
   })
 
   it("rejects a paged window that still exceeds the output cap", async () => {
@@ -1052,7 +1077,9 @@ describe("readAssetContent — line paging", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'text output too large: "big.log" lines 1–1 render to 102401 bytes ' + "(cap 102400 bytes)",
+      new Error(
+        'text output too large: "big.log" lines 1–1 render to 102401 bytes ' + "(cap 102400 bytes)",
+      ),
     )
   })
 
@@ -1121,8 +1148,10 @@ describe("readAssetContent — line paging", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'line range is not available for rendered PDF pages: "doc.pdf" ' +
-        "delivers page images, not text",
+      new Error(
+        'line range is not available for rendered PDF pages: "doc.pdf" ' +
+          "delivers page images, not text",
+      ),
     )
   })
 
@@ -1132,8 +1161,10 @@ describe("readAssetContent — line paging", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "pic.png", limit: 10 }, logger),
     ).rejects.toThrow(
-      'line range is not available for images: "pic.png" is binary — ' +
-        "its image block is the delivered form",
+      new Error(
+        'line range is not available for images: "pic.png" is binary — ' +
+          "its image block is the delivered form",
+      ),
     )
   })
 })
