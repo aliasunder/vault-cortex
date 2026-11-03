@@ -360,6 +360,7 @@ const readAssetContent = async (
     { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },
     logger,
   )
+
   // readAsset reports the extension lowercased, as these lookups expect
   const isImage = IMAGE_EXTENSIONS.has(asset.extension)
 
@@ -398,6 +399,7 @@ const readAssetContent = async (
           `"${path}" delivers page images, not text`,
       )
     }
+
     // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
     // so byteOffset/byteLength carve out this buffer's portion.
     const pdfData = new Uint8Array(
@@ -507,6 +509,7 @@ const buildAssetListing = async (
   }
 
   const returnedPaths = filteredPaths.slice(0, params.limit)
+
   // statAssets drops assets deleted since the listing, so `assets` can fall
   // short of the cap while `total` and `truncated` still count them
   const stattedAssets = await vaultFs.statAssets(
