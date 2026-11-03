@@ -614,7 +614,8 @@ export const createOAuthProvider = ({
      *    checked it against challengeForAuthorizationCode's challenge.
      *  - `redirect_uri` is not compared because OAuth 2.1 removed it from the
      *    token request. PKCE already stops an authorization code injected by
-     *    an attacker, and the SDK's /authorize accepts only S256 challenges. */
+     *    an attacker, and the SDK's /authorize accepts only S256 challenges.
+     *    https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-13#section-10.2 */
     async exchangeAuthorizationCode(
       client: OAuthClientInformationFull,
       authorizationCode: string,
