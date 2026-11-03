@@ -154,6 +154,34 @@ export const buildClippedFillPdf = (): Buffer => {
   ])
 }
 
+/** Builds a single-page PDF that clips to the outline of "HI" in 120-point
+ *  Helvetica (text render mode 7: add the glyphs to the clip, paint nothing),
+ *  then fills the whole page red. pdf.js builds that clip with
+ *  `new DOMMatrix(…).preMultiplySelf(…)`, so the page renders only with a
+ *  full DOMMatrix, not a stub without `preMultiplySelf`. */
+export const buildClippedTextPdf = (): Buffer => {
+  const stream = "q BT /F1 120 Tf 7 Tr 1 0 0 1 100 400 Tm (HI) Tj ET 1 0 0 rg 0 0 612 792 re f Q"
+  return assemblePdf([
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj",
+    [
+      "3 0 obj",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]",
+      "   /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+      "endobj",
+    ].join("\n"),
+    [
+      "4 0 obj",
+      `<< /Length ${Buffer.byteLength(stream, "ascii")} >>`,
+      "stream",
+      stream,
+      "endstream",
+      "endobj",
+    ].join("\n"),
+    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj",
+  ])
+}
+
 /** One page of a linked fixture PDF: a line of Helvetica text, plus a URI
  *  link annotation for each URL, in order. */
 export type PdfLinkedPage = Readonly<{
