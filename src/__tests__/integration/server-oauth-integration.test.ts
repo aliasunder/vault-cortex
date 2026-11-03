@@ -266,7 +266,7 @@ describe("rotating MCP_AUTH_TOKEN", () => {
 // ── Client registration sweep ─────────────────────────────────
 
 describe("client registration sweep", () => {
-  it("sweeps a week-old registration that never consented on the next boot", async () => {
+  it("sweeps a week-old registration that never signed in on the next boot", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-sweep-"))
     onTestFinished(async () => {
       await rm(dataDir, { recursive: true, force: true })
@@ -387,6 +387,8 @@ describe("refresh-token reuse detection", () => {
     expect(rotated.status).toBe(200)
     const replay = await refresh({ port, client, refreshToken: issued.refresh_token })
     expect(replay.status).toBe(400)
+    // Never signs in, so the reboot's sweep deletes it.
+    const neverSignedIn = await registerClient(port)
     await before.cleanup()
 
     // The state a week later: registered more than seven days ago, no
@@ -397,11 +399,11 @@ describe("refresh-token reuse detection", () => {
       oauthDb.close()
     })
     const eightDaysAgo = DateTime.now().minus({ days: 8 }).toUnixInteger()
-    oauthDb
-      .prepare(
-        "UPDATE clients SET data = json_set(data, '$.client_id_issued_at', ?) WHERE client_id = ?",
-      )
-      .run(eightDaysAgo, client.client_id)
+    const backdate = oauthDb.prepare(
+      "UPDATE clients SET data = json_set(data, '$.client_id_issued_at', ?) WHERE client_id = ?",
+    )
+    backdate.run(eightDaysAgo, client.client_id)
+    backdate.run(eightDaysAgo, neverSignedIn.client_id)
     oauthDb.prepare("DELETE FROM revoked_clients WHERE client_id = ?").run(client.client_id)
     const remainingTokenRows = oauthDb
       .prepare<[string], { token: string }>("SELECT token FROM refresh_tokens WHERE client_id = ?")
@@ -413,6 +415,11 @@ describe("refresh-token reuse detection", () => {
     const after = await startServer(rebootedPort, sameDataDir)
     onTestFinished(() => after.cleanup())
 
+    const registeredClientIds = oauthDb
+      .prepare<[], { client_id: string }>("SELECT client_id FROM clients")
+      .all()
+      .map((clientRow) => clientRow.client_id)
+    expect(registeredClientIds).toEqual([client.client_id])
     const reissued = await authorize({ port: rebootedPort, client, authToken: TOKEN_A })
     expect(await mcpStatusWithBearer(rebootedPort, reissued.access_token)).toBe(200)
   }, 60_000)

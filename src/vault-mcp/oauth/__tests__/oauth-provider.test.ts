@@ -1,4 +1,4 @@
-import { describe, it, expect, onTestFinished } from "vitest"
+import { describe, it, expect, onTestFinished, vi } from "vitest"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -1062,6 +1062,51 @@ const startAuthFlow = async (
   if (!match?.[1]) throw new Error("no request_id in consent HTML")
   return match[1]
 }
+
+describe("OAuth pending consent request expiry", () => {
+  const TEN_MINUTES_MS = 10 * 60 * 1000
+
+  /** Freezes the clock at the returned start time; Luxon reads Date.now. */
+  const freezeClock = (): number => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const startedAt = DateTime.fromISO("2026-11-02T12:00:00Z").toMillis()
+    vi.setSystemTime(startedAt)
+    return startedAt
+  }
+
+  it("keeps a consent request pending for ten minutes", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    const requestId = await startAuthFlow(oauth, client)
+
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS)
+    const pending = oauth.getPendingRequest(requestId, testLogger)
+
+    expect(pending?.client).toEqual(client)
+    const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
+    expect(expiryLogs).toEqual([])
+  })
+
+  it("expires a consent request older than ten minutes and logs oauth_request_expired", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    const requestId = await startAuthFlow(oauth, client)
+
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS + 1000)
+    const pending = oauth.getPendingRequest(requestId, testLogger)
+
+    expect(pending).toBeUndefined()
+    const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
+    expect(expiryLogs).toEqual([{ level: "info", message: "oauth_request_expired", data: {} }])
+    // Expiry deletes the request, so a later approval finds nothing.
+    expect(() => oauth.approveRequest(requestId, testLogger)).toThrow(
+      new Error("No pending request"),
+    )
+  })
+})
 
 describe("OAuth token audience and issuer", () => {
   const decodeJwtPayload = (token: string): Record<string, unknown> => {
@@ -2218,7 +2263,7 @@ describe("OAuth client sign-in stamp", () => {
     expect(markedLogs).toEqual([])
   })
 
-  it("adds no column when stamping the existing rows fails", async () => {
+  it("adds no column when stamping the existing rows fails, so the next boot upgrades again", async () => {
     const dbPath = await createOAuthDbPath()
     const oldDb = createDbWithoutSignedInAt(dbPath)
     seedClientIssuedAt(oldDb, "present-at-upgrade", EIGHT_DAYS_AGO)
@@ -2235,12 +2280,16 @@ describe("OAuth client sign-in stamp", () => {
     expect(bootOnBlockedStamp).toThrow(
       new Database.SqliteError("stamp blocked", "SQLITE_CONSTRAINT_TRIGGER"),
     )
-    // With no column, the next boot runs the upgrade again.
     const db = openDb(dbPath)
     const columns = db
       .prepare<[], { name: string }>("SELECT name FROM pragma_table_info('clients')")
       .all()
     expect(columns.map((column) => column.name)).toEqual(["client_id", "data"])
+
+    db.exec("DROP TRIGGER block_stamp")
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+    expect(signInStates(db)).toEqual({ "present-at-upgrade": true })
   })
 })
 
@@ -2308,6 +2357,8 @@ describe("OAuth never-signed-in client sweep", () => {
     // revocation record purged.
     seedClientIssuedAt(db, "signed-in-without-tokens", EIGHT_DAYS_AGO)
     stampSignedIn(db, "signed-in-without-tokens", EIGHT_DAYS_AGO)
+    // The same boot must sweep this one, which proves the sweep ran.
+    seedClientIssuedAt(db, "old-never-signed-in", EIGHT_DAYS_AGO)
 
     createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
@@ -2361,6 +2412,8 @@ describe("OAuth never-signed-in client sweep", () => {
       ["vault"],
       DateTime.now().minus({ days: 1 }).toUnixInteger(),
     )
+    // The same boot must sweep this one, which proves the sweep ran.
+    seedClientIssuedAt(db, "old-never-signed-in", EIGHT_DAYS_AGO)
 
     createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
