@@ -162,8 +162,9 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
  *  `name`:
  *  - pdf.js's PasswordException and InvalidPDFException constructors set
  *    these names.
- *  - Importing those classes for instanceof would load pdf.js before
- *    pdf-engine sets the canvas globals pdf.js must find on load. */
+ *  - Importing those classes for instanceof would load pdf.js at server
+ *    start, so a pdf.js load failure would stop the server rather than fail
+ *    only PDF reads. */
 const describePdfOpenFailure = (params: {
   error: unknown
   path: string
