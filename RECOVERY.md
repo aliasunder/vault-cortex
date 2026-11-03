@@ -237,8 +237,8 @@ downtime.
 
 - **Existing JWTs (6h)** keep working until expiry — `/mcp` validation
   is stateless HMAC signature checking. Clients hold these silently.
-- **Refresh tokens** are in `oauth.db` on the restored disk. What happens
-  next depends on the snapshot:
+- **Refresh tokens** are in `oauth.db`. What happens next depends on the
+  snapshot:
   - Recent snapshot (Scenario B), `MCP_AUTH_TOKEN` unchanged: refresh tokens
     carry over and clients silently get new JWTs on their next refresh.
   - Snapshot from before refresh tokens were stored under their HMAC key:

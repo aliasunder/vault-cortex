@@ -115,6 +115,7 @@ const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database, logger
       .run(DateTime.now().toUnixInteger())
     return markedClientCount
   })
+
   const markedClientCount = addColumnAndMarkClients()
 
   if (markedClientCount > 0) {
