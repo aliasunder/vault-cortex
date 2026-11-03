@@ -62,6 +62,18 @@ describe("parseBodyTags tag starts", () => {
   it("lists an inline footnote's tags after every tag outside one", () => {
     expect(parseBodyTags("#a ^[#b] #c\n\n#d")).toEqual(["a", "c", "d", "b"])
   })
+
+  it("keeps a footnote nested in a footnote in its place among that footnote's tags", () => {
+    expect(parseBodyTags("#a ^[#b ^[#c] #d] #e ^[#f] #g")).toEqual([
+      "a",
+      "e",
+      "g",
+      "b",
+      "c",
+      "d",
+      "f",
+    ])
+  })
 })
 
 describe("hasTagCandidate", () => {
