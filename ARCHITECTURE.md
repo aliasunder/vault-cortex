@@ -869,20 +869,20 @@ At boot and before each new registration, the server deletes each
 registration that meets all three conditions, logged as `oauth_clients_swept`:
 
 - it is older than a week
-- it never signed in: its `signed_in_at` column is empty because no refresh
-  token was ever saved for it
+- it never signed in: its `signed_in_at` column is empty. The server sets
+  the column when it first saves a refresh token for the client
 - it holds no unexpired refresh token, which keeps a client that signed in
-  while an older image, one that never sets `signed_in_at`, was running
+  after a rollback to a version that predates `signed_in_at`
 
-The per-IP `/register` rate limit bounds how fast unsigned rows can appear,
-and the sweep bounds how long they stay.
+The per-IP `/register` rate limit bounds how fast rows that never sign in
+can appear, and the sweep bounds how long they stay.
 
 A client that has signed in is never swept, even after its grant is revoked
 or its last refresh token expires. It keeps presenting its `client_id`, and
 `/authorize` rejects an unknown one with `invalid_client` in the browser,
 where the client never sees the error, so a swept client could never sign in
-again. Signing a client in takes the auth token, so only the owner adds rows
-that stay.
+again. Signing a client in requires entering `MCP_AUTH_TOKEN` on the consent
+page, so only the owner adds rows that stay.
 
 Adding `signed_in_at` to an existing `oauth.db` sets it on every row already
 there, in the same transaction, and logs `oauth_clients_marked_signed_in`

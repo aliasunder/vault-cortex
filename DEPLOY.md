@@ -422,7 +422,11 @@ Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitH
 4. Deploy — the VM is replaced with a fresh disk
 5. Re-protect the new instance: RECOVERY.md Option B step 6
 
-**Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose: OAuth state (`oauth.db`), accumulated Docker logs, and anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.). Losing `oauth.db` signs every client out, and a client may be rejected with `invalid_client` until you clear its stored sign-in for this server ([Troubleshooting](./deploy/local/README.md#troubleshooting)).
+**Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose:
+
+- OAuth state (`oauth.db`), which signs every client out. A client may still present the `client_id` the old `oauth.db` issued and be rejected with `invalid_client` until you clear its stored sign-in for this server; the local guide's [Troubleshooting](./deploy/local/README.md#troubleshooting) lists the steps for each client.
+- Accumulated Docker logs.
+- Anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 
 **Tailscale note:** If using `SSH_CIDRS=none` (Tailscale-only SSH), the new VM won't have Tailscale. Temporarily set `SSH_CIDRS=0.0.0.0/0` for the replacement deploy, SSH in to reinstall Tailscale, then set `SSH_CIDRS=none` and redeploy. See [SSH Hardening with Tailscale](#ssh-hardening-with-tailscale-optional).
 
