@@ -350,14 +350,14 @@ Returns: JSON array of { tag, count }; tag omits the "#" prefix.`,
       title: "Recent Notes",
       description: `List recently modified or created notes, sorted by timestamp — a time-ordered window into the vault, not a date-range filter.
 
-Example: vault_recent_notes({ sort_by: "modified", limit: 10 })
+Example: vault_recent_notes({ limit: 10 })
 Example: vault_recent_notes({ sort_by: "created", limit: 5 })
 
 When to use: Catching up on vault changes, finding recent work, or orienting after a break.${recentNotesAlternativesLine}
 
 Parameters:
-- sort_by + limit interact: "modified" uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
-- sort_by "modified" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
+- sort_by "modified" uses filesystem mtime, which every note has. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
+- sort_by "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
 
 Behavior: A file change takes a few seconds to appear here, so a note written moments ago may not be listed yet.
 

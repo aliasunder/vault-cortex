@@ -252,7 +252,7 @@ describe("registerTools", () => {
         'Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })',
         'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })',
         'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "insert_before", heading: "Phase 2", content: "## Phase 1\\nDone.\\n" })',
-        'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content: "> [!info] Draft\\n> Not reviewed yet.\\n" })',
+        'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content: "> [!info] Draft\\n> Not reviewed yet.\\n" }) — adds a leading callout at the top of the body',
       ].join("\n"),
     )
   })
@@ -264,7 +264,7 @@ describe("registerTools", () => {
       linePrefix: "- prepend:",
     })
     expect(prependEntry).toBe(
-      "- prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading — how you add a leading callout). To start a new section above the note's current first heading, use insert_before on that heading: a no-heading prepend whose content starts with a heading nests any content above the first heading inside the new section.",
+      "- prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading). To start a new section above the note's current first heading, use insert_before on that heading: a no-heading prepend whose content starts with a heading nests any content above the first heading inside the new section.",
     )
   })
 
@@ -369,13 +369,17 @@ describe("registerTools", () => {
   })
 
   it("vault_recent_notes description documents sorting behavior", () => {
-    const sortLine = findDescriptionLine({
+    const sortLines = extractDescriptionSection({
       registeredCalls: [requireCall(TOOL_NAMES.VAULT_RECENT_NOTES)],
       toolName: TOOL_NAMES.VAULT_RECENT_NOTES,
-      linePrefix: "- sort_by + limit interact",
+      startMarker: '- sort_by "modified"',
+      endMarker: "\n\nBehavior:",
     })
-    expect(sortLine).toBe(
-      '- sort_by + limit interact: "modified" uses filesystem mtime, which every note has. "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
+    expect(sortLines).toBe(
+      [
+        '- sort_by "modified" uses filesystem mtime, which every note has. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.',
+        '- sort_by "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
+      ].join("\n"),
     )
   })
 
