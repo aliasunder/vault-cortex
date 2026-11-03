@@ -272,7 +272,13 @@ const renderFencedLineText = (orderedItems: readonly StructuredTextItem[]): stri
  *  width) skip indentation for that line rather than guessing. */
 const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])[]): string[] => {
   const lineStartXs = orderedLines.map((orderedItems) => orderedItems[0]?.x ?? Infinity)
-  const blockLeftMargin = Math.min(...lineStartXs)
+
+  // Folded rather than spread into Math.min: that call overflows the stack
+  // once a block holds about 125,000 lines
+  const blockLeftMargin = lineStartXs.reduce(
+    (smallestX, lineStartX) => Math.min(smallestX, lineStartX),
+    Infinity,
+  )
 
   const indentedLines = orderedLines.map((orderedItems) => {
     const lineText = renderFencedLineText(orderedItems)
@@ -297,7 +303,10 @@ const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])
     const backtickRuns = indentedLine.match(/`+/g) ?? []
     return backtickRuns.map((backtickRun) => backtickRun.length)
   })
-  const longestBacktickRun = Math.max(0, ...backtickRunLengths)
+  const longestBacktickRun = backtickRunLengths.reduce(
+    (longestRun, runLength) => Math.max(longestRun, runLength),
+    0,
+  )
   const fence = "`".repeat(Math.max(3, longestBacktickRun + 1))
   return [fence, ...indentedLines, fence]
 }
@@ -398,7 +407,11 @@ const renderPageLines = (
   const pageLines: string[] = []
   for (const segment of lineSegments) {
     if (segment.fenced) {
-      pageLines.push(...renderFenceBlock(segment.orderedLines))
+      // One push per line, like plain lines below: spreading a fence block of
+      // about 125,000 lines into a single push call overflows the stack
+      for (const fenceLine of renderFenceBlock(segment.orderedLines)) {
+        pageLines.push(fenceLine)
+      }
       continue
     }
     for (const orderedItems of segment.orderedLines) {
@@ -449,17 +462,15 @@ const reconstructPdfMarkdown = (params: {
     return [...pageSeparator, ...renderPageLines(lines, headingLevels)]
   }
 
-  const outputLines: string[] = [
+  const linksFooter =
+    uniqueLinks.length > 0 ? ["", "Links:", ...uniqueLinks.map((link) => `- ${link}`)] : []
+
+  return [
     headerParts.join(" | "),
     "",
     ...itemsByPage.flatMap(renderPageSection),
-  ]
-
-  if (uniqueLinks.length > 0) {
-    outputLines.push("", "Links:", ...uniqueLinks.map((link) => `- ${link}`))
-  }
-
-  return outputLines.join("\n")
+    ...linksFooter,
+  ].join("\n")
 }
 
 /** Result of PDF text extraction — text is the markdown rendition,
