@@ -1041,6 +1041,43 @@ describe("OAuth refresh over HTTP", () => {
     })
   })
 
+  it("rejects an authorization code redeemed by a different client with invalid_grant", async () => {
+    const { baseUrl } = await createRefreshTest()
+    const owner = await registerClient(baseUrl, "203.0.113.12")
+    const other = await registerClient(baseUrl, "203.0.113.13")
+    const { code, verifier } = await issueCode(baseUrl, owner, "203.0.113.12")
+    const redeemCode = (
+      client: RegisteredClient,
+      forwardedClientIp: string,
+    ): Promise<globalThis.Response> => {
+      return fetch(`${baseUrl}/token`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          forwarded: `for=${forwardedClientIp}`,
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: client.client_id,
+          client_secret: client.client_secret,
+          code,
+          code_verifier: verifier,
+          redirect_uri: REDIRECT_URI,
+        }),
+      })
+    }
+
+    const rejected = await redeemCode(other, "203.0.113.13")
+
+    expect(rejected.status).toBe(400)
+    expect(await rejected.json()).toEqual({
+      error: "invalid_grant",
+      error_description: "Authorization code expired or invalid",
+    })
+    const redeemedByOwner = await redeemCode(owner, "203.0.113.12")
+    expect(redeemedByOwner.status).toBe(200)
+  })
+
   it("rejects a refresh token presented by a different client with invalid_grant", async () => {
     const { baseUrl } = await createRefreshTest()
     const owner = await registerClient(baseUrl, "203.0.113.1")

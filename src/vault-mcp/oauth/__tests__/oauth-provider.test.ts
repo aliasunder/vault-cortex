@@ -861,6 +861,31 @@ describe("OAuth audit logging", () => {
     })
   })
 
+  it("logs oauth_code_exchange_failed when another client redeems the code", async () => {
+    const { logs, testLogger, oauth, db, client } = await setupAuditTest()
+    const otherClient = seedClient(db, "other-client")
+    const requestId = await startAuthFlow(oauth, client)
+    const code = oauth.approveRequest(requestId, testLogger)
+    logs.length = 0
+
+    await expect(exchangeAuthorizationCode(oauth, otherClient, code)).rejects.toThrow(
+      new InvalidGrantError("Authorization code expired or invalid"),
+    )
+
+    expect(logs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_code_exchange_failed",
+        data: {
+          component: "oauth",
+          reason: "issued_to_another_client",
+          clientId: "test-client",
+          presenterClientId: "other-client",
+        },
+      },
+    ])
+  })
+
   it("logs oauth_token_refreshed on successful refresh", async () => {
     const { logs, oauth, db, client } = await setupAuditTest()
     seedRefreshToken(

@@ -596,6 +596,10 @@ export const createOAuthProvider = ({
       return stored.codeChallenge
     },
 
+    /** RFC 6749 §4.1.3: the code must have been issued to the authenticated
+     *  client. `redirect_uri` is not compared because OAuth 2.1 removed it
+     *  from the token request; PKCE already ties the code to the client that
+     *  asked for it. https://www.rfc-editor.org/rfc/rfc6749#section-4.1.3 */
     async exchangeAuthorizationCode(
       client: OAuthClientInformationFull,
       authorizationCode: string,
@@ -611,6 +615,18 @@ export const createOAuthProvider = ({
       if (!stored || stored.expiresAt < DateTime.now()) {
         oauthLogger.warn("oauth_code_exchange_failed", {
           reason: "expired_or_invalid",
+        })
+        throw new InvalidGrantError("Authorization code expired or invalid")
+      }
+
+      // Also checked before the code is consumed, so a code presented by
+      // another client stays redeemable by the client it was issued to. The
+      // error is the same as for an unknown code, as with refresh tokens.
+      if (stored.clientId !== client.client_id) {
+        oauthLogger.warn("oauth_code_exchange_failed", {
+          reason: "issued_to_another_client",
+          clientId: stored.clientId,
+          presenterClientId: client.client_id,
         })
         throw new InvalidGrantError("Authorization code expired or invalid")
       }

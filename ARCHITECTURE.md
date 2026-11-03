@@ -794,7 +794,8 @@ static token.
   and replaying one revokes the entire grant (refresh tokens + access tokens
   issued strictly before the cutoff, logged as `oauth_refresh_token_reuse`).
   Consumed records expire with their parent token's window.
-- **Auth codes** — in-memory, short-lived (10 minutes).
+- **Auth codes** — in-memory, short-lived (10 minutes), and redeemable only
+  by the client they were issued to.
 - **Access tokens** — JWTs with an `iat` (issued-at) claim. Verification
   checks both per-token revocation and per-client grant revocation (a cutoff
   timestamp rejecting `iat` strictly before revocation). Tokens without `iat`
