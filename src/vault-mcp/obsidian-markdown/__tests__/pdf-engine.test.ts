@@ -159,8 +159,9 @@ describe("createPdfDocumentProxy", () => {
 
   it("injects the same canvas classes that pdfjs-dist draws with", async () => {
     // pdfjs-dist's Node canvas factory requires @napi-rs/canvas from its own
-    // folder, while the engine and unpdf's page render take classes from
-    // canvasImport. Two copies would make pdfjs's contexts reject those classes.
+    // folder, while unpdf's page render sets the global Path2D from
+    // canvasImport when none is set yet. With two copies, pdfjs's contexts
+    // would reject that Path2D.
     const engineCanvas = await canvasImport()
     const pdfjsRequire = createRequire(join(expectedPdfjsRoot, "package.json"))
     const pdfjsCanvas: typeof engineCanvas = pdfjsRequire("@napi-rs/canvas")

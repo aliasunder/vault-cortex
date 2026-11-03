@@ -43,8 +43,9 @@ type PdfEngine = Readonly<{
  *  injection below, page rendering (unpdf's `canvasImport` option takes a
  *  function), and tests.
  *  - pdfjs-dist's Node build draws every canvas with its own
- *    `require("@napi-rs/canvas")`, and its contexts reject canvas classes
- *    from another copy of the package.
+ *    `require("@napi-rs/canvas")`, and its contexts reject a Path2D from
+ *    another copy of the package; unpdf's page render sets the global Path2D
+ *    from this importer when none is set yet.
  *  - npm installs one copy for both, because the @napi-rs/canvas version
  *    package.json pins satisfies pdfjs-dist's range; a pdf-engine test fails
  *    on a second copy. */
