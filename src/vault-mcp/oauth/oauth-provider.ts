@@ -196,9 +196,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   ) {
     this.selectClientStmt = db.prepare("SELECT data FROM clients WHERE client_id = ?")
     this.insertClientStmt = db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)")
-    this.markSignedInStmt = db.prepare(
-      "UPDATE clients SET signed_in_at = ? WHERE client_id = ? AND signed_in_at IS NULL",
-    )
+    this.markSignedInStmt = db.prepare("UPDATE clients SET signed_in_at = ? WHERE client_id = ?")
     this.deleteNeverSignedInClientsStmt = db.prepare(`
       DELETE FROM clients
       WHERE signed_in_at IS NULL
@@ -225,8 +223,6 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     })
   }
 
-  /** Records when the client is first issued a refresh token; later calls
-   *  leave the recorded time unchanged. */
   markSignedIn(clientId: string): void {
     this.markSignedInStmt.run(DateTime.now().toUnixInteger(), clientId)
   }

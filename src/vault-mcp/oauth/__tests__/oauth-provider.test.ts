@@ -2172,22 +2172,6 @@ describe("OAuth client sign-in stamp", () => {
     })
   })
 
-  it("keeps the time a client first signed in when it refreshes", async () => {
-    const { oauth, db } = await createStampTest()
-    const client = seedClient(db, "signed-in-earlier")
-    stampSignedIn(db, client.client_id, EIGHT_DAYS_AGO)
-    seedRefreshToken(db, "current-token", client.client_id, ["vault"], SIXTY_DAYS_AHEAD)
-
-    await exchangeRefreshToken(oauth, client, "current-token")
-
-    const stampRow = db
-      .prepare<[string], { signed_in_at: number }>(
-        "SELECT signed_in_at FROM clients WHERE client_id = ?",
-      )
-      .get(client.client_id)
-    expect(stampRow).toEqual({ signed_in_at: EIGHT_DAYS_AGO })
-  })
-
   it("stamps every row of a database created before the stamp existed, and logs the count", async () => {
     const dbPath = await createOAuthDbPath()
     const oldDb = createDbWithoutSignedInAt(dbPath)
