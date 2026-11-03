@@ -187,7 +187,7 @@ export const createOAuthRoutes = ({
           renderConsentPage({
             clientName: pending.client.client_name ?? pending.client.client_id,
             clientId,
-            scopes: pending.params.scopes ?? [],
+            scopes: pending.params.scopes,
             requestId: request_id,
             error: "Invalid token. Please try again.",
           }),

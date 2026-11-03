@@ -48,21 +48,26 @@ const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
 const AUTH_CODE_TTL_S = 10 * 60
 // 10 minutes for the user to approve a consent request before it expires.
 const PENDING_REQUEST_TTL_S = 10 * 60
-// The one scope the server grants; also what the static token carries
-// (see verifyAccessToken) and what the metadata advertises as
-// scopes_supported.
+// Every rejected code gets this one message, so a code issued to another
+// client looks the same as an unknown one.
+const INVALID_AUTH_CODE_MESSAGE = "Authorization code expired or invalid"
+// The scope granted to a request that names none (see authorize); also what
+// the static token carries (see verifyAccessToken) and what the metadata
+// advertises as scopes_supported.
 export const DEFAULT_SCOPE = "vault" as const
+
+/** `authorize` fills in the default scope before storing a request, so scopes is always set. */
+type GrantedAuthorizationParams = AuthorizationParams & { scopes: string[] }
 
 type PendingAuthRequest = {
   client: OAuthClientInformationFull
-  params: AuthorizationParams
+  params: GrantedAuthorizationParams
   createdAt: DateTime
 }
 
 type StoredAuthCode = {
   clientId: string
-  codeChallenge: string
-  params: AuthorizationParams
+  params: GrantedAuthorizationParams
   expiresAt: DateTime
 }
 
@@ -253,6 +258,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       client_id: randomUUID(),
       client_id_issued_at: DateTime.now().toUnixInteger(),
       client_secret: randomBytes(32).toString("hex"),
+      // RFC 7591 §3.2.1 defines 0 as a secret that never expires.
       client_secret_expires_at: 0,
     }
     // The /register rate limit bounds how fast rows arrive; sweeping on each
@@ -269,9 +275,9 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
 
 export type OAuthProvider = {
   provider: OAuthServerProvider
-  getPendingRequest: (id: string, logger: Logger) => PendingAuthRequest | undefined
+  getPendingRequest: (requestId: string, logger: Logger) => PendingAuthRequest | undefined
   approveRequest: (requestId: string, logger: Logger) => string
-  deletePendingRequest: (id: string) => void
+  deletePendingRequest: (requestId: string) => void
 }
 
 export const createOAuthProvider = ({
@@ -300,6 +306,8 @@ export const createOAuthProvider = ({
     if (!resource) return
     const requestedResource = canonicalResourceUri(resource)
 
+    // tokenBindingForServer builds audience with canonicalResourceUri too,
+    // so both identifiers compare in canonical form.
     if (requestedResource === audience) return
     if (requestedResource === rootResource) return
     oauthLogger.warn("oauth_resource_rejected", {
@@ -386,10 +394,12 @@ export const createOAuthProvider = ({
   const deleteExpiredRevokedClientsStmt = db.prepare<[number]>(
     "DELETE FROM revoked_clients WHERE revoked_at < ?",
   )
-  /** A revoked access JWT outlives its revocation by at most its own
-   *  lifetime, so rows older than that can never be presented again. The
-   *  same bound holds for a client revocation: every token minted at or
-   *  before it has expired by then. */
+  /** - A revoked access JWT outlives its revocation by at most its own
+   *    lifetime, so rows older than that can never be presented again.
+   *  - The same bound holds for a client revocation: every token minted at
+   *    or before it has expired by then.
+   *  - Runs at boot and before each new revocation, the only times these
+   *    tables grow, so no timer is needed. */
   const purgeExpiredRevocations = (): void => {
     const revocationCutoff = DateTime.now().toUnixInteger() - ACCESS_TOKEN_TTL_S
     const { changes: purgedTokenCount } = deleteExpiredRevokedTokensStmt.run(revocationCutoff)
@@ -412,9 +422,9 @@ export const createOAuthProvider = ({
   purgeExpiredRevocations()
 
   /** Revokes everything the grant issued: the client's live refresh rows,
-   *  its consumed-token history (so one stale token cannot re-trigger
+   *  its consumed-token history (so one consumed token cannot re-trigger
    *  revocation after the user re-consents), and — via the revoked_clients
-   *  cutoff — every access token minted up to revokedAt. One transaction:
+   *  cutoff — every access token minted before revokedAt. One transaction:
    *  a partial write would leave refresh rows deleted with access tokens
    *  still valid, the exact state this control exists to prevent. */
   const revokeClientGrant = db.transaction(
@@ -498,12 +508,12 @@ export const createOAuthProvider = ({
     clientId: string
   }): ConsumeRefreshTokenResult => {
     const storageKey = refreshTokenStorageKey(token)
-    const now = DateTime.now().toUnixInteger()
+    const nowSeconds = DateTime.now().toUnixInteger()
 
     const row = selectRefreshTokenStmt.get(storageKey, clientId)
 
     if (row) {
-      if (row.expires_at < now) {
+      if (row.expires_at < nowSeconds) {
         // An expired token was never presentable again, so its deletion
         // needs no consumed record — a later replay is a plain miss.
         deleteRefreshTokenStmt.run(storageKey)
@@ -521,12 +531,12 @@ export const createOAuthProvider = ({
       }
     }
 
-    // Keyed on the token alone, unlike the live lookup: a stale token
-    // means the RECORDED owner's grant is compromised no matter which
-    // registration presents it. A live token under the wrong client stays
-    // a plain miss — clients re-register routinely, and revoking on a
-    // confused client would be trigger-happy.
-    const consumedRow = selectConsumedRefreshTokenStmt.get(storageKey, now)
+    // Keyed on the token alone, unlike the live lookup: a consumed token
+    // presented again means the RECORDED owner's grant is compromised no
+    // matter which registration presents it. A live token under the wrong
+    // client stays a plain miss — clients re-register routinely, and
+    // revoking on a confused client would be trigger-happy.
+    const consumedRow = selectConsumedRefreshTokenStmt.get(storageKey, nowSeconds)
 
     if (consumedRow) {
       return { status: "reuse", ownerClientId: consumedRow.client_id }
@@ -537,17 +547,17 @@ export const createOAuthProvider = ({
   const isRevoked = (token: string): boolean => !!selectRevokedTokenStmt.get(token)
 
   // Methods below implement OAuthServerProvider from the MCP SDK.
-  // They appear unused locally but are called by mcpAuthRouter() and
-  // requireBearerAuth() in server.ts during the OAuth lifecycle.
+  // They appear unused locally but are called by mcpAuthRouter() in
+  // oauth-routes.ts and requireBearerAuth() in mcp-core/mcp-router.ts.
   const provider: OAuthServerProvider = {
     get clientsStore(): OAuthRegisteredClientsStore {
       return store
     },
 
-    /** A request that names no scope is granted the server's one scope.
-     *  The default is applied here, before the request is stored, so the
-     *  consent page, the code exchange, and every later refresh read the
-     *  same value. */
+    /** A request that names no scope is granted DEFAULT_SCOPE; named scopes
+     *  are granted as requested. The default is applied here, before the
+     *  request is stored, so the consent page, the code exchange, and every
+     *  later refresh read the same value. */
     async authorize(
       client: OAuthClientInformationFull,
       params: AuthorizationParams,
@@ -581,6 +591,8 @@ export const createOAuthProvider = ({
       )
     },
 
+    /** The SDK checks the PKCE verifier against this challenge, then calls
+     *  exchangeAuthorizationCode, which checks the code's client. */
     async challengeForAuthorizationCode(
       _client: OAuthClientInformationFull,
       authorizationCode: string,
@@ -591,11 +603,19 @@ export const createOAuthProvider = ({
         oauthLogger.warn("oauth_challenge_failed", {
           reason: "expired_or_invalid",
         })
-        throw new InvalidGrantError("Authorization code expired or invalid")
+        throw new InvalidGrantError(INVALID_AUTH_CODE_MESSAGE)
       }
-      return stored.codeChallenge
+      return stored.params.codeChallenge
     },
 
+    /** RFC 6749 §4.1.3: the code must have been issued to the authenticated
+     *  client. https://www.rfc-editor.org/rfc/rfc6749#section-4.1.3
+     *  - `code_verifier` is not checked here, because the SDK has already
+     *    checked it against challengeForAuthorizationCode's challenge.
+     *  - `redirect_uri` is not compared because OAuth 2.1 removed it from the
+     *    token request. PKCE already stops an authorization code injected by
+     *    an attacker, and the SDK's /authorize accepts only S256 challenges.
+     *    https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-13#section-10.2 */
     async exchangeAuthorizationCode(
       client: OAuthClientInformationFull,
       authorizationCode: string,
@@ -612,11 +632,22 @@ export const createOAuthProvider = ({
         oauthLogger.warn("oauth_code_exchange_failed", {
           reason: "expired_or_invalid",
         })
-        throw new InvalidGrantError("Authorization code expired or invalid")
+        throw new InvalidGrantError(INVALID_AUTH_CODE_MESSAGE)
+      }
+
+      // Also checked before the code is consumed, so a code presented by
+      // another client stays redeemable by the client it was issued to.
+      if (stored.clientId !== client.client_id) {
+        oauthLogger.warn("oauth_code_exchange_failed", {
+          reason: "issued_to_another_client",
+          clientId: stored.clientId,
+          presenterClientId: client.client_id,
+        })
+        throw new InvalidGrantError(INVALID_AUTH_CODE_MESSAGE)
       }
       authCodes.delete(authorizationCode)
 
-      const scopes = stored.params.scopes ?? []
+      const { scopes } = stored.params
       const accessToken = issueAccessToken(stored.clientId, scopes)
       const refreshToken = randomBytes(32).toString("hex")
       saveRefreshToken({
@@ -716,7 +747,8 @@ export const createOAuthProvider = ({
       }
     },
 
-    /** Three-tier verification: static token (fast path for CLI) → revocation check → JWT. */
+    /** Checks in order: static token (fast path for CLI) → per-token
+     *  revocation → JWT → the client's grant-revocation cutoff. */
     async verifyAccessToken(token: string): Promise<AuthInfo> {
       if (safeEqual(token, authToken)) {
         oauthLogger.debug("oauth_token_verified", { method: "static" })
@@ -742,11 +774,14 @@ export const createOAuthProvider = ({
       if (payload) {
         const revokedClient = selectRevokedClientStmt.get(payload.sub)
 
-        // Without iat the token cannot be proven post-revocation, so the
-        // 0 fallback rejects it against any timestamp. Strictly greater: a token
-        // minted after revocation (iat > revoked_at) passes; same-second
-        // is benign because the attacker's refresh tokens are already deleted.
-        if (revokedClient && revokedClient.revoked_at > (payload.iat ?? 0)) {
+        // Rejects a token minted strictly before the revocation:
+        // - without iat the token cannot be proven newer, so it counts as
+        //   minted at 0 and is rejected;
+        // - a token minted in the revocation's own second passes, so a client
+        //   that signs in again within that second keeps working. An attacker
+        //   who refreshed in that same second keeps one access token until it
+        //   expires; their refresh tokens are already deleted.
+        if (revokedClient && (payload.iat ?? 0) < revokedClient.revoked_at) {
           oauthLogger.warn("oauth_token_rejected", {
             reason: "client_revoked",
             clientId: payload.sub,
@@ -802,12 +837,15 @@ export const createOAuthProvider = ({
     },
   }
 
-  const getPendingRequest = (id: string, reqLogger: Logger): PendingAuthRequest | undefined => {
-    const pending = pendingRequests.get(id)
+  const getPendingRequest = (
+    requestId: string,
+    reqLogger: Logger,
+  ): PendingAuthRequest | undefined => {
+    const pending = pendingRequests.get(requestId)
 
     if (!pending) return undefined
     if (pending.createdAt.plus({ seconds: PENDING_REQUEST_TTL_S }) < DateTime.now()) {
-      pendingRequests.delete(id)
+      pendingRequests.delete(requestId)
       reqLogger.info("oauth_request_expired")
       return undefined
     }
@@ -815,7 +853,7 @@ export const createOAuthProvider = ({
   }
 
   const approveRequest = (requestId: string, reqLogger: Logger): string => {
-    const pending = pendingRequests.get(requestId)
+    const pending = getPendingRequest(requestId, reqLogger)
 
     if (!pending) {
       reqLogger.warn("oauth_consent_approve_failed", {
@@ -828,7 +866,6 @@ export const createOAuthProvider = ({
     const code = randomBytes(32).toString("hex")
     authCodes.set(code, {
       clientId: pending.client.client_id,
-      codeChallenge: pending.params.codeChallenge,
       params: pending.params,
       expiresAt: DateTime.now().plus({ seconds: AUTH_CODE_TTL_S }),
     })
@@ -836,8 +873,8 @@ export const createOAuthProvider = ({
     return code
   }
 
-  const deletePendingRequest = (id: string): void => {
-    pendingRequests.delete(id)
+  const deletePendingRequest = (requestId: string): void => {
+    pendingRequests.delete(requestId)
   }
 
   return { provider, getPendingRequest, approveRequest, deletePendingRequest }

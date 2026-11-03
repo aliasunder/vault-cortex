@@ -861,6 +861,31 @@ describe("OAuth audit logging", () => {
     })
   })
 
+  it("logs oauth_code_exchange_failed when another client redeems the code", async () => {
+    const { logs, testLogger, oauth, db, client } = await setupAuditTest()
+    const otherClient = seedClient(db, "other-client")
+    const requestId = await startAuthFlow(oauth, client)
+    const code = oauth.approveRequest(requestId, testLogger)
+    logs.length = 0
+
+    await expect(exchangeAuthorizationCode(oauth, otherClient, code)).rejects.toThrow(
+      new InvalidGrantError("Authorization code expired or invalid"),
+    )
+
+    expect(logs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_code_exchange_failed",
+        data: {
+          component: "oauth",
+          reason: "issued_to_another_client",
+          clientId: "test-client",
+          presenterClientId: "other-client",
+        },
+      },
+    ])
+  })
+
   it("logs oauth_token_refreshed on successful refresh", async () => {
     const { logs, oauth, db, client } = await setupAuditTest()
     seedRefreshToken(
@@ -1063,6 +1088,27 @@ const startAuthFlow = async (
   return match[1]
 }
 
+describe("OAuth authorization code client binding", () => {
+  it("leaves a code another client presented redeemable by the client it was issued to", async () => {
+    const { testLogger, oauth, db, client } = await setupAuditTest()
+    const otherClient = seedClient(db, "other-client")
+    const requestId = await startAuthFlow(oauth, client)
+    const code = oauth.approveRequest(requestId, testLogger)
+    await expect(exchangeAuthorizationCode(oauth, otherClient, code)).rejects.toThrow(
+      new InvalidGrantError("Authorization code expired or invalid"),
+    )
+
+    const ownerTokens = await exchangeAuthorizationCode(oauth, client, code)
+
+    expect(await verifyAccessToken(oauth, ownerTokens.access_token)).toEqual({
+      token: ownerTokens.access_token,
+      clientId: "test-client",
+      scopes: ["vault"],
+      expiresAt: expect.any(Number),
+    })
+  })
+})
+
 describe("OAuth pending consent request expiry", () => {
   const TEN_MINUTES_MS = 10 * 60 * 1000
 
@@ -1105,6 +1151,20 @@ describe("OAuth pending consent request expiry", () => {
     expect(() => oauth.approveRequest(requestId, testLogger)).toThrow(
       new Error("No pending request"),
     )
+  })
+
+  it("refuses to approve a consent request older than ten minutes", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    const requestId = await startAuthFlow(oauth, client)
+
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS + 1000)
+
+    expect(() => oauth.approveRequest(requestId, testLogger)).toThrow(
+      new Error("No pending request"),
+    )
+    const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
+    expect(expiryLogs).toEqual([{ level: "info", message: "oauth_request_expired", data: {} }])
   })
 })
 
@@ -1350,7 +1410,13 @@ describe("OAuth refresh token reuse revocation", () => {
       new InvalidGrantError("Refresh token expired or invalid"),
     )
 
-    expect(logs.filter((log) => log.message === "oauth_refresh_token_reuse")).toHaveLength(1)
+    expect(logs.filter((log) => log.message === "oauth_refresh_token_reuse")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_refresh_token_reuse",
+        data: { component: "oauth", clientId: client.client_id },
+      },
+    ])
     expect(storedRevokedClients(db)).toEqual(revokedAfterReuse)
     // The re-consented grant survives the second replay: its refresh
     // token still rotates.
@@ -1418,8 +1484,8 @@ describe("OAuth refresh token reuse revocation", () => {
       AUTH_TOKEN,
     )
 
-    // Same-second is benign: the attacker's refresh tokens are already
-    // deleted, so they can't mint new access tokens.
+    // A client that signs in again within the revocation's second keeps its
+    // new token; the attacker's refresh tokens are already deleted.
     const authInfo = await oauth.provider.verifyAccessToken(sameSecondToken)
     expect(authInfo.clientId).toBe(client.client_id)
   })
