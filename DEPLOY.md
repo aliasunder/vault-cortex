@@ -424,7 +424,7 @@ Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitH
 
 **Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose:
 
-- OAuth state (`oauth.db`), which signs every client out. A client may still present the `client_id` the old `oauth.db` issued and be rejected with `invalid_client` until you clear its stored sign-in for this server; the local guide's [Troubleshooting](./deploy/local/README.md#troubleshooting) lists the steps for each client.
+- OAuth state (`oauth.db`), which signs every client out. A client may still present the `client_id` the old `oauth.db` issued and be rejected with `invalid_client` until you clear its stored sign-in for this server; the local guide's [Troubleshooting](./deploy/local/README.md#troubleshooting) lists the steps for each client (use your server's `/mcp` URL where they show `localhost`).
 - Accumulated Docker logs.
 - Anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 

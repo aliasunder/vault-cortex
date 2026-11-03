@@ -880,13 +880,20 @@ can appear, and the sweep bounds how long they stay.
 A client that has signed in is never swept, even after its grant is revoked
 or its last refresh token expires. It keeps presenting its `client_id`, and
 `/authorize` rejects an unknown one with `invalid_client` in the browser,
-where the client never sees the error, so a swept client could never sign in
-again. Signing a client in requires entering `MCP_AUTH_TOKEN` on the consent
-page, so only the owner adds rows that stay.
+where the client never sees the error, so a swept client cannot recover on
+its own: its stored sign-in has to be cleared by hand. Signing a client in
+requires entering `MCP_AUTH_TOKEN` on the consent page, so only the owner
+adds rows that stay.
 
 Adding `signed_in_at` to an existing `oauth.db` sets it on every row already
 there, in the same transaction, and logs `oauth_clients_marked_signed_in`
-once with the count, because the old schema cannot tell which rows signed in.
+with the count when there was at least one row. The old schema cannot tell
+which rows signed in, so every registration present at the upgrade is kept,
+including any that never signed in.
+
+Rolling back to a version that predates `signed_in_at` brings back that
+version's sweep, which deletes a kept client once it holds no unexpired
+refresh token. Upgrading again cannot restore a deleted row.
 
 **Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
 then redeploy both
