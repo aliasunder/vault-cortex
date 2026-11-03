@@ -214,7 +214,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
    *  never signed in. Runs at boot and before every registration. A client
    *  that signed in is never swept, because it keeps presenting its
    *  client_id, and /authorize rejects an unknown one in the browser, where
-   *  the client never sees the error and so never registers again. */
+   *  the client never sees the error, so it keeps retrying the dead ID. */
   private sweepNeverSignedInClients(): void {
     const now = DateTime.now().toUnixInteger()
     const issuedBefore = now - NEVER_SIGNED_IN_CLIENT_MAX_AGE_S

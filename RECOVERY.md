@@ -128,8 +128,10 @@ You'll need to re-run the post-provision steps from the README
 (populate `.env`, `docker compose up -d`, etc.). Vault content
 repopulates automatically via Obsidian Sync on first `vault-cortex`
 container start, and the FTS5 index rebuilds itself once the MCP
-server boots. OAuth state is gone — clients will re-auth on
-their next token refresh.
+server boots. OAuth state is gone, so every client must sign in again,
+and a client may be rejected with `invalid_client` until you clear its
+stored sign-in for this server
+([Troubleshooting](./deploy/local/README.md#troubleshooting)).
 
 ## Intentional replace (bundle upgrade, etc.)
 
@@ -242,8 +244,10 @@ downtime.
     the first boot clears the raw rows and each client re-auths once — when
     its access JWT expires, within 6 hours.
   - Fresh instance with no snapshot to restore (Scenario C): `oauth.db`
-    starts empty, so every client re-auths via the consent page on its next
-    token refresh — minor inconvenience, no data loss.
+    starts empty, so every client must sign in again, with no data loss. A
+    client may be rejected with `invalid_client` until you clear its stored
+    sign-in for this server
+    ([Troubleshooting](./deploy/local/README.md#troubleshooting)).
 - **`MCP_AUTH_TOKEN`** signs access JWTs and keys the lookup of stored
   refresh tokens. It's in SST secrets and gets redeployed to
   `/opt/vault-cortex/.env` on any fresh boot. If you also rotated it during
