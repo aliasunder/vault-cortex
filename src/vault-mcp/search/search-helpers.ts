@@ -57,7 +57,7 @@ export const normalizeTagQuery = (input: string): string => {
 }
 
 /** True when a stored tag is the folded query or nested under it. The
- *  JavaScript side of NESTED_TAG_PREDICATE. */
+ *  JavaScript side of NESTED_TAG_PREDICATE_SQL. */
 export const tagMatchesQuery = (params: { storedTag: string; foldedQuery: string }): boolean => {
   const foldedStoredTag = foldTag(params.storedTag)
   return (
@@ -72,9 +72,9 @@ export const tagMatchesQuery = (params: { storedTag: string; foldedQuery: string
  * "equal or nested" into one LIKE (`||` binds tighter than LIKE), so
  * `project/%` matches `project` and `project/x` but not `projects`.
  */
-export const NESTED_TAG_PREDICATE = "fold_tag(value) || '/' LIKE ? ESCAPE '\\'"
+export const NESTED_TAG_PREDICATE_SQL = "fold_tag(value) || '/' LIKE ? ESCAPE '\\'"
 
-/** The pattern NESTED_TAG_PREDICATE binds for a tag input: normalized, its
+/** The pattern NESTED_TAG_PREDICATE_SQL binds for a tag input: normalized, its
  *  LIKE wildcards escaped, then `/%`. Throws like normalizeTagQuery. */
 export const nestedTagLikePattern = (input: string): string => {
   return `${escapeLikeWildcards(normalizeTagQuery(input))}/%`
@@ -238,7 +238,7 @@ const bodyTagsField = (bodyTagsJson: string): { body_tags?: string[] } => {
 
 /** The `notes` table columns that rowToMetadata reads. Every query that
  *  returns note metadata selects them, so a new column is added in one place. */
-export const NOTE_METADATA_COLUMNS =
+export const NOTE_METADATA_COLUMNS_SQL =
   "path, title, tags, body_tags, related, folder, type, created, mtime, properties, leading_callout, bytes"
 
 /** Transforms a raw SQLite row (JSON strings) into a typed NoteMetadata object. */

@@ -36,7 +36,7 @@ import {
   buildFtsMetadataText,
   escapeLikeWildcards,
   foldTag,
-  NOTE_METADATA_COLUMNS,
+  NOTE_METADATA_COLUMNS_SQL,
   parseStringArray,
 } from "./search-helpers.js"
 import {
@@ -1153,7 +1153,7 @@ export const createSearchIndex = (
 
   /** Metadata lookup for notes found only via vector search. */
   const selectNoteMetadataStmt = db.prepare<[string], NoteRow>(
-    `SELECT ${NOTE_METADATA_COLUMNS} FROM notes WHERE path = ?`,
+    `SELECT ${NOTE_METADATA_COLUMNS_SQL} FROM notes WHERE path = ?`,
   )
 
   /** Resolves a wikilink target to a known non-markdown file path, or null
