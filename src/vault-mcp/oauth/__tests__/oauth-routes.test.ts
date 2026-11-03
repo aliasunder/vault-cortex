@@ -24,14 +24,18 @@ type LogCall = {
 }
 const recordingLogger = (sink: LogCall[]): Logger => {
   const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) =>
-      sink.push({ level: "debug", message, data: { ...props, ...data } }),
-    info: (message, data = {}) =>
-      sink.push({ level: "info", message, data: { ...props, ...data } }),
-    warn: (message, data = {}) =>
-      sink.push({ level: "warn", message, data: { ...props, ...data } }),
-    error: (message, data = {}) =>
-      sink.push({ level: "error", message, data: { ...props, ...data } }),
+    debug: (message, data = {}) => {
+      sink.push({ level: "debug", message, data: { ...props, ...data } })
+    },
+    info: (message, data = {}) => {
+      sink.push({ level: "info", message, data: { ...props, ...data } })
+    },
+    warn: (message, data = {}) => {
+      sink.push({ level: "warn", message, data: { ...props, ...data } })
+    },
+    error: (message, data = {}) => {
+      sink.push({ level: "error", message, data: { ...props, ...data } })
+    },
     child: (childProps) => make({ ...props, ...childProps }),
   })
   return make({})
@@ -42,6 +46,9 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 const AUTH_TOKEN = "local-dev-token"
 const TEST_URLS = { serverUrl: new URL("http://localhost:8000") }
 const REDIRECT_URI = "http://localhost:9999/callback"
+// A test request's peer address is loopback, in a form that varies by
+// platform (127.0.0.1, ::1, or IPv4-mapped).
+const LOOPBACK_ADDRESSES = ["127.0.0.1", "::1", "::ffff:127.0.0.1"]
 
 /** Pulls the hidden request_id out of the rendered consent HTML. */
 const REQUEST_ID_PATTERN = /name="request_id"\s+value="([^"]+)"/
@@ -130,8 +137,8 @@ describe("OAuth consent token submission", () => {
     return requestId
   }
 
-  const submitToken = async (requestId: string, token: string) =>
-    fetch(`${baseUrl}/oauth/decide`, {
+  const submitToken = async (requestId: string, token: string) => {
+    return fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -141,6 +148,7 @@ describe("OAuth consent token submission", () => {
       }),
       redirect: "manual",
     })
+  }
 
   const midpoint = Math.floor(AUTH_TOKEN.length / 2)
   const wrappedToken = `${AUTH_TOKEN.slice(0, midpoint)}\n${AUTH_TOKEN.slice(midpoint)}`
@@ -168,7 +176,7 @@ describe("OAuth consent token submission", () => {
     const code = location.searchParams.get("code")
 
     if (!code) throw new Error("expected code query param in redirect")
-    expect(code.length).toBeGreaterThan(0)
+    expect(code).toMatch(/^[a-f0-9]{64}$/)
     expect(location.searchParams.get("state")).toBe("test-state")
   })
 
@@ -288,7 +296,7 @@ describe("OAuth consent audit logging", () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  const startPendingRequest = async (): Promise<string> => {
+  const startPendingRequest = async (): Promise<{ requestId: string; clientId: string }> => {
     const clientsStore = oauth.provider.clientsStore
 
     if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
@@ -317,11 +325,11 @@ describe("OAuth consent audit logging", () => {
     const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
 
     if (!requestId) throw new Error("no request_id in consent HTML")
-    return requestId
+    return { requestId, clientId: client.client_id }
   }
 
   it("logs oauth_consent_completed on approved consent", async () => {
-    const requestId = await startPendingRequest()
+    const { requestId, clientId } = await startPendingRequest()
     logs.length = 0
 
     await fetch(`${baseUrl}/oauth/decide`, {
@@ -336,18 +344,20 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_completed")
-    expect(event).toMatchObject({
+    expect(event).toEqual({
       level: "info",
       message: "oauth_consent_completed",
-      data: expect.objectContaining({
+      data: {
+        component: "oauth-routes",
+        clientIp: expect.toBeOneOf(LOOPBACK_ADDRESSES),
         requestId,
-        clientIp: expect.any(String),
-      }),
+        clientId,
+      },
     })
   })
 
   it("logs oauth_consent_bad_token on invalid token submission", async () => {
-    const requestId = await startPendingRequest()
+    const { requestId, clientId } = await startPendingRequest()
     logs.length = 0
 
     await fetch(`${baseUrl}/oauth/decide`, {
@@ -362,15 +372,20 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_bad_token")
-    expect(event).toMatchObject({
+    expect(event).toEqual({
       level: "warn",
       message: "oauth_consent_bad_token",
-      data: expect.objectContaining({ requestId }),
+      data: {
+        component: "oauth-routes",
+        clientIp: expect.toBeOneOf(LOOPBACK_ADDRESSES),
+        requestId,
+        clientId,
+      },
     })
   })
 
   it("logs oauth_consent_denied_by_user on deny action", async () => {
-    const requestId = await startPendingRequest()
+    const { requestId, clientId } = await startPendingRequest()
     logs.length = 0
 
     await fetch(`${baseUrl}/oauth/decide`, {
@@ -385,10 +400,15 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_denied_by_user")
-    expect(event).toMatchObject({
+    expect(event).toEqual({
       level: "info",
       message: "oauth_consent_denied_by_user",
-      data: expect.objectContaining({ requestId }),
+      data: {
+        component: "oauth-routes",
+        clientIp: expect.toBeOneOf(LOOPBACK_ADDRESSES),
+        requestId,
+        clientId,
+      },
     })
   })
 
@@ -407,12 +427,14 @@ describe("OAuth consent audit logging", () => {
     })
 
     const event = logs.find((log) => log.message === "oauth_consent_expired")
-    expect(event).toMatchObject({
+    expect(event).toEqual({
       level: "warn",
       message: "oauth_consent_expired",
-      data: expect.objectContaining({
+      data: {
+        component: "oauth-routes",
+        clientIp: expect.toBeOneOf(LOOPBACK_ADDRESSES),
         requestId: "nonexistent-id",
-      }),
+      },
     })
   })
 })
@@ -459,8 +481,8 @@ describe("OAuth endpoint rate limiting", () => {
   // Without forwardedClientIp all requests share the loopback peer; with it,
   // the RFC 7239 Forwarded header drives extractClientIp, so distinct values
   // are distinct rate-limit identities.
-  const register = (forwardedClientIp?: string) =>
-    fetch(`${baseUrl}/register`, {
+  const register = (forwardedClientIp?: string) => {
+    return fetch(`${baseUrl}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -474,6 +496,7 @@ describe("OAuth endpoint rate limiting", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   it("serves 5 requests in a minute from one client IP, then returns 429", async () => {
     for (let i = 0; i < 5; i++) {
@@ -492,13 +515,14 @@ describe("OAuth endpoint rate limiting", () => {
     const sixth = await register("203.0.113.9")
     expect(sixth.status).toBe(429)
     const event = logs.find((log) => log.message === "oauth_rate_limited")
-    expect(event).toMatchObject({
+    expect(event).toEqual({
       level: "warn",
       message: "oauth_rate_limited",
-      data: expect.objectContaining({
+      data: {
+        component: "oauth-routes",
         clientIp: "203.0.113.9",
         path: "/register",
-      }),
+      },
     })
   })
 
@@ -529,12 +553,13 @@ describe("OAuth endpoint rate limiting", () => {
   })
 
   it("rate-limits /token after 5 requests from one client IP", async () => {
-    const requestToken = () =>
-      fetch(`${baseUrl}/token`, {
+    const requestToken = () => {
+      return fetch(`${baseUrl}/token`, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ grant_type: "authorization_code" }),
       })
+    }
     for (let i = 0; i < 5; i++) {
       const response = await requestToken()
       expect(response.status).toBe(400)
@@ -544,12 +569,13 @@ describe("OAuth endpoint rate limiting", () => {
   })
 
   it("rate-limits /revoke after 5 requests from one client IP", async () => {
-    const revoke = () =>
-      fetch(`${baseUrl}/revoke`, {
+    const revoke = () => {
+      return fetch(`${baseUrl}/revoke`, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ token: "nonexistent-token" }),
       })
+    }
     for (let i = 0; i < 5; i++) {
       const response = await revoke()
       expect(response.status).toBe(400)
@@ -603,8 +629,8 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
     await rm(dir, { recursive: true, force: true })
   })
 
-  const registerWithSpoofedIp = (spoofedIp: string) =>
-    fetch(`${baseUrl}/register`, {
+  const registerWithSpoofedIp = (spoofedIp: string) => {
+    return fetch(`${baseUrl}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -618,6 +644,7 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   // A distinct spoofed Forwarded value per request must NOT mint a fresh
   // rate-limit bucket — all six share the real peer's bucket, so the sixth
@@ -639,15 +666,17 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
     const sixth = await registerWithSpoofedIp("198.51.100.9")
     expect(sixth.status).toBe(429)
     const event = logs.find((log) => log.message === "oauth_rate_limited")
-    expect(event).toMatchObject({
+    // The logged IP must be the real peer, never the client-supplied
+    // Forwarded value.
+    expect(event).toEqual({
       level: "warn",
       message: "oauth_rate_limited",
-      data: expect.objectContaining({ path: "/register" }),
+      data: {
+        component: "oauth-routes",
+        clientIp: expect.toBeOneOf(LOOPBACK_ADDRESSES),
+        path: "/register",
+      },
     })
-    // The loopback form varies by platform (::1 / 127.0.0.1 / v4-mapped) —
-    // the security property is that the logged IP is the real peer, never
-    // the client-supplied header value.
-    expect(["127.0.0.1", "::1", "::ffff:127.0.0.1"]).toContain(event?.data.clientIp)
   })
 })
 
@@ -778,17 +807,27 @@ describe("OAuth refresh over HTTP", () => {
   type RegisteredClient = { client_id: string; client_secret: string }
   type IssuedTokens = { access_token: string; refresh_token: string }
 
-  const isRegisteredClient = (value: unknown): value is RegisteredClient =>
-    typeof value === "object" && value !== null && "client_id" in value && "client_secret" in value
+  const isRegisteredClient = (value: unknown): value is RegisteredClient => {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "client_id" in value &&
+      "client_secret" in value
+    )
+  }
 
-  const isIssuedTokens = (value: unknown): value is IssuedTokens =>
-    typeof value === "object" &&
-    value !== null &&
-    "access_token" in value &&
-    "refresh_token" in value
+  const isIssuedTokens = (value: unknown): value is IssuedTokens => {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "access_token" in value &&
+      "refresh_token" in value
+    )
+  }
 
-  const base64Url = (buffer: Buffer): string =>
-    buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+  const base64Url = (buffer: Buffer): string => {
+    return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+  }
 
   const createRefreshTest = async (): Promise<{ baseUrl: string }> => {
     const dir = await mkdtemp(join(tmpdir(), "oauth-refresh-http-"))
@@ -930,8 +969,8 @@ describe("OAuth refresh over HTTP", () => {
     refreshToken: string
     scope?: string
     forwardedClientIp: string
-  }): Promise<globalThis.Response> =>
-    fetch(`${baseUrl}/token`, {
+  }): Promise<globalThis.Response> => {
+    return fetch(`${baseUrl}/token`, {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
@@ -942,9 +981,10 @@ describe("OAuth refresh over HTTP", () => {
         refresh_token: refreshToken,
         client_id: client.client_id,
         client_secret: client.client_secret,
-        ...(scope === undefined ? {} : { scope }),
+        ...(scope ? { scope } : {}),
       }),
     })
+  }
 
   it.each(["none", "client_secret_post", undefined])(
     "returns the effective registration method for requested %s",
@@ -979,8 +1019,8 @@ describe("OAuth refresh over HTTP", () => {
         return { refresh_token }
       }
       const grant = await createGrant()
-      const exchange = (secret?: string) =>
-        fetch(`${baseUrl}/token`, {
+      const exchange = (secret?: string) => {
+        return fetch(`${baseUrl}/token`, {
           method: "POST",
           headers: { "content-type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
@@ -990,6 +1030,7 @@ describe("OAuth refresh over HTTP", () => {
             ...(secret ? { client_secret: secret } : {}),
           }),
         })
+      }
 
       const missing = await exchange()
       expect(missing.status).toBe(400)

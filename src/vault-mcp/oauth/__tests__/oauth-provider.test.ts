@@ -1375,7 +1375,13 @@ describe("OAuth refresh token reuse revocation", () => {
       new InvalidGrantError("Refresh token expired or invalid"),
     )
 
-    expect(logs.filter((log) => log.message === "oauth_refresh_token_reuse")).toHaveLength(1)
+    expect(logs.filter((log) => log.message === "oauth_refresh_token_reuse")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_refresh_token_reuse",
+        data: { component: "oauth", clientId: client.client_id },
+      },
+    ])
     expect(storedRevokedClients(db)).toEqual(revokedAfterReuse)
     // The re-consented grant survives the second replay: its refresh
     // token still rotates.
