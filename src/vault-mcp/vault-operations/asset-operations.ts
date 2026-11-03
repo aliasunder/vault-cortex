@@ -50,11 +50,20 @@ const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
   ".base",
 ])
 
-/** Fixed cap on text output (passthrough files and canvas renditions) so a
- *  huge text asset can't blow a client's response limit. Deliberately not an
- *  env var — the image budget is the tunable surface; text past this size
- *  is read in line windows, not raised into a bigger blob. */
+/** Fixed cap on text output (passthrough files, canvas renditions and
+ *  PDF-extracted text) so a huge text asset can't blow a client's response
+ *  limit. Deliberately not an env var — the image budget is the tunable
+ *  surface; text past this size is read in line windows, not raised into a
+ *  bigger blob. */
 const MAX_TEXT_OUTPUT_BYTES = 102_400
+
+type RenderedPdfPage = Readonly<{
+  fitted: FittedImage
+  pageNumber: number
+  /** The page's PNG rendering before fitting, in bytes; an image result's
+   *  originalBytes is instead the file's size on disk. */
+  originalBytes: number
+}>
 
 /** The computed result of one asset read, before content-block formatting:
  *  an image (fitted to the byte budget), a text rendition (whole, or a line
@@ -76,18 +85,21 @@ export type AssetReadResult =
   /** Multiple sequential page images — e.g. rendered PDF pages. */
   | Readonly<{
       kind: "pages"
-      pages: ReadonlyArray<
-        Readonly<{
-          fitted: FittedImage
-          pageNumber: number
-          originalBytes: number
-        }>
-      >
+      pages: ReadonlyArray<RenderedPdfPage>
       title: string | undefined
       totalPages: number
       pagesRendered: number
       path: string
     }>
+
+/** Compares with undefined, not truthiness, so a 0 still counts as a line
+ *  window request and is rejected rather than ignored. */
+const requestsLineWindow = (params: {
+  startLine?: number | undefined
+  limit?: number | undefined
+}): boolean => {
+  return params.startLine !== undefined || params.limit !== undefined
+}
 
 /** Rejects text output past the fixed cap — an explicit error beats silent
  *  truncation, and states the actual size so the caller knows what exists. */
@@ -108,14 +120,14 @@ const assertTextWithinCap = (params: { text: string; path: string }): void => {
  * pageTextByLines primitive, then enforces the asset-specific byte cap on
  * the resulting window.
  */
-const buildPagedTextResult = (params: {
+const buildTextResult = (params: {
   text: string
   path: string
   startLine?: number | undefined
   limit?: number | undefined
 }): AssetReadResult => {
   const { text, path, startLine, limit } = params
-  const isPagedRead = startLine !== undefined || limit !== undefined
+  const isPagedRead = requestsLineWindow({ startLine, limit })
 
   if (!isPagedRead) {
     assertTextWithinCap({ text, path })
@@ -162,8 +174,9 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
  *  `name`:
  *  - pdf.js's PasswordException and InvalidPDFException constructors set
  *    these names.
- *  - Importing those classes for instanceof would load pdf.js before
- *    pdf-engine sets the canvas globals pdf.js must find on load. */
+ *  - Importing those classes for instanceof would load pdf.js at server
+ *    start, so a pdf.js load failure would stop the server rather than fail
+ *    only PDF reads. */
 const describePdfOpenFailure = (params: {
   error: unknown
   path: string
@@ -221,18 +234,17 @@ const readPdfText = async (params: { pdfData: Uint8Array; path: string; bytes: n
 // ── PDF page rendering ────────────────────────────────────────
 
 /** Render scale for PDF page images — 2.0 produces 1224×1584px for US Letter
- *  (close to MAX_LONG_EDGE_PX 1568), giving sharp text after JPEG compression
- *  without wasting pixels that fitImageToByteBudget would discard anyway. */
+ *  (close to fitImageToByteBudget's 1568px long-edge cap), giving sharp text
+ *  after JPEG compression without wasting pixels that fitImageToByteBudget
+ *  would discard anyway. */
 const PDF_RENDER_SCALE = 2.0
 
 /** Renders `pagesToRender` pages of a PDF as fitted images, sequentially.
  *  Individual page failures are logged and skipped — the caller checks whether
  *  any pages succeeded. Sequential because the unpdf worker can't handle
  *  concurrent calls on the same proxy (structuredClone error on Node 24).
- *  Takes the shared proxy — created by createPdfDocumentProxy, it carries the
- *  @napi-rs/canvas CanvasFactory wiring pdfjs needs for intermediate canvases
- *  (transparency/patterns/masks), and reusing it skips re-parsing the
- *  document for every page. */
+ *  Takes the shared proxy from createPdfDocumentProxy, so every page renders
+ *  with the engine's bundled fonts and the document is parsed once. */
 const renderPdfPages = async (
   params: {
     proxy: PDFDocumentProxy
@@ -240,43 +252,94 @@ const renderPdfPages = async (
     perPageBudget: number
   },
   logger: Logger,
-): Promise<Array<{ pageNumber: number; fitted: FittedImage; originalBytes: number }>> => {
-  const results: Array<{
-    pageNumber: number
-    fitted: FittedImage
-    originalBytes: number
-  }> = []
+): Promise<RenderedPdfPage[]> => {
+  const results: RenderedPdfPage[] = []
 
   for (let pageNumber = 1; pageNumber <= params.pagesToRender; pageNumber++) {
     try {
-      const pngArrayBuffer = await renderPageAsImage(params.proxy, pageNumber, {
+      const pngBytes = await renderPageAsImage(params.proxy, pageNumber, {
         canvasImport,
         scale: PDF_RENDER_SCALE,
       })
-      const pngBuffer = Buffer.from(pngArrayBuffer)
+      const pngBuffer = Buffer.from(pngBytes)
       const fitted = await fitImageToByteBudget({
         buffer: pngBuffer,
         budgetBytes: params.perPageBudget,
       })
       results.push({ pageNumber, fitted, originalBytes: pngBuffer.length })
     } catch (error) {
-      // A page sharp cannot decode arrives wrapped, and only the cause holds sharp's reason
+      // fitImageToByteBudget wraps a page it cannot decode in a generic
+      // message, so the decoder's reason is only in the cause, which
+      // describeErrorForLog logs too
       logger.warn("pdf_page_render_failed", { page: pageNumber, ...describeErrorForLog(error) })
     }
   }
   return results
 }
 
+/** Renders up to `maxPdfRenderPages` pages as images sharing the image
+ *  budget; throws when no page renders. */
+const readPdfPages = async (
+  params: {
+    pdfData: Uint8Array
+    path: string
+    bytes: number
+    maxPdfRenderPages: number
+    maxImageOutputBytes: number
+  },
+  logger: Logger,
+): Promise<AssetReadResult> => {
+  const { pdfData, path, bytes } = params
+  const proxy = await openPdfDocument({ pdfData, path, bytes })
+  try {
+    const meta = await getMeta(proxy)
+    const totalPages = proxy.numPages
+    const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
+
+    // Config rejects MAX_PDF_RENDER_PAGES=0 at boot, so 0 here means the PDF has no pages.
+    if (pagesToRender === 0) {
+      throw new Error(
+        `PDF page rendering failed: "${path}" exists (${bytes} bytes) but has 0 pages`,
+      )
+    }
+
+    const perPageBudget = Math.floor(params.maxImageOutputBytes / pagesToRender)
+    const pages = await renderPdfPages({ proxy, pagesToRender, perPageBudget }, logger)
+
+    if (pages.length === 0) {
+      throw new Error(
+        `PDF page rendering failed: "${path}" exists ` +
+          `(${bytes} bytes, ${totalPages} pages) but no ` +
+          `pages could be rendered`,
+      )
+    }
+
+    return {
+      kind: "pages",
+      pages,
+      title: meta.info.Title,
+      totalPages,
+      pagesRendered: pages.length,
+      path,
+    }
+  } finally {
+    await proxy.loadingTask.destroy()
+  }
+}
+
 /**
  * Reads a non-markdown vault file and returns its most useful representation
- * per type; `raw` skips the canvas rendition for the exact JSON source.
- * `startLine`/`limit` page any text rendition as a 1-based line window —
- * they apply after the rendition is produced (passthrough source, canvas
- * outline or raw JSON, PDF-extracted text), so every path that can hit the
- * text cap can also be paged. Throws structured errors for images with
- * `raw`, non-text reads with paging params, PDFs that can't be opened or
- * yield nothing, and unsupported types; the PDF and unsupported-type errors
- * state the file's existence and size.
+ * per type.
+ * - `raw` returns a canvas's exact JSON source instead of its rendition, and
+ *   a PDF's rendered page images instead of its text.
+ * - `startLine`/`limit` page any text rendition as a 1-based line window.
+ *   They apply after the rendition is produced (passthrough source, canvas
+ *   outline or raw JSON, PDF-extracted text), so every path that can hit the
+ *   text cap can also be paged.
+ * - Throws structured errors for images with `raw`, non-text reads with
+ *   paging params, PDFs that can't be opened or yield nothing, and
+ *   unsupported types; the PDF and unsupported-type errors state the file's
+ *   existence and size.
  */
 const readAssetContent = async (
   params: {
@@ -292,11 +355,13 @@ const readAssetContent = async (
   logger: Logger,
 ): Promise<AssetReadResult> => {
   const { path, raw, startLine, limit } = params
-  const isPagedRead = startLine !== undefined || limit !== undefined
+  const isPagedRead = requestsLineWindow({ startLine, limit })
   const asset = await vaultFs.readAsset(
     { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },
     logger,
   )
+
+  // readAsset reports the extension lowercased, as these lookups expect
   const isImage = IMAGE_EXTENSIONS.has(asset.extension)
 
   if (isImage && raw) {
@@ -321,11 +386,11 @@ const readAssetContent = async (
   if (asset.extension === ".canvas") {
     const canvasSource = decodeUtf8Strict({ buffer: asset.buffer, path })
     const text = raw ? canvasSource : linearizeCanvas(canvasSource)
-    return buildPagedTextResult({ text, path, startLine, limit })
+    return buildTextResult({ text, path, startLine, limit })
   }
   if (TEXT_PASSTHROUGH_EXTENSIONS.has(asset.extension)) {
     const text = decodeUtf8Strict({ buffer: asset.buffer, path })
-    return buildPagedTextResult({ text, path, startLine, limit })
+    return buildTextResult({ text, path, startLine, limit })
   }
   if (asset.extension === ".pdf") {
     if (raw && isPagedRead) {
@@ -334,6 +399,7 @@ const readAssetContent = async (
           `"${path}" delivers page images, not text`,
       )
     }
+
     // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
     // so byteOffset/byteLength carve out this buffer's portion.
     const pdfData = new Uint8Array(
@@ -343,41 +409,16 @@ const readAssetContent = async (
     )
 
     if (raw) {
-      const proxy = await openPdfDocument({ pdfData, path, bytes: asset.bytes })
-      try {
-        const meta = await getMeta(proxy)
-        const pdfTitle = meta.info?.Title ?? undefined
-        const totalPages = proxy.numPages
-        const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
-
-        // Config rejects MAX_PDF_RENDER_PAGES=0 at boot, so 0 here means the PDF has no pages.
-        if (pagesToRender === 0) {
-          throw new Error(
-            `PDF page rendering failed: "${path}" exists ` +
-              `(${asset.bytes} bytes) but has 0 pages`,
-          )
-        }
-        const perPageBudget = Math.floor(params.maxImageOutputBytes / pagesToRender)
-        const pages = await renderPdfPages({ proxy, pagesToRender, perPageBudget }, logger)
-
-        if (pages.length === 0) {
-          throw new Error(
-            `PDF page rendering failed: "${path}" exists ` +
-              `(${asset.bytes} bytes, ${totalPages} pages) but no ` +
-              `pages could be rendered`,
-          )
-        }
-        return {
-          kind: "pages",
-          pages,
-          title: pdfTitle,
-          totalPages,
-          pagesRendered: pages.length,
+      return readPdfPages(
+        {
+          pdfData,
           path,
-        }
-      } finally {
-        await proxy.loadingTask.destroy()
-      }
+          bytes: asset.bytes,
+          maxPdfRenderPages: params.maxPdfRenderPages,
+          maxImageOutputBytes: params.maxImageOutputBytes,
+        },
+        logger,
+      )
     }
 
     const pdfResult = await readPdfText({ pdfData, path, bytes: asset.bytes })
@@ -390,7 +431,7 @@ const readAssetContent = async (
           `image-only PDF`,
       )
     }
-    return buildPagedTextResult({
+    return buildTextResult({
       text: pdfResult.text,
       path,
       startLine,
@@ -407,10 +448,13 @@ const readAssetContent = async (
 
 // ── Browsing ────────────────────────────────────────────────────
 
-/** Display extension for listings: lowercased with its dot, or "(none)" for
- *  extensionless files. */
-const extensionOf = (assetPath: string): string =>
-  links.getExtension(assetPath).toLowerCase() || "(none)"
+/** The extension a listing shows, lowercased with its dot, or "(none)" for an
+ *  extensionless file. It splits the name with links.getExtension, as
+ *  vaultFs.readAsset does, so a listed extension is the one a read dispatches
+ *  on. */
+const getListingExtension = (assetPath: string): string => {
+  return links.getExtension(assetPath).toLowerCase() || "(none)"
+}
 
 /** Normalizes a caller-supplied extension filter entry: lowercased, leading
  *  dot ensured — so "PNG", "png", and ".png" all match ".png". */
@@ -453,19 +497,21 @@ const buildAssetListing = async (
     ? new Set(params.extensions.map(normalizeExtension))
     : undefined
   const filteredPaths = extensionFilter
-    ? assetPaths.filter((assetPath) => extensionFilter.has(extensionOf(assetPath)))
+    ? assetPaths.filter((assetPath) => extensionFilter.has(getListingExtension(assetPath)))
     : assetPaths
 
-  const filteredExtensions = filteredPaths.map(extensionOf)
-  const extensionCounts = filteredExtensions.reduce<Record<string, number>>(
-    (counts, extension) => ({
-      ...counts,
-      [extension]: (counts[extension] ?? 0) + 1,
-    }),
-    {},
-  )
+  // Counted in place, because a fold that copies the counts for each file
+  // costs files × distinct extensions, and dated backups or rotated logs
+  // give nearly every file an extension of its own
+  const extensionCounts: Record<string, number> = {}
+  for (const extension of filteredPaths.map(getListingExtension)) {
+    extensionCounts[extension] = (extensionCounts[extension] ?? 0) + 1
+  }
 
   const returnedPaths = filteredPaths.slice(0, params.limit)
+
+  // statAssets drops assets deleted since the listing, so `assets` can fall
+  // short of the cap while `total` and `truncated` still count them
   const stattedAssets = await vaultFs.statAssets(
     { vaultPath: params.vaultPath, paths: returnedPaths },
     logger,
@@ -473,7 +519,7 @@ const buildAssetListing = async (
   return {
     assets: stattedAssets.map((entry) => ({
       path: entry.path,
-      extension: extensionOf(entry.path),
+      extension: getListingExtension(entry.path),
       bytes: entry.bytes,
     })),
     extensionCounts,

@@ -4,6 +4,7 @@ import {
   buildPdf,
   buildMinimalPdf,
   buildEmptyStreamPdf,
+  buildLinkedPdf,
   buildPasswordProtectedPdf,
   toPdfData,
 } from "./pdf-fixture.js"
@@ -19,6 +20,36 @@ describe("extractPdfText", () => {
   it("returns empty text with page count for a PDF with no extractable text", async () => {
     const result = await extractPdfText(toPdfData(buildEmptyStreamPdf()))
     expect(result).toEqual({ text: "", totalPages: 1 })
+  })
+
+  it("lists every page's links once each in a footer under the document's title", async () => {
+    const pdfBuffer = buildLinkedPdf({
+      title: "Linked Doc",
+      pages: [
+        { text: "Page one", linkUrls: ["https://a.example/", "https://b.example/"] },
+        { text: "Page two", linkUrls: ["https://b.example/", "https://c.example/"] },
+      ],
+    })
+
+    const result = await extractPdfText(toPdfData(pdfBuffer))
+
+    expect(result).toEqual({
+      text: [
+        "Title: Linked Doc | Pages: 2 | Links: 3",
+        "",
+        "Page one",
+        "",
+        "--- Page 2 ---",
+        "",
+        "Page two",
+        "",
+        "Links:",
+        "- https://a.example/",
+        "- https://b.example/",
+        "- https://c.example/",
+      ].join("\n"),
+      totalPages: 2,
+    })
   })
 
   // The file reader turns these two refusals into its own messages by name,
@@ -106,6 +137,30 @@ describe("extractPdfText", () => {
       )
     })
 
+    it("makes headings of only the three largest sizes above body", async () => {
+      const pdfBuffer = buildPdf([
+        { text: "Level one", x: 72, y: 720, fontSize: 24 },
+        { text: "Level two", x: 72, y: 690, fontSize: 20 },
+        { text: "Level three", x: 72, y: 660, fontSize: 16 },
+        { text: "Fourth size", x: 72, y: 630, fontSize: 14 },
+        {
+          text: "Body copy long enough to outweigh every larger size combined.",
+          x: 72,
+          y: 600,
+          fontSize: 11,
+        },
+      ])
+      const result = await extractPdfText(toPdfData(pdfBuffer))
+      expect(result.text).toBe(
+        `${HEADER}\n\n` +
+          "# Level one\n" +
+          "## Level two\n" +
+          "### Level three\n" +
+          "Fourth size\n" +
+          "Body copy long enough to outweigh every larger size combined.",
+      )
+    })
+
     it("renders sizes smaller than body as plain text, never headings", async () => {
       const pdfBuffer = buildPdf([
         {
@@ -165,6 +220,19 @@ describe("extractPdfText", () => {
       const pdfBuffer = buildPdf([{ text: "12 34 56", x: 100, y: 700, fontSize: 12 }])
       const result = await extractPdfText(toPdfData(pdfBuffer))
       expect(result.text).toBe(`${HEADER}\n\n12 34 56`)
+    })
+
+    it("keeps on one line items that each sit within 2pt of the item before them", async () => {
+      // Each item is 1.4pt below the one before it, and the last is 2.8pt
+      // below the first, so only comparing each item with its predecessor
+      // keeps all three together.
+      const pdfBuffer = buildPdf([
+        { text: "rising", x: 100, y: 700, fontSize: 12 },
+        { text: "baseline", x: 160, y: 698.6, fontSize: 12 },
+        { text: "drift", x: 230, y: 697.2, fontSize: 12 },
+      ])
+      const result = await extractPdfText(toPdfData(pdfBuffer))
+      expect(result.text).toBe(`${HEADER}\n\nrising baseline drift`)
     })
 
     it("joins items separated by a word-sized gap with exactly one space", async () => {
@@ -312,6 +380,21 @@ describe("extractPdfText", () => {
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
       expect(result.text).toBe(`${HEADER}\n\nclosing line\n• Bullet item`)
+    })
+
+    it("rejoins a marker equidistant from two lines to the earlier line in the stream", async () => {
+      // "Alpha item" sits 1pt below the marker and "Beta item" 1pt above it.
+      // "Spacer" keeps the marker from grouping with Alpha, and Alpha and Beta
+      // are 2pt apart, not under the 2pt threshold, so the marker, Alpha and
+      // Beta are three separate lines before the rejoin.
+      const pdfBuffer = buildPdf([
+        { text: "1.", x: 100, y: 700, fontSize: 12 },
+        { text: "Spacer", x: 72, y: 600, fontSize: 12 },
+        { text: "Alpha item", x: 115, y: 699, fontSize: 12 },
+        { text: "Beta item", x: 115, y: 701, fontSize: 12 },
+      ])
+      const result = await extractPdfText(toPdfData(pdfBuffer))
+      expect(result.text).toBe(`${HEADER}\n\nSpacer\n1. Alpha item\nBeta item`)
     })
 
     it("leaves non-marker short lines and partnerless markers untouched", async () => {

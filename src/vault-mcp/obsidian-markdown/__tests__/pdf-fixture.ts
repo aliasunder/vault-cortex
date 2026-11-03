@@ -133,6 +133,129 @@ export const buildEmptyStreamPdf = (): Buffer => {
   ])
 }
 
+/** Builds a single-page PDF with no text: a red fill over the whole page,
+ *  clipped to the 200×200 square at (100, 100). pdf.js draws the clip and the
+ *  fill as Path2D objects, so this page renders only when the canvas accepts
+ *  the global Path2D. */
+export const buildClippedFillPdf = (): Buffer => {
+  const stream = "q 100 100 200 200 re W n 1 0 0 rg 0 0 612 792 re f Q"
+  return assemblePdf([
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj",
+    [
+      "4 0 obj",
+      `<< /Length ${Buffer.byteLength(stream, "ascii")} >>`,
+      "stream",
+      stream,
+      "endstream",
+      "endobj",
+    ].join("\n"),
+  ])
+}
+
+/** Builds a single-page PDF that clips to the outline of "HI" in 120-point
+ *  Helvetica (text render mode 7: add the glyphs to the clip, paint nothing),
+ *  then fills the whole page red. pdf.js builds that clip with
+ *  `new DOMMatrix(…).preMultiplySelf(…)`, so the page renders only with a
+ *  full DOMMatrix, not a stub without `preMultiplySelf`. */
+export const buildClippedTextPdf = (): Buffer => {
+  const stream = "q BT /F1 120 Tf 7 Tr 1 0 0 1 100 400 Tm (HI) Tj ET 1 0 0 rg 0 0 612 792 re f Q"
+  return assemblePdf([
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+    "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj",
+    [
+      "3 0 obj",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]",
+      "   /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+      "endobj",
+    ].join("\n"),
+    [
+      "4 0 obj",
+      `<< /Length ${Buffer.byteLength(stream, "ascii")} >>`,
+      "stream",
+      stream,
+      "endstream",
+      "endobj",
+    ].join("\n"),
+    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj",
+  ])
+}
+
+/** One page of a linked fixture PDF: a line of Helvetica text, plus a URI
+ *  link annotation for each URL, in order. */
+export type PdfLinkedPage = Readonly<{
+  text: string
+  linkUrls: readonly string[]
+}>
+
+/** Builds a multi-page PDF with a title in its Info dictionary. Object
+ *  numbers run in this order:
+ *  - 1–4: the catalog, page tree, font and Info dictionary
+ *  - then, per page: its page object, its content stream, one per link */
+export const buildLinkedPdf = (params: {
+  title: string
+  pages: readonly PdfLinkedPage[]
+}): Buffer => {
+  const FIRST_PAGE_OBJECT = 5
+  const pageObjectNumbers = params.pages.map((_, pageIndex) => {
+    const earlierPages = params.pages.slice(0, pageIndex)
+    return earlierPages.reduce(
+      (number, page) => number + 2 + page.linkUrls.length,
+      FIRST_PAGE_OBJECT,
+    )
+  })
+
+  const pageObjects = params.pages.flatMap((page, pageIndex) => {
+    const pageNumber = pageObjectNumbers[pageIndex] ?? FIRST_PAGE_OBJECT
+    const contentNumber = pageNumber + 1
+    const linkObjectNumber = (linkIndex: number): number => contentNumber + 1 + linkIndex
+    const annotRefs = page.linkUrls
+      .map((_, linkIndex) => `${linkObjectNumber(linkIndex)} 0 R`)
+      .join(" ")
+    const stream = `BT /F1 12 Tf 1 0 0 1 100 700 Tm (${escapePdfString(page.text)}) Tj ET`
+    const linkObjects = page.linkUrls.map((url, linkIndex) => {
+      const bottom = 600 - linkIndex * 20
+      return [
+        `${linkObjectNumber(linkIndex)} 0 obj`,
+        `<< /Type /Annot /Subtype /Link /Rect [100 ${bottom} 300 ${bottom + 15}]`,
+        `   /Border [0 0 0] /A << /S /URI /URI (${escapePdfString(url)}) >> >>`,
+        "endobj",
+      ].join("\n")
+    })
+    return [
+      [
+        `${pageNumber} 0 obj`,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]",
+        `   /Contents ${contentNumber} 0 R /Annots [${annotRefs}]`,
+        "   /Resources << /Font << /F1 3 0 R >> >> >>",
+        "endobj",
+      ].join("\n"),
+      [
+        `${contentNumber} 0 obj`,
+        `<< /Length ${Buffer.byteLength(stream, "ascii")} >>`,
+        "stream",
+        stream,
+        "endstream",
+        "endobj",
+      ].join("\n"),
+      ...linkObjects,
+    ]
+  })
+
+  const kids = pageObjectNumbers.map((pageNumber) => `${pageNumber} 0 R`).join(" ")
+  return assemblePdf(
+    [
+      "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+      `2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${params.pages.length} >>\nendobj`,
+      "3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj",
+      `4 0 obj\n<< /Title (${escapePdfString(params.title)}) >>\nendobj`,
+      ...pageObjects,
+    ],
+    { extraTrailerEntries: " /Info 4 0 R" },
+  )
+}
+
 /** Builds a PDF whose page tree is empty: it opens, but has no page to render. */
 export const buildZeroPagePdf = (): Buffer => {
   return assemblePdf([
