@@ -1470,8 +1470,8 @@ describe("OAuth refresh token reuse revocation", () => {
       AUTH_TOKEN,
     )
 
-    // Same-second is benign: the attacker's refresh tokens are already
-    // deleted, so they can't mint new access tokens.
+    // A client that signs in again within the revocation's second keeps its
+    // new token; the attacker's refresh tokens are already deleted.
     const authInfo = await oauth.provider.verifyAccessToken(sameSecondToken)
     expect(authInfo.clientId).toBe(client.client_id)
   })

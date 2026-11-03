@@ -774,8 +774,10 @@ export const createOAuthProvider = ({
         // Rejects a token minted strictly before the revocation:
         // - without iat the token cannot be proven newer, so it counts as
         //   minted at 0 and is rejected;
-        // - a token minted in the revocation's own second passes, which is
-        //   benign because the attacker's refresh tokens are already deleted.
+        // - a token minted in the revocation's own second passes, so a client
+        //   that signs in again within that second keeps working. An attacker
+        //   who refreshed in that same second keeps one access token until it
+        //   expires; their refresh tokens are already deleted.
         if (revokedClient && (payload.iat ?? 0) < revokedClient.revoked_at) {
           oauthLogger.warn("oauth_token_rejected", {
             reason: "client_revoked",
