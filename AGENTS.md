@@ -994,16 +994,19 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   extra branches, widened semantics whose only job is isolating tests);
   tests own their isolation (`vi.resetModules`, factory-created
   instances), and review findings proposing production changes for
-  test-only scenarios get declined. A single `process.env.X ?? defaultUrl`
-  at module scope that unlocks an otherwise impossible test tier is
-  acceptable; anything more is not.
+  test-only scenarios get declined. One setting read in `config.ts` through
+  `env-var` with a default, whose only job is to unlock an otherwise
+  impossible test tier, is acceptable; anything more is not, and a raw
+  `process.env` read anywhere in `src/` stays banned.
 - Real integration with blast-radius controls beats a structural check
   when the risky path touches an external system: run the real thing
   with the write path disabled (pull-only mode, throwaway identifiers).
 - Mirroring a vendor's undocumented behaviour: the vendor's own code is
-  the oracle. Extract the functions verbatim from the pinned bundle, pin
-  their outputs for fixed inputs as test-owned vectors (each commented
-  with its source), and keep the live end-to-end run as the final oracle.
+  the oracle, when the repo may read it. For the pinned `obsidian-headless`
+  CLI, extract the functions verbatim from its bundle, pin their outputs
+  for fixed inputs as test-owned vectors (each commented with its source),
+  and keep the live end-to-end run as the final oracle. Obsidian's app
+  code is never read; "Upgrading remark-parse" runs it as a black box.
 - CI shell snippets are tested under `bash -e` before committing: Actions
   runs `run:` steps with errexit, so use `if/then/fi` over
   `[ test ] && cmd`.
