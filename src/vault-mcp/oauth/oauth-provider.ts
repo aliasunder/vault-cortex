@@ -82,8 +82,8 @@ type OAuthProviderOptions = {
 // after a rollback to such a version.
 const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
 // Prepended to the token before hashing. JWTs are signed with HMAC-SHA256
-// under the same key (see jwt.ts), so without the label a storage key could
-// double as a valid JWT signature.
+// under the same key (see jwt.ts), and the label keeps the two uses apart:
+// no refresh-token storage key is ever computed over a JWT's signing input.
 const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
 // A registration older than this that never signed in is swept:
@@ -187,9 +187,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   private readonly selectClientStmt: Database.Statement<[string], { data: string }>
   private readonly insertClientStmt: Database.Statement<[string, string]>
   private readonly markSignedInStmt: Database.Statement<[number, string]>
-  private readonly deleteNeverSignedInClientsStmt: Database.Statement<
-    [{ issuedBefore: number; now: number }]
-  >
+  private readonly deleteNeverSignedInClientsStmt: Database.Statement<[number]>
 
   constructor(
     private db: Database.Database,
@@ -200,39 +198,24 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     this.markSignedInStmt = db.prepare(
       "UPDATE clients SET signed_in_at = ? WHERE client_id = ? AND signed_in_at IS NULL",
     )
-    // The NOT EXISTS clause keeps a client that signed in after a rollback
-    // to a version that predates signed_in_at. A row that rotating
-    // MCP_AUTH_TOKEN made unreachable still counts. Expired rows are purged
-    // only when a token is saved, so the query compares expires_at itself.
     this.deleteNeverSignedInClientsStmt = db.prepare(`
       DELETE FROM clients
       WHERE signed_in_at IS NULL
-        AND json_extract(data, '$.client_id_issued_at') < @issuedBefore
-        AND NOT EXISTS (
-          SELECT 1 FROM refresh_tokens
-          WHERE refresh_tokens.client_id = clients.client_id
-            AND refresh_tokens.expires_at >= @now
-        )
+        AND json_extract(data, '$.client_id_issued_at') < ?
     `)
     this.sweepNeverSignedInClients()
   }
 
-  /** Deletes every registration that:
-   *  - is older than NEVER_SIGNED_IN_CLIENT_MAX_AGE_S;
-   *  - never signed in;
-   *  - holds no unexpired refresh token.
+  /** Deletes every registration older than NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
+   *  that never signed in.
    *
    *  A client that signed in is never swept. It keeps presenting its
    *  client_id, and /authorize rejects an unknown one in the browser, where
    *  the client never sees the error. A swept client would retry the dead ID
    *  forever. */
   private sweepNeverSignedInClients(): void {
-    const now = DateTime.now().toUnixInteger()
-    const issuedBefore = now - NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
-    const { changes: sweptClientCount } = this.deleteNeverSignedInClientsStmt.run({
-      issuedBefore,
-      now,
-    })
+    const issuedBefore = DateTime.now().toUnixInteger() - NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
+    const { changes: sweptClientCount } = this.deleteNeverSignedInClientsStmt.run(issuedBefore)
 
     if (sweptClientCount === 0) return
     this.logger.info("oauth_clients_swept", {

@@ -866,13 +866,9 @@ before returning the 429.
 through `/register` on first connect, and some register more than once per
 connect, so the `clients` table would grow with rows no client ever uses.
 At boot and before each new registration, the server deletes each
-registration that meets all three conditions, logged as `oauth_clients_swept`:
-
-- it is older than a week
-- it never signed in: its `signed_in_at` column is empty. The server sets
-  the column when it first saves a refresh token for the client
-- it holds no unexpired refresh token, which keeps a client that signed in
-  after a rollback to a version that predates `signed_in_at`
+registration that is older than a week and never signed in, logged as
+`oauth_clients_swept`. A registration has signed in once the server has saved
+a refresh token for it, which sets its `signed_in_at` column.
 
 The per-IP `/register` rate limit bounds how fast rows that never sign in
 can appear, and the sweep bounds how long they stay.
@@ -890,10 +886,6 @@ there, in the same transaction, and logs `oauth_clients_marked_signed_in`
 with the count when there was at least one row. The old schema cannot tell
 which rows signed in, so every registration present at the upgrade is kept,
 including any that never signed in.
-
-Rolling back to a version that predates `signed_in_at` brings back that
-version's sweep, which deletes a kept client once it holds no unexpired
-refresh token. Upgrading again cannot restore a deleted row.
 
 **Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
 then redeploy both

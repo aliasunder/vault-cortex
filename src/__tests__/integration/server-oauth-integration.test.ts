@@ -279,9 +279,8 @@ describe("client registration sweep", () => {
     const kept = await registerClient(port)
     await before.cleanup()
 
-    // Backdate both past the sweep's one-week age on disk. Neither signed
-    // in, but `kept` gets a refresh token row seeded under an unrelated
-    // key, the state a rotation leaves behind, so only `stale` is swept.
+    // Backdate both past the sweep's one-week age on disk, and mark `kept`
+    // as signed in, so only `stale` is swept.
     const oauthDb = new Database(join(dataDir, "oauth.db"))
     onTestFinished(() => {
       oauthDb.close()
@@ -293,15 +292,8 @@ describe("client registration sweep", () => {
     backdate.run(eightDaysAgo, stale.client_id)
     backdate.run(eightDaysAgo, kept.client_id)
     oauthDb
-      .prepare(
-        "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
-      )
-      .run(
-        "hmac-sha256:unreachable-after-rotation",
-        kept.client_id,
-        "vault",
-        DateTime.now().plus({ days: 60 }).toUnixInteger(),
-      )
+      .prepare("UPDATE clients SET signed_in_at = ? WHERE client_id = ?")
+      .run(eightDaysAgo, kept.client_id)
 
     const rebootedPort = await freePort()
     const after = await startServer(rebootedPort, sameDataDir)

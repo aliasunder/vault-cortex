@@ -2172,18 +2172,6 @@ describe("OAuth client sign-in stamp", () => {
     })
   })
 
-  it("stamps a client that signed in under an older image at its next refresh", async () => {
-    const { oauth, db } = await createStampTest()
-    // Seeded directly, as an older image that never stamps would leave it.
-    const client = seedClient(db, "signed-in-under-older-image")
-    seedRefreshToken(db, "token-from-older-image", client.client_id, ["vault"], SIXTY_DAYS_AHEAD)
-    expect(signInStates(db)).toEqual({ "signed-in-under-older-image": false })
-
-    await exchangeRefreshToken(oauth, client, "token-from-older-image")
-
-    expect(signInStates(db)).toEqual({ "signed-in-under-older-image": true })
-  })
-
   it("keeps the time a client first signed in when it refreshes", async () => {
     const { oauth, db } = await createStampTest()
     const client = seedClient(db, "signed-in-earlier")
@@ -2363,61 +2351,6 @@ describe("OAuth never-signed-in client sweep", () => {
     createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
     expect(registeredClientIds(db)).toEqual(["signed-in-without-tokens"])
-  })
-
-  it("keeps an old client whose refresh token was keyed under a previous auth token", async () => {
-    const { dbPath } = await createSweepTest()
-    const db = openDb(dbPath)
-    seedClientIssuedAt(db, "rotated-client", EIGHT_DAYS_AGO)
-    db.prepare(
-      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
-    ).run(
-      refreshTokenKey("pre-rotation-token", "previous-auth-token"),
-      "rotated-client",
-      "vault",
-      SIXTY_DAYS_AHEAD,
-    )
-
-    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
-
-    expect(registeredClientIds(db)).toEqual(["rotated-client"])
-  })
-
-  it("sweeps an old never-signed-in client whose only refresh token has expired", async () => {
-    const { dbPath } = await createSweepTest()
-    const db = openDb(dbPath)
-    seedClientIssuedAt(db, "expired-token-client", EIGHT_DAYS_AGO)
-    seedRefreshToken(
-      db,
-      "long-expired-token",
-      "expired-token-client",
-      ["vault"],
-      DateTime.now().minus({ days: 1 }).toUnixInteger(),
-    )
-
-    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
-
-    expect(registeredClientIds(db)).toEqual([])
-  })
-
-  it("keeps an old signed-in client whose refresh token has expired", async () => {
-    const { dbPath } = await createSweepTest()
-    const db = openDb(dbPath)
-    seedClientIssuedAt(db, "expired-token-client", EIGHT_DAYS_AGO)
-    stampSignedIn(db, "expired-token-client", EIGHT_DAYS_AGO)
-    seedRefreshToken(
-      db,
-      "long-expired-token",
-      "expired-token-client",
-      ["vault"],
-      DateTime.now().minus({ days: 1 }).toUnixInteger(),
-    )
-    // The same boot must sweep this one, which proves the sweep ran.
-    seedClientIssuedAt(db, "old-never-signed-in", EIGHT_DAYS_AGO)
-
-    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
-
-    expect(registeredClientIds(db)).toEqual(["expired-token-client"])
   })
 
   it("sweeps before each registration so the table does not wait for a reboot", async () => {
