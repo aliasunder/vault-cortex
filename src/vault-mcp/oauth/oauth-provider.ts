@@ -53,15 +53,18 @@ const PENDING_REQUEST_TTL_S = 10 * 60
 // scopes_supported.
 export const DEFAULT_SCOPE = "vault" as const
 
+/** `authorize` fills in the default scope before storing a request, so scopes is always set. */
+type GrantedAuthorizationParams = AuthorizationParams & { scopes: string[] }
+
 type PendingAuthRequest = {
   client: OAuthClientInformationFull
-  params: AuthorizationParams
+  params: GrantedAuthorizationParams
   createdAt: DateTime
 }
 
 type StoredAuthCode = {
   clientId: string
-  params: AuthorizationParams
+  params: GrantedAuthorizationParams
   expiresAt: DateTime
 }
 
@@ -641,7 +644,7 @@ export const createOAuthProvider = ({
       }
       authCodes.delete(authorizationCode)
 
-      const scopes = stored.params.scopes ?? []
+      const { scopes } = stored.params
       const accessToken = issueAccessToken(stored.clientId, scopes)
       const refreshToken = randomBytes(32).toString("hex")
       saveRefreshToken({
