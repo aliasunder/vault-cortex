@@ -48,6 +48,9 @@ const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
 const AUTH_CODE_TTL_S = 10 * 60
 // 10 minutes for the user to approve a consent request before it expires.
 const PENDING_REQUEST_TTL_S = 10 * 60
+// Every rejected code gets this one message, so a code issued to another
+// client looks the same as an unknown one.
+const INVALID_AUTH_CODE_MESSAGE = "Authorization code expired or invalid"
 // The scope granted to a request that names none (see authorize); also what
 // the static token carries (see verifyAccessToken) and what the metadata
 // advertises as scopes_supported.
@@ -600,7 +603,7 @@ export const createOAuthProvider = ({
         oauthLogger.warn("oauth_challenge_failed", {
           reason: "expired_or_invalid",
         })
-        throw new InvalidGrantError("Authorization code expired or invalid")
+        throw new InvalidGrantError(INVALID_AUTH_CODE_MESSAGE)
       }
       return stored.params.codeChallenge
     },
@@ -628,19 +631,18 @@ export const createOAuthProvider = ({
         oauthLogger.warn("oauth_code_exchange_failed", {
           reason: "expired_or_invalid",
         })
-        throw new InvalidGrantError("Authorization code expired or invalid")
+        throw new InvalidGrantError(INVALID_AUTH_CODE_MESSAGE)
       }
 
       // Also checked before the code is consumed, so a code presented by
-      // another client stays redeemable by the client it was issued to. The
-      // error is the same as for an unknown code, as with refresh tokens.
+      // another client stays redeemable by the client it was issued to.
       if (stored.clientId !== client.client_id) {
         oauthLogger.warn("oauth_code_exchange_failed", {
           reason: "issued_to_another_client",
           clientId: stored.clientId,
           presenterClientId: client.client_id,
         })
-        throw new InvalidGrantError("Authorization code expired or invalid")
+        throw new InvalidGrantError(INVALID_AUTH_CODE_MESSAGE)
       }
       authCodes.delete(authorizationCode)
 
@@ -849,10 +851,8 @@ export const createOAuthProvider = ({
     return pending
   }
 
-  /** Does not check the request's age, because callers read the request
-   *  through getPendingRequest first, which deletes it once expired. */
   const approveRequest = (requestId: string, reqLogger: Logger): string => {
-    const pending = pendingRequests.get(requestId)
+    const pending = getPendingRequest(requestId, reqLogger)
 
     if (!pending) {
       reqLogger.warn("oauth_consent_approve_failed", {
