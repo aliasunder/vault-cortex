@@ -357,7 +357,7 @@ When to use: Catching up on vault changes, finding recent work, or orienting aft
 
 Parameters:
 - sort_by "modified" uses filesystem mtime, which every note has. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
-- sort_by "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.
+- sort_by "created" uses the frontmatter created property; notes where it is missing or not an ISO date sort after every dated note, so a small limit can leave them out — use "modified" to see them.
 
 Behavior: A file change takes a few seconds to appear here, so a note written moments ago may not be listed yet.
 

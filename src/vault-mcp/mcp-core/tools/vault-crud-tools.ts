@@ -557,7 +557,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
     TOOL_NAMES.VAULT_PATCH_NOTE,
     {
       title: "Patch Note",
-      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Properties are kept as written, and CRLF line breaks are saved as LF.
+      description: `Surgical edits to a markdown note — append, prepend, replace, or insert content by heading. Properties are kept as written, and the note is saved with LF line breaks throughout.
 
 Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })
@@ -567,14 +567,14 @@ Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
-- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so appending a row to a table that a blank line follows starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
+- append: add content at end of section (or end of file if no heading), below any empty lines that end it. So when a blank line follows a table, an appended row starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
 - prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading). To start a new section above the note's current first heading, use insert_before on that heading: a no-heading prepend whose content starts with a heading nests any content above the first heading inside the new section.
 - replace: replace section body (requires heading)${whenToolEnabledText("vault_delete_span", "; to empty it, use vault_delete_span on its lines")}
 - insert_before: insert content above the heading line (requires heading)
 
-Heading-targeted ops keep the matched heading. Every operation writes content verbatim as whole lines with no separator: end content with a newline to leave a blank line after it; without one, the next line follows directly. A repeated append, prepend or insert_before writes the content again, so after a timeout or lost response, re-read the note before retrying.
+Heading-targeted ops keep the matched heading. Every operation inserts content as whole lines and adds no empty lines of its own: content ending in a newline ("Done.\\n") leaves an empty line after it, and content without one ("Done.") puts the next line directly below. A repeated append, prepend or insert_before writes the content again, so after a timeout or lost response, re-read the note before retrying.
 
-Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
+Section boundaries: a section spans from its heading to the next heading with as many # marks or fewer (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
 Errors:
 ${noteNotFoundCheckErrorEntry}
@@ -698,7 +698,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace exact text in a markdown note's body. Properties are kept as written${propertyEditClause}. CRLF line breaks are saved as LF. A repeated call replaces old_text again if the note still holds it, even inside text the first call wrote, so after a timeout or lost response, re-read the note before retrying.
+      description: `Find and replace exact text in a markdown note's body. Properties are kept as written${propertyEditClause}. The note is saved with LF line breaks throughout. A repeated call replaces old_text again if the note still holds it, including a copy inside the first call's new_text, so after a timeout or lost response, re-read the note before retrying.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" })
@@ -713,7 +713,8 @@ Parameters:
 
 Deleting text (new_text=""):
 - When text remains on the line, it is written exactly as asked.
-- When the line empties, blank lines never double. The text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one. At the note's end the run above counts one fewer ("A\\n\\nB\\n" without "B" → "A\\n").
+- When the line empties, blank lines never double. The text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one.
+- At the note's end, where no text follows, the run above is kept one line shorter ("A\\n\\nB\\n" without "B" → "A\\n").
 - To remove a table row or list item, include its line break in old_text, or the empty line left behind splits the table or list.
 - Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 
@@ -911,7 +912,7 @@ Returns: 'Deleted <N> line(s) from <path>: "<removed lines>"' — the removed li
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
       title: "Replace Span",
-      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Properties are kept as written, and CRLF line breaks are saved as LF.
+      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Properties are kept as written, and the note is saved with LF line breaks throughout.
 
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
@@ -922,8 +923,8 @@ Parameters:
 - end_anchor is searched at or after the start line and must be unique among those lines. If start_anchor and end_anchor match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
 
 Line breaks in content:
-- A line break at its start or end merges with the note's empty lines on that side, keeping the wider run. At the note's end, its trailing line breaks count one fewer.
-- Content ending in a line break ("| X |\\n") leaves an empty line after it, which splits a table.
+- Each line break at content's start or end becomes an empty line on that side, so content ending in one ("| X |\\n") leaves an empty line after it, which splits a table.
+- Where the note already has empty lines on that side, the wider run is kept, so blank lines never double. At the note's end, content's trailing line breaks count one fewer ("| X |\\n" leaves no empty line).
 - Empty lines inside content and elsewhere in the note are kept as written, and a line holding only spaces or tabs counts as text, not as an empty line.
 
 Errors:
@@ -1018,7 +1019,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are kept as written, and CRLF line breaks are saved as LF. A failed save leaves the note unchanged. A repeated call inserts the content again, so after a timeout or lost response, re-read the note before retrying.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. Properties are kept as written, and the note is saved with LF line breaks throughout. A failed save leaves the note unchanged. A repeated call inserts the content again, so after a timeout or lost response, re-read the note before retrying.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.

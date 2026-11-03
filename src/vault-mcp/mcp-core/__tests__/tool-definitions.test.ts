@@ -378,7 +378,7 @@ describe("registerTools", () => {
     expect(sortLines).toBe(
       [
         '- sort_by "modified" uses filesystem mtime, which every note has. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.',
-        '- sort_by "created" uses the frontmatter created property; notes without a valid one sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
+        '- sort_by "created" uses the frontmatter created property; notes where it is missing or not an ISO date sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
       ].join("\n"),
     )
   })
@@ -3730,7 +3730,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const PATCH_NOTE_APPEND_LINE =
-    "- append: add content at end of section (or end of file if no heading), below any empty lines that end it, so appending a row to a table that a blank line follows starts a new table"
+    "- append: add content at end of section (or end of file if no heading), below any empty lines that end it. So when a blank line follows a table, an appended row starts a new table"
   const PATCH_NOTE_APPEND_INSERT_AT_ANCHOR_ADVICE =
     "; to extend a table, use vault_insert_at_anchor after its last row"
   const PATCH_NOTE_REPLACE_LINE = "- replace: replace section body (requires heading)"
@@ -3778,28 +3778,28 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const replaceInNoteRetrySentence =
-    "A repeated call replaces old_text again if the note still holds it, even inside text the first call wrote, so after a timeout or lost response, re-read the note before retrying."
+    "A repeated call replaces old_text again if the note still holds it, including a copy inside the first call's new_text, so after a timeout or lost response, re-read the note before retrying."
 
   it.each([
     {
       label: "names both property editors while they are served",
       disabledTools: "",
-      expectedLine: `Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. CRLF line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. The note is saved with LF line breaks throughout. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
-      expectedLine: `Properties are kept as written — edit them via vault_write_note's properties parameter. CRLF line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written — edit them via vault_write_note's properties parameter. The note is saved with LF line breaks throughout. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine: `Properties are kept as written — edit them via vault_update_properties. CRLF line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written — edit them via vault_update_properties. The note is saved with LF line breaks throughout. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: `Properties are kept as written. CRLF line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written. The note is saved with LF line breaks throughout. ${replaceInNoteRetrySentence}`,
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
     const propertyEditLine = extractDescriptionSection({
@@ -3846,7 +3846,7 @@ describe("DISABLED_TOOLS", () => {
   )
 
   const PATCH_NOTE_SECTION_BOUNDARIES =
-    'Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted'
+    'Section boundaries: a section spans from its heading to the next heading with as many # marks or fewer (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted'
   const EMPTY_HEADING_EDIT_ADVICE = " — edit their content via vault_replace_in_note instead"
   const LEADING_CALLOUT_EDIT =
     "Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it)."
