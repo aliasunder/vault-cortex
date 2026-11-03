@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.56.1] — 2026-11-03
+
+### Bug Fixes
+
+- **oauth:** Keep the registrations of clients that have signed in (#730)
+
+### Maintenance
+
+- **deps:** Bump node from `173f125` to `54f84b4` (#726)
+- **deps:** Bump tailscale/github-action from 4.3.0 to 4.4.0 (#729)
+
 ## [0.56.0] — 2026-11-03
 
 ### Features
