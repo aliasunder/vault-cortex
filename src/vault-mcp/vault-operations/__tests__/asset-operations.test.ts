@@ -652,6 +652,68 @@ describe("readAssetContent — PDF extraction", () => {
       text: ["Title: Flat Doc | Pages: 1", "", "Title Line", "Body text here"].join("\n"),
     })
   })
+
+  // Spreading this many values into one call throws a RangeError in Node, so
+  // these pin that a code block and a links list are built without one.
+  const OVERSIZED_COUNT = 130_000
+
+  it("renders a code block longer than a call's argument limit", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 5_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: { Title: "Long Code" } })
+    const codeLines = Array.from({ length: OVERSIZED_COUNT }, () => "x")
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [buildPageItems(codeLines, { fontFamily: "monospace" })],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "long-code.pdf", startLine: 1, limit: 4 },
+      logger,
+    )
+
+    // header, blank line, opening fence, every code line, closing fence
+    expect(result).toEqual({
+      kind: "text",
+      path: "long-code.pdf",
+      text: ["Title: Long Code | Pages: 1", "", "```", "x"].join("\n"),
+      lineWindow: { startLine: 1, endLine: 4, totalLines: OVERSIZED_COUNT + 4 },
+    })
+  })
+
+  it("lists more links than a call's argument limit", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 5_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: { Title: "Many Links" } })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [buildPageItems(["Some text"])],
+    })
+    const linkUrls = Array.from({ length: OVERSIZED_COUNT }, (_, index) => {
+      return `https://example.com/${index}`
+    })
+    mockExtractLinks.mockResolvedValue({ links: [linkUrls], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "many-links.pdf", startLine: 1, limit: 1 },
+      logger,
+    )
+
+    // header, blank line, the text line, blank line, "Links:", every link
+    expect(result).toEqual({
+      kind: "text",
+      path: "many-links.pdf",
+      text: `Title: Many Links | Pages: 1 | Links: ${OVERSIZED_COUNT}`,
+      lineWindow: { startLine: 1, endLine: 1, totalLines: OVERSIZED_COUNT + 5 },
+    })
+  })
 })
 
 // ── PDF page rendering (raw: true) ────────────────────────────
