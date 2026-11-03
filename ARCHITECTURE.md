@@ -683,7 +683,8 @@ healthchecks.
 
 **OAuth flow at a glance:**
 
-Dynamic registration issues a per-client secret and declares `client_secret_post`.
+Dynamic registration issues a per-client secret and declares `client_secret_post`
+as the client's token-endpoint authentication method.
 Clients persist that secret and include it in the request body for token exchange,
 refresh, and revocation. S256 PKCE also protects the authorization-code exchange.
 
@@ -791,15 +792,17 @@ static token.
   no token a client could present.
 - **Refresh grants** — bound to the issuing client; may narrow scope but
   never widen it. Reuse detection: each rotation records the consumed token,
-  and replaying one revokes the entire grant (refresh tokens + access tokens
-  issued strictly before the cutoff, logged as `oauth_refresh_token_reuse`).
-  Consumed records expire with their parent token's window.
-- **Auth codes** — in-memory, short-lived (10 minutes), and redeemable only
-  by the client they were issued to.
+  and replaying one revokes the entire grant: every refresh token the client
+  holds and every access token issued strictly before the revocation. The
+  revocation is logged as `oauth_refresh_token_reuse`. Consumed records
+  expire with their parent token's window.
+- **Auth codes** — short-lived (10 minutes) and held in memory, so a restart
+  drops any code not yet redeemed. A code is redeemable only by the client
+  it was issued to.
 - **Access tokens** — JWTs with an `iat` (issued-at) claim. Verification
-  checks both per-token revocation and per-client grant revocation (a cutoff
-  timestamp rejecting `iat` strictly before revocation). Tokens without `iat`
-  are rejected whenever a grant revocation exists for their client.
+  checks per-token revocation and the client's grant-revocation cutoff
+  (see Revoked tokens). Tokens without `iat` are rejected whenever a grant
+  revocation exists for their client.
 - **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
   refresh token is simply deleted. Grant-level revocations (from reuse
   detection) insert a per-client cutoff that rejects tokens minted strictly
@@ -812,13 +815,13 @@ static token.
 use rotates the token AND extends the window by another 60 days, so a daily
 client never sees expiry. A client dormant for >60 days is forced through the
 full OAuth flow on its next attempt. This bounds the blast radius of a leaked
-refresh token without inconveniencing active sessions. Expired rows
-(`expires_at INTEGER NOT NULL`) are removed two ways:
+refresh token without inconveniencing active sessions. Expired rows are
+removed two ways:
 
 - a row past `expires_at` is deleted when its token is presented;
 - every remaining expired row is purged each time a new refresh token is
-  issued, so rows left by dormant clients or by a token rotation never
-  accumulate.
+  issued, so rows left by dormant clients or by an `MCP_AUTH_TOKEN`
+  rotation never accumulate.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
 `/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
@@ -856,10 +859,10 @@ client-IP key derived from the deployment's explicit proxy-trust config:
   Access policy on the tunnel host admits nothing else, so the only
   `Forwarded` header reaching the container is the gateway's.
 
-(express-rate-limit's built-in validators run; the proxy-header checks
-live inside the library's default key generator, which the custom
-`extractClientIp` key generator replaces, so they don't fire behind the
-reverse proxy.) A tripped limiter
+express-rate-limit's built-in validators still run. Its proxy-header checks
+live in the library's default key generator, and the custom
+`extractClientIp` key generator replaces that default, so those checks
+don't fire behind the reverse proxy. A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
@@ -877,8 +880,8 @@ and before each new registration, logged as `oauth_clients_swept`:
   revoked or its last refresh token expires
 - Such a client cannot recover from a sweep on its own: it keeps presenting
   its `client_id`, `/authorize` rejects an unknown one with `invalid_client`
-  in the browser, where the client never sees the error, and its stored
-  sign-in has to be cleared by hand
+  in the browser, where the client never sees the error, and the user has
+  to clear the sign-in saved in the client app by hand
 - Signing a client in requires entering `MCP_AUTH_TOKEN` on the consent
   page, so only the owner adds rows that stay
 - The per-IP `/register` rate limit bounds how fast rows that never sign in
