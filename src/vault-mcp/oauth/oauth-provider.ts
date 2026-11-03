@@ -94,12 +94,12 @@ const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 const NEVER_SIGNED_IN_CLIENT_MAX_AGE_S = 7 * 24 * 60 * 60
 
 /** Adds clients.signed_in_at to a database created before it existed and
- *  marks every existing client signed in. Returns the marked count, 0 when
- *  the column was already present. */
-const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database): number => {
+ *  marks every existing client signed in. */
+const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database, logger: Logger): void => {
   // The column and its marks commit together. A column added without them
-  // would let the sweep delete signed-in clients whose tokens are gone, and
-  // the next boot would find the column and never mark them.
+  // would let the sweep delete every signed-in client registered more than a
+  // week before the upgrade, and the next boot would find the column and
+  // never mark them.
   const addColumnAndMarkClients = db.transaction((): number => {
     const hasSignedInAt = db
       .prepare("SELECT 1 FROM pragma_table_info('clients') WHERE name = 'signed_in_at'")
@@ -115,7 +115,11 @@ const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database): numbe
       .run(DateTime.now().toUnixInteger())
     return markedClientCount
   })
-  return addColumnAndMarkClients()
+  const markedClientCount = addColumnAndMarkClients()
+
+  if (markedClientCount > 0) {
+    logger.info("oauth_clients_marked_signed_in", { markedClientCount })
+  }
 }
 
 const initDb = (dbPath: string, logger: Logger): Database.Database => {
@@ -160,11 +164,7 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
     db.exec("ALTER TABLE refresh_tokens ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
   }
 
-  const markedClientCount = addSignedInAtColumnAndMarkExistingClients(db)
-
-  if (markedClientCount > 0) {
-    logger.info("oauth_clients_marked_signed_in", { markedClientCount })
-  }
+  addSignedInAtColumnAndMarkExistingClients(db, logger)
 
   // Rows whose key lacks the prefix hold raw tokens written by a version
   // that stored them in plaintext; the keyed lookup can never match them,

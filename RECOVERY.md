@@ -131,13 +131,8 @@ repopulates automatically via Obsidian Sync on first `vault-cortex`
 container start, and the FTS5 index rebuilds itself once the MCP
 server boots.
 
-OAuth state is gone, so every client must sign in again.
-A client may still present the `client_id` the old `oauth.db` issued and
-be rejected with `invalid_client` until you clear its stored sign-in for
-this server; the local guide's
-[Troubleshooting](./deploy/local/README.md#troubleshooting) lists the
-steps for each client (use your server's `/mcp` URL where they show
-`localhost`).
+OAuth state is gone, so every client must sign in again; see
+[Auth implications after any restore](#auth-implications-after-any-restore).
 
 ## Intentional replace (bundle upgrade, etc.)
 
