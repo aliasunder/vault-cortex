@@ -4,6 +4,7 @@ import {
   buildPdf,
   buildMinimalPdf,
   buildEmptyStreamPdf,
+  buildLinkedPdf,
   buildPasswordProtectedPdf,
   toPdfData,
 } from "./pdf-fixture.js"
@@ -19,6 +20,36 @@ describe("extractPdfText", () => {
   it("returns empty text with page count for a PDF with no extractable text", async () => {
     const result = await extractPdfText(toPdfData(buildEmptyStreamPdf()))
     expect(result).toEqual({ text: "", totalPages: 1 })
+  })
+
+  it("lists every page's links once each in a footer under the document's title", async () => {
+    const pdfBuffer = buildLinkedPdf({
+      title: "Linked Doc",
+      pages: [
+        { text: "Page one", linkUrls: ["https://a.example/", "https://b.example/"] },
+        { text: "Page two", linkUrls: ["https://b.example/", "https://c.example/"] },
+      ],
+    })
+
+    const result = await extractPdfText(toPdfData(pdfBuffer))
+
+    expect(result).toEqual({
+      text: [
+        "Title: Linked Doc | Pages: 2 | Links: 3",
+        "",
+        "Page one",
+        "",
+        "--- Page 2 ---",
+        "",
+        "Page two",
+        "",
+        "Links:",
+        "- https://a.example/",
+        "- https://b.example/",
+        "- https://c.example/",
+      ].join("\n"),
+      totalPages: 2,
+    })
   })
 
   // The file reader turns these two refusals into its own messages by name,

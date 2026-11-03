@@ -162,8 +162,9 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
  *  `name`:
  *  - pdf.js's PasswordException and InvalidPDFException constructors set
  *    these names.
- *  - Importing those classes for instanceof would load pdf.js before
- *    pdf-engine sets the canvas globals pdf.js must find on load. */
+ *  - Importing those classes for instanceof would load pdf.js at server
+ *    start, so a pdf.js load failure would stop the server rather than fail
+ *    only PDF reads. */
 const describePdfOpenFailure = (params: {
   error: unknown
   path: string
@@ -229,10 +230,8 @@ const PDF_RENDER_SCALE = 2.0
  *  Individual page failures are logged and skipped — the caller checks whether
  *  any pages succeeded. Sequential because the unpdf worker can't handle
  *  concurrent calls on the same proxy (structuredClone error on Node 24).
- *  Takes the shared proxy — created by createPdfDocumentProxy, it carries the
- *  @napi-rs/canvas CanvasFactory wiring pdfjs needs for intermediate canvases
- *  (transparency/patterns/masks), and reusing it skips re-parsing the
- *  document for every page. */
+ *  Takes the shared proxy from createPdfDocumentProxy, so every page renders
+ *  with the engine's bundled fonts and the document is parsed once. */
 const renderPdfPages = async (
   params: {
     proxy: PDFDocumentProxy
@@ -249,11 +248,11 @@ const renderPdfPages = async (
 
   for (let pageNumber = 1; pageNumber <= params.pagesToRender; pageNumber++) {
     try {
-      const pngArrayBuffer = await renderPageAsImage(params.proxy, pageNumber, {
+      const pngBytes = await renderPageAsImage(params.proxy, pageNumber, {
         canvasImport,
         scale: PDF_RENDER_SCALE,
       })
-      const pngBuffer = Buffer.from(pngArrayBuffer)
+      const pngBuffer = Buffer.from(pngBytes)
       const fitted = await fitImageToByteBudget({
         buffer: pngBuffer,
         budgetBytes: params.perPageBudget,
@@ -346,7 +345,6 @@ const readAssetContent = async (
       const proxy = await openPdfDocument({ pdfData, path, bytes: asset.bytes })
       try {
         const meta = await getMeta(proxy)
-        const pdfTitle = meta.info?.Title ?? undefined
         const totalPages = proxy.numPages
         const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
 
@@ -370,7 +368,7 @@ const readAssetContent = async (
         return {
           kind: "pages",
           pages,
-          title: pdfTitle,
+          title: meta.info.Title,
           totalPages,
           pagesRendered: pages.length,
           path,

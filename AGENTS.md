@@ -121,9 +121,10 @@ A module's folder is decided by **what it depends on**, not just its topic:
   fence opens.
   - **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
     that performs side effects — it resolves `pdfjs-dist` package paths from
-    disk via `createRequire` and mutates `globalThis` (canvas polyfill
-    injection). It lives here because it is PDF domain logic: the bootstrap
-    that configures pdfjs so `pdf.ts`'s extraction pipeline works. The two PDF
+    disk via `createRequire` and sets the pdfjs build unpdf uses for the whole
+    process (`definePDFJSModule`). It lives here because it is PDF domain
+    logic: the bootstrap that configures pdfjs so `pdf.ts`'s extraction
+    pipeline works. The two PDF
     modules are a unit and belong together in the parser layer.
     `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
   - **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji

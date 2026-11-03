@@ -100,7 +100,7 @@ describe("readAssetContent — PDF extraction", () => {
       ],
     })
     mockExtractLinks.mockResolvedValue({
-      links: ["https://example.com"],
+      links: [["https://example.com"]],
       totalPages: 1,
     })
 
@@ -153,7 +153,7 @@ describe("readAssetContent — PDF extraction", () => {
         ],
       ],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "doc.pdf" },
@@ -190,7 +190,7 @@ describe("readAssetContent — PDF extraction", () => {
       items: [[...buildPageItems(["Some text"])]],
     })
     mockExtractLinks.mockResolvedValue({
-      links: ["https://example.com", "https://other.com", "https://example.com"],
+      links: [["https://example.com", "https://other.com", "https://example.com"]],
       totalPages: 1,
     })
 
@@ -225,7 +225,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[...buildPageItems(["Hello"])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "untitled.pdf" },
@@ -252,7 +252,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 2,
       items: [[...buildPageItems(["Page one content"])], [...buildPageItems(["Page two content"])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 2 })
+    mockExtractLinks.mockResolvedValue({ links: [[], []], totalPages: 2 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "multi.pdf" },
@@ -288,9 +288,11 @@ describe("readAssetContent — PDF extraction", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "scans/receipt.pdf" }, logger),
     ).rejects.toThrow(
-      'PDF has no extractable text: "scans/receipt.pdf" exists ' +
-        "(5000000 bytes, 12 pages) but contains no text content " +
-        "— it may be a scanned document or image-only PDF",
+      new Error(
+        'PDF has no extractable text: "scans/receipt.pdf" exists ' +
+          "(5000000 bytes, 12 pages) but contains no text content " +
+          "— it may be a scanned document or image-only PDF",
+      ),
     )
   })
 
@@ -308,9 +310,11 @@ describe("readAssetContent — PDF extraction", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "empty.pdf" }, logger),
     ).rejects.toThrow(
-      'PDF has no extractable text: "empty.pdf" exists ' +
-        "(1000 bytes, 1 pages) but contains no text content " +
-        "— it may be a scanned document or image-only PDF",
+      new Error(
+        'PDF has no extractable text: "empty.pdf" exists ' +
+          "(1000 bytes, 1 pages) but contains no text content " +
+          "— it may be a scanned document or image-only PDF",
+      ),
     )
   })
 
@@ -328,12 +332,14 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[...buildPageItems([largeText])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "huge.pdf" }, logger),
     ).rejects.toThrow(
-      'text output too large: "huge.pdf" renders to 200024 bytes ' + "(cap 102400 bytes)",
+      new Error(
+        'text output too large: "huge.pdf" renders to 200024 bytes ' + "(cap 102400 bytes)",
+      ),
     )
   })
 
@@ -347,10 +353,12 @@ describe("readAssetContent — PDF extraction", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "audio/song.mp3" }, logger),
     ).rejects.toThrow(
-      'unsupported file type ".mp3": "audio/song.mp3" exists ' +
-        "(10000 bytes). Readable types: images " +
-        "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats " +
-        "(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)",
+      new Error(
+        'unsupported file type ".mp3": "audio/song.mp3" exists ' +
+          "(10000 bytes). Readable types: images " +
+          "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats " +
+          "(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)",
+      ),
     )
   })
 
@@ -451,7 +459,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[...buildPageItems(["Content"])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     await assetOperations.readAssetContent({ ...defaultParams, path: "test.pdf" }, logger)
 
@@ -472,7 +480,13 @@ describe("readAssetContent — PDF extraction", () => {
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "scanned.pdf" }, logger),
-    ).rejects.toThrow("PDF has no extractable text")
+    ).rejects.toThrow(
+      new Error(
+        'PDF has no extractable text: "scanned.pdf" exists ' +
+          "(1000 bytes, 1 pages) but contains no text content " +
+          "— it may be a scanned document or image-only PDF",
+      ),
+    )
 
     expect(mockDestroy).toHaveBeenCalledOnce()
   })
@@ -502,7 +516,7 @@ describe("readAssetContent — PDF extraction", () => {
         ],
       ],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "code.pdf" },
@@ -543,7 +557,7 @@ describe("readAssetContent — PDF extraction", () => {
         ],
       ],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "flat.pdf" },
@@ -613,7 +627,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("returns kind pages with rendered images", async () => {
     setupPdfMocks({ numPages: 2, title: "Visual Doc" })
-    const fakePng = new ArrayBuffer(10_000)
+    const fakePng = new Uint8Array(10_000)
     mockRenderPageAsImage.mockResolvedValue(fakePng)
     const fittedResult = buildFittedImage()
     mockedFitImage.mockResolvedValue(fittedResult)
@@ -638,7 +652,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("respects maxPdfRenderPages cap", async () => {
     setupPdfMocks({ numPages: 10, title: "Long PDF" })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(5_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(5_000))
     const fittedResult = buildFittedImage()
     mockedFitImage.mockResolvedValue(fittedResult)
 
@@ -662,9 +676,12 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     expect(mockRenderPageAsImage).toHaveBeenCalledTimes(3)
   })
 
-  it("divides per-page budget evenly across rendered pages", async () => {
+  it("fits each rendered page's PNG within an even share of the image budget", async () => {
     setupPdfMocks({ numPages: 4 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    // Each page renders to bytes naming its page number
+    mockRenderPageAsImage.mockImplementation(async (_proxy: unknown, pageNumber: number) => {
+      return new Uint8Array([pageNumber, 0x50, 0x4e, 0x47])
+    })
     mockedFitImage.mockResolvedValue(buildFittedImage())
 
     await assetOperations.readAssetContent(
@@ -679,17 +696,21 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     )
 
     // 40,000 / 4 pages = 10,000 per page
-    for (const call of mockedFitImage.mock.calls) {
-      expect(call[0].budgetBytes).toBe(10_000)
+    expect(mockedFitImage).toHaveBeenCalledTimes(4)
+    for (const pageNumber of [1, 2, 3, 4]) {
+      expect(mockedFitImage).toHaveBeenNthCalledWith(pageNumber, {
+        buffer: Buffer.from([pageNumber, 0x50, 0x4e, 0x47]),
+        budgetBytes: 10_000,
+      })
     }
   })
 
   it("skips failed pages and returns the rest", async () => {
     setupPdfMocks({ numPages: 3, title: "Partial" })
     mockRenderPageAsImage
-      .mockResolvedValueOnce(new ArrayBuffer(5_000))
+      .mockResolvedValueOnce(new Uint8Array(5_000))
       .mockRejectedValueOnce(new Error("render failed"))
-      .mockResolvedValueOnce(new ArrayBuffer(5_000))
+      .mockResolvedValueOnce(new Uint8Array(5_000))
     const fittedResult = buildFittedImage()
     mockedFitImage.mockResolvedValue(fittedResult)
 
@@ -718,7 +739,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("logs a skipped page's wrapped decode failure with the decoder's error as the cause", async () => {
     setupPdfMocks({ numPages: 2 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(5_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(5_000))
     const fittedResult = buildFittedImage()
     mockedFitImage
       .mockRejectedValueOnce(
@@ -767,8 +788,10 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'PDF page rendering failed: "broken.pdf" exists ' +
-        "(50000 bytes, 2 pages) but no pages could be rendered",
+      new Error(
+        'PDF page rendering failed: "broken.pdf" exists ' +
+          "(50000 bytes, 2 pages) but no pages could be rendered",
+      ),
     )
   })
 
@@ -779,7 +802,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       numPages: 1,
     }
     mockCreatePdfDocumentProxy.mockResolvedValue(configuredProxy)
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(1_000))
     mockedFitImage.mockResolvedValue(buildFittedImage())
 
     await assetOperations.readAssetContent(
@@ -787,8 +810,8 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       logger,
     )
 
-    // The proxy carries the font/canvas configuration — rendering from raw
-    // bytes instead would silently rebuild an unconfigured document.
+    // The proxy carries the font configuration — rendering from raw bytes
+    // instead would silently rebuild an unconfigured document.
     expect(mockRenderPageAsImage).toHaveBeenCalledWith(configuredProxy, 1, {
       canvasImport: mockCanvasImport,
       scale: 2,
@@ -797,7 +820,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("destroys the proxy after successful page rendering", async () => {
     setupPdfMocks({ numPages: 1 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(1_000))
     mockedFitImage.mockResolvedValue(buildFittedImage())
 
     await assetOperations.readAssetContent(
@@ -817,7 +840,12 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
         { ...defaultParams, path: "fail.pdf", raw: true, maxPdfRenderPages: 1 },
         logger,
       ),
-    ).rejects.toThrow("PDF page rendering failed")
+    ).rejects.toThrow(
+      new Error(
+        'PDF page rendering failed: "fail.pdf" exists ' +
+          "(50000 bytes, 1 pages) but no pages could be rendered",
+      ),
+    )
 
     expect(mockDestroy).toHaveBeenCalledOnce()
   })
@@ -828,20 +856,24 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       totalPages: 1,
       items: [[...buildPageItems(["Body text"])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "text.pdf", raw: false },
       logger,
     )
 
-    expect(result.kind).toBe("text")
+    expect(result).toEqual({
+      kind: "text",
+      path: "text.pdf",
+      text: ["Title: Text Mode | Pages: 1", "", "Body text"].join("\n"),
+    })
     expect(mockRenderPageAsImage).not.toHaveBeenCalled()
   })
 
   it("omits title from pages result when PDF has no title metadata", async () => {
     setupPdfMocks({ numPages: 1 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(1_000))
     const fittedResult = buildFittedImage()
     mockedFitImage.mockResolvedValue(fittedResult)
 
@@ -1009,7 +1041,9 @@ describe("readAssetContent — line paging", () => {
         { ...defaultParams, path: "data.csv", startLine: 0 },
         logger,
       ),
-    ).rejects.toThrow('invalid line range: "data.csv" needs a start line and limit of at least 1')
+    ).rejects.toThrow(
+      new Error('invalid line range: "data.csv" needs a start line and limit of at least 1'),
+    )
   })
 
   it("rejects a limit below 1", async () => {
@@ -1017,7 +1051,9 @@ describe("readAssetContent — line paging", () => {
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "data.csv", limit: 0 }, logger),
-    ).rejects.toThrow('invalid line range: "data.csv" needs a start line and limit of at least 1')
+    ).rejects.toThrow(
+      new Error('invalid line range: "data.csv" needs a start line and limit of at least 1'),
+    )
   })
 
   it("rejects a start line past the end stating the total line count", async () => {
@@ -1028,7 +1064,7 @@ describe("readAssetContent — line paging", () => {
         { ...defaultParams, path: "data.csv", startLine: 4 },
         logger,
       ),
-    ).rejects.toThrow('start line past the end: "data.csv" renders to 3 lines')
+    ).rejects.toThrow(new Error('start line past the end: "data.csv" renders to 3 lines'))
   })
 
   it("rejects a paged window that still exceeds the output cap", async () => {
@@ -1041,7 +1077,9 @@ describe("readAssetContent — line paging", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'text output too large: "big.log" lines 1–1 render to 102401 bytes ' + "(cap 102400 bytes)",
+      new Error(
+        'text output too large: "big.log" lines 1–1 render to 102401 bytes ' + "(cap 102400 bytes)",
+      ),
     )
   })
 
@@ -1062,7 +1100,7 @@ describe("readAssetContent — line paging", () => {
       ],
     })
     mockExtractLinks.mockResolvedValue({
-      links: ["https://example.com"],
+      links: [["https://example.com"]],
       totalPages: 1,
     })
 
@@ -1110,8 +1148,10 @@ describe("readAssetContent — line paging", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'line range is not available for rendered PDF pages: "doc.pdf" ' +
-        "delivers page images, not text",
+      new Error(
+        'line range is not available for rendered PDF pages: "doc.pdf" ' +
+          "delivers page images, not text",
+      ),
     )
   })
 
@@ -1121,8 +1161,10 @@ describe("readAssetContent — line paging", () => {
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "pic.png", limit: 10 }, logger),
     ).rejects.toThrow(
-      'line range is not available for images: "pic.png" is binary — ' +
-        "its image block is the delivered form",
+      new Error(
+        'line range is not available for images: "pic.png" is binary — ' +
+          "its image block is the delivered form",
+      ),
     )
   })
 })
