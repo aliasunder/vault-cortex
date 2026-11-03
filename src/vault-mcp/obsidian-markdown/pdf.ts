@@ -303,6 +303,8 @@ const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])
     const backtickRuns = indentedLine.match(/`+/g) ?? []
     return backtickRuns.map((backtickRun) => backtickRun.length)
   })
+  // Folded rather than spread into Math.max: that call overflows the stack
+  // once a block holds about 125,000 backtick runs
   const longestBacktickRun = backtickRunLengths.reduce(
     (longestRun, runLength) => Math.max(longestRun, runLength),
     0,

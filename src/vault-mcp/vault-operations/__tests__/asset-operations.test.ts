@@ -668,7 +668,8 @@ describe("readAssetContent — PDF extraction", () => {
       extension: ".pdf",
     })
     mockGetMeta.mockResolvedValue({ info: { Title: "Long Code" } })
-    const codeLines = Array.from({ length: OVERSIZED_COUNT }, () => "x")
+    // Each line carries a backtick, so the fence-length check sees one run per line
+    const codeLines = Array.from({ length: OVERSIZED_COUNT }, () => "`x")
     mockExtractTextItems.mockResolvedValue({
       totalPages: 1,
       items: [buildPageItems(codeLines, { fontFamily: "monospace" })],
@@ -684,7 +685,7 @@ describe("readAssetContent — PDF extraction", () => {
     expect(result).toEqual({
       kind: "text",
       path: "long-code.pdf",
-      text: ["Title: Long Code | Pages: 1", "", "```", "x"].join("\n"),
+      text: ["Title: Long Code | Pages: 1", "", "```", "`x"].join("\n"),
       lineWindow: { startLine: 1, endLine: 4, totalLines: OVERSIZED_COUNT + 4 },
     })
   })
