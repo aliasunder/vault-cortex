@@ -2,8 +2,10 @@
   "entry": [
     "cli/src/bin.ts",
     "src/vault-mcp/setup/setup-server.ts",
+    "src/vault-mcp/search/body-tag-worker.ts",
     "src/__tests__/docker/fixtures/sync-engine-oracle.ts"
   ],
   "project": ["src/**/*.ts", "cli/src/**/*.ts", "scripts/**/*.ts"],
-  "ignoreBinaries": ["optipng", "perl", "setpriv"]
+  "ignoreBinaries": ["optipng", "perl", "setpriv"],
+  "ignoreDependencies": ["remark-parse"]
 }

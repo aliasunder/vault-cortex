@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { createSearchIndex } from "../search-index.js"
 import type { TaskEntry } from "../search-index.js"
 import { logger } from "../../../logger.js"
+import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
 const createTestIndex = () => createSearchIndex(":memory:")
 
@@ -39,11 +40,11 @@ const PLAIN_NOTE = `# Notes
 const indexWithBoard = () => {
   const index = createTestIndex()
   index.upsertNote(
-    {
+    withBodyTags({
       filePath: "Projects/board.md",
       rawContent: BOARD_NOTE,
       fileStat: testStat(1000),
-    },
+    }),
     logger,
   )
   return index
@@ -52,11 +53,11 @@ const indexWithBoard = () => {
 const indexWithBoardAndPlain = () => {
   const index = indexWithBoard()
   index.upsertNote(
-    {
+    withBodyTags({
       filePath: "Inbox/notes.md",
       rawContent: PLAIN_NOTE,
       fileStat: testStat(2000),
-    },
+    }),
     logger,
   )
   return index
@@ -105,11 +106,11 @@ describe("task indexing lifecycle", () => {
   it("round-trips non-empty tags and depends_on arrays through the index", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "note.md",
         rawContent: "- [ ] Tagged and blocked #home #home/kitchen ⛔ id-1, id-2 🆔 own-id",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -146,11 +147,11 @@ describe("task indexing lifecycle", () => {
       "- [x] Task B",
     ].join("\n")
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "board.md",
         rawContent: kanbanWithComplete,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -175,11 +176,11 @@ describe("task indexing lifecycle", () => {
   it("stores the full parent folder, not just the first path segment", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Code Projects/vault-cortex/task-notes/note.md",
         rawContent: "- [ ] Deep task",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -192,11 +193,11 @@ describe("task indexing lifecycle", () => {
   it("stores an empty-string folder for root-level notes", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "inbox.md",
         rawContent: "- [ ] Root task",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -223,11 +224,11 @@ describe("task indexing lifecycle", () => {
   it("replaces a note's tasks on re-upsert instead of accumulating them", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "note.md",
         rawContent: "- [ ] Old task",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Confirm the first version was actually indexed, so replacement can't
@@ -237,11 +238,11 @@ describe("task indexing lifecycle", () => {
     ])
 
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "note.md",
         rawContent: "- [ ] New task",
         fileStat: testStat(2000),
-      },
+      }),
       logger,
     )
 
@@ -253,19 +254,19 @@ describe("task indexing lifecycle", () => {
   it("removes a note's tasks on removeNote and keeps other notes' tasks", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "removed.md",
         rawContent: "- [ ] Task in removed note",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "kept.md",
         rawContent: "- [ ] Task in kept note",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Confirm the removed note's task was actually indexed first, so the
@@ -290,16 +291,19 @@ describe("task indexing lifecycle", () => {
     // survive the rebuild. Confirm it was actually indexed first, so the
     // post-rebuild assertion can't pass by the row never existing.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "ghost.md",
         rawContent: "- [ ] Stale task",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     expect(index.listTasks({}, logger).tasks.map((entry) => entry.path)).toEqual(["ghost.md"])
 
-    const { embedding } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    const { embedding } = await index.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
     await embedding
 
     const result = index.listTasks({ status: "all" }, logger)
@@ -351,7 +355,7 @@ describe("listTasks date filters", () => {
   const indexWithDates = () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "dates.md",
         rawContent: [
           "- [ ] Due early 📅 2026-07-01",
@@ -361,7 +365,7 @@ describe("listTasks date filters", () => {
           "- [x] Done in july ✅ 2026-07-02",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     return index
@@ -425,7 +429,7 @@ describe("listTasks date filters", () => {
     ({ filter, expected }) => {
       const index = createTestIndex()
       index.upsertNote(
-        {
+        withBodyTags({
           filePath: "columns.md",
           rawContent: [
             "- [ ] Scheduled task ⏳ 2026-07-02",
@@ -434,7 +438,7 @@ describe("listTasks date filters", () => {
             "- [-] Cancelled task ❌ 2026-07-06",
           ].join("\n"),
           fileStat: testStat(1000),
-        },
+        }),
         logger,
       )
       const result = index.listTasks({ status: "all", ...filter }, logger)
@@ -463,7 +467,7 @@ describe("listTasks priority filter", () => {
   const indexWithPriorities = () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "priorities.md",
         rawContent: [
           "- [ ] Highest task 🔺",
@@ -474,7 +478,7 @@ describe("listTasks priority filter", () => {
           "- [ ] Lowest task ⏬",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     return index
@@ -525,11 +529,11 @@ describe("listTasks scope filters", () => {
   it("does not match a sibling folder whose name starts with the folder filter", () => {
     const index = indexWithBoardAndPlain()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "ProjectsOld/tasks.md",
         rawContent: "- [ ] Inside sibling folder",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
 
@@ -552,21 +556,21 @@ describe("listTasks scope filters", () => {
   it("treats LIKE wildcards in the folder as literal characters", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Pro_ects/tasks.md",
         rawContent: "- [ ] Inside underscore folder",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Without escaping, LIKE 'Pro_ects/%' would also match this note — the
     // "_" wildcard matches the "j" in "Projects".
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/tasks.md",
         rawContent: "- [ ] Inside plain folder",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -583,11 +587,11 @@ describe("listTasks scope filters", () => {
   it("matches nested child tags when filtering by the parent tag", () => {
     const index = indexWithBoardAndPlain()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "nested.md",
         rawContent: "- [ ] Nested tag task #errand/groceries",
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks({ tag: "errand" }, logger)
@@ -600,13 +604,13 @@ describe("listTasks scope filters", () => {
   it("matches the tag filter ignoring letter case and a leading #, not a longer tag", () => {
     const index = indexWithBoardAndPlain()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "decoys.md",
         rawContent: ["- [ ] Longer tag task #errands", "- [ ] Suffix tag task #my-errand"].join(
           "\n",
         ),
         fileStat: testStat(3000),
-      },
+      }),
       logger,
     )
 
@@ -629,7 +633,7 @@ describe("listTasks scope filters", () => {
   it("treats LIKE wildcards in the tag as literal characters when matching children", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "escape.md",
         rawContent: [
           "- [ ] Under task #a_b/x",
@@ -638,7 +642,7 @@ describe("listTasks scope filters", () => {
           "- [ ] Wildcard task #axb/x",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -680,7 +684,7 @@ describe("listTasks sorting and paging", () => {
   const indexWithSortData = () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "a.md",
         rawContent: [
           "- [ ] Due last 📅 2026-07-30",
@@ -688,15 +692,15 @@ describe("listTasks sorting and paging", () => {
           "- [ ] No due date",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "b.md",
         rawContent: "- [ ] Due middle 📅 2026-07-15",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     return index
@@ -727,7 +731,7 @@ describe("listTasks sorting and paging", () => {
   it("sorts by priority in the plugin's order with none between medium and low", () => {
     const index = indexWithSortData()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "priorities.md",
         rawContent: [
           "- [ ] P-low 🔽",
@@ -736,7 +740,7 @@ describe("listTasks sorting and paging", () => {
           "- [ ] P-medium 🔼",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks({ path: "priorities.md", sortBy: "priority" }, logger)
@@ -762,7 +766,7 @@ describe("listTasks sorting and paging", () => {
   it("cascades dateless due tasks by scheduled → start → created before file position", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "cascade.md",
         rawContent: [
           "- [ ] Has due 📅 2026-07-01",
@@ -772,7 +776,7 @@ describe("listTasks sorting and paging", () => {
           "- [ ] Fully dateless",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks({}, logger)
@@ -788,19 +792,19 @@ describe("listTasks sorting and paging", () => {
   it("breaks ties among fully dateless tasks by note mtime descending", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "old.md",
         rawContent: "- [ ] Old note task",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "new.md",
         rawContent: "- [ ] New note task",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks({}, logger)
@@ -813,13 +817,13 @@ describe("listTasks sorting and paging", () => {
   it("defaults start sort to descending (most recently started first)", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "starts.md",
         rawContent: ["- [ ] Started early 🛫 2026-06-01", "- [ ] Started late 🛫 2026-07-01"].join(
           "\n",
         ),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks({ sortBy: "start" }, logger)
@@ -832,13 +836,13 @@ describe("listTasks sorting and paging", () => {
   it("defaults created sort to descending (most recently created first)", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "created.md",
         rawContent: ["- [ ] Created early ➕ 2026-06-01", "- [ ] Created late ➕ 2026-07-01"].join(
           "\n",
         ),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks({ sortBy: "created" }, logger)
@@ -872,7 +876,7 @@ describe("listTasks sorting and paging", () => {
   it("cascade uses each fallback field's own default direction when sort_direction is omitted", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "cascade-dir.md",
         rawContent: [
           "- [ ] Old created only ➕ 2026-01-15",
@@ -880,7 +884,7 @@ describe("listTasks sorting and paging", () => {
           "- [ ] Has due 📅 2026-08-01 ➕ 2026-06-01",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Default sort_by: "due", no explicit direction.
@@ -897,7 +901,7 @@ describe("listTasks sorting and paging", () => {
   it("explicit sort_direction overrides cascade to a uniform direction", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "cascade-explicit.md",
         rawContent: [
           "- [ ] Old created only ➕ 2026-01-15",
@@ -905,7 +909,7 @@ describe("listTasks sorting and paging", () => {
           "- [ ] Has due 📅 2026-08-01 ➕ 2026-06-01",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Explicit ASC overrides all cascade steps — created-only tasks sort ASC (oldest first).
@@ -920,7 +924,7 @@ describe("listTasks sorting and paging", () => {
   it("cascade direction applies to start fallback (DESC default) within a due cascade", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "start-cascade.md",
         rawContent: [
           "- [ ] Old start 🛫 2026-06-01",
@@ -928,7 +932,7 @@ describe("listTasks sorting and paging", () => {
           "- [ ] Has due 📅 2026-07-10",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Due-dated first (ASC), then start-only tasks sort DESC (start's default) — newest first.
@@ -943,7 +947,7 @@ describe("listTasks sorting and paging", () => {
   it("start cascade uses per-field defaults (both start and created default DESC)", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "start-sort.md",
         rawContent: [
           "- [ ] Has start 🛫 2026-07-01",
@@ -951,7 +955,7 @@ describe("listTasks sorting and paging", () => {
           "- [ ] New created only ➕ 2026-07-06",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // sort_by: "start" cascades to [due, scheduled, created].
@@ -971,7 +975,7 @@ describe("listTasks sorting and paging", () => {
     // newest, so a created-DESC fallback would produce [Second, First, Third],
     // proving the sort is genuinely by line number.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "board.md",
         rawContent: [
           "## Active",
@@ -981,7 +985,7 @@ describe("listTasks sorting and paging", () => {
           "- [x] Third card ➕ 2026-06-01 ✅ 2026-06-28",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks({ path: "board.md", status: "all", sortBy: "position" }, logger)
@@ -998,19 +1002,19 @@ describe("listTasks sorting and paging", () => {
     // DESC) would put it first — position ASC puts a-note first instead,
     // proving the sort is genuinely by path.
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "b-note.md",
         rawContent: "- [ ] B task",
         fileStat: testStat(5000),
-      },
+      }),
       logger,
     )
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "a-note.md",
         rawContent: "- [ ] A task",
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks({ sortBy: "position" }, logger)
@@ -1020,11 +1024,11 @@ describe("listTasks sorting and paging", () => {
   it("position sort with explicit desc reverses file and line order", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "board.md",
         rawContent: ["- [ ] First line", "- [ ] Second line"].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     const result = index.listTasks(
@@ -1037,7 +1041,7 @@ describe("listTasks sorting and paging", () => {
   it("position sort with heading filter returns lane tasks in file order", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "kanban.md",
         rawContent: [
           "---",
@@ -1051,7 +1055,7 @@ describe("listTasks sorting and paging", () => {
           "- [x] Completed ➕ 2026-06-01 ✅ 2026-06-28",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     // Position sort preserves the file order — the user arranged these cards intentionally.
@@ -1090,11 +1094,11 @@ kanban-plugin: board
   const indexWithMultiLaneBoard = () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/board.md",
         rawContent: MULTI_LANE_BOARD,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     return index
@@ -1107,8 +1111,7 @@ kanban-plugin: board
     const arrayResult = index.listTasks({ status: "all", heading: ["Active"] }, logger)
     const scalarResult = index.listTasks({ status: "all", heading: "Active" }, logger)
     expect(arrayResult).toEqual(scalarResult)
-    expect(arrayResult.tasks).toHaveLength(1)
-    expect(arrayResult.tasks[0]?.description).toBe("Implement feature")
+    expect(arrayResult.tasks.map((task) => task.description)).toEqual(["Implement feature"])
   })
 
   it("returns tasks from multiple headings, excluding unselected lanes", () => {
@@ -1202,7 +1205,7 @@ describe("comment block exclusion", () => {
   it("does not index tasks inside %% %% comment blocks", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "board.md",
         rawContent: [
           "## Active",
@@ -1216,7 +1219,7 @@ describe("comment block exclusion", () => {
           "- [ ] Also visible ➕ 2026-07-03",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1233,7 +1236,7 @@ describe("comment block exclusion", () => {
   it("indexes depth and parent_block_id for nested tasks", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tasks.md",
         rawContent: [
           "- [ ] Parent task ^parent",
@@ -1241,7 +1244,7 @@ describe("comment block exclusion", () => {
           "    - [ ] Grandchild ^grandchild",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1262,11 +1265,11 @@ describe("comment block exclusion", () => {
   it("parent_block_id is omitted when the parent has no block_id", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tasks.md",
         rawContent: ["- [ ] Parent without id", "  - [ ] Child ^child"].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1283,7 +1286,7 @@ describe("comment block exclusion", () => {
   it("heading boundary resets parent tracking in the index", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "board.md",
         rawContent: [
           "---",
@@ -1299,7 +1302,7 @@ describe("comment block exclusion", () => {
           "- [ ] Task B ^task-b",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1322,7 +1325,7 @@ describe("comment block exclusion", () => {
   it("top_level_only: true excludes sub-tasks", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tasks.md",
         rawContent: [
           "- [ ] Top-level A ^top-a",
@@ -1330,7 +1333,7 @@ describe("comment block exclusion", () => {
           "- [ ] Top-level B ^top-b",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1345,11 +1348,11 @@ describe("comment block exclusion", () => {
   it("top_level_only: false (default) includes sub-tasks", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tasks.md",
         rawContent: ["- [ ] Parent ^parent", "  - [ ] Child ^child"].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 
@@ -1373,11 +1376,11 @@ describe("listTasks subtask_progress", () => {
   const indexWithChecklist = () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tasks.md",
         rawContent: CHECKLIST_NOTE,
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
     return index
@@ -1414,7 +1417,7 @@ describe("listTasks subtask_progress", () => {
   it("counts a grandchild toward its direct parent only", () => {
     const index = createTestIndex()
     index.upsertNote(
-      {
+      withBodyTags({
         filePath: "tasks.md",
         rawContent: [
           "- [ ] Parent ^parent",
@@ -1423,7 +1426,7 @@ describe("listTasks subtask_progress", () => {
           "  - [x] Child B ^child-b",
         ].join("\n"),
         fileStat: testStat(1000),
-      },
+      }),
       logger,
     )
 

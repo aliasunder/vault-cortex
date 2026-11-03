@@ -19,6 +19,7 @@ import {
   createSearchIndex,
   logger,
 } from "./prompt-test-harness.js"
+import { withBodyTags } from "../../../search/__tests__/body-tag-test-helpers.js"
 
 // Real implementation, wrapped so a test can count the reads of daily-notes.json.
 vi.mock("../../../vault-operations/daily-notes.js", { spy: true })
@@ -361,19 +362,19 @@ describe("daily-review handler", () => {
     )
     const search = createSearchIndex(":memory:")
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: "# 2026-06-16\n\nWorked on [[Projects/alpha]].\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
+      }),
       logger,
     )
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Projects/alpha.md",
         rawContent: "---\ntitle: Alpha\n---\n# Alpha\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)
@@ -397,11 +398,11 @@ describe("daily-review handler", () => {
     )
     const search = createSearchIndex(":memory:")
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: "# 2026-06-16\n\nSee [[missing-note]].\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)
@@ -450,11 +451,11 @@ describe("daily-review handler", () => {
     await writeFile(join(vault, "Inbox", "2026-06-16.md"), dailyContent)
     const search = createSearchIndex(":memory:")
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Inbox/2026-06-16.md",
         rawContent: dailyContent,
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: Buffer.byteLength(dailyContent) },
-      },
+      }),
       logger,
     )
     const handler = findCall(registerWithSearch(vault, search), PROMPT_NAMES.DAILY_REVIEW)[2]
@@ -485,19 +486,19 @@ describe("daily-review handler", () => {
     )
     const search = createSearchIndex(":memory:")
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: "# 2026-06-16\n\nJournal.\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
+      }),
       logger,
     )
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "meeting.md",
         rawContent: "---\ntitle: Meeting\n---\n# Meeting\n\nSee [[Daily Notes/2026-06-16]].\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 80 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)
@@ -513,11 +514,11 @@ describe("daily-review handler", () => {
     const dailyContent = "# 2026-06-16\n\nPlain text, no links.\n"
     await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), dailyContent, "utf8")
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: dailyContent,
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
+      }),
       logger,
     )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
@@ -555,20 +556,20 @@ describe("daily-review handler", () => {
     const search = createSearchIndex(":memory:")
     // Note modified on 2026-06-16
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "same-day.md",
         rawContent: "---\ntitle: Same Day\n---\n# Same Day\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
+      }),
       logger,
     )
     // Note modified on a different date (epoch ms 1000 = 1970)
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "other-day.md",
         rawContent: "---\ntitle: Other Day\n---\n# Other Day\n",
         fileStat: { mtimeMs: 1000, size: 50 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)
@@ -923,20 +924,20 @@ describe("daily-review full prompt output", () => {
     const search = createSearchIndex(":memory:")
     // Index the daily note so link analysis works
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Daily Notes/2026-06-16.md",
         rawContent: "# 2026-06-16\n\nShipped the prompts.\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 50 },
-      },
+      }),
       logger,
     )
     // Index a note modified on the same date
     search.upsertNote(
-      {
+      withBodyTags({
         filePath: "Log/note.md",
         rawContent: "---\ntitle: Note One\n---\nbody\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 100 },
-      },
+      }),
       logger,
     )
     const calls = registerWithSearch(vault, search)

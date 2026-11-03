@@ -1,0 +1,2780 @@
+{
+  "source": "Obsidian 1.14.4 worker.js via scripts/obsidian-tag-oracle.ts, generated 2026-10-30",
+  "vectors": [
+    {
+      "label": "CRLF comment",
+      "input": "%%\r\n#tag\r\n%%",
+      "expected": ["tag"]
+    },
+    {
+      "label": "CRLF fence",
+      "input": "```\r\n#tag\r\n```",
+      "expected": []
+    },
+    {
+      "label": "CRLF line",
+      "input": "a\r\n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "U+2E80 ok?",
+      "input": "#a⺀b",
+      "expected": ["a⺀b"]
+    },
+    {
+      "label": "after angle",
+      "input": "<#tag",
+      "expected": []
+    },
+    {
+      "label": "after bold close",
+      "input": "**b**#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after code",
+      "input": "`c`#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after colon",
+      "input": "a:#tag",
+      "expected": []
+    },
+    {
+      "label": "after comma no space",
+      "input": "a,#tag",
+      "expected": []
+    },
+    {
+      "label": "after comment",
+      "input": "%%c%%#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after dash",
+      "input": "a-#tag",
+      "expected": []
+    },
+    {
+      "label": "after em space U+2003",
+      "input": "a #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after embed",
+      "input": "![[x.png]]#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after emphasis",
+      "input": "*a*#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after entity",
+      "input": "a&amp;#tag",
+      "expected": []
+    },
+    {
+      "label": "after escape star",
+      "input": "a\\*#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after escape then space",
+      "input": "a\\ #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after footnote ref",
+      "input": "a[^1]#tag\n\n[^1]: x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after hard break",
+      "input": "a\\\n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after highlight",
+      "input": "==hi==#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after html br",
+      "input": "a<br>#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after ideographic space",
+      "input": "a　#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after inline math",
+      "input": "$x$#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after link",
+      "input": "[[x]]#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after md link",
+      "input": "[t](u)#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after nbsp",
+      "input": "a #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after open bracket",
+      "input": "[#tag",
+      "expected": []
+    },
+    {
+      "label": "after slash",
+      "input": "a/#tag",
+      "expected": []
+    },
+    {
+      "label": "after strike",
+      "input": "~~s~~#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after tab",
+      "input": "a\t#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "after tag no space",
+      "input": "#a#b#c",
+      "expected": ["a", "b", "c"]
+    },
+    {
+      "label": "after url",
+      "input": "https://x.com #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "angle autolink then tag",
+      "input": "<https://x.com>#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "apostrophe",
+      "input": "#tag's",
+      "expected": ["tag"]
+    },
+    {
+      "label": "arabic-indic digits",
+      "input": "#١٢٣",
+      "expected": ["١٢٣"]
+    },
+    {
+      "label": "autolink",
+      "input": "<https://x.com/#frag>",
+      "expected": []
+    },
+    {
+      "label": "b tag block",
+      "input": "<b>\n#x",
+      "expected": []
+    },
+    {
+      "label": "backslash letter",
+      "input": "\\a#tag",
+      "expected": []
+    },
+    {
+      "label": "backtick info string not fence",
+      "input": "```a``` #x\n#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "bare domain",
+      "input": "example.com#frag",
+      "expected": []
+    },
+    {
+      "label": "bare url frag",
+      "input": "https://x.com/#frag",
+      "expected": []
+    },
+    {
+      "label": "bare url frag spaced",
+      "input": "see https://x.com/ #frag",
+      "expected": ["frag"]
+    },
+    {
+      "label": "blank lines in comment",
+      "input": "%%\n\n#tag\n\n%%",
+      "expected": ["tag"]
+    },
+    {
+      "label": "block comment first-line tag",
+      "input": "%% #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "block comment multi",
+      "input": "%%\nsee #a\n%%",
+      "expected": ["a"]
+    },
+    {
+      "label": "block id",
+      "input": "para #tag ^blk",
+      "expected": ["tag"]
+    },
+    {
+      "label": "block id style",
+      "input": "#tag ^id",
+      "expected": ["tag"]
+    },
+    {
+      "label": "block math",
+      "input": "$$\n#tag\n$$",
+      "expected": []
+    },
+    {
+      "label": "blockcomment fence closed",
+      "input": "%%\n```css\n#id {}\n```\n%%\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "blockcomment html div",
+      "input": "%%\n<div>\n#x\n</div>\n%%",
+      "expected": ["x"]
+    },
+    {
+      "label": "blockcomment indented code",
+      "input": "%%\n\n    #x\n\n%%",
+      "expected": ["x"]
+    },
+    {
+      "label": "blockcomment table cell",
+      "input": "%%\n| a | b |\n| --- | --- |\n|#x| y |\n%%",
+      "expected": []
+    },
+    {
+      "label": "blockcomment tail after closer",
+      "input": "%%\na\n%% #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "blockcomment unclosed fence",
+      "input": "%%\n```\n#x\n%%\n#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "blockquote nested",
+      "input": "> > #deep",
+      "expected": ["deep"]
+    },
+    {
+      "label": "blockquote no space",
+      "input": ">#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "bom frontmatter",
+      "input": "﻿---\na: 1\n---\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "bracket spaced tag",
+      "input": "[ #x ]",
+      "expected": ["x"]
+    },
+    {
+      "label": "bracket tag",
+      "input": "[#x]",
+      "expected": ["x"]
+    },
+    {
+      "label": "bracket tag in prose",
+      "input": "see [#meeting] notes",
+      "expected": ["meeting"]
+    },
+    {
+      "label": "callout",
+      "input": "> #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "callout code",
+      "input": "> [!note]\n> ```\n> #x\n> ```\n> #y",
+      "expected": ["y"]
+    },
+    {
+      "label": "callout title (1)",
+      "input": "> [!note] #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "callout title (2)",
+      "input": "> [!note] Title #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "caret after",
+      "input": "#tag^block",
+      "expected": ["tag"]
+    },
+    {
+      "label": "case variants",
+      "input": "#Tag #tag #TAG",
+      "expected": ["Tag", "tag", "TAG"]
+    },
+    {
+      "label": "cjk",
+      "input": "#日本語",
+      "expected": ["日本語"]
+    },
+    {
+      "label": "closing fence indented 4",
+      "input": "```\n#x\n    ```\n#y",
+      "expected": []
+    },
+    {
+      "label": "code span double backtick",
+      "input": "``a`b``#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "code span then tag",
+      "input": "`\\`#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "code unequal runs",
+      "input": "`a``#tag",
+      "expected": []
+    },
+    {
+      "label": "colon glued",
+      "input": "Tags:#a",
+      "expected": []
+    },
+    {
+      "label": "colon terminates",
+      "input": "#tag:x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "comma terminates",
+      "input": "#tag,x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "comment inline",
+      "input": "%% #tag %%",
+      "expected": ["tag"]
+    },
+    {
+      "label": "comment inside code span",
+      "input": "`%% #x %%`",
+      "expected": []
+    },
+    {
+      "label": "comment line starts",
+      "input": "%% a\n#x\n%%",
+      "expected": ["x"]
+    },
+    {
+      "label": "comment mid-line",
+      "input": "a %% #x %% #y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "comment multiline",
+      "input": "%%\n#tag\n%%",
+      "expected": ["tag"]
+    },
+    {
+      "label": "comment opens mid line",
+      "input": "a %% b\n#x\n%% c",
+      "expected": ["x"]
+    },
+    {
+      "label": "comment with fence",
+      "input": "%%\n```\n#x\n```\n%%",
+      "expected": []
+    },
+    {
+      "label": "comment with percent on first line",
+      "input": "%% 50% off\n#tag\n%%",
+      "expected": ["tag"]
+    },
+    {
+      "label": "comment, 1 backslash",
+      "input": "%% PR \\#___ %%",
+      "expected": []
+    },
+    {
+      "label": "comment, 2 backslashes",
+      "input": "%% PR \\\\#___ %%",
+      "expected": ["___"]
+    },
+    {
+      "label": "comment, 3 backslashes",
+      "input": "%% PR \\\\\\#___ %%",
+      "expected": []
+    },
+    {
+      "label": "comment, 4 backslashes",
+      "input": "%% PR \\\\\\\\#___ %%",
+      "expected": ["___"]
+    },
+    {
+      "label": "currency",
+      "input": "costs $5 and $10 #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "currency closing",
+      "input": "$5 #tag $",
+      "expected": ["tag"]
+    },
+    {
+      "label": "custom element block",
+      "input": "<custom-el>\n#x",
+      "expected": []
+    },
+    {
+      "label": "details block",
+      "input": "<details>\n#tag",
+      "expected": []
+    },
+    {
+      "label": "digits hyphen",
+      "input": "#19-84",
+      "expected": ["19-84"]
+    },
+    {
+      "label": "digits only",
+      "input": "#1984",
+      "expected": []
+    },
+    {
+      "label": "digits slash",
+      "input": "#1984/x",
+      "expected": ["1984/x"]
+    },
+    {
+      "label": "digits then em dash",
+      "input": "#1984—x",
+      "expected": []
+    },
+    {
+      "label": "digits then period",
+      "input": "#1984.5",
+      "expected": []
+    },
+    {
+      "label": "digits underscore",
+      "input": "#1984_",
+      "expected": ["1984_"]
+    },
+    {
+      "label": "display math inline then tag",
+      "input": "$$a$$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "div inline line",
+      "input": "<div>#x</div>",
+      "expected": []
+    },
+    {
+      "label": "doctype block",
+      "input": "<!DOCTYPE html>\n#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "dollar followed by space",
+      "input": "$ a$ #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "dollar space",
+      "input": "a $ #tag $ b",
+      "expected": ["tag"]
+    },
+    {
+      "label": "dotted url emphasis",
+      "input": "https://x.com/a_b_#c",
+      "expected": []
+    },
+    {
+      "label": "double hash mid-line",
+      "input": "a ##x",
+      "expected": []
+    },
+    {
+      "label": "double hash start",
+      "input": "##x",
+      "expected": []
+    },
+    {
+      "label": "double hash then tag",
+      "input": "##x #y",
+      "expected": ["y"]
+    },
+    {
+      "label": "double percent glued",
+      "input": "50%%#x",
+      "expected": []
+    },
+    {
+      "label": "double underscore wrap",
+      "input": "__#x__",
+      "expected": ["x"]
+    },
+    {
+      "label": "dquote before",
+      "input": "\"#tag\"",
+      "expected": []
+    },
+    {
+      "label": "email space",
+      "input": "me@x.com #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "email-like",
+      "input": "me@x.com#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "embed",
+      "input": "![[note#heading]]",
+      "expected": []
+    },
+    {
+      "label": "embed with size",
+      "input": "![[img.png|100]]#t",
+      "expected": ["t"]
+    },
+    {
+      "label": "emoji",
+      "input": "#émoji✨",
+      "expected": ["émoji✨"]
+    },
+    {
+      "label": "emph star pair mid word",
+      "input": "a*b*#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "emph then literal star",
+      "input": "*a* b*#tag",
+      "expected": []
+    },
+    {
+      "label": "emphasis star",
+      "input": "*#tag*",
+      "expected": ["tag"]
+    },
+    {
+      "label": "escaped",
+      "input": "\\#tag",
+      "expected": []
+    },
+    {
+      "label": "escaped mid",
+      "input": "a \\#tag",
+      "expected": []
+    },
+    {
+      "label": "extra-0",
+      "input": "$a #x$2 #y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "extra-1",
+      "input": "$\n#x\n$ #y",
+      "expected": ["y"]
+    },
+    {
+      "label": "extra-10",
+      "input": "^[#n1] #a ^[#n2]\n\n#b",
+      "expected": ["a", "b", "n1", "n2"]
+    },
+    {
+      "label": "extra-11",
+      "input": "a[^1] #y\n\n[^1]: #fn",
+      "expected": ["y", "fn"]
+    },
+    {
+      "label": "extra-12",
+      "input": "[^1]:\n#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-13",
+      "input": "[^1]: a\n    #x\n\n    #y\n#z",
+      "expected": ["x", "y", "z"]
+    },
+    {
+      "label": "extra-14",
+      "input": "[^1]: a\n\n#z",
+      "expected": ["z"]
+    },
+    {
+      "label": "extra-15",
+      "input": "[^1]: a\n# h #z",
+      "expected": ["z"]
+    },
+    {
+      "label": "extra-16",
+      "input": "> [!note] `code\n> #x`",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-17",
+      "input": "> [!note]\n> #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-18",
+      "input": "> [!note]- Title #t\n> body #b",
+      "expected": ["t", "b"]
+    },
+    {
+      "label": "extra-19",
+      "input": "- [/] #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "extra-2",
+      "input": "https://x.com/#frag<br>#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "extra-20",
+      "input": "- [?] # Heading #h",
+      "expected": ["h"]
+    },
+    {
+      "label": "extra-21",
+      "input": "- [/] ```\n  #x",
+      "expected": []
+    },
+    {
+      "label": "extra-22",
+      "input": "==🔴#tag==",
+      "expected": ["tag"]
+    },
+    {
+      "label": "extra-23",
+      "input": "==a #b==",
+      "expected": ["b"]
+    },
+    {
+      "label": "extra-24",
+      "input": "== #x==",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-25",
+      "input": "x $$ #a $$ #b",
+      "expected": ["b"]
+    },
+    {
+      "label": "extra-26",
+      "input": "$$\n#x\n$$\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "extra-27",
+      "input": "$$ a\n#x\nb $$\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "extra-28",
+      "input": "  $$\n#x\n  $$ #y",
+      "expected": []
+    },
+    {
+      "label": "extra-29",
+      "input": "para\n$$\n#x\n$$\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "extra-3",
+      "input": "%%\n    #tag\n%%",
+      "expected": ["tag"]
+    },
+    {
+      "label": "extra-30",
+      "input": "para\n%%\n#x\n%%\n#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "extra-31",
+      "input": "para\n    %%\n#x\n%%\n#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "extra-32",
+      "input": "%%#x\n%% #y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "extra-33",
+      "input": "%%#x%%#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "extra-34",
+      "input": "a %%b\n#x %% #y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "extra-35",
+      "input": "^abc\n\n#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-36",
+      "input": "#x ^abc",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-37",
+      "input": "[[a]]#b ![[c]]#d",
+      "expected": ["b", "d"]
+    },
+    {
+      "label": "extra-38",
+      "input": "[[a [[b]] #c]] #d",
+      "expected": ["c", "d"]
+    },
+    {
+      "label": "extra-39",
+      "input": "<span>#a</span> <b>#c</b>",
+      "expected": ["a", "c"]
+    },
+    {
+      "label": "extra-4",
+      "input": "%%\n[x]: #tag\n%%",
+      "expected": ["tag"]
+    },
+    {
+      "label": "extra-40",
+      "input": "*a* #b **#c**",
+      "expected": ["b", "c"]
+    },
+    {
+      "label": "extra-41",
+      "input": "~~a~~#b",
+      "expected": ["b"]
+    },
+    {
+      "label": "extra-42",
+      "input": "x\n***\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "extra-43",
+      "input": "---\ntitle: a\n---\n---\n#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-44",
+      "input": "---\n#a\n---",
+      "expected": []
+    },
+    {
+      "label": "extra-45",
+      "input": "text #a\n---\n#b",
+      "expected": ["a", "b"]
+    },
+    {
+      "label": "extra-46",
+      "input": "| #a | #b |\n|---|---|\n| #c | `#d` |",
+      "expected": ["a", "b", "c"]
+    },
+    {
+      "label": "extra-47",
+      "input": "1. #a\n   2. #b\n      #c",
+      "expected": ["a", "b", "c"]
+    },
+    {
+      "label": "extra-48",
+      "input": "<details>\n\n#x\n\n</details>",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-49",
+      "input": "\\\\#x \\#y",
+      "expected": ["x"]
+    },
+    {
+      "label": "extra-5",
+      "input": "```lang`x\n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "extra-50",
+      "input": "#a\\#b",
+      "expected": ["a"]
+    },
+    {
+      "label": "extra-51",
+      "input": "#tag​",
+      "expected": ["tag"]
+    },
+    {
+      "label": "extra-52",
+      "input": "#a #b",
+      "expected": ["a", "b"]
+    },
+    {
+      "label": "extra-53",
+      "input": "Tab\t#a",
+      "expected": ["a"]
+    },
+    {
+      "label": "extra-54",
+      "input": "[link #a](u #b) #c",
+      "expected": ["a", "b", "c"]
+    },
+    {
+      "label": "extra-55",
+      "input": "![[x|#a]] #b",
+      "expected": ["b"]
+    },
+    {
+      "label": "extra-56",
+      "input": "`` #a `` #b",
+      "expected": ["b"]
+    },
+    {
+      "label": "extra-57",
+      "input": "<!-- x --> #a",
+      "expected": []
+    },
+    {
+      "label": "extra-58",
+      "input": "#🎉 #a🎉",
+      "expected": ["🎉", "a🎉"]
+    },
+    {
+      "label": "extra-6",
+      "input": "> ```\n> #hidden\nlazy #maybe\n> #later",
+      "expected": []
+    },
+    {
+      "label": "extra-7",
+      "input": "%%\n| a |\n| --- |\n| #t |\n%%",
+      "expected": ["t"]
+    },
+    {
+      "label": "extra-8",
+      "input": "%%\n<div>\n#t\n</div>\n%%",
+      "expected": ["t"]
+    },
+    {
+      "label": "extra-9",
+      "input": "a ^[#x] #y",
+      "expected": ["y", "x"]
+    },
+    {
+      "label": "fence 4 backticks with 3 inside",
+      "input": "````\n```\n#tag\n````",
+      "expected": []
+    },
+    {
+      "label": "fence in blockquote",
+      "input": "> ```\n> #x\n> ```\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "fence info backtick only",
+      "input": "``` foo ` bar\n#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "fence info with backtick tilde",
+      "input": "~~~ a ` b\n#x\n~~~\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "fence inside list",
+      "input": "- item\n\n  ```\n  #tag\n  ```",
+      "expected": []
+    },
+    {
+      "label": "fence with info hash",
+      "input": "```#lang\ncode\n```\n#t",
+      "expected": ["t"]
+    },
+    {
+      "label": "fenced backtick",
+      "input": "```\n#tag\n```",
+      "expected": []
+    },
+    {
+      "label": "fenced tilde",
+      "input": "~~~\n#tag\n~~~",
+      "expected": []
+    },
+    {
+      "label": "file url",
+      "input": "file:///a#b",
+      "expected": []
+    },
+    {
+      "label": "fm closer with text",
+      "input": "---\na: #x\n---x\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "fm dots closer",
+      "input": "---\na: #x\n...\n#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "fm empty",
+      "input": "---\n---\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "fm four dash closer",
+      "input": "---\na: #x\n----\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "fm leading blank",
+      "input": "\n---\na: #x\n---\n#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "fm plain control",
+      "input": "---\ntags: [a]\n---\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "fm spaced closer",
+      "input": "---\na: #x\n--- \n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "fm spaced opener",
+      "input": "--- \na: #x\n---\n#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "fm tab opener",
+      "input": "---\t\ntags: [a]\nb: #x\n---\n#y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "fm two-space opener",
+      "input": "---  \ntags: [a]\n---\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "footnote",
+      "input": "text[^1]\n\n[^1]: note #fn",
+      "expected": ["fn"]
+    },
+    {
+      "label": "footnote call no def",
+      "input": "a[^x]#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "footnote def",
+      "input": "[^1]: #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "four space after list blank",
+      "input": "1. a\n\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "frontmatter",
+      "input": "---\ntags: [fm]\nx: \"#nottag\"\n---\nbody #b",
+      "expected": ["b"]
+    },
+    {
+      "label": "frontmatter comment hash",
+      "input": "---\na: 1 # #x\n---\nbody #y",
+      "expected": ["y"]
+    },
+    {
+      "label": "frontmatter only",
+      "input": "---\ntags: [a, b]\n---\n",
+      "expected": []
+    },
+    {
+      "label": "frontmatter spaced opener",
+      "input": "--- \na: 1\n---\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "frontmatter-like mid",
+      "input": "text\n---\ntags: x\n---\n#t",
+      "expected": ["t"]
+    },
+    {
+      "label": "ftp url emphasis",
+      "input": "ftp://x.com/a_b_#c",
+      "expected": ["c"]
+    },
+    {
+      "label": "full ref then tag",
+      "input": "[x][y]#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "fullwidth digits",
+      "input": "#１２",
+      "expected": ["１２"]
+    },
+    {
+      "label": "fullwidth hash",
+      "input": "＃tag",
+      "expected": []
+    },
+    {
+      "label": "general punctuation stop U+2014",
+      "input": "#a—b",
+      "expected": ["a"]
+    },
+    {
+      "label": "h1 marker",
+      "input": "# Heading",
+      "expected": []
+    },
+    {
+      "label": "h1 no space",
+      "input": "#Heading",
+      "expected": ["Heading"]
+    },
+    {
+      "label": "h1 with tag",
+      "input": "# Heading #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "h2 with tag",
+      "input": "## Heading #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "hard-wrapped",
+      "input": "line1 \n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "hash alone",
+      "input": "#",
+      "expected": []
+    },
+    {
+      "label": "hash alone mid",
+      "input": "a # b",
+      "expected": []
+    },
+    {
+      "label": "hash dash",
+      "input": "#-",
+      "expected": ["-"]
+    },
+    {
+      "label": "hash underscore",
+      "input": "#_",
+      "expected": ["_"]
+    },
+    {
+      "label": "hashtag after colon space",
+      "input": "Tags: #a #b",
+      "expected": ["a", "b"]
+    },
+    {
+      "label": "heading closing hashes",
+      "input": "## Heading ##",
+      "expected": []
+    },
+    {
+      "label": "heading id",
+      "input": "## Heading {#id}",
+      "expected": []
+    },
+    {
+      "label": "heading only tag",
+      "input": "## #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "heading tag after hashes no space",
+      "input": "##tag",
+      "expected": []
+    },
+    {
+      "label": "heading word backticks",
+      "input": "before any `#heading` or alias",
+      "expected": []
+    },
+    {
+      "label": "heading word prose",
+      "input": "The stored text is the link target before any #heading or |alias",
+      "expected": ["heading"]
+    },
+    {
+      "label": "hex colours prose",
+      "input": "Use the #ff6d1f header rule, #0095ff links.",
+      "expected": ["ff6d1f", "0095ff"]
+    },
+    {
+      "label": "hex in backticks table",
+      "input": "| colour | use |\n| --- | --- |\n| `#0095ff` | links |",
+      "expected": []
+    },
+    {
+      "label": "hex in fence",
+      "input": "```css\na { color: #0095ff; }\n```",
+      "expected": []
+    },
+    {
+      "label": "highlight",
+      "input": "==#tag==",
+      "expected": ["tag"]
+    },
+    {
+      "label": "highlight unclosed",
+      "input": "==#x",
+      "expected": []
+    },
+    {
+      "label": "highlight wrap",
+      "input": "==#x==",
+      "expected": ["x"]
+    },
+    {
+      "label": "hr star spaced",
+      "input": "* * *\n#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "hr then tag",
+      "input": "---\n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "html comment",
+      "input": "<!-- #tag -->",
+      "expected": []
+    },
+    {
+      "label": "html comment block",
+      "input": "<!--\n#tag\n-->",
+      "expected": []
+    },
+    {
+      "label": "html comment block then text",
+      "input": "<!--\nx\n-->\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "html div block",
+      "input": "<div>\n#tag\n</div>",
+      "expected": []
+    },
+    {
+      "label": "html div then blank",
+      "input": "<div>\n\n#tag\n</div>",
+      "expected": ["tag"]
+    },
+    {
+      "label": "html entity hash",
+      "input": "&#35;tag",
+      "expected": []
+    },
+    {
+      "label": "html inline",
+      "input": "<span>#tag</span>",
+      "expected": ["tag"]
+    },
+    {
+      "label": "html inline comment unclosed",
+      "input": "a <!-- #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "html inline spaced",
+      "input": "<span> #tag</span>",
+      "expected": ["tag"]
+    },
+    {
+      "label": "http fragment",
+      "input": "http://a.com/x#frag",
+      "expected": []
+    },
+    {
+      "label": "image then tag",
+      "input": "![a](b)#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "indent after blank",
+      "input": "para\n\n    #tag",
+      "expected": []
+    },
+    {
+      "label": "indent lazy continuation",
+      "input": "para\n    #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "indent list after blank",
+      "input": "- item\n\n    #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "indent list continuation",
+      "input": "- item\n    #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "indented 3 spaces",
+      "input": "   #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "indented code after fence",
+      "input": "```\na\n```\n    #x",
+      "expected": []
+    },
+    {
+      "label": "indented code after heading",
+      "input": "# H\n    #x",
+      "expected": []
+    },
+    {
+      "label": "indented code after hr",
+      "input": "***\n    #x",
+      "expected": []
+    },
+    {
+      "label": "indented code at start",
+      "input": "    #tag",
+      "expected": []
+    },
+    {
+      "label": "indented code in blockquote",
+      "input": "> a\n>\n>     #x",
+      "expected": []
+    },
+    {
+      "label": "indented code then para",
+      "input": "    #x\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "indented fence",
+      "input": "   ```\n#x\n   ```",
+      "expected": []
+    },
+    {
+      "label": "inline code",
+      "input": "`#tag`",
+      "expected": []
+    },
+    {
+      "label": "inline comment glued",
+      "input": "a%%c%%#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "inline display math",
+      "input": "a $$ #x $$ b",
+      "expected": []
+    },
+    {
+      "label": "inline footnote",
+      "input": "a ^[note #inl] b",
+      "expected": ["inl"]
+    },
+    {
+      "label": "inline html attr",
+      "input": "<span class=\"#x\">#y</span>",
+      "expected": ["y"]
+    },
+    {
+      "label": "inline html comment",
+      "input": "a <!-- #x --> b #y",
+      "expected": ["y"]
+    },
+    {
+      "label": "inline math",
+      "input": "$#tag$",
+      "expected": []
+    },
+    {
+      "label": "inline math dollar digit",
+      "input": "$1 and $2 #t",
+      "expected": ["t"]
+    },
+    {
+      "label": "inline math spaced",
+      "input": "a $x #tag$ b",
+      "expected": []
+    },
+    {
+      "label": "inline p mid line",
+      "input": "a <p>#tag</p>",
+      "expected": ["tag"]
+    },
+    {
+      "label": "intraword mark",
+      "input": "a==b==#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "intraword underscore",
+      "input": "a_b_#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "invalid yaml frontmatter",
+      "input": "---\na: [ #x\n---\nbody #y",
+      "expected": ["y"]
+    },
+    {
+      "label": "kanban settings block",
+      "input": "- [ ] card #a\n\n%% kanban:settings\n```\n{\"kanban-plugin\":\"board\",\"tag-colors\":[{\"tagKey\":\"#urgent\"}]}\n```\n%%",
+      "expected": ["a"]
+    },
+    {
+      "label": "lazy indented after tag",
+      "input": "#x\n    #y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "letter then digits",
+      "input": "#y1984",
+      "expected": ["y1984"]
+    },
+    {
+      "label": "line start after newline",
+      "input": "line1\n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "link ref def tag",
+      "input": "[x]: #tag",
+      "expected": []
+    },
+    {
+      "label": "link ref def then line",
+      "input": "[x]: http://a.com\n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "list 2-space continuation",
+      "input": "- a\n  #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "list 6sp after blank",
+      "input": "- a\n\n      #x",
+      "expected": []
+    },
+    {
+      "label": "list item",
+      "input": "- #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "list item code indent",
+      "input": "- a\n\n        #tag",
+      "expected": []
+    },
+    {
+      "label": "list item star",
+      "input": "* #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "list marker fence",
+      "input": "- ```\n  #x\n  ```\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "list nested indented",
+      "input": "- a\n    - #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "list then fence at 2 after blank",
+      "input": "- a\n\n  ```\n  #x\n  ```\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "literal equals",
+      "input": "a=#tag",
+      "expected": []
+    },
+    {
+      "label": "literal star",
+      "input": "a*#tag",
+      "expected": []
+    },
+    {
+      "label": "literal tilde",
+      "input": "a~#tag",
+      "expected": []
+    },
+    {
+      "label": "literal underscore",
+      "input": "a_#tag",
+      "expected": []
+    },
+    {
+      "label": "localhost url emphasis",
+      "input": "http://localhost/a_b_#c",
+      "expected": ["c"]
+    },
+    {
+      "label": "mailto",
+      "input": "mailto:a@b#c",
+      "expected": []
+    },
+    {
+      "label": "mark space close",
+      "input": "x ==a ==#tag",
+      "expected": []
+    },
+    {
+      "label": "math block unclosed",
+      "input": "$$\n#tag",
+      "expected": []
+    },
+    {
+      "label": "math close after space",
+      "input": "$a $#x",
+      "expected": []
+    },
+    {
+      "label": "math close then digit",
+      "input": "$a$1#x",
+      "expected": []
+    },
+    {
+      "label": "math escaped dollar",
+      "input": "\\$ #tag \\$",
+      "expected": ["tag"]
+    },
+    {
+      "label": "math escaped inside",
+      "input": "$a\\$ #x$ #y",
+      "expected": ["y"]
+    },
+    {
+      "label": "math then tag",
+      "input": "a $x$ b #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "md image url frag",
+      "input": "![a](x.png#frag) #t",
+      "expected": ["t"]
+    },
+    {
+      "label": "md link frag",
+      "input": "[text](url#frag)",
+      "expected": []
+    },
+    {
+      "label": "md link text spaced tag",
+      "input": "[a #x](url)",
+      "expected": ["x"]
+    },
+    {
+      "label": "md link text tag",
+      "input": "[#x](url)",
+      "expected": ["x"]
+    },
+    {
+      "label": "md link title",
+      "input": "[a](x.md \"#t\") #u",
+      "expected": ["u"]
+    },
+    {
+      "label": "mid-line after space",
+      "input": "hello #tag world",
+      "expected": ["tag"]
+    },
+    {
+      "label": "multiline code span",
+      "input": "`a\n#tag`",
+      "expected": []
+    },
+    {
+      "label": "nbsp terminates",
+      "input": "#tag x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "nested",
+      "input": "#a/b",
+      "expected": ["a/b"]
+    },
+    {
+      "label": "nested blockquote no space",
+      "input": "> >#deep",
+      "expected": ["deep"]
+    },
+    {
+      "label": "nested brackets ref",
+      "input": "[a [b]]#tag",
+      "expected": []
+    },
+    {
+      "label": "nested list fence 4sp",
+      "input": "- a\n  - b\n\n    ```\n    #x\n    ```",
+      "expected": []
+    },
+    {
+      "label": "nested quote list",
+      "input": "> - #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "no space before",
+      "input": "foo#bar",
+      "expected": []
+    },
+    {
+      "label": "numbered list paren nested code",
+      "input": "1) a\n\n       #x",
+      "expected": []
+    },
+    {
+      "label": "numeric entity then tag",
+      "input": "&#35;#tag",
+      "expected": []
+    },
+    {
+      "label": "obsidian url",
+      "input": "obsidian://open?vault=a#b",
+      "expected": []
+    },
+    {
+      "label": "obsidian url emphasis",
+      "input": "obsidian://open/a_b_#c",
+      "expected": ["c"]
+    },
+    {
+      "label": "only slash",
+      "input": "#/",
+      "expected": []
+    },
+    {
+      "label": "ordered list",
+      "input": "1. #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "ordered list css fence",
+      "input": "1. step\n   ```css\n   #id {}\n   ```",
+      "expected": []
+    },
+    {
+      "label": "ordered paren",
+      "input": "1) #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "p inline",
+      "input": "<p>#tag</p>",
+      "expected": []
+    },
+    {
+      "label": "para then div",
+      "input": "para\n<div>\n#tag",
+      "expected": []
+    },
+    {
+      "label": "para then span block",
+      "input": "para\n<span>\n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "paren",
+      "input": "(#tag)",
+      "expected": []
+    },
+    {
+      "label": "percent single",
+      "input": "50% #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "period terminates",
+      "input": "#tag.",
+      "expected": ["tag"]
+    },
+    {
+      "label": "php block",
+      "input": "<?php\n#x\n?>\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "pipe no table",
+      "input": "a|#tag",
+      "expected": []
+    },
+    {
+      "label": "pipe row no delimiter",
+      "input": "|#tag| x |",
+      "expected": []
+    },
+    {
+      "label": "plain",
+      "input": "#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "plus list",
+      "input": "+ #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "prose, 2 backslashes",
+      "input": "PR \\\\#___",
+      "expected": ["___"]
+    },
+    {
+      "label": "question/exclaim",
+      "input": "#tag? #tag2!",
+      "expected": ["tag", "tag2"]
+    },
+    {
+      "label": "quote",
+      "input": "#tag\"x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "quote list fence",
+      "input": "> - ```\n>   #x\n>   ```",
+      "expected": []
+    },
+    {
+      "label": "ref def multiline title",
+      "input": "[x]: http://a.com\n  \"#t\"\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "ref definition",
+      "input": "[x]: http://a.com/#frag",
+      "expected": []
+    },
+    {
+      "label": "report-data JSON comment (1 bs)",
+      "input": "%% report-data {\"runs\":[{\"title\":\"Run 1 — PR \\#___\",\"n\":1}]} %%",
+      "expected": []
+    },
+    {
+      "label": "report-data JSON comment (2 bs)",
+      "input": "%% report-data {\"runs\":[{\"title\":\"Run 1 — PR \\\\#___\",\"n\":1}]} %%",
+      "expected": ["___"]
+    },
+    {
+      "label": "report-data JSON comment (4 bs)",
+      "input": "%% report-data {\"runs\":[{\"title\":\"Run 1 — PR \\\\\\\\#___\",\"n\":1}]} %%",
+      "expected": ["___"]
+    },
+    {
+      "label": "script block",
+      "input": "<script>\n#x\n</script>\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "semicolon",
+      "input": "#tag;x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "setext heading",
+      "input": "Title #tag\n===",
+      "expected": ["tag"]
+    },
+    {
+      "label": "setext under para with tag",
+      "input": "#a b\n---\n#c",
+      "expected": ["a", "c"]
+    },
+    {
+      "label": "setext under tag",
+      "input": "#tag\n===",
+      "expected": ["tag"]
+    },
+    {
+      "label": "seven hashes",
+      "input": "####### #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "shortcut ref then tag",
+      "input": "[a]#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "shortcut ref then text",
+      "input": "[a]b#tag",
+      "expected": []
+    },
+    {
+      "label": "shoutouts twice",
+      "input": "post in #shoutouts and #shoutouts again",
+      "expected": ["shoutouts", "shoutouts"]
+    },
+    {
+      "label": "snake underscores",
+      "input": "snake_case_#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "span block lines",
+      "input": "<span>\n#tag\n</span>",
+      "expected": []
+    },
+    {
+      "label": "squote before",
+      "input": "'#tag'",
+      "expected": []
+    },
+    {
+      "label": "star code star",
+      "input": "*a `*` b*#tag",
+      "expected": []
+    },
+    {
+      "label": "star open no close",
+      "input": "*#x",
+      "expected": []
+    },
+    {
+      "label": "star open space before",
+      "input": "a *#x",
+      "expected": []
+    },
+    {
+      "label": "star space close",
+      "input": "x *a *#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "star space open",
+      "input": "x * a*#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "strike",
+      "input": "~~#tag~~",
+      "expected": ["tag"]
+    },
+    {
+      "label": "strike single tilde",
+      "input": "~#x~",
+      "expected": []
+    },
+    {
+      "label": "strike then text",
+      "input": "~~a~~b#tag",
+      "expected": []
+    },
+    {
+      "label": "strike wrap",
+      "input": "~~#x~~",
+      "expected": ["x"]
+    },
+    {
+      "label": "strong",
+      "input": "**#tag**",
+      "expected": ["tag"]
+    },
+    {
+      "label": "strong open star",
+      "input": "**a*#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "strong text strong",
+      "input": "**a** b**#tag",
+      "expected": []
+    },
+    {
+      "label": "strong then text then tag",
+      "input": "**a** b#tag",
+      "expected": []
+    },
+    {
+      "label": "tab code after blank",
+      "input": "a\n\n\t#x",
+      "expected": []
+    },
+    {
+      "label": "tab indent",
+      "input": "\t#tag",
+      "expected": []
+    },
+    {
+      "label": "table cell",
+      "input": "| a | b |\n| --- | --- |\n| #tag | x |",
+      "expected": ["tag"]
+    },
+    {
+      "label": "table cell wikilink escaped pipe",
+      "input": "| a | b |\n| --- | --- |\n| [[a\\|b]] #tag | x |",
+      "expected": ["tag"]
+    },
+    {
+      "label": "table code pipe",
+      "input": "| a | b |\n| --- | --- |\n| `a|b`#x | y |",
+      "expected": []
+    },
+    {
+      "label": "table continues plain line",
+      "input": "| a |\n| --- |\n|#x|\nplain\n|#y|",
+      "expected": ["x"]
+    },
+    {
+      "label": "table count mismatch",
+      "input": "| a | b |\n| --- |\n|#x| y |",
+      "expected": ["x"]
+    },
+    {
+      "label": "table escaped pipe cell",
+      "input": "| a |\n| --- |\n| x\\|#y |",
+      "expected": ["y"]
+    },
+    {
+      "label": "table header",
+      "input": "| #h | b |\n| --- | --- |\n| a | x |",
+      "expected": ["h"]
+    },
+    {
+      "label": "table no pad",
+      "input": "| a | b |\n| --- | --- |\n|#tag| x |",
+      "expected": ["tag"]
+    },
+    {
+      "label": "table without leading pipe",
+      "input": "a | b\n--- | ---\n#x | y",
+      "expected": ["x"]
+    },
+    {
+      "label": "tag after hashes heading close",
+      "input": "## Head ## #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag after highlight mark",
+      "input": "==hi== #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag before email",
+      "input": "foo #bar@x.com",
+      "expected": ["bar"]
+    },
+    {
+      "label": "tag in angle link",
+      "input": "[t](<a #tag>)",
+      "expected": []
+    },
+    {
+      "label": "tag in html attr",
+      "input": "<a href=\"#x\">y</a>",
+      "expected": []
+    },
+    {
+      "label": "tag in image alt",
+      "input": "![#alt](x.png)",
+      "expected": []
+    },
+    {
+      "label": "tag in image alt spaced",
+      "input": "![a #alt](x.png)",
+      "expected": []
+    },
+    {
+      "label": "tag in link url",
+      "input": "[t](#tag)",
+      "expected": []
+    },
+    {
+      "label": "tag in setext underline line",
+      "input": "#tag\n---",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag in wikilink alias",
+      "input": "[[a|b #c]] #d",
+      "expected": ["d"]
+    },
+    {
+      "label": "tag is heading trailing hashes",
+      "input": "## Head #",
+      "expected": []
+    },
+    {
+      "label": "tag max punctuation chars",
+      "input": "#a-b_c/d",
+      "expected": ["a-b_c/d"]
+    },
+    {
+      "label": "tag right after list marker no space",
+      "input": "-#tag",
+      "expected": []
+    },
+    {
+      "label": "tag then ampersand",
+      "input": "#tag&x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then at",
+      "input": "#tag@x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then backslash",
+      "input": "#tag\\x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then backtick",
+      "input": "#tag`x`",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then bracket",
+      "input": "#tag[x]",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then caret",
+      "input": "#tag^x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then dollar",
+      "input": "#tag$x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then equals",
+      "input": "#tag=x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then paren",
+      "input": "#tag(x)",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then percent",
+      "input": "#tag%x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then pipe",
+      "input": "#tag|x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then plus",
+      "input": "#tag+x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then star",
+      "input": "#tag*x*",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then tilde",
+      "input": "#tag~x",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tag then url",
+      "input": "#a https://x.com/#b #c",
+      "expected": ["a", "c"]
+    },
+    {
+      "label": "tag with digit start nested",
+      "input": "#2024/q1",
+      "expected": ["2024/q1"]
+    },
+    {
+      "label": "task",
+      "input": "- [ ] do #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "task done",
+      "input": "- [x] #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "task done glued",
+      "input": "- [x]#done",
+      "expected": ["done"]
+    },
+    {
+      "label": "task no space",
+      "input": "- [ ]#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "task with emoji",
+      "input": "- [ ] do #tag 📅 2026-01-01",
+      "expected": ["tag"]
+    },
+    {
+      "label": "thematic break then tag",
+      "input": "***\n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "tilde fence",
+      "input": "~~~\n#x\n~~~\n#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "trailing slash",
+      "input": "#a/",
+      "expected": ["a"]
+    },
+    {
+      "label": "twice same",
+      "input": "#x and #x",
+      "expected": ["x", "x"]
+    },
+    {
+      "label": "two lines in paragraph",
+      "input": "x\n#a #b",
+      "expected": ["a", "b"]
+    },
+    {
+      "label": "two space break",
+      "input": "a  \n#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "two tags adjacent",
+      "input": "#a#b",
+      "expected": ["a", "b"]
+    },
+    {
+      "label": "unclosed backtick",
+      "input": "`a #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "unclosed fence",
+      "input": "```\n#tag",
+      "expected": []
+    },
+    {
+      "label": "unclosed frontmatter",
+      "input": "---\na: #x\nbody #y",
+      "expected": ["x", "y"]
+    },
+    {
+      "label": "unclosed inline comment glued",
+      "input": "a %%#x",
+      "expected": []
+    },
+    {
+      "label": "underscore em",
+      "input": "_#tag_",
+      "expected": ["tag"]
+    },
+    {
+      "label": "underscore inner",
+      "input": "_a_b_#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "underscore wrap",
+      "input": "_#x_",
+      "expected": ["x"]
+    },
+    {
+      "label": "unicode general punct U+2010 hyphen",
+      "input": "#a‐b",
+      "expected": ["a"]
+    },
+    {
+      "label": "url in parens",
+      "input": "(https://x.com/#frag) #ok",
+      "expected": ["ok"]
+    },
+    {
+      "label": "url star emphasis",
+      "input": "https://x.com/a*b*#c",
+      "expected": []
+    },
+    {
+      "label": "url then hash no space",
+      "input": "https://x.com#frag",
+      "expected": []
+    },
+    {
+      "label": "url then html",
+      "input": "https://x.com/<b>#tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "url www no slash",
+      "input": "www.example.com#frag",
+      "expected": []
+    },
+    {
+      "label": "user at host",
+      "input": "x@y#tag",
+      "expected": []
+    },
+    {
+      "label": "wikilink alias",
+      "input": "[[note#heading|alias]]",
+      "expected": []
+    },
+    {
+      "label": "wikilink alias with tag",
+      "input": "[[note|alias #tag]]",
+      "expected": []
+    },
+    {
+      "label": "wikilink heading",
+      "input": "[[note#heading]]",
+      "expected": []
+    },
+    {
+      "label": "wikilink heading spaced",
+      "input": "[[note #heading]]",
+      "expected": []
+    },
+    {
+      "label": "wikilink then tag",
+      "input": "[[a]] #tag",
+      "expected": ["tag"]
+    },
+    {
+      "label": "www url emphasis",
+      "input": "www.x.com/a_b_#c",
+      "expected": []
+    },
+    {
+      "label": "www url fragment",
+      "input": "www.x.com/#frag",
+      "expected": []
+    },
+    {
+      "label": "zero width joiner",
+      "input": "#a‍b",
+      "expected": ["a"]
+    },
+    {
+      "label": "code span with a space before the hash",
+      "input": "` #x`",
+      "expected": []
+    },
+    {
+      "label": "code span with text before the hash",
+      "input": "`a #x`",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 11",
+      "input": " |\n-|\n<div #t|",
+      "expected": ["t"]
+    },
+    {
+      "label": "random comparison, seed 1, case 1",
+      "input": "%%\n%%\t#a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 2",
+      "input": "%%\n%%\t<s://>#t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 27",
+      "input": "%%\n%%    []()#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 7",
+      "input": "%%\n%%    \\\\#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 16",
+      "input": "%%\n%%    _d_#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 26",
+      "input": "%%\n%%%%\n<!-- #c",
+      "expected": ["c"]
+    },
+    {
+      "label": "random comparison, seed 1, case 15",
+      "input": "%%\n%%%%\n~~~<n>#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 2, case 18",
+      "input": "%%\n%%-\n\n\t#g",
+      "expected": ["g"]
+    },
+    {
+      "label": "random comparison, seed 2, case 15",
+      "input": "%%\n%%1.\n$$\n- #c",
+      "expected": ["c"]
+    },
+    {
+      "label": "random comparison, seed 2, case 6",
+      "input": "%%\n%%<div #-",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 17",
+      "input": "%%\n%%<p #t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 7",
+      "input": "%%\n%%<p>#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 19",
+      "input": "%%\n%%<r>\n#a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 12",
+      "input": "%%\n%%```\n#t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 4",
+      "input": "%%\n%%``` #f",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 14",
+      "input": "%%\n%%~~~\n#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 18",
+      "input": "%%\n%%~~~ #a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 22",
+      "input": "%%\n%%~~~*b*#c",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 13",
+      "input": "%%\n%%~~~<n>#n",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 28",
+      "input": "%%#c%",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 1, case 6",
+      "input": "%%%\n%%\n%%\t#f",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 2",
+      "input": "%%%%%%\n` #c%%`",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 2, case 32",
+      "input": "*#t\n%%%*",
+      "expected": ["t"]
+    },
+    {
+      "label": "random comparison, seed 2, case 23",
+      "input": "```\n```\n%%\n%%\t#c",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 12",
+      "input": " |y\n-|\n    #x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 2",
+      "input": "$$\n$$\t\n#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 24",
+      "input": "$$\n$$\t\n<n>#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 5",
+      "input": "$$\n$$\t\n<s>#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 32",
+      "input": "$$\n$$\t\n\\\\#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 23",
+      "input": "%%\n%%[^1]:$$ #y\n",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 8",
+      "input": "%%` #c%%`",
+      "expected": ["c"]
+    },
+    {
+      "label": "random comparison, seed 31, case 1",
+      "input": "%%`%%#y",
+      "expected": ["y"]
+    },
+    {
+      "label": "random comparison, seed 31, case 13",
+      "input": "-    \n    %%#a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 7",
+      "input": "[^1]:\n    <v>\n#c",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 31",
+      "input": "[^1]:\n \t<v>\n>#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 31, case 30",
+      "input": "[^1]:$$ #t\n",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 33",
+      "input": "[|#-\n-|",
+      "expected": ["-"]
+    },
+    {
+      "label": "random comparison, seed 31, case 21",
+      "input": "h|#x\n-|",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 31, case 17",
+      "input": "h|]\n-|\n    #_",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 18",
+      "input": "||#g\n|-|",
+      "expected": ["g"]
+    },
+    {
+      "label": "random comparison, seed 31, case 4",
+      "input": "||/\n|-|\n    #t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 22",
+      "input": "||4\n|-|\n    #c",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 31, case 25",
+      "input": "||]\n|-|\n    $\n#r$",
+      "expected": ["r"]
+    },
+    {
+      "label": "random comparison, seed 31, case 16",
+      "input": "||`\n|-|\n    #a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 1",
+      "input": " \t%%\n- <r>\n#f",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 2",
+      "input": " \t%%#a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 3",
+      "input": " \t%%#t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 4",
+      "input": "-|\n-|-\n    #-",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 5",
+      "input": " \t%%\n~~~ #t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 6",
+      "input": " \t%%\n>[! #i]",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 7",
+      "input": " \t%%\n<div>#a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 8",
+      "input": "[^1]:$\n $#b",
+      "expected": ["b"]
+    },
+    {
+      "label": "random comparison, seed 47, case 9",
+      "input": " \t%%\n\n    \\\\#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 10",
+      "input": "[r]:m\n \t%%\n$$\n#t",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 11",
+      "input": " \t%%\n\n    #c",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 12",
+      "input": " \t%%\n```\n#T",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 13",
+      "input": " \t%%\n```\n#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 14",
+      "input": "><div\n \t%%[s]#g",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 15",
+      "input": "[^1]:\t\n]\n    ``` #x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 16",
+      "input": "[^1]:```\n     \n#x",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 17",
+      "input": "%%\n%% \t%%\n``` #a",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 47, case 18",
+      "input": "[^1]:$\n $#c",
+      "expected": ["c"]
+    },
+    {
+      "label": "random comparison, seed 47, case 19",
+      "input": " \t%%\n%%<div>#u",
+      "expected": ["u"]
+    },
+    {
+      "label": "list lazy line, blank, four-space tag",
+      "input": "- a\nb\n\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "list lazy quote line then four-space tag",
+      "input": "- a\n> q\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "ordered list lazy line, blank, seven-space tag",
+      "input": "1. a\nb\n\n       #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 1",
+      "input": "*\n\n**\n$$ #t\n",
+      "expected": ["t"]
+    },
+    {
+      "label": "random comparison, seed 211, case 2",
+      "input": "*\n---\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 3",
+      "input": "*\n***\n$$\n- #b",
+      "expected": ["b"]
+    },
+    {
+      "label": "random comparison, seed 211, case 4",
+      "input": "*\n***\n<div\n-\t#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 5",
+      "input": "*\n---\n$$\n- #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 6",
+      "input": "*\n***\n<v>\n- #-",
+      "expected": ["-"]
+    },
+    {
+      "label": "random comparison, seed 211, case 7",
+      "input": "*\n\n**\n    ~~~ #m",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 211, case 8",
+      "input": "*\n***\n    #f",
+      "expected": ["f"]
+    },
+    {
+      "label": "random comparison, seed 211, case 9",
+      "input": "*\n\n**\n<p\n- #t",
+      "expected": ["t"]
+    },
+    {
+      "label": "random comparison, seed 211, case 10",
+      "input": "*\n ```\n***\n#y",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 211, case 11",
+      "input": "*\n\n**\n\n    #u",
+      "expected": ["u"]
+    },
+    {
+      "label": "random comparison, seed 211, case 12",
+      "input": "*\n\n**\n$$\n\n#a",
+      "expected": ["a"]
+    },
+    {
+      "label": "random comparison, seed 211, case 13",
+      "input": "*\n ~~~\n\n*\\*#m",
+      "expected": []
+    },
+    {
+      "label": "random comparison, seed 211, case 14",
+      "input": "*\n***\n    #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 15",
+      "input": "*\n---\n\t#f",
+      "expected": ["f"]
+    },
+    {
+      "label": "random comparison, seed 211, case 16",
+      "input": "*\n---\n$$\n\n#g",
+      "expected": ["g"]
+    },
+    {
+      "label": "random comparison, seed 211, case 17",
+      "input": "*\n***\n    #i",
+      "expected": ["i"]
+    },
+    {
+      "label": "random comparison, seed 211, case 18",
+      "input": "*\n\n*%\n<!n\n- #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 211, case 19",
+      "input": "*\n***\n    #c",
+      "expected": ["c"]
+    },
+    {
+      "label": "random comparison, seed 211, case 20",
+      "input": "*\n---\n    #a",
+      "expected": ["a"]
+    },
+    {
+      "label": "random comparison, seed 211, case 21",
+      "input": "*\n***\n<v>\n- #a",
+      "expected": ["a"]
+    },
+    {
+      "label": "random comparison, seed 211, case 22",
+      "input": "- 1. \n    <!e #f\n    ---",
+      "expected": ["f"]
+    },
+    {
+      "label": "random comparison, seed 211, case 23",
+      "input": "*\n---\n    ) #g",
+      "expected": ["g"]
+    },
+    {
+      "label": "inline footnote, unclosed code span falls back",
+      "input": "^[a ` #b]#c #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline footnote, code span run lengths must match",
+      "input": "^[a `` x ` #b]#c #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline footnote, longer closing run does not close",
+      "input": "^[a ` x `` #b]#c #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline footnote, code span holding a bracket is skipped",
+      "input": "^[a ` #b]#c ` #d]",
+      "expected": ["d"]
+    },
+    {
+      "label": "inline footnote, closed code span with a bracket",
+      "input": "^[a `]` #b]#c #d",
+      "expected": ["c", "d", "b"]
+    },
+    {
+      "label": "inline footnote fallback rejects a nested-bracket shortcut",
+      "input": "^[a [x] ` #b]#c #d",
+      "expected": ["b", "d"]
+    },
+    {
+      "label": "inline footnote fallback to a link",
+      "input": "^[a ` #b](u)#c #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline footnote, escape ignored inside a code span",
+      "input": "^[a ` x \\` #b]#c #d",
+      "expected": ["c", "d", "b"]
+    },
+    {
+      "label": "inline footnote, escaped backtick opens no span",
+      "input": "^[a \\` #b]#c #d",
+      "expected": ["c", "d", "b"]
+    },
+    {
+      "label": "inline footnote fallback before a later footnote",
+      "input": "^[a ` #b]#c ^[#d] #e",
+      "expected": ["b", "c", "e", "d"]
+    },
+    {
+      "label": "nested inline footnote with an unclosed code span",
+      "input": "^[x ^[a ` #b]#c] #d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "quoted inline footnote with a code span across lines",
+      "input": "> ^[a\n|`` #b\n]#c\n#d",
+      "expected": ["b", "c", "d"]
+    },
+    {
+      "label": "inline math, escaped dollar right after the opener",
+      "input": "$\\$m$#x_y",
+      "expected": ["x_y"]
+    },
+    {
+      "label": "double dollar falling back to inline math with an escaped dollar",
+      "input": "$$\\$m$#x_y",
+      "expected": ["x_y"]
+    },
+    {
+      "label": "inline math holding only an escaped dollar",
+      "input": "$\\$$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "inline math holding only an escaped backslash",
+      "input": "$\\\\$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "inline math, escaped dollar then text",
+      "input": "$\\$ab$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "random comparison, seed 7411, case 1",
+      "input": "   $$\\$m$#x_y ([[\n[x]: #é==h== #é &#35;#a/",
+      "expected": ["x_y", "é", "é"]
+    },
+    {
+      "label": "inline math, escaped dollar before the closer",
+      "input": "$a\\$$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "display math holding an escaped dollar",
+      "input": "$$\\$$$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "unclosed inline math with an escaped dollar",
+      "input": "$\\$ab #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "inline math, escaped letter after the opener",
+      "input": "$\\am$#x",
+      "expected": ["x"]
+    },
+    {
+      "label": "list item with empty brackets is not a task",
+      "input": "- [] #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "list item with an empty task box",
+      "input": "- [ ] #x",
+      "expected": ["x"]
+    },
+    {
+      "label": "list item with empty brackets then text",
+      "input": "- []a #x",
+      "expected": ["x"]
+    }
+  ]
+}

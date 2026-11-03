@@ -13,7 +13,13 @@ import {
   INDEXING_FILE_READ_CONCURRENCY,
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
-import type { SearchIndex } from "./search-index.js"
+import type { RebuildResult, SearchIndex } from "./search-index.js"
+import {
+  bodyTagsFromParseResult,
+  type BodyTagParser,
+  type BodyTagParseResult,
+} from "./body-tag-parser.js"
+import { splitPropertiesBlock } from "../obsidian-markdown/frontmatter.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import type { Logger } from "../../logger.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
@@ -69,6 +75,9 @@ type FileWatcherOptions = Readonly<{
 type WatchVaultParams = Readonly<{
   vaultPath: string
   search: SearchIndex
+  /** Finds each note's body tags off the main thread, for the rebuild and for
+   *  every changed note. */
+  bodyTagParser: BodyTagParser
   watcherOptions?: FileWatcherOptions
 }>
 
@@ -132,7 +141,7 @@ type HoldingWatcher = Readonly<{
  * search index for the process lifetime.
  */
 const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingWatcher => {
-  const { vaultPath, search, watcherOptions } = params
+  const { vaultPath, search, bodyTagParser, watcherOptions } = params
 
   // Each path's latest embedding job. A new job for the path waits for this one,
   // so a note edited many times runs one model job at a time. A job that still
@@ -152,6 +161,19 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
    *   drops what it read.
    */
   const currentEvents = new Map<string, symbol>()
+
+  /** Each path's body-tag parse that has not finished. A newer event or a
+   *  removal for the path aborts it, because its result would be dropped as
+   *  superseded anyway. An abort skips a parse still waiting in the parser's
+   *  queue and leaves a running one to finish, so of the saves that land
+   *  during one slow parse, only the latest is parsed next. */
+  const pendingBodyTagParses = new Map<string, AbortController>()
+
+  /** Aborts a path's pending body-tag parse, when there is one. */
+  const abortPendingBodyTagParse = (relativePath: string): void => {
+    pendingBodyTagParses.get(relativePath)?.abort()
+    pendingBodyTagParses.delete(relativePath)
+  }
 
   // Reassigned, so `let`: going live ends holding, and a failed startup closes
   // the watcher.
@@ -308,18 +330,57 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
           return null
         }
       }
+
+      const parseNoteBodyTags = async (content: string): Promise<BodyTagParseResult> => {
+        const parseController = new AbortController()
+        pendingBodyTagParses.set(relativePath, parseController)
+
+        try {
+          return await bodyTagParser.parse(
+            {
+              notePath: relativePath,
+              body: splitPropertiesBlock(content).body,
+              signal: parseController.signal,
+            },
+            logger,
+          )
+        } finally {
+          if (pendingBodyTagParses.get(relativePath) === parseController) {
+            pendingBodyTagParses.delete(relativePath)
+          }
+        }
+      }
+
       const noteSource = await readNoteSource()
 
+      // A newer event or a removal during the read would drop the parse's
+      // result, so this check runs before parsing
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
       if (!noteSource) return { status: "vanished" }
 
       const { content, fileStat } = noteSource
+
+      // Parsed before the second token check, with no await between that check
+      // and the write, so a delete or newer event that lands during a slow parse wins.
+      // An aborted parse resolves "dropped", but every abort comes with such an
+      // event, so that check discards it
+      const parseResult = await parseNoteBodyTags(content)
+
+      if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+
+      // A worker that cannot start, or a parser the server's shutdown closed,
+      // says nothing about the note, so the note keeps its stored tags, as it
+      // does in the startup pass
+      const keepStoredTags =
+        parseResult.outcome === "unavailable" || parseResult.outcome === "closed"
+      const bodyTags = keepStoredTags ? "keep-stored" : bodyTagsFromParseResult(parseResult)
 
       const sourceVersion = search.upsertNote(
         {
           filePath: relativePath,
           rawContent: content,
           fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
+          bodyTags,
         },
         logger,
       )
@@ -385,6 +446,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // Taken before the first await, so events take their tokens in the order
     // their handlers start, and the read that starts last is the one indexed.
     const eventToken = Symbol()
+    abortPendingBodyTagParse(relativePath)
     currentEvents.set(relativePath, eventToken)
 
     // Awaited inside the try, so the token is released only once indexing ends.
@@ -437,6 +499,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // Dropping the path's token makes a read still in flight for it return
     // "superseded", so that read cannot re-add the file removed here.
     currentEvents.delete(relativePath)
+    abortPendingBodyTagParse(relativePath)
 
     if (!filePath.endsWith(".md")) {
       const removeAssetRow = (): boolean => {
@@ -1004,26 +1067,23 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
  * reads anything and holds every change until the rebuild returns, so a change
  * landing mid-rebuild is applied after it instead of being missed or replaced
  * by the rebuild's older read. Resolves with the rebuild's result (the note
- * count and its background embedding promise) once the batch over the held
- * changes commits its index writes, or at heldChangesDeadline if it takes
- * longer; the rest then apply in the background.
+ * count and its background embedding and body-tag passes) once the batch over
+ * the held changes commits its index writes, or at heldChangesDeadline if it
+ * takes longer; the rest then apply in the background.
  */
 export const watchVaultAndBuildIndex = async (
   params: WatchVaultParams,
   logger: Logger,
-): Promise<{ count: number; embedding: Promise<void> }> => {
-  const { vaultPath, search, watcherOptions } = params
+): Promise<RebuildResult> => {
+  const { vaultPath, search, bodyTagParser, watcherOptions } = params
   const holdingWatcher = startHoldingWatcher(params, logger)
   await holdingWatcher.ready
 
   // A failed rebuild closes the watcher rather than leave it holding every
   // later change; the caller sees the rebuild's error.
-  const rebuildIndexOrCloseWatcher = async (): Promise<{
-    count: number
-    embedding: Promise<void>
-  }> => {
+  const rebuildIndexOrCloseWatcher = async (): Promise<RebuildResult> => {
     try {
-      return await search.rebuildFromVault({ vaultPath }, logger)
+      return await search.rebuildFromVault({ vaultPath, bodyTagParser }, logger)
     } catch (error) {
       await holdingWatcher.close()
       throw error

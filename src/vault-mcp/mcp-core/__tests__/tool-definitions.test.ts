@@ -13,6 +13,7 @@ import { createSearchIndex } from "../../search/search-index.js"
 import type { SearchIndex } from "../../search/search-index.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import { logger, type Logger } from "../../../logger.js"
+import { withBodyTags } from "../../search/__tests__/body-tag-test-helpers.js"
 
 const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
 
@@ -400,9 +401,11 @@ describe("registerTools", () => {
     expect(config.description).toContain("vault_recent_notes")
   })
 
-  it("vault_list_tags description documents frontmatter-only tag counting", () => {
+  it("vault_list_tags description says property and body tags both count", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_TAGS)
-    expect(config.description).toContain("frontmatter tags")
+    expect(config.description).toContain(
+      "Tags in the tags property and #tags written in note bodies both count, as in Obsidian's Tags view.",
+    )
     expect(config.description).toContain("unique notes")
   })
 
@@ -1214,6 +1217,11 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
 })
 
 describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
+  // The two tag fields, as every tool that returns notes describes them while
+  // both edit tools are served
+  const TAG_FIELDS_WORDING =
+    "tags (the tags property, which vault_update_properties edits), body_tags (the #tags written in the note's text, each spelling once, edited as text with vault_replace_in_note; absent when there are none)"
+
   // Search indexes file content only while file tools are on, so with them
   // off the description must not mention file content, the extension field,
   // or file results. Both embedding variants share this wording.
@@ -1221,16 +1229,14 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
     searchedScope: "search across vault notes and file content (canvas, PDF, and text files)",
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder limits results to notes:",
-    resultFields:
-      "results array (path, title, snippet, score, tags, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes",
+    resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
     kindSentence:
       'The kind field is "note" for markdown notes or "file" for non-markdown content; file results also carry extension (e.g. ".pdf").',
   }
   const NOTE_ONLY_WORDING = {
     searchedScope: "search across vault notes",
     filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
-    resultFields:
-      "results array (path, title, snippet, score, tags, folder (top-level folder), type, kind, created, modified, bytes",
+    resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (top-level folder), type, kind, created, modified, bytes`,
     kindSentence: 'The kind field is always "note".',
   }
 
@@ -1582,7 +1588,7 @@ describe("vault_memory_recall handler", () => {
       memoryDir: "About Me",
     })
     searchIndex.upsertNote(
-      {
+      withBodyTags({
         filePath: "About Me/Opinions.md",
         rawContent: [
           "# Opinions",
@@ -1594,7 +1600,7 @@ describe("vault_memory_recall handler", () => {
           "- **2026-05-07**: Mutation testing proves the fix matters.",
         ].join("\n"),
         fileStat: { mtimeMs: 1000, size: 100 },
-      },
+      }),
       logger,
     )
     const memoryMockServer = { registerTool: vi.fn() }
@@ -1672,7 +1678,7 @@ describe("vault_search handler", () => {
       ],
     ] as const) {
       searchIndex.upsertNote(
-        { filePath, rawContent, fileStat: { mtimeMs: 1000, size: 100 } },
+        withBodyTags({ filePath, rawContent, fileStat: { mtimeMs: 1000, size: 100 } }),
         logger,
       )
     }
@@ -1766,11 +1772,11 @@ describe("vault_search_by_tag handler", () => {
 
     for (const { filePath, tag, mtimeMs } of notesInPathOrder) {
       searchIndex.upsertNote(
-        {
+        withBodyTags({
           filePath,
           rawContent: `---\ntags: [${tag}]\n---\nBody.`,
           fileStat: { mtimeMs, size: 100 },
-        },
+        }),
         logger,
       )
     }
@@ -1850,7 +1856,11 @@ describe("vault_find_orphans live folder defaults", () => {
     ]
     paths.forEach((filePath, index) => {
       search.upsertNote(
-        { filePath, rawContent: "# Note\n", fileStat: { mtimeMs: 10000 - index, size: 7 } },
+        withBodyTags({
+          filePath,
+          rawContent: "# Note\n",
+          fileStat: { mtimeMs: 10000 - index, size: 7 },
+        }),
         logger,
       )
     })
@@ -2101,11 +2111,11 @@ describe("vault_get_outgoing_links daily forward references", () => {
       await writeFile(join(vaultPath, ".obsidian/app.json"), NEW_NOTE_LOCATION)
       const search = createSearchIndex(":memory:")
       search.upsertNote(
-        {
+        withBodyTags({
           filePath: "Inbox/2026-06-16.md",
           rawContent: "[[Inbox/2026-06-17]]\n",
           fileStat: { mtimeMs: 1000, size: 21 },
-        },
+        }),
         logger,
       )
       const outgoingLinksCall = registerWithConfig({}, { vaultPath, search }).find(
@@ -2155,11 +2165,11 @@ describe("vault_list_tasks handler", () => {
   ): RegisterToolCall => {
     const searchIndex = createSearchIndex(":memory:")
     searchIndex.upsertNote(
-      {
+      withBodyTags({
         filePath,
         rawContent,
         fileStat: { mtimeMs: 1000, size: 100 },
-      },
+      }),
       logger,
     )
     const taskMockServer = { registerTool: vi.fn() }

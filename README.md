@@ -306,7 +306,7 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 |                 | `vault_delete_note`          | Delete a note, honoring the vault's trash setting (protected paths enforced)                        |
 |                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                             |
 | **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                                 |
-|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                                           |
+|                 | `vault_search_by_tag`        | Find notes by tag, including the tags nested under it                                               |
 |                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                                              |
 |                 | `vault_recent_notes`         | Recently modified or created notes                                                                  |
 |                 | `vault_list_tags`            | All tags with usage counts                                                                          |
@@ -354,7 +354,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 | Property  | What you can do                                                                                              |
 | --------- | ------------------------------------------------------------------------------------------------------------ |
 | `title`   | Display name in search results; falls back to the filename when missing                                      |
-| `tags`    | Search and filter by tag, including parent-child hierarchies (`project` matches `project/vault-cortex`)      |
+| `tags`    | Search and filter by tag, in the property or written as `#tag` in a note (`project` matches `project/a`)     |
 | `type`    | Filter by note type — `meeting`, `person`, `session-log`, or any value your vault uses                       |
 | `created` | Sort by creation date and see when each note was created alongside every search result                       |
 | `related` | Filter for notes that cross-reference a specific link — surfaces connections invisible without a graph query |
