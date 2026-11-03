@@ -13,8 +13,7 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  * silent catch — without the package those defaults vanish, leaving
  * `useSystemFonts: true` + CSS font paths as the effective config. Text then
  * renders only when the host has system fonts; in a fontless container every
- * glyph is silently dropped while vector graphics still draw. The edge build
- * also cannot read font/cMap data from disk at all (no `node:fs`).
+ * glyph is silently dropped while vector graphics still draw.
  *
  * The fix:
  * 1. Inject @napi-rs/canvas's DOMMatrix, Path2D and ImageData into
