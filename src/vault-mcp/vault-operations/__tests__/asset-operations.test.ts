@@ -100,7 +100,7 @@ describe("readAssetContent — PDF extraction", () => {
       ],
     })
     mockExtractLinks.mockResolvedValue({
-      links: ["https://example.com"],
+      links: [["https://example.com"]],
       totalPages: 1,
     })
 
@@ -153,7 +153,7 @@ describe("readAssetContent — PDF extraction", () => {
         ],
       ],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "doc.pdf" },
@@ -190,7 +190,7 @@ describe("readAssetContent — PDF extraction", () => {
       items: [[...buildPageItems(["Some text"])]],
     })
     mockExtractLinks.mockResolvedValue({
-      links: ["https://example.com", "https://other.com", "https://example.com"],
+      links: [["https://example.com", "https://other.com", "https://example.com"]],
       totalPages: 1,
     })
 
@@ -225,7 +225,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[...buildPageItems(["Hello"])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "untitled.pdf" },
@@ -252,7 +252,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 2,
       items: [[...buildPageItems(["Page one content"])], [...buildPageItems(["Page two content"])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 2 })
+    mockExtractLinks.mockResolvedValue({ links: [[], []], totalPages: 2 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "multi.pdf" },
@@ -328,7 +328,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[...buildPageItems([largeText])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "huge.pdf" }, logger),
@@ -451,7 +451,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[...buildPageItems(["Content"])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     await assetOperations.readAssetContent({ ...defaultParams, path: "test.pdf" }, logger)
 
@@ -502,7 +502,7 @@ describe("readAssetContent — PDF extraction", () => {
         ],
       ],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "code.pdf" },
@@ -543,7 +543,7 @@ describe("readAssetContent — PDF extraction", () => {
         ],
       ],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "flat.pdf" },
@@ -613,7 +613,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("returns kind pages with rendered images", async () => {
     setupPdfMocks({ numPages: 2, title: "Visual Doc" })
-    const fakePng = new ArrayBuffer(10_000)
+    const fakePng = new Uint8Array(10_000)
     mockRenderPageAsImage.mockResolvedValue(fakePng)
     const fittedResult = buildFittedImage()
     mockedFitImage.mockResolvedValue(fittedResult)
@@ -638,7 +638,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("respects maxPdfRenderPages cap", async () => {
     setupPdfMocks({ numPages: 10, title: "Long PDF" })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(5_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(5_000))
     const fittedResult = buildFittedImage()
     mockedFitImage.mockResolvedValue(fittedResult)
 
@@ -664,7 +664,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("divides per-page budget evenly across rendered pages", async () => {
     setupPdfMocks({ numPages: 4 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(1_000))
     mockedFitImage.mockResolvedValue(buildFittedImage())
 
     await assetOperations.readAssetContent(
@@ -687,9 +687,9 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
   it("skips failed pages and returns the rest", async () => {
     setupPdfMocks({ numPages: 3, title: "Partial" })
     mockRenderPageAsImage
-      .mockResolvedValueOnce(new ArrayBuffer(5_000))
+      .mockResolvedValueOnce(new Uint8Array(5_000))
       .mockRejectedValueOnce(new Error("render failed"))
-      .mockResolvedValueOnce(new ArrayBuffer(5_000))
+      .mockResolvedValueOnce(new Uint8Array(5_000))
     const fittedResult = buildFittedImage()
     mockedFitImage.mockResolvedValue(fittedResult)
 
@@ -718,7 +718,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("logs a skipped page's wrapped decode failure with the decoder's error as the cause", async () => {
     setupPdfMocks({ numPages: 2 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(5_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(5_000))
     const fittedResult = buildFittedImage()
     mockedFitImage
       .mockRejectedValueOnce(
@@ -779,7 +779,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       numPages: 1,
     }
     mockCreatePdfDocumentProxy.mockResolvedValue(configuredProxy)
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(1_000))
     mockedFitImage.mockResolvedValue(buildFittedImage())
 
     await assetOperations.readAssetContent(
@@ -797,7 +797,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("destroys the proxy after successful page rendering", async () => {
     setupPdfMocks({ numPages: 1 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(1_000))
     mockedFitImage.mockResolvedValue(buildFittedImage())
 
     await assetOperations.readAssetContent(
@@ -828,7 +828,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       totalPages: 1,
       items: [[...buildPageItems(["Body text"])]],
     })
-    mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     const result = await assetOperations.readAssetContent(
       { ...defaultParams, path: "text.pdf", raw: false },
@@ -841,7 +841,7 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
 
   it("omits title from pages result when PDF has no title metadata", async () => {
     setupPdfMocks({ numPages: 1 })
-    mockRenderPageAsImage.mockResolvedValue(new ArrayBuffer(1_000))
+    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(1_000))
     const fittedResult = buildFittedImage()
     mockedFitImage.mockResolvedValue(fittedResult)
 
@@ -1062,7 +1062,7 @@ describe("readAssetContent — line paging", () => {
       ],
     })
     mockExtractLinks.mockResolvedValue({
-      links: ["https://example.com"],
+      links: [["https://example.com"]],
       totalPages: 1,
     })
 

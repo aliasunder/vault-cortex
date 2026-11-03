@@ -28,8 +28,8 @@ const fixtureBytes = (): Uint8Array => {
  *  Rendered text produces thousands of dark pixels; a page whose glyphs
  *  were dropped produces zero, so a floor assertion separates the two
  *  states cleanly despite platform-dependent antialiasing. */
-const countDarkPixels = async (pngArrayBuffer: ArrayBuffer): Promise<number> => {
-  const { data, info } = await sharp(Buffer.from(pngArrayBuffer))
+const countDarkPixels = async (pngBytes: Uint8Array): Promise<number> => {
+  const { data, info } = await sharp(pngBytes)
     .flatten({ background: "#ffffff" })
     .raw()
     .toBuffer({ resolveWithObject: true })
@@ -58,12 +58,12 @@ describe("createPdfDocumentProxy", () => {
       await proxy.loadingTask.destroy()
     })
 
-    const pngArrayBuffer = await renderPageAsImage(proxy, 1, {
+    const pngBytes = await renderPageAsImage(proxy, 1, {
       canvasImport: () => import("@napi-rs/canvas"),
       scale: 2.0,
     })
 
-    expect(await countDarkPixels(pngArrayBuffer)).toBeGreaterThan(500)
+    expect(await countDarkPixels(pngBytes)).toBeGreaterThan(500)
   })
 
   it("extracts text through the swapped pdfjs module", async () => {
@@ -89,7 +89,6 @@ describe("createPdfDocumentProxy", () => {
       standardFontDataUrl: join(expectedPdfjsRoot, "standard_fonts/"),
       cMapUrl: join(expectedPdfjsRoot, "cmaps/"),
       cMapPacked: true,
-      CanvasFactory: expect.any(Function),
     })
   })
 
@@ -100,7 +99,7 @@ describe("createPdfDocumentProxy", () => {
     const freshUnpdf = await import("unpdf")
     const freshEngine = await import("../pdf-engine.js")
     const initFailure = new Error("transient init failure")
-    vi.mocked(freshUnpdf.definePDFJSModule).mockRejectedValueOnce(initFailure)
+    vi.mocked(freshUnpdf.getResolvedPDFJS).mockRejectedValueOnce(initFailure)
 
     // The server's own message, with the original failure kept as the cause
     await expect(freshEngine.createPdfDocumentProxy(fixtureBytes())).rejects.toEqual(
@@ -123,5 +122,15 @@ describe("createPdfDocumentProxy", () => {
       existsSync(join(expectedPdfjsRoot, "standard_fonts/", "LiberationSans-Regular.ttf")),
     ).toBe(true)
     expect(existsSync(join(expectedPdfjsRoot, "cmaps/", "78-H.bcmap"))).toBe(true)
+  })
+
+  it("loads the same @napi-rs/canvas copy that pdfjs-dist draws with", () => {
+    // pdfjs-dist's Node canvas factory requires @napi-rs/canvas from its own
+    // folder; the engine injects Path2D from the copy this package resolves.
+    // Two copies would make pdfjs's contexts reject the injected Path2D.
+    const pdfjsRequire = createRequire(join(expectedPdfjsRoot, "package.json"))
+    const engineRequire = createRequire(import.meta.url)
+
+    expect(pdfjsRequire.resolve("@napi-rs/canvas")).toBe(engineRequire.resolve("@napi-rs/canvas"))
   })
 })

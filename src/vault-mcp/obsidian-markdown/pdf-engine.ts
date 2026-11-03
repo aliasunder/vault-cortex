@@ -1,6 +1,6 @@
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
-import { createIsomorphicCanvasFactory, definePDFJSModule, getDocumentProxy } from "unpdf"
+import { definePDFJSModule, getDocumentProxy, getResolvedPDFJS } from "unpdf"
 import type { PDFDocumentProxy } from "unpdf/pdfjs"
 
 /**
@@ -8,23 +8,22 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  * `pdfjs-dist` Node build and creates document proxies whose glyph rendering
  * is self-contained (no system fonts required).
  *
- * Why this exists: unpdf ships a serverless/edge pdfjs build and resolves its
- * Node defaults (`disableFontFace`, `standardFontDataUrl`, cMaps) from an
- * installed `pdfjs-dist` package inside a silent catch — without the package
- * those defaults vanish, leaving `useSystemFonts: true` + CSS font paths as
- * the effective config. Text then renders only when the host has system
- * fonts; in a fontless container every glyph is silently dropped while
- * vector graphics still draw. The edge build also cannot read font/cMap data
- * from disk at all (no `node:fs`).
+ * unpdf ships a serverless/edge pdfjs build and resolves its Node defaults
+ * (standard fonts, cMaps) from an installed `pdfjs-dist` package inside a
+ * silent catch — without the package those defaults vanish, leaving
+ * `useSystemFonts: true` + CSS font paths as the effective config. Text then
+ * renders only when the host has system fonts; in a fontless container every
+ * glyph is silently dropped while vector graphics still draw. The edge build
+ * also cannot read font/cMap data from disk at all (no `node:fs`).
  *
  * The fix:
  * 1. Inject @napi-rs/canvas constructors into globalThis, overwriting any
  *    existing value — pdfjs's legacy build installs its own Path2D polyfill
  *    when the global is missing, @napi-rs/canvas contexts reject those
- *    polyfill objects (`ctx.clip` throws InvalidArg), and unpdf's built-in
- *    injection is set-if-undefined so it keeps the polyfill once installed.
- *    Injecting before the pdfjs import keeps the polyfill from ever
- *    activating.
+ *    polyfill objects (`ctx.clip` throws InvalidArg), and unpdf's own
+ *    injection sets Path2D only when it is missing, so it keeps the polyfill
+ *    once installed. Injecting before the pdfjs import keeps the polyfill
+ *    from ever activating.
  * 2. Swap in `pdfjs-dist/legacy/build/pdf.mjs` (the Node-targeted build with
  *    runtime polyfills; the modern build requires newer JS APIs than Node 24
  *    ships, e.g. `Math.sumPrecise`).
@@ -36,20 +35,15 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  *    literal path and fails.
  */
 
-/** The canvas factory class unpdf wires into pdfjs so intermediate canvases
- *  (transparency groups, patterns, masks) come from @napi-rs/canvas. */
-type PdfCanvasFactory = Awaited<ReturnType<typeof createIsomorphicCanvasFactory>>
-
 type PdfEngine = Readonly<{
   standardFontDataUrl: string
   cMapUrl: string
-  CanvasFactory: PdfCanvasFactory
 }>
 
-/** The one canvas-module importer every PDF surface shares — proxies (via
- *  CanvasFactory), page rendering, and tests must all wire the same backend,
- *  or output canvases could silently come from a different canvas package
- *  than the document's intermediate canvases. */
+/** The one canvas-module importer every PDF surface shares — the global
+ *  injection below, page rendering, and tests. pdfjs-dist's Node build draws
+ *  every canvas with its own `require("@napi-rs/canvas")`, so this import must
+ *  resolve to that same copy, or its contexts reject the injected Path2D. */
 export const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> =>
   import("@napi-rs/canvas")
 
@@ -76,10 +70,12 @@ const initializePdfEngine = async (): Promise<PdfEngine> => {
     Path2D: canvasModule.Path2D,
     ImageData: canvasModule.ImageData,
   })
-  // Step 2 — every later unpdf call resolves this module.
-  await definePDFJSModule(() => import("pdfjs-dist/legacy/build/pdf.mjs"))
-  const CanvasFactory = await createIsomorphicCanvasFactory(canvasImport)
-  return { ...resolvePdfjsAssetPaths(), CanvasFactory }
+  // Step 2 — every later unpdf call uses this module. unpdf loads it on first
+  // use, so load it here: a load failure then rejects inside this init, whose
+  // wrapper keeps the module's install path out of the client's error.
+  definePDFJSModule(() => import("pdfjs-dist/legacy/build/pdf.mjs"))
+  await getResolvedPDFJS()
+  return resolvePdfjsAssetPaths()
 }
 
 // Single-flight init: the module swap and global injection must run exactly
@@ -92,9 +88,9 @@ const getPdfEngine = (): Promise<PdfEngine> => {
     // Memoize only a fulfilled init, so one failed start does not poison
     // every later PDF read:
     // - The catch drops the memo, so the next call retries. That recovers a
-    //   failure after the modules load (pdf.js setup, the canvas factory). A
-    //   module whose first load failed stays failed until the process
-    //   restarts, because Node caches a failed module evaluation.
+    //   failure after the modules load. A module whose first load failed
+    //   stays failed until the process restarts, because Node caches a
+    //   failed module evaluation.
     // - Every caller sharing this promise sees one rejection: the server's
     //   own sentence, with the original error as its cause, because a
     //   module-load error quotes the server's install paths, which must not
@@ -122,6 +118,5 @@ export const createPdfDocumentProxy = async (pdfData: Uint8Array): Promise<PDFDo
     standardFontDataUrl: engine.standardFontDataUrl,
     cMapUrl: engine.cMapUrl,
     cMapPacked: true,
-    CanvasFactory: engine.CanvasFactory,
   })
 }

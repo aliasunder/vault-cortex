@@ -464,7 +464,7 @@ export const extractPdfText = async (pdfData: Uint8Array): Promise<PdfTextResult
         title: pdfTitle,
         totalPages,
         items,
-        pdfLinks: linkResult.links ?? [],
+        pdfLinks: linkResult.links.flat(),
       }),
       totalPages,
     }
