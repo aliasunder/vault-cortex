@@ -252,7 +252,7 @@ describe("registerTools", () => {
         'Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })',
         'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })',
         'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "insert_before", heading: "Phase 2", content: "## Phase 1\\nDone.\\n" })',
-        'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content: "> [!info] Draft\\n> Not reviewed yet.\\n" }) — adds a leading callout at the top of the body',
+        'Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content: "> [!info] Draft\\n> Not reviewed yet.\\n" }) — adds a leading callout',
       ].join("\n"),
     )
   })
@@ -3777,29 +3777,29 @@ describe("DISABLED_TOOLS", () => {
     }).toEqual(expectedLines)
   })
 
+  const replaceInNoteRetrySentence =
+    "A repeated call replaces the next match of old_text if one remains, so after a timeout or lost response, re-read the note before retrying."
+
   it.each([
     {
       label: "names both property editors while they are served",
       disabledTools: "",
-      expectedLine:
-        "Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. CRLF line breaks are saved as LF.",
+      expectedLine: `Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. CRLF line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
-      expectedLine:
-        "Properties are kept as written — edit them via vault_write_note's properties parameter. CRLF line breaks are saved as LF.",
+      expectedLine: `Properties are kept as written — edit them via vault_write_note's properties parameter. CRLF line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine:
-        "Properties are kept as written — edit them via vault_update_properties. CRLF line breaks are saved as LF.",
+      expectedLine: `Properties are kept as written — edit them via vault_update_properties. CRLF line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: "Properties are kept as written. CRLF line breaks are saved as LF.",
+      expectedLine: `Properties are kept as written. CRLF line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
     const propertyEditLine = extractDescriptionSection({

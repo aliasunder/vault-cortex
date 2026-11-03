@@ -374,7 +374,7 @@ Outline: bytes at the root is the whole file's size and modified is its modifica
     TOOL_NAMES.VAULT_LIST_NOTES,
     {
       title: "List Notes",
-      description: `List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
+      description: `List the vault's note (.md) paths, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.
 
 Example: vault_list_notes({ folder: "Projects" })
 Example: vault_list_notes({ glob: "**/*session-log*.md" })
@@ -391,7 +391,7 @@ Behavior: Paths come back sorted by vault-relative path in code-unit order (uppe
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
-${LISTING_FILESYSTEM_ERROR_ENTRY}
+${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON array of every matching vault-relative path, with no cap (e.g. ["Notes/idea.md", "Projects/plan.md"]).`,
       inputSchema: {
@@ -562,7 +562,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
 Example: vault_patch_note({ path: "Projects/plan.md", operation: "append", heading: "Open questions", content: "- Which region hosts the backup?" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "replace", heading: "Status", content: "On track for launch.\\n" })
 Example: vault_patch_note({ path: "Notes/Plan.md", operation: "insert_before", heading: "Phase 2", content: "## Phase 1\\nDone.\\n" })
-Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content: "> [!info] Draft\\n> Not reviewed yet.\\n" }) — adds a leading callout at the top of the body
+Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content: "> [!info] Draft\\n> Not reviewed yet.\\n" }) — adds a leading callout
 
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
@@ -572,7 +572,7 @@ Operations:
 - replace: replace section body (requires heading)${whenToolEnabledText("vault_delete_span", "; to empty it, use vault_delete_span on its lines")}
 - insert_before: insert content above the heading line (requires heading)
 
-Heading-targeted ops keep the matched heading. Every operation writes content verbatim as whole lines with no separator: end content with a newline to leave a blank line after it; without one, the next line follows directly.
+Heading-targeted ops keep the matched heading. Every operation writes content verbatim as whole lines with no separator: end content with a newline to leave a blank line after it; without one, the next line follows directly. A repeated append, prepend or insert_before writes the content again, so after a timeout or lost response, re-read the note before retrying.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
@@ -698,7 +698,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
     {
       title: "Replace in Note",
-      description: `Find and replace exact text in a markdown note's body. Properties are kept as written${propertyEditClause}. CRLF line breaks are saved as LF.
+      description: `Find and replace exact text in a markdown note's body. Properties are kept as written${propertyEditClause}. CRLF line breaks are saved as LF. A repeated call replaces the next match of old_text if one remains, so after a timeout or lost response, re-read the note before retrying.
 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "- [ ] draft outline\\n", new_text: "" })
