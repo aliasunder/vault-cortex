@@ -884,14 +884,6 @@ describe("OAuth audit logging", () => {
         },
       },
     ])
-    // The rejected attempt left the code redeemable by the client it was issued to.
-    const ownerTokens = await exchangeAuthorizationCode(oauth, client, code)
-    expect(await verifyAccessToken(oauth, ownerTokens.access_token)).toEqual({
-      token: ownerTokens.access_token,
-      clientId: "test-client",
-      scopes: ["vault"],
-      expiresAt: expect.any(Number),
-    })
   })
 
   it("logs oauth_token_refreshed on successful refresh", async () => {
@@ -1095,6 +1087,27 @@ const startAuthFlow = async (
   if (!match?.[1]) throw new Error("no request_id in consent HTML")
   return match[1]
 }
+
+describe("OAuth authorization code client binding", () => {
+  it("leaves a code another client presented redeemable by the client it was issued to", async () => {
+    const { testLogger, oauth, db, client } = await setupAuditTest()
+    const otherClient = seedClient(db, "other-client")
+    const requestId = await startAuthFlow(oauth, client)
+    const code = oauth.approveRequest(requestId, testLogger)
+    await expect(exchangeAuthorizationCode(oauth, otherClient, code)).rejects.toThrow(
+      new InvalidGrantError("Authorization code expired or invalid"),
+    )
+
+    const ownerTokens = await exchangeAuthorizationCode(oauth, client, code)
+
+    expect(await verifyAccessToken(oauth, ownerTokens.access_token)).toEqual({
+      token: ownerTokens.access_token,
+      clientId: "test-client",
+      scopes: ["vault"],
+      expiresAt: expect.any(Number),
+    })
+  })
+})
 
 describe("OAuth pending consent request expiry", () => {
   const TEN_MINUTES_MS = 10 * 60 * 1000

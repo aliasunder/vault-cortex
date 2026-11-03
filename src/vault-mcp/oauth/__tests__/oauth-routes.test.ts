@@ -15,6 +15,7 @@ import {
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import { createOAuthRoutes } from "../oauth-routes.js"
+import { renderConsentPage } from "../consent-page.js"
 import { logger, type Logger } from "../../../logger.js"
 
 type LogCall = {
@@ -105,7 +106,9 @@ describe("OAuth consent token submission", () => {
   // Register a client and start an authorization request directly through
   // the provider (the HTTP /register and /authorize routes are rate-limited;
   // /oauth/decide, the route under test, is not).
-  const startPendingRequest = async (): Promise<string> => {
+  const startPendingRequest = async (
+    scopes: string[] = ["vault"],
+  ): Promise<{ requestId: string; clientId: string }> => {
     const clientsStore = oauth.provider.clientsStore
 
     if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
@@ -119,7 +122,7 @@ describe("OAuth consent token submission", () => {
     const params: AuthorizationParams = {
       codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
       redirectUri: REDIRECT_URI,
-      scopes: ["vault"],
+      scopes,
       state: "test-state",
     }
     let capturedHtml = ""
@@ -134,7 +137,7 @@ describe("OAuth consent token submission", () => {
     const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
 
     if (!requestId) throw new Error("no request_id in consent HTML")
-    return requestId
+    return { requestId, clientId: client.client_id }
   }
 
   const submitToken = async (requestId: string, token: string) => {
@@ -166,7 +169,7 @@ describe("OAuth consent token submission", () => {
   ]
 
   it.each(approvalScenarios)("approves $name", async ({ token }) => {
-    const requestId = await startPendingRequest()
+    const { requestId } = await startPendingRequest()
     const response = await submitToken(requestId, token)
     expect(response.status).toBe(302)
     const locationHeader = response.headers.get("location")
@@ -191,14 +194,37 @@ describe("OAuth consent token submission", () => {
   it.each(rejectionScenarios)(
     "rejects $name without redirecting or issuing a code",
     async ({ token }) => {
-      const requestId = await startPendingRequest()
+      const { requestId, clientId } = await startPendingRequest()
       const response = await submitToken(requestId, token)
       expect(response.status).toBe(200)
       expect(response.headers.get("location")).toBeNull()
-      const body = await response.text()
-      expect(body).toContain("Invalid token. Please try again.")
+      expect(await response.text()).toBe(
+        renderConsentPage({
+          clientName: "Test Client",
+          clientId,
+          scopes: ["vault"],
+          requestId,
+          error: "Invalid token. Please try again.",
+        }),
+      )
     },
   )
+
+  it("re-renders the consent page with the default scope after a wrong token when the request named none", async () => {
+    const { requestId, clientId } = await startPendingRequest([])
+
+    const response = await submitToken(requestId, "not-the-token")
+
+    expect(await response.text()).toBe(
+      renderConsentPage({
+        clientName: "Test Client",
+        clientId,
+        scopes: ["vault"],
+        requestId,
+        error: "Invalid token. Please try again.",
+      }),
+    )
+  })
 })
 
 describe("OAuth consent body validation", () => {
