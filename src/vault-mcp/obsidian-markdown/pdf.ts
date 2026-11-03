@@ -268,9 +268,8 @@ const renderFencedLineText = (orderedItems: readonly StructuredTextItem[]): stri
  *  rebuilt positionally: the block's left margin is the smallest starting x
  *  across its lines, and each line's indent is its x offset from that margin
  *  divided by the line's own per-character advance (exact for monospace —
- *  first item width / character count). Degenerate metrics (non-positive
- *  width, or an empty first string with no characters to divide by) skip
- *  indentation for that line rather than guessing. */
+ *  first item width / character count). Degenerate metrics (a non-positive
+ *  width) skip indentation for that line rather than guessing. */
 const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])[]): string[] => {
   const lineStartXs = orderedLines.map((orderedItems) => orderedItems[0]?.x ?? Infinity)
   const blockLeftMargin = Math.min(...lineStartXs)
@@ -279,7 +278,7 @@ const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])
     const lineText = renderFencedLineText(orderedItems)
     const firstItem = orderedItems[0]
 
-    if (!firstItem || firstItem.width <= 0 || firstItem.str.length === 0) {
+    if (!firstItem || firstItem.width <= 0) {
       return lineText
     }
 
