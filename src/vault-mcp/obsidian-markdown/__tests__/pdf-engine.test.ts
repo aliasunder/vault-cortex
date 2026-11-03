@@ -5,7 +5,12 @@ import { describe, it, expect, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
 import { getDocumentProxy, renderPageAsImage, extractText } from "unpdf"
 import { canvasImport, createPdfDocumentProxy } from "../pdf-engine.js"
-import { buildClippedFillPdf, buildMinimalPdf, toPdfData } from "./pdf-fixture.js"
+import {
+  buildClippedFillPdf,
+  buildClippedTextPdf,
+  buildMinimalPdf,
+  toPdfData,
+} from "./pdf-fixture.js"
 
 // Spy mode keeps the real unpdf implementation — the rendering tests below
 // are true integration tests — while letting the configuration test assert
@@ -99,6 +104,24 @@ describe("createPdfDocumentProxy", () => {
     expect(await countPixels(pngBytes, isRed)).toBe(400 * 400)
   })
 
+  it("renders a fill clipped to text outlines", async () => {
+    // pdf.js builds a text clip with the global DOMMatrix's preMultiplySelf,
+    // which unpdf's DOMMatrix stub lacks; this fails if the stub is ever left
+    // in place for a render. Clipped to "HI" in 120-point Helvetica, the red
+    // fill covers the glyph interiors only; an ignored clip paints the whole
+    // 1224 × 1584 page.
+    const proxy = await createPdfDocumentProxy(toPdfData(buildClippedTextPdf()))
+    onTestFinished(async () => {
+      await proxy.loadingTask.destroy()
+    })
+
+    const pngBytes = await renderPageAsImage(proxy, 1, { canvasImport, scale: 2.0 })
+    const redPixels = await countPixels(pngBytes, isRed)
+
+    expect(redPixels).toBeGreaterThan(5_000)
+    expect(redPixels).toBeLessThan(100_000)
+  })
+
   it("extracts text through the swapped pdfjs module", async () => {
     const proxy = await createPdfDocumentProxy(fixtureBytes())
     onTestFinished(async () => {
@@ -155,17 +178,5 @@ describe("createPdfDocumentProxy", () => {
       existsSync(join(expectedPdfjsRoot, "standard_fonts/", "LiberationSans-Regular.ttf")),
     ).toBe(true)
     expect(existsSync(join(expectedPdfjsRoot, "cmaps/", "78-H.bcmap"))).toBe(true)
-  })
-
-  it("injects the same canvas classes that pdfjs-dist draws with", async () => {
-    // pdfjs-dist's Node canvas factory requires @napi-rs/canvas from its own
-    // folder, while the engine and unpdf's page render take classes from
-    // canvasImport. Two copies would make pdfjs's contexts reject those classes.
-    const engineCanvas = await canvasImport()
-    const pdfjsRequire = createRequire(join(expectedPdfjsRoot, "package.json"))
-    const pdfjsCanvas: typeof engineCanvas = pdfjsRequire("@napi-rs/canvas")
-
-    expect(pdfjsCanvas.Path2D).toBe(engineCanvas.Path2D)
-    expect(pdfjsCanvas.DOMMatrix).toBe(engineCanvas.DOMMatrix)
   })
 })

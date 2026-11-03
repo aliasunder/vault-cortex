@@ -16,15 +16,10 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  * glyph is silently dropped while vector graphics still draw.
  *
  * The fix:
- * 1. Set @napi-rs/canvas's DOMMatrix on globalThis before pdfjs loads,
- *    overwriting any existing value. unpdf installs a stub without
- *    `invertSelf` or `multiplySelf` when DOMMatrix is missing, and pdfjs
- *    keeps whatever is there; setting it first keeps the stub out. (pdfjs
- *    fills in Path2D from @napi-rs/canvas itself.)
- * 2. Swap in `pdfjs-dist/legacy/build/pdf.mjs` (the Node-targeted build with
+ * 1. Swap in `pdfjs-dist/legacy/build/pdf.mjs` (the Node-targeted build with
  *    runtime polyfills; the modern build requires newer JS APIs than Node 24
  *    ships, e.g. `Math.sumPrecise`).
- * 3. Create proxies with `disableFontFace: true` + `useSystemFonts: false`
+ * 2. Create proxies with `disableFontFace: true` + `useSystemFonts: false`
  *    so glyphs are always drawn from font data — embedded fonts from the PDF,
  *    base-14 fonts from pdfjs-dist's bundled standard fonts — never from the
  *    host font stack. Font/cMap locations are plain directory paths: pdfjs's
@@ -33,21 +28,14 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  */
 
 /** The proxy options a started engine supplies, under pdfjs's option names;
- *  the DOMMatrix global and pdfjs module it also sets are process-wide state. */
+ *  the pdfjs module it also sets is process-wide state. */
 type PdfEngine = Readonly<{
   standardFontDataUrl: string
   cMapUrl: string
 }>
 
-/** The one canvas-module importer every PDF surface shares: the global
- *  injection below, page rendering (unpdf's `canvasImport` option takes a
- *  function), and tests.
- *  - pdfjs-dist's Node build draws every canvas with its own
- *    `require("@napi-rs/canvas")`, and its contexts reject canvas classes
- *    from another copy of the package.
- *  - npm installs one copy for both, because the @napi-rs/canvas version
- *    package.json pins satisfies pdfjs-dist's range; a pdf-engine test fails
- *    on a second copy. */
+/** The canvas-module importer page rendering and tests share; unpdf's
+ *  `canvasImport` option takes a function, not the module. */
 export const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> =>
   import("@napi-rs/canvas")
 
@@ -64,13 +52,7 @@ const resolvePdfjsAssetPaths = (): PdfEngine => {
 }
 
 const initializePdfEngine = async (): Promise<PdfEngine> => {
-  const canvasModule = await canvasImport()
-
-  // Step 1 — overwrite rather than set only when missing, so a stub left by
-  // an earlier unpdf or pdfjs load in this process is replaced too.
-  Object.assign(globalThis, { DOMMatrix: canvasModule.DOMMatrix })
-
-  // Step 2 — every later unpdf call uses this module. unpdf loads it on first
+  // Step 1 — every later unpdf call uses this module. unpdf loads it on first
   // use, so load it here: a load failure then rejects inside this init, and
   // getPdfEngine's catch keeps the module's install path out of the client's
   // error.
@@ -79,9 +61,10 @@ const initializePdfEngine = async (): Promise<PdfEngine> => {
   return resolvePdfjsAssetPaths()
 }
 
-// Single-flight init: the module swap and global injection must run exactly
-// once per process, before any pdfjs use — concurrent callers share the same
-// in-flight promise. Mutation justified: memoization is inherently stateful.
+// Init runs once per process and concurrent callers share its in-flight
+// promise, because the module swap must happen before any pdfjs use and
+// definePDFJSModule drops unpdf's loaded module on every call. The `let` is
+// justified because memoization is inherently stateful.
 let pdfEnginePromise: Promise<PdfEngine> | undefined
 
 const getPdfEngine = (): Promise<PdfEngine> => {
