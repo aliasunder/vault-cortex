@@ -436,23 +436,25 @@ const reconstructPdfMarkdown = (params: {
     headerParts.push(`Links: ${uniqueLinks.length}`)
   }
 
-  const outputLines: string[] = [headerParts.join(" | "), ""]
-
-  for (const [pageIndex, pageItems] of itemsByPage.entries()) {
+  /** A separator before every page but the first, then the page's lines; a
+   *  page with no text renders nothing. */
+  const renderPageSection = (
+    pageItems: readonly StructuredTextItem[],
+    pageIndex: number,
+  ): string[] => {
     const lines = rejoinOrphanedMarkers(groupIntoLines(pageItems))
 
-    if (lines.length === 0) continue
+    if (lines.length === 0) return []
 
-    if (pageIndex > 0) {
-      outputLines.push("", `--- Page ${pageIndex + 1} ---`, "")
-    }
-
-    // Each line is pushed on its own, because spreading a page's lines as call
-    // arguments overflows the stack once a page renders to about 120,000 lines
-    for (const pageLine of renderPageLines(lines, headingLevels)) {
-      outputLines.push(pageLine)
-    }
+    const pageSeparator = pageIndex > 0 ? ["", `--- Page ${pageIndex + 1} ---`, ""] : []
+    return [...pageSeparator, ...renderPageLines(lines, headingLevels)]
   }
+
+  const outputLines: string[] = [
+    headerParts.join(" | "),
+    "",
+    ...itemsByPage.flatMap(renderPageSection),
+  ]
 
   if (uniqueLinks.length > 0) {
     outputLines.push("", "Links:", ...uniqueLinks.map((link) => `- ${link}`))
