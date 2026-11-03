@@ -3245,7 +3245,7 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
     const trackedPath = join(newDirectory, "tracked.md")
     const missedPath = join(newDirectory, "missed.md")
     await writeFile(trackedPath, "already tracked note\n", "utf8")
-    await writeFile(missedPath, "missed sibling note\n", "utf8")
+    await writeFile(missedPath, "missed sibling note #found\n", "utf8")
     await backdateMtime(trackedPath)
     await backdateMtime(missedPath)
 
@@ -3262,9 +3262,9 @@ describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
     expect(upsertNoteSpy).toHaveBeenCalledExactlyOnceWith(
       {
         filePath: "new-folder/missed.md",
-        rawContent: "missed sibling note\n",
-        fileStat: { mtimeMs: expect.any(Number), size: 20 },
-        bodyTags: [],
+        rawContent: "missed sibling note #found\n",
+        fileStat: { mtimeMs: expect.any(Number), size: 27 },
+        bodyTags: ["found"],
       },
       logger,
     )

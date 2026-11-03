@@ -74,6 +74,7 @@ describe("createBodyTagParser", () => {
     const parser = createTestParser(50)
     const requestLogger = createErrorLogger()
     await warmUp(parser)
+    const slowWorker = latestWorker()
 
     const slowResult = await parser.parse({ notePath: "slow.md", body: SLOW_BODY }, requestLogger)
     const nextResult = await parser.parse({ notePath: "next.md", body: "#after" }, logger)
@@ -85,6 +86,7 @@ describe("createBodyTagParser", () => {
       { path: "slow.md", timeoutMs: 50 },
     )
     expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
+    expect(latestWorker()).not.toBe(slowWorker)
   })
 
   it("keeps a note over-limit when its reply arrives while the worker is stopping", async () => {
@@ -138,6 +140,7 @@ describe("createBodyTagParser", () => {
       { notePath: "deep.md", body: THROWING_BODY },
       requestLogger,
     )
+    const throwingWorker = latestWorker()
     const nextResult = await parser.parse({ notePath: "next.md", body: "#after" }, logger)
 
     expect(throwingResult).toEqual({ outcome: "failed" })
@@ -147,6 +150,7 @@ describe("createBodyTagParser", () => {
       { path: "deep.md", error: "[RangeError]: Maximum call stack size exceeded" },
     )
     expect(nextResult).toEqual({ outcome: "parsed", tags: ["after"] })
+    expect(latestWorker()).toBe(throwingWorker)
   })
 
   it("settles a note failed and logs it when its worker crashes, without stopping the main thread", async () => {

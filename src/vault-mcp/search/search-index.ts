@@ -652,8 +652,8 @@ export const createSearchIndex = (
   if (!noteColumns.some((column) => column.name === "kanban_done_lanes")) {
     db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
   }
-  // The default lets an older image, rolled back onto a database this version
-  // migrated, keep writing notes: its upsert does not name this column
+  // An earlier release leaves this column out of its inserts, so after a
+  // downgrade the '[]' default is what lets those inserts succeed
   if (!noteColumns.some((column) => column.name === "body_tags")) {
     db.exec(`ALTER TABLE notes ADD COLUMN body_tags TEXT NOT NULL DEFAULT '[]'`)
   }
