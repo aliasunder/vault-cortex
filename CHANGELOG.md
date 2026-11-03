@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.56.2] — 2026-11-03
+
+### Bug Fixes
+
+- **oauth:** Reject an authorization code redeemed by another client (#733)
+
+### Refactoring
+
+- Clarify the PDF text and asset-read code (#731)
+
+### CI / Infrastructure
+
+- Bump umm-actually to v0.4.11 (#734)
+
+### Maintenance
+
+- **deps:** Bump the production group across 1 directory with 3 updates (#727)
+
+### Other Changes
+
+- Make the PDF destroy-on-throw test throw inside extraction (#735)
+
 ## [0.56.1] — 2026-11-03
 
 ### Bug Fixes
