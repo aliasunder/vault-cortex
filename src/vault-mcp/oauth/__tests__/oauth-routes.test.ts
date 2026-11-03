@@ -15,7 +15,6 @@ import {
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import { createOAuthRoutes } from "../oauth-routes.js"
-import { renderConsentPage } from "../consent-page.js"
 import { logger, type Logger } from "../../../logger.js"
 
 type LogCall = {
@@ -191,6 +190,17 @@ describe("OAuth consent token submission", () => {
     },
   ]
 
+  // Reads the values the route fills into the re-rendered consent page with
+  // test-owned patterns, so a regression in the renderer fails these tests too.
+  const readConsentPage = (html: string) => {
+    return {
+      error: /<div class="error">([^<]*)<\/div>/.exec(html)?.[1],
+      values: [...html.matchAll(/<div class="value">([^<]*)<\/div>/g)].map((match) => match[1]),
+      scopes: [...html.matchAll(/<li>([^<]*)<\/li>/g)].map((match) => match[1]),
+      requestId: REQUEST_ID_PATTERN.exec(html)?.[1],
+    }
+  }
+
   it.each(rejectionScenarios)(
     "rejects $name without redirecting or issuing a code",
     async ({ token }) => {
@@ -198,15 +208,12 @@ describe("OAuth consent token submission", () => {
       const response = await submitToken(requestId, token)
       expect(response.status).toBe(200)
       expect(response.headers.get("location")).toBeNull()
-      expect(await response.text()).toBe(
-        renderConsentPage({
-          clientName: "Test Client",
-          clientId,
-          scopes: ["vault"],
-          requestId,
-          error: "Invalid token. Please try again.",
-        }),
-      )
+      expect(readConsentPage(await response.text())).toEqual({
+        error: "Invalid token. Please try again.",
+        values: ["Test Client", clientId],
+        scopes: ["vault"],
+        requestId,
+      })
     },
   )
 
@@ -215,15 +222,12 @@ describe("OAuth consent token submission", () => {
 
     const response = await submitToken(requestId, "not-the-token")
 
-    expect(await response.text()).toBe(
-      renderConsentPage({
-        clientName: "Test Client",
-        clientId,
-        scopes: ["vault"],
-        requestId,
-        error: "Invalid token. Please try again.",
-      }),
-    )
+    expect(readConsentPage(await response.text())).toEqual({
+      error: "Invalid token. Please try again.",
+      values: ["Test Client", clientId],
+      scopes: ["vault"],
+      requestId,
+    })
   })
 })
 
