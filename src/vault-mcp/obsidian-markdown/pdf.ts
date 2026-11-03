@@ -8,7 +8,7 @@ import { createPdfDocumentProxy } from "./pdf-engine.js"
 const roundFontSize = (size: number): number => Math.round(size * 10) / 10
 
 /** Items within this many points of the previous item's y-coordinate belong
- *  to the same visual line; the orphaned-marker rejoin searches the same
+ *  to the same visual line; `rejoinOrphanedMarkers` searches the same
  *  radius. Grouping and rejoin share the constant so they cannot disagree
  *  about what "same line" means. 2pt absorbs sub-pixel jitter from font
  *  metrics and inline elements while staying well below the smallest real
@@ -43,9 +43,8 @@ const groupIntoLines = (pageItems: readonly StructuredTextItem[]): StructuredTex
 
   if (nonEmpty.length === 0) return []
 
-  // PDF text items arrive in content-stream order with y-coordinates
-  // descending down the page. Items on the same visual line share a y
-  // (within the threshold); a jump in y starts a new line.
+  // Items stay in content-stream order, which need not run down the page
+  // (see rejoinOrphanedMarkers), so a jump in y either way starts a new line.
   const lines: StructuredTextItem[][] = []
   for (const item of nonEmpty) {
     const currentLine = lines.at(-1)
@@ -77,7 +76,7 @@ const dominantRoundedFontSize = (items: readonly StructuredTextItem[]): number =
     volumeBySize.set(roundedSize, currentVolume + item.str.trim().length)
   }
 
-  const dominantEntry = [...volumeBySize.entries()].reduce((bestEntry, candidateEntry) => {
+  const [dominantSize] = [...volumeBySize.entries()].reduce((bestEntry, candidateEntry) => {
     const [bestSize, bestVolume] = bestEntry
     const [candidateSize, candidateVolume] = candidateEntry
 
@@ -87,7 +86,7 @@ const dominantRoundedFontSize = (items: readonly StructuredTextItem[]): number =
     }
     return bestEntry
   })
-  return dominantEntry[0]
+  return dominantSize
 }
 
 /** Maps rounded font size to heading level (1 for the largest). Body text is
@@ -114,8 +113,9 @@ const buildHeadingLevels = (
 
 /** Orders a line's items into visual left-to-right order by x. Stream order
  *  is kept when the line contains RTL text: pdfjs emits RTL runs in logical
- *  reading order, which an x-ascending sort would reverse. Lines and columns
- *  are not reordered: they keep content-stream order. */
+ *  reading order, which an x-ascending sort would reverse. Only items inside
+ *  the line move: the order of lines, and so of columns, stays content-stream
+ *  order. */
 const orderLineItems = (line: readonly StructuredTextItem[]): readonly StructuredTextItem[] => {
   const hasRtlItem = line.some((item) => item.dir === "rtl")
 
@@ -129,6 +129,8 @@ const orderLineItems = (line: readonly StructuredTextItem[]): readonly Structure
  *  boundary, so the items join with a space. */
 const isWordGap = (previousItem: StructuredTextItem, nextItem: StructuredTextItem): boolean => {
   const gap = nextItem.x - (previousItem.x + previousItem.width)
+  // At a font-size change the smaller size sets the lower threshold, so the
+  // junction leans toward a space rather than gluing two words together
   const referenceFontSize = Math.min(previousItem.fontSize, nextItem.fontSize)
   const hasUsableMetrics = Number.isFinite(gap) && previousItem.width > 0 && referenceFontSize > 0
 
@@ -152,15 +154,18 @@ const needsSpaceBetween = (
 
 /** Collapses letter-spaced banner text ("S U M M A RY" → "SUMMARY"). pdfjs
  *  merges tracked glyphs into one item with literal spaces baked in, so the
- *  shatter is intra-string and only a text-level collapse can undo it.
- *  Guardrails: every whitespace-separated token must be ≤2 characters, there
- *  must be at least three tokens, and the text must contain no ASCII
- *  lowercase letters and no digits — letter-spaced banners are
- *  caps/small-caps in practice, the lowercase check keeps genuine short-word
- *  prose ("on a to")
- *  intact, and the digit check keeps spaced number runs ("12 34 56") from
- *  gluing into a different number (digit-bearing banners like
- *  "S E C T I O N 0 1" stay shattered — the safe direction).
+ *  shatter is intra-string and only a text-level collapse can undo it. The
+ *  text collapses only when all of these hold:
+ *  - Every whitespace-separated token is at most 2 characters, since a
+ *    tracked pair of glyphs can stay joined ("RY" above).
+ *  - There are at least three tokens.
+ *  - It has no ASCII lowercase letter: letter-spaced banners are caps or
+ *    small caps in practice, and short-word prose ("on a to") must stay
+ *    intact.
+ *  - It has no digit, so spaced number runs ("12 34 56") never glue into a
+ *    different number. Digit-bearing banners ("S E C T I O N 0 1") stay
+ *    shattered, the safe direction.
+ *
  *  Applied per item, never across items, so a real word gap wide enough to
  *  split items keeps its space ("INTERVIEW PREPARATION"). */
 const collapseLetterSpacedText = (text: string): string => {
@@ -174,8 +179,8 @@ const collapseLetterSpacedText = (text: string): string => {
 }
 
 /** Joins a mixed line's ordered items into markdown text, wrapping each
- *  maximal monospace run in inline backticks (fully-monospace lines are
- *  fenced by the caller via `renderFencedLineText` and never reach here).
+ *  maximal monospace run in inline backticks (fully-monospace lines go to
+ *  `renderFenceBlock` instead and never reach here).
  *  Non-monospace item text goes through the letter-spacing collapse;
  *  monospace text is left verbatim (code is never reflowed), and backticks
  *  inside monospace text are not escaped. */
@@ -215,8 +220,6 @@ const renderLineText = (orderedItems: readonly StructuredTextItem[]): string => 
     return run.monospace ? `\`${trimmedText}\`` : trimmedText
   }
 
-  // Run texts are edge-trimmed (so backticks hug the code), which drops any
-  // baked junction whitespace — re-add it from the boundary items' metrics.
   return fontRuns
     .map((run, index) => {
       const previousRun = fontRuns[index - 1]
@@ -226,12 +229,16 @@ const renderLineText = (orderedItems: readonly StructuredTextItem[]): string => 
 
       const previousBoundaryItem = previousRun.items.at(-1)
       const nextBoundaryItem = run.items[0]
+
+      if (!previousBoundaryItem || !nextBoundaryItem) return renderedRun
+
+      // Run texts are edge-trimmed (so backticks hug the code), which drops any
+      // baked junction whitespace. So unlike needsSpaceBetween, whitespace at
+      // the junction asks for a space here, as does a word-sized gap.
       const junctionNeedsSpace =
-        previousBoundaryItem &&
-        nextBoundaryItem &&
-        (/\s$/.test(previousBoundaryItem.str) ||
-          /^\s/.test(nextBoundaryItem.str) ||
-          isWordGap(previousBoundaryItem, nextBoundaryItem))
+        /\s$/.test(previousBoundaryItem.str) ||
+        /^\s/.test(nextBoundaryItem.str) ||
+        isWordGap(previousBoundaryItem, nextBoundaryItem)
       return junctionNeedsSpace ? ` ${renderedRun}` : renderedRun
     })
     .join("")
@@ -240,8 +247,9 @@ const renderLineText = (orderedItems: readonly StructuredTextItem[]): string => 
 /** Joins a fully-monospace line's items verbatim for emission inside a code
  *  fence — gap-aware spacing, no backtick wrapping, no letter-spacing
  *  collapse (code is never reflowed). Leading indentation never arrives in
- *  item strings (pdfjs normalizes it into x positions); `renderFenceBlock`
- *  reconstructs it positionally around this per-line text. */
+ *  item strings (pdfjs normalizes it into x positions), but a merged item can
+ *  carry a baked space at the line's edge, so the joined text is trimmed
+ *  before `renderFenceBlock` adds the indent it rebuilds from x. */
 const renderFencedLineText = (orderedItems: readonly StructuredTextItem[]): string => {
   return orderedItems
     .map((item, index) => {
@@ -261,9 +269,10 @@ const renderFencedLineText = (orderedItems: readonly StructuredTextItem[]): stri
  *  across its lines, and each line's indent is its x offset from that margin
  *  divided by the line's own per-character advance (exact for monospace —
  *  first item width / character count). Degenerate metrics (non-positive
- *  width) skip indentation for that line rather than guessing. */
+ *  width, or an empty first string with no characters to divide by) skip
+ *  indentation for that line rather than guessing. */
 const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])[]): string[] => {
-  const lineStartXs = orderedLines.map((orderedItems) => orderedItems[0]?.x ?? 0)
+  const lineStartXs = orderedLines.map((orderedItems) => orderedItems[0]?.x ?? Infinity)
   const blockLeftMargin = Math.min(...lineStartXs)
 
   const indentedLines = orderedLines.map((orderedItems) => {
@@ -356,6 +365,55 @@ const rejoinOrphanedMarkers = (
     .filter((_line, lineIndex) => !absorbedMarkerIndices.has(lineIndex))
 }
 
+type LineSegment = {
+  fenced: boolean
+  orderedLines: (readonly StructuredTextItem[])[]
+}
+
+/** Renders one page's lines as output lines: each run of fully-monospace
+ *  lines becomes one fenced block, and every other line becomes plain text,
+ *  as a heading when its dominant font size has a heading level. */
+const renderPageLines = (
+  lines: readonly (readonly StructuredTextItem[])[],
+  headingLevels: ReadonlyMap<number, number>,
+): string[] => {
+  // Partition the page's lines into alternating fenced/plain segments —
+  // consecutive fully-monospace lines form one fence block, so the block
+  // can compute a shared left margin for indentation reconstruction.
+  const lineSegments: LineSegment[] = []
+  for (const line of lines) {
+    const orderedItems = orderLineItems(line)
+    const isFullyMonospaceLine = orderedItems.every(isMonospaceItem)
+    const currentSegment = lineSegments.at(-1)
+
+    if (currentSegment && currentSegment.fenced === isFullyMonospaceLine) {
+      currentSegment.orderedLines.push(orderedItems)
+    } else {
+      lineSegments.push({
+        fenced: isFullyMonospaceLine,
+        orderedLines: [orderedItems],
+      })
+    }
+  }
+
+  const pageLines: string[] = []
+  for (const segment of lineSegments) {
+    if (segment.fenced) {
+      pageLines.push(...renderFenceBlock(segment.orderedLines))
+      continue
+    }
+    for (const orderedItems of segment.orderedLines) {
+      const lineText = renderLineText(orderedItems)
+
+      if (!lineText) continue
+
+      const headingLevel = headingLevels.get(dominantRoundedFontSize(orderedItems))
+      pageLines.push(headingLevel ? `${"#".repeat(headingLevel)} ${lineText}` : lineText)
+    }
+  }
+  return pageLines
+}
+
 /** Reconstructs a markdown-formatted text rendition from structured PDF items,
  *  metadata, and links — heading hierarchy from font sizes relative to the
  *  dominant body size, fenced code blocks for fully-monospace lines with
@@ -388,49 +446,7 @@ const reconstructPdfMarkdown = (params: {
     if (pageIndex > 0) {
       outputLines.push("", `--- Page ${pageIndex + 1} ---`, "")
     }
-
-    // Partition the page's lines into alternating fenced/plain segments —
-    // consecutive fully-monospace lines form one fence block, so the block
-    // can compute a shared left margin for indentation reconstruction.
-    type LineSegment = {
-      fenced: boolean
-      orderedLines: (readonly StructuredTextItem[])[]
-    }
-    const lineSegments: LineSegment[] = []
-    for (const line of lines) {
-      const orderedItems = orderLineItems(line)
-      const isFullyMonospaceLine = orderedItems.every(isMonospaceItem)
-      const currentSegment = lineSegments.at(-1)
-
-      if (currentSegment && currentSegment.fenced === isFullyMonospaceLine) {
-        currentSegment.orderedLines.push(orderedItems)
-      } else {
-        lineSegments.push({
-          fenced: isFullyMonospaceLine,
-          orderedLines: [orderedItems],
-        })
-      }
-    }
-
-    for (const segment of lineSegments) {
-      if (segment.fenced) {
-        outputLines.push(...renderFenceBlock(segment.orderedLines))
-        continue
-      }
-      for (const orderedItems of segment.orderedLines) {
-        const lineText = renderLineText(orderedItems)
-
-        if (!lineText) continue
-
-        const headingLevel = headingLevels.get(dominantRoundedFontSize(orderedItems)) ?? 0
-
-        if (headingLevel > 0) {
-          outputLines.push(`${"#".repeat(headingLevel)} ${lineText}`)
-        } else {
-          outputLines.push(lineText)
-        }
-      }
-    }
+    outputLines.push(...renderPageLines(lines, headingLevels))
   }
 
   if (uniqueLinks.length > 0) {

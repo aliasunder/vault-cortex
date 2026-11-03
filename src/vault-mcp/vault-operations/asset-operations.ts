@@ -59,6 +59,8 @@ const MAX_TEXT_OUTPUT_BYTES = 102_400
 type RenderedPdfPage = Readonly<{
   fitted: FittedImage
   pageNumber: number
+  /** The page's PNG rendering before fitting, in bytes; an image result's
+   *  originalBytes is instead the file's size on disk. */
   originalBytes: number
 }>
 
@@ -89,6 +91,15 @@ export type AssetReadResult =
       path: string
     }>
 
+/** Compares with undefined, not truthiness, so a 0 still counts as a line
+ *  window request and gets the invalid-line-range error. */
+const requestsLineWindow = (params: {
+  startLine?: number | undefined
+  limit?: number | undefined
+}): boolean => {
+  return params.startLine !== undefined || params.limit !== undefined
+}
+
 /** Rejects text output past the fixed cap — an explicit error beats silent
  *  truncation, and states the actual size so the caller knows what exists. */
 const assertTextWithinCap = (params: { text: string; path: string }): void => {
@@ -115,7 +126,7 @@ const buildTextResult = (params: {
   limit?: number | undefined
 }): AssetReadResult => {
   const { text, path, startLine, limit } = params
-  const isPagedRead = startLine !== undefined || limit !== undefined
+  const isPagedRead = requestsLineWindow({ startLine, limit })
 
   if (!isPagedRead) {
     assertTextWithinCap({ text, path })
@@ -301,6 +312,7 @@ const readPdfPages = async (
           `pages could be rendered`,
       )
     }
+
     return {
       kind: "pages",
       pages,
@@ -342,7 +354,7 @@ const readAssetContent = async (
   logger: Logger,
 ): Promise<AssetReadResult> => {
   const { path, raw, startLine, limit } = params
-  const isPagedRead = startLine !== undefined || limit !== undefined
+  const isPagedRead = requestsLineWindow({ startLine, limit })
   const asset = await vaultFs.readAsset(
     { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },
     logger,
@@ -433,9 +445,11 @@ const readAssetContent = async (
 
 // ── Browsing ────────────────────────────────────────────────────
 
-/** The extension a listing shows, lowercased with its dot by the same rule
- *  vaultFs.readAsset uses, or "(none)" for an extensionless file. */
-const extensionOf = (assetPath: string): string => {
+/** The extension a listing shows, lowercased with its dot, or "(none)" for an
+ *  extensionless file. It splits the name with links.getExtension, as
+ *  vaultFs.readAsset does, so a listed extension is the one a read dispatches
+ *  on. */
+const getListingExtension = (assetPath: string): string => {
   return links.getExtension(assetPath).toLowerCase() || "(none)"
 }
 
@@ -480,10 +494,10 @@ const buildAssetListing = async (
     ? new Set(params.extensions.map(normalizeExtension))
     : undefined
   const filteredPaths = extensionFilter
-    ? assetPaths.filter((assetPath) => extensionFilter.has(extensionOf(assetPath)))
+    ? assetPaths.filter((assetPath) => extensionFilter.has(getListingExtension(assetPath)))
     : assetPaths
 
-  const filteredExtensions = filteredPaths.map(extensionOf)
+  const filteredExtensions = filteredPaths.map(getListingExtension)
   const extensionCounts = filteredExtensions.reduce<Record<string, number>>(
     (counts, extension) => ({
       ...counts,
@@ -502,7 +516,7 @@ const buildAssetListing = async (
   return {
     assets: stattedAssets.map((entry) => ({
       path: entry.path,
-      extension: extensionOf(entry.path),
+      extension: getListingExtension(entry.path),
       bytes: entry.bytes,
     })),
     extensionCounts,
