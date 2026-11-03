@@ -129,6 +129,7 @@ const orderLineItems = (line: readonly StructuredTextItem[]): readonly Structure
  *  boundary, so the items join with a space. */
 const isWordGap = (previousItem: StructuredTextItem, nextItem: StructuredTextItem): boolean => {
   const gap = nextItem.x - (previousItem.x + previousItem.width)
+
   // At a font-size change the smaller size sets the lower threshold, so the
   // junction leans toward a space rather than gluing two words together
   const referenceFontSize = Math.min(previousItem.fontSize, nextItem.fontSize)
@@ -303,6 +304,7 @@ const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])
     const backtickRuns = indentedLine.match(/`+/g) ?? []
     return backtickRuns.map((backtickRun) => backtickRun.length)
   })
+
   // Folded rather than spread into Math.max: that call overflows the stack
   // once a block holds about 125,000 backtick runs
   const longestBacktickRun = backtickRunLengths.reduce(

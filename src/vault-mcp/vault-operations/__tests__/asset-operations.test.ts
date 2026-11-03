@@ -470,14 +470,6 @@ describe("readAssetContent — PDF extraction", () => {
       cause: new Error("worker terminated"),
     })
     mockCreatePdfDocumentProxy.mockRejectedValue(loadFailure)
-    // Restore the default mock regardless of assertion outcome — without
-    // this, a failing assertion leaves subsequent tests with a rejecting mock.
-    onTestFinished(() => {
-      mockCreatePdfDocumentProxy.mockResolvedValue({
-        loadingTask: { destroy: mockDestroy },
-        numPages: 1,
-      })
-    })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "corrupt.pdf" }, logger),
@@ -526,12 +518,6 @@ describe("readAssetContent — PDF extraction", () => {
         name: pdfjsErrorName,
       })
       mockCreatePdfDocumentProxy.mockRejectedValue(pdfjsError)
-      onTestFinished(() => {
-        mockCreatePdfDocumentProxy.mockResolvedValue({
-          loadingTask: { destroy: mockDestroy },
-          numPages: 1,
-        })
-      })
 
       await expect(
         assetOperations.readAssetContent(
@@ -543,7 +529,6 @@ describe("readAssetContent — PDF extraction", () => {
   )
 
   it("destroys the document proxy after successful extraction", async () => {
-    mockDestroy.mockClear()
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("fake-pdf"),
       bytes: 1_000,
@@ -569,21 +554,13 @@ describe("readAssetContent — PDF extraction", () => {
       bytes: 1_000,
       extension: ".pdf",
     })
-    mockExtractTextItems.mockResolvedValue({
-      totalPages: 1,
-      items: [[]],
-    })
-    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
+    const extractionFailure = new Error("text layer could not be read")
+    mockExtractTextItems.mockRejectedValue(extractionFailure)
 
+    // The failure arriving unchanged shows it was thrown inside extraction
     await expect(
-      assetOperations.readAssetContent({ ...defaultParams, path: "scanned.pdf" }, logger),
-    ).rejects.toThrow(
-      new Error(
-        'PDF has no extractable text: "scanned.pdf" exists ' +
-          "(1000 bytes, 1 pages) but contains no text content " +
-          "— it may be a scanned document or image-only PDF",
-      ),
-    )
+      assetOperations.readAssetContent({ ...defaultParams, path: "broken.pdf" }, logger),
+    ).rejects.toBe(extractionFailure)
 
     expect(mockDestroy).toHaveBeenCalledOnce()
   })
@@ -1317,7 +1294,7 @@ describe("readAssetContent — line paging", () => {
 })
 
 describe("buildAssetListing", () => {
-  it("counts quickly when nearly every file has an extension of its own", async () => {
+  it("counts quickly when every file has an extension of its own", async () => {
     // Dated backups give each file its own extension; counting that copies the
     // counts for each file took over 10 seconds at this size
     const fileCount = 10_000
