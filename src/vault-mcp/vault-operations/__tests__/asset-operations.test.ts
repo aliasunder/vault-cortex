@@ -662,9 +662,12 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     expect(mockRenderPageAsImage).toHaveBeenCalledTimes(3)
   })
 
-  it("divides per-page budget evenly across rendered pages", async () => {
+  it("fits each rendered page's PNG within an even share of the image budget", async () => {
     setupPdfMocks({ numPages: 4 })
-    mockRenderPageAsImage.mockResolvedValue(new Uint8Array(1_000))
+    // Each page renders to bytes naming its page number
+    mockRenderPageAsImage.mockImplementation(async (_proxy: unknown, pageNumber: number) => {
+      return new Uint8Array([pageNumber, 0x50, 0x4e, 0x47])
+    })
     mockedFitImage.mockResolvedValue(buildFittedImage())
 
     await assetOperations.readAssetContent(
@@ -679,8 +682,12 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
     )
 
     // 40,000 / 4 pages = 10,000 per page
-    for (const call of mockedFitImage.mock.calls) {
-      expect(call[0].budgetBytes).toBe(10_000)
+    expect(mockedFitImage).toHaveBeenCalledTimes(4)
+    for (const pageNumber of [1, 2, 3, 4]) {
+      expect(mockedFitImage).toHaveBeenNthCalledWith(pageNumber, {
+        buffer: Buffer.from([pageNumber, 0x50, 0x4e, 0x47]),
+        budgetBytes: 10_000,
+      })
     }
   })
 
@@ -835,7 +842,11 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       logger,
     )
 
-    expect(result.kind).toBe("text")
+    expect(result).toEqual({
+      kind: "text",
+      path: "text.pdf",
+      text: ["Title: Text Mode | Pages: 1", "", "Body text"].join("\n"),
+    })
     expect(mockRenderPageAsImage).not.toHaveBeenCalled()
   })
 
