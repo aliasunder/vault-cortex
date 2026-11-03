@@ -444,8 +444,8 @@ export const createOAuthProvider = ({
   }
 
   /** Stores a refresh token under its storage key. In the same transaction:
-   *  - marks the token's client as signed in, so the client sweep keeps it
-   *    after the token is gone;
+   *  - marks the token's client as signed in, so the client sweep never
+   *    deletes it;
    *  - purges expired rows. A row is only read when its own token is
    *    presented, so rows left by dormant clients — or made unreachable by
    *    rotating MCP_AUTH_TOKEN — would otherwise stay forever. */
