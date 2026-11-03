@@ -58,6 +58,12 @@ const mockedListAssets = vi.mocked(vaultFs.listAssets)
 const mockedStatAssets = vi.mocked(vaultFs.statAssets)
 const mockedFitImage = vi.mocked(fitImageToByteBudget)
 
+// Every test sets the mock values it relies on, so none passes on values an
+// earlier test left behind
+beforeEach(() => {
+  vi.resetAllMocks()
+})
+
 const defaultParams = {
   vaultPath: "/vault",
   maxFileBytes: 52_428_800,
@@ -370,6 +376,10 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 12,
       items: Array.from({ length: 12 }, () => []),
     })
+    mockExtractLinks.mockResolvedValue({
+      links: Array.from({ length: 12 }, () => []),
+      totalPages: 12,
+    })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "scans/receipt.pdf" }, logger),
@@ -392,6 +402,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[...buildPageItems(["   ", "\t", "  \n  "])]],
     })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "empty.pdf" }, logger),
@@ -553,7 +564,6 @@ describe("readAssetContent — PDF extraction", () => {
   })
 
   it("destroys the document proxy even when extraction throws", async () => {
-    mockDestroy.mockClear()
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("fake-pdf"),
       bytes: 1_000,
@@ -563,6 +573,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[]],
     })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "scanned.pdf" }, logger),
@@ -761,19 +772,6 @@ const setupPdfMocks = (params: { numPages: number; title?: string }) => {
 }
 
 describe("readAssetContent — PDF page rendering (raw: true)", () => {
-  beforeEach(() => {
-    mockRenderPageAsImage.mockReset()
-    mockedFitImage.mockReset()
-    mockDestroy.mockClear()
-    mockCreatePdfDocumentProxy.mockReset()
-    mockCreatePdfDocumentProxy.mockResolvedValue({
-      loadingTask: { destroy: mockDestroy },
-      numPages: 1,
-    })
-    mockGetMeta.mockReset()
-    mockExtractTextItems.mockReset()
-  })
-
   it("returns kind pages with rendered images", async () => {
     setupPdfMocks({ numPages: 2, title: "Visual Doc" })
     const fakePng = new Uint8Array(10_000)
