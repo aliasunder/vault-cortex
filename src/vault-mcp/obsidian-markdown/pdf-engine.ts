@@ -18,11 +18,12 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
  *
  * The fix:
  * 1. Inject @napi-rs/canvas's DOMMatrix, Path2D and ImageData into
- *    globalThis before pdfjs loads, overwriting any existing value. pdfjs
- *    fills in DOMMatrix and Path2D only when they are missing, and unpdf
- *    does the same for DOMMatrix with a stub that lacks the `invertSelf` and
- *    `multiplySelf` pdfjs's canvas code calls, so whichever value is set
- *    first is the one pdfjs draws with.
+ *    globalThis before pdfjs loads, overwriting any existing value.
+ *    - Path2D: pdfjs and unpdf fill it in only when it is missing, so the
+ *      first value set is the one pdfjs draws with.
+ *    - DOMMatrix: unpdf installs a stub without `invertSelf` or
+ *      `multiplySelf` when it is missing, and sets @napi-rs/canvas's class
+ *      before each page render; injecting it first keeps the stub out.
  * 2. Swap in `pdfjs-dist/legacy/build/pdf.mjs` (the Node-targeted build with
  *    runtime polyfills; the modern build requires newer JS APIs than Node 24
  *    ships, e.g. `Math.sumPrecise`).
