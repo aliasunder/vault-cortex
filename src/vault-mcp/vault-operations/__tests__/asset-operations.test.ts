@@ -5,6 +5,8 @@ import { logger } from "../../../logger.js"
 vi.mock("../vault-filesystem.js", () => ({
   vaultFs: {
     readAsset: vi.fn(),
+    listAssets: vi.fn(),
+    statAssets: vi.fn(),
   },
 }))
 
@@ -52,7 +54,15 @@ import { vaultFs } from "../vault-filesystem.js"
 import { fitImageToByteBudget } from "../../../utils/fit-image-to-byte-budget.js"
 
 const mockedReadAsset = vi.mocked(vaultFs.readAsset)
+const mockedListAssets = vi.mocked(vaultFs.listAssets)
+const mockedStatAssets = vi.mocked(vaultFs.statAssets)
 const mockedFitImage = vi.mocked(fitImageToByteBudget)
+
+// Every test sets the mock values it relies on, so none passes on values an
+// earlier test left behind
+beforeEach(() => {
+  vi.resetAllMocks()
+})
 
 const defaultParams = {
   vaultPath: "/vault",
@@ -176,6 +186,88 @@ describe("readAssetContent — PDF extraction", () => {
     })
   })
 
+  it("keeps an RTL line's items in stream order instead of sorting them by x", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 2_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: { Title: "RTL Doc" } })
+    // pdfjs emits RTL runs in reading order, so the first word in the stream
+    // sits further right. The baked space joins the words in either order,
+    // which leaves the word order as the only thing under test.
+    const rtlItemMetrics = {
+      y: 780,
+      height: 10.5,
+      fontSize: 10.5,
+      fontFamily: "sans-serif",
+      dir: "rtl",
+      hasEOL: false,
+    }
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          { ...rtlItemMetrics, str: "שלום ", x: 300, width: 35 },
+          { ...rtlItemMetrics, str: "עולם", x: 200, width: 28 },
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "rtl.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      path: "rtl.pdf",
+      text: ["Title: RTL Doc | Pages: 1", "", "שלום עולם"].join("\n"),
+    })
+  })
+
+  it("keeps a space baked into either edge of a tight cross-font junction", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 2_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: { Title: "Junction Doc" } })
+    // Each item starts where the one before it ends, so neither junction has
+    // a word-sized gap. Only the space at the end of "Run " and the start of
+    // " now" can put a space back once each font run's text is trimmed.
+    const itemMetrics = {
+      y: 780,
+      height: 10.5,
+      fontSize: 10.5,
+      dir: "ltr",
+      hasEOL: false,
+    }
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [
+        [
+          { ...itemMetrics, str: "Run ", x: 42, width: 28, fontFamily: "sans-serif" },
+          { ...itemMetrics, str: "kubectl", x: 70, width: 49, fontFamily: "monospace" },
+          { ...itemMetrics, str: " now", x: 119, width: 28, fontFamily: "sans-serif" },
+        ],
+      ],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "junction.pdf" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      path: "junction.pdf",
+      text: ["Title: Junction Doc | Pages: 1", "", "Run `kubectl` now"].join("\n"),
+    })
+  })
+
   it("deduplicates links in the footer", async () => {
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("fake-pdf"),
@@ -284,6 +376,10 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 12,
       items: Array.from({ length: 12 }, () => []),
     })
+    mockExtractLinks.mockResolvedValue({
+      links: Array.from({ length: 12 }, () => []),
+      totalPages: 12,
+    })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "scans/receipt.pdf" }, logger),
@@ -306,6 +402,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[...buildPageItems(["   ", "\t", "  \n  "])]],
     })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "empty.pdf" }, logger),
@@ -467,7 +564,6 @@ describe("readAssetContent — PDF extraction", () => {
   })
 
   it("destroys the document proxy even when extraction throws", async () => {
-    mockDestroy.mockClear()
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("fake-pdf"),
       bytes: 1_000,
@@ -477,6 +573,7 @@ describe("readAssetContent — PDF extraction", () => {
       totalPages: 1,
       items: [[]],
     })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
 
     await expect(
       assetOperations.readAssetContent({ ...defaultParams, path: "scanned.pdf" }, logger),
@@ -570,6 +667,69 @@ describe("readAssetContent — PDF extraction", () => {
       text: ["Title: Flat Doc | Pages: 1", "", "Title Line", "Body text here"].join("\n"),
     })
   })
+
+  // Spreading this many values into one call throws a RangeError in Node, so
+  // these pin that a code block and a links list are built without one.
+  const OVERSIZED_COUNT = 130_000
+
+  it("renders a code block longer than a call's argument limit", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 5_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: { Title: "Long Code" } })
+    // Each line carries a backtick, so the fence-length check sees one run per line
+    const codeLines = Array.from({ length: OVERSIZED_COUNT }, () => "`x")
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [buildPageItems(codeLines, { fontFamily: "monospace" })],
+    })
+    mockExtractLinks.mockResolvedValue({ links: [[]], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "long-code.pdf", startLine: 1, limit: 4 },
+      logger,
+    )
+
+    // header, blank line, opening fence, every code line, closing fence
+    expect(result).toEqual({
+      kind: "text",
+      path: "long-code.pdf",
+      text: ["Title: Long Code | Pages: 1", "", "```", "`x"].join("\n"),
+      lineWindow: { startLine: 1, endLine: 4, totalLines: OVERSIZED_COUNT + 4 },
+    })
+  })
+
+  it("lists more links than a call's argument limit", async () => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from("fake-pdf"),
+      bytes: 5_000,
+      extension: ".pdf",
+    })
+    mockGetMeta.mockResolvedValue({ info: { Title: "Many Links" } })
+    mockExtractTextItems.mockResolvedValue({
+      totalPages: 1,
+      items: [buildPageItems(["Some text"])],
+    })
+    const linkUrls = Array.from({ length: OVERSIZED_COUNT }, (_, index) => {
+      return `https://example.com/${index}`
+    })
+    mockExtractLinks.mockResolvedValue({ links: [linkUrls], totalPages: 1 })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "many-links.pdf", startLine: 1, limit: 1 },
+      logger,
+    )
+
+    // header, blank line, the text line, blank line, "Links:", every link
+    expect(result).toEqual({
+      kind: "text",
+      path: "many-links.pdf",
+      text: `Title: Many Links | Pages: 1 | Links: ${OVERSIZED_COUNT}`,
+      lineWindow: { startLine: 1, endLine: 1, totalLines: OVERSIZED_COUNT + 5 },
+    })
+  })
 })
 
 // ── PDF page rendering (raw: true) ────────────────────────────
@@ -612,19 +772,6 @@ const setupPdfMocks = (params: { numPages: number; title?: string }) => {
 }
 
 describe("readAssetContent — PDF page rendering (raw: true)", () => {
-  beforeEach(() => {
-    mockRenderPageAsImage.mockReset()
-    mockedFitImage.mockReset()
-    mockDestroy.mockClear()
-    mockCreatePdfDocumentProxy.mockReset()
-    mockCreatePdfDocumentProxy.mockResolvedValue({
-      loadingTask: { destroy: mockDestroy },
-      numPages: 1,
-    })
-    mockGetMeta.mockReset()
-    mockExtractTextItems.mockReset()
-  })
-
   it("returns kind pages with rendered images", async () => {
     setupPdfMocks({ numPages: 2, title: "Visual Doc" })
     const fakePng = new Uint8Array(10_000)
@@ -1166,5 +1313,34 @@ describe("readAssetContent — line paging", () => {
           "its image block is the delivered form",
       ),
     )
+  })
+})
+
+describe("buildAssetListing", () => {
+  it("counts quickly when nearly every file has an extension of its own", async () => {
+    // Dated backups give each file its own extension; counting that copies the
+    // counts for each file took over 10 seconds at this size
+    const fileCount = 10_000
+    const assetPaths = Array.from({ length: fileCount }, (_, index) => `backups/vault.${index}`)
+    mockedListAssets.mockResolvedValue(assetPaths)
+    mockedStatAssets.mockResolvedValue([{ path: "backups/vault.0", bytes: 10 }])
+
+    const startedAt = performance.now()
+    const listing = await assetOperations.buildAssetListing(
+      { vaultPath: "/vault", limit: 1 },
+      logger,
+    )
+    const elapsedMs = performance.now() - startedAt
+
+    const expectedCounts = Object.fromEntries(
+      assetPaths.map((_, index) => [`.${index}`, 1] as const),
+    )
+    expect(listing).toEqual({
+      assets: [{ path: "backups/vault.0", extension: ".0", bytes: 10 }],
+      extensionCounts: expectedCounts,
+      total: fileCount,
+      truncated: true,
+    })
+    expect(elapsedMs).toBeLessThan(1_000)
   })
 })
