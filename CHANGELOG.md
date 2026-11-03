@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.56.0] — 2026-11-03
+
+### Features
+
+- **search:** Count #tags written in note bodies, the way Obsidian does (#717)
+
+### Bug Fixes
+
+- **search:** Keep the search models on the data volume (#724)
+
 ## [0.55.5] — 2026-10-31
 
 ### Bug Fixes
