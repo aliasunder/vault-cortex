@@ -28,12 +28,18 @@ const WORD_GAP_THRESHOLD_EM = 0.2
  *  a marker (indistinguishable from a stray dash or horizontal rule). */
 const MARKER_LINE_PATTERN = /^(?:\d{1,4}\.|[A-Za-z]\.|[•◦▪‣●○·])$/
 
+const hasVisibleText = (item: StructuredTextItem): boolean => item.str.trim().length > 0
+
+/** pdfjs reports a generic CSS family for each font ("monospace" for a
+ *  fixed-pitch font), never the font's own name. */
+const isMonospaceItem = (item: StructuredTextItem): boolean => item.fontFamily === "monospace"
+
 /** Groups text items into lines by y-coordinate proximity — items within
  *  `LINE_GROUP_Y_THRESHOLD` points of the previous item's y are on the same
  *  line. Whitespace-only items are dropped, which also discards the synthetic
  *  zero-height " " items pdfjs inserts to span large horizontal gaps. */
 const groupIntoLines = (pageItems: readonly StructuredTextItem[]): StructuredTextItem[][] => {
-  const nonEmpty = pageItems.filter((item) => item.str.trim().length > 0)
+  const nonEmpty = pageItems.filter(hasVisibleText)
 
   if (nonEmpty.length === 0) return []
 
@@ -41,25 +47,27 @@ const groupIntoLines = (pageItems: readonly StructuredTextItem[]): StructuredTex
   // descending down the page. Items on the same visual line share a y
   // (within the threshold); a jump in y starts a new line.
   const lines: StructuredTextItem[][] = []
-  let lastY = -Infinity
   for (const item of nonEmpty) {
-    const currentLine = lines[lines.length - 1]
+    const currentLine = lines.at(-1)
+    const previousY = currentLine?.at(-1)?.y
+    const isSameLine =
+      previousY !== undefined && Math.abs(item.y - previousY) < LINE_GROUP_Y_THRESHOLD
 
-    if (currentLine && Math.abs(item.y - lastY) < LINE_GROUP_Y_THRESHOLD) {
+    if (currentLine && isSameLine) {
       currentLine.push(item)
     } else {
       lines.push([item])
     }
-    lastY = item.y
   }
   return lines
 }
 
 /** Returns the rounded font size carrying the greatest total character volume
- *  (sum of trimmed string lengths) across the given items. Ties resolve to
- *  the larger size — the conservative direction: treating the larger size as
- *  body demotes would-be headings to plain text, which degrades gracefully,
- *  where the opposite promotes body text into headings. */
+ *  (sum of trimmed string lengths) across the given items, which must not be
+ *  empty. Ties resolve to the larger size. For the document's body size that
+ *  is the conservative direction: treating the larger size as body demotes
+ *  would-be headings to plain text, where the opposite promotes body text
+ *  into headings. */
 const dominantRoundedFontSize = (items: readonly StructuredTextItem[]): number => {
   // Accumulate character volume per rounded size, then pick the winner.
   const volumeBySize = new Map<number, number>()
@@ -82,7 +90,7 @@ const dominantRoundedFontSize = (items: readonly StructuredTextItem[]): number =
   return dominantEntry[0]
 }
 
-/** Builds a heading-level map from the document's font sizes. Body text is
+/** Maps rounded font size to heading level (1 for the largest). Body text is
  *  the size carrying the most characters (`dominantRoundedFontSize`); only
  *  sizes strictly larger than body become headings — up to three levels,
  *  largest first. Sizes at or below body stay plain, so small print (contact
@@ -94,30 +102,31 @@ const buildHeadingLevels = (
   allItems: readonly StructuredTextItem[],
 ): ReadonlyMap<number, number> => {
   if (allItems.length === 0) return new Map()
+
   const bodySize = dominantRoundedFontSize(allItems)
   const distinctSizes = [...new Set(allItems.map((item) => roundFontSize(item.fontSize)))]
   const headingSizes = distinctSizes
     .filter((size) => size > bodySize)
-    .sort((firstSize, secondSize) => secondSize - firstSize)
+    .toSorted((firstSize, secondSize) => secondSize - firstSize)
     .slice(0, 3)
   return new Map(headingSizes.map((size, index) => [size, index + 1]))
 }
 
 /** Orders a line's items into visual left-to-right order by x. Stream order
  *  is kept when the line contains RTL text: pdfjs emits RTL runs in logical
- *  reading order, which an x-ascending sort would reverse. (Cross-line and
- *  multi-column ordering stay content-stream order — a documented caveat.) */
+ *  reading order, which an x-ascending sort would reverse. Lines and columns
+ *  are not reordered: they keep content-stream order. */
 const orderLineItems = (line: readonly StructuredTextItem[]): readonly StructuredTextItem[] => {
   const hasRtlItem = line.some((item) => item.dir === "rtl")
 
   if (hasRtlItem) return line
-  return [...line].sort((leftItem, rightItem) => leftItem.x - rightItem.x)
+  return line.toSorted((leftItem, rightItem) => leftItem.x - rightItem.x)
 }
 
 /** True when the horizontal gap between two adjacent items is a word
  *  boundary rather than kerning or letter-spacing. Degenerate metrics
- *  (non-positive width or font size, non-finite values) default to a word
- *  boundary — the pre-gap-aware behavior of always joining with a space. */
+ *  (non-positive width or font size, non-finite values) count as a word
+ *  boundary, so the items join with a space. */
 const isWordGap = (previousItem: StructuredTextItem, nextItem: StructuredTextItem): boolean => {
   const gap = nextItem.x - (previousItem.x + previousItem.width)
   const referenceFontSize = Math.min(previousItem.fontSize, nextItem.fontSize)
@@ -145,9 +154,10 @@ const needsSpaceBetween = (
  *  merges tracked glyphs into one item with literal spaces baked in, so the
  *  shatter is intra-string and only a text-level collapse can undo it.
  *  Guardrails: every whitespace-separated token must be ≤2 characters, there
- *  must be at least three tokens, and the text must contain no lowercase
- *  letters and no digits — letter-spaced banners are caps/small-caps in
- *  practice, the lowercase check keeps genuine short-word prose ("on a to")
+ *  must be at least three tokens, and the text must contain no ASCII
+ *  lowercase letters and no digits — letter-spaced banners are
+ *  caps/small-caps in practice, the lowercase check keeps genuine short-word
+ *  prose ("on a to")
  *  intact, and the digit check keeps spaced number runs ("12 34 56") from
  *  gluing into a different number (digit-bearing banners like
  *  "S E C T I O N 0 1" stay shattered — the safe direction).
@@ -155,6 +165,7 @@ const needsSpaceBetween = (
  *  split items keeps its space ("INTERVIEW PREPARATION"). */
 const collapseLetterSpacedText = (text: string): string => {
   if (/[a-z]/.test(text) || /\d/.test(text)) return text
+
   const tokens = text.trim().split(/\s+/)
   const isShatteredRun = tokens.length >= 3 && tokens.every((token) => token.length <= 2)
 
@@ -167,7 +178,7 @@ const collapseLetterSpacedText = (text: string): string => {
  *  fenced by the caller via `renderFencedLineText` and never reach here).
  *  Non-monospace item text goes through the letter-spacing collapse;
  *  monospace text is left verbatim (code is never reflowed), and backticks
- *  inside monospace text are not escaped — a documented caveat. */
+ *  inside monospace text are not escaped. */
 const renderLineText = (orderedItems: readonly StructuredTextItem[]): string => {
   // Partition into maximal runs of equal monospace-ness, tracking each run's
   // boundary items so junction spacing can use the real gap metrics.
@@ -178,13 +189,13 @@ const renderLineText = (orderedItems: readonly StructuredTextItem[]): string => 
   type FontRun = { monospace: boolean; items: StructuredTextItem[] }
   const fontRuns: FontRun[] = []
   for (const item of orderedItems) {
-    const isMonospaceItem = item.fontFamily === "monospace"
-    const currentRun = fontRuns[fontRuns.length - 1]
+    const itemIsMonospace = isMonospaceItem(item)
+    const currentRun = fontRuns.at(-1)
 
-    if (currentRun && currentRun.monospace === isMonospaceItem) {
+    if (currentRun && currentRun.monospace === itemIsMonospace) {
       currentRun.items.push(item)
     } else {
-      fontRuns.push({ monospace: isMonospaceItem, items: [item] })
+      fontRuns.push({ monospace: itemIsMonospace, items: [item] })
     }
   }
 
@@ -212,15 +223,16 @@ const renderLineText = (orderedItems: readonly StructuredTextItem[]): string => 
       const renderedRun = renderRun(run)
 
       if (!previousRun) return renderedRun
-      const previousBoundaryItem = previousRun.items[previousRun.items.length - 1]
+
+      const previousBoundaryItem = previousRun.items.at(-1)
       const nextBoundaryItem = run.items[0]
-      const junctionHasWhitespace =
+      const junctionNeedsSpace =
         previousBoundaryItem &&
         nextBoundaryItem &&
         (/\s$/.test(previousBoundaryItem.str) ||
           /^\s/.test(nextBoundaryItem.str) ||
           isWordGap(previousBoundaryItem, nextBoundaryItem))
-      return junctionHasWhitespace ? ` ${renderedRun}` : renderedRun
+      return junctionNeedsSpace ? ` ${renderedRun}` : renderedRun
     })
     .join("")
 }
@@ -254,18 +266,18 @@ const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])
   const lineStartXs = orderedLines.map((orderedItems) => orderedItems[0]?.x ?? 0)
   const blockLeftMargin = Math.min(...lineStartXs)
 
-  const indentedLines = orderedLines.map((orderedItems, lineIndex) => {
+  const indentedLines = orderedLines.map((orderedItems) => {
     const lineText = renderFencedLineText(orderedItems)
     const firstItem = orderedItems[0]
-    const lineStartX = lineStartXs[lineIndex] ?? blockLeftMargin
 
     if (!firstItem || firstItem.width <= 0 || firstItem.str.length === 0) {
       return lineText
     }
+
     const characterAdvance = firstItem.width / firstItem.str.length
     const indentCharacters = Math.max(
       0,
-      Math.round((lineStartX - blockLeftMargin) / characterAdvance),
+      Math.round((firstItem.x - blockLeftMargin) / characterAdvance),
     )
     return `${" ".repeat(indentCharacters)}${lineText}`
   })
@@ -282,26 +294,26 @@ const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])
   return [fence, ...indentedLines, fence]
 }
 
-/** Reattaches orphaned list markers to their items. Some producers (notably
- *  Confluence exports) emit every list marker first in the content stream, so
- *  each becomes its own line and piles up at the top of the page while the
- *  items lose their numbering. A line that is nothing but a marker
- *  (`MARKER_LINE_PATTERN`) merges into the nearest non-marker line within
- *  `LINE_GROUP_Y_THRESHOLD` of its y (ties: earliest line); the later x-sort
- *  puts the marker back in front of its text. A marker with no same-y partner
- *  stays a line of its own.
- *  Deliberately NOT a general same-y merge or y-sort: multi-column layouts
- *  (skill grids, column cards) read coherently cell-by-cell in stream order
- *  today, and any global reorder would interleave their columns row-wise. */
+/** Reattaches orphaned list markers to their items.
+ *  - Some producers (notably Confluence exports) emit every list marker first
+ *    in the content stream, so each marker becomes its own line at the start
+ *    of the page's text and the items lose their numbering.
+ *  - A line that is nothing but a marker (`MARKER_LINE_PATTERN`) merges into
+ *    the nearest non-marker line within `LINE_GROUP_Y_THRESHOLD` of its y
+ *    (ties: earliest line); the later x-sort puts the marker back in front of
+ *    its text. A marker with no same-y partner stays a line of its own.
+ *  - This is deliberately not a general same-y merge or y-sort: multi-column
+ *    layouts read coherently cell by cell in stream order, and any global
+ *    reorder would interleave their columns row by row. */
 const rejoinOrphanedMarkers = (
   lines: readonly (readonly StructuredTextItem[])[],
 ): readonly (readonly StructuredTextItem[])[] => {
-  const lineTexts = lines.map((line) =>
-    line
+  const lineTexts = lines.map((line) => {
+    return line
       .map((item) => item.str)
       .join(" ")
-      .trim(),
-  )
+      .trim()
+  })
   const isMarkerLine = lineTexts.map((lineText) => MARKER_LINE_PATTERN.test(lineText))
   const lineY = (line: readonly StructuredTextItem[]): number => line[0]?.y ?? Infinity
 
@@ -311,24 +323,23 @@ const rejoinOrphanedMarkers = (
 
   for (const [markerIndex, markerLine] of lines.entries()) {
     if (!isMarkerLine[markerIndex]) continue
-    const markerY = lineY(markerLine)
 
+    const markerY = lineY(markerLine)
     const targetCandidates = lines
       .map((line, lineIndex) => ({
         lineIndex,
         distance: Math.abs(lineY(line) - markerY),
       }))
-      .filter(
-        (candidate) =>
-          !isMarkerLine[candidate.lineIndex] && candidate.distance < LINE_GROUP_Y_THRESHOLD,
-      )
-    const nearestTarget = targetCandidates.reduce(
-      (bestCandidate, candidate) =>
-        candidate.distance < bestCandidate.distance ? candidate : bestCandidate,
-      { lineIndex: -1, distance: Infinity },
-    )
+      .filter((candidate) => {
+        return !isMarkerLine[candidate.lineIndex] && candidate.distance < LINE_GROUP_Y_THRESHOLD
+      })
 
-    if (nearestTarget.lineIndex === -1) continue
+    // toSorted is stable, so on a distance tie the earliest line stays first
+    const nearestTarget = targetCandidates.toSorted(
+      (firstCandidate, secondCandidate) => firstCandidate.distance - secondCandidate.distance,
+    )[0]
+
+    if (!nearestTarget) continue
 
     const targetItems = rejoinedItemsByTarget.get(nearestTarget.lineIndex) ?? []
     rejoinedItemsByTarget.set(nearestTarget.lineIndex, [...targetItems, ...markerLine])
@@ -353,11 +364,11 @@ const rejoinOrphanedMarkers = (
 const reconstructPdfMarkdown = (params: {
   title: string | undefined
   totalPages: number
-  items: readonly (readonly StructuredTextItem[])[]
+  itemsByPage: readonly (readonly StructuredTextItem[])[]
   pdfLinks: readonly string[]
 }): string => {
-  const { title, totalPages, items, pdfLinks } = params
-  const allNonEmpty = items.flat().filter((item) => item.str.trim().length > 0)
+  const { title, totalPages, itemsByPage, pdfLinks } = params
+  const allNonEmpty = itemsByPage.flat().filter(hasVisibleText)
   const headingLevels = buildHeadingLevels(allNonEmpty)
   const uniqueLinks = [...new Set(pdfLinks)]
 
@@ -369,11 +380,7 @@ const reconstructPdfMarkdown = (params: {
 
   const outputLines: string[] = [headerParts.join(" | "), ""]
 
-  for (let pageIndex = 0; pageIndex < items.length; pageIndex++) {
-    const pageItems = items[pageIndex]
-
-    if (!pageItems) continue
-
+  for (const [pageIndex, pageItems] of itemsByPage.entries()) {
     const lines = rejoinOrphanedMarkers(groupIntoLines(pageItems))
 
     if (lines.length === 0) continue
@@ -392,8 +399,8 @@ const reconstructPdfMarkdown = (params: {
     const lineSegments: LineSegment[] = []
     for (const line of lines) {
       const orderedItems = orderLineItems(line)
-      const isFullyMonospaceLine = orderedItems.every((item) => item.fontFamily === "monospace")
-      const currentSegment = lineSegments[lineSegments.length - 1]
+      const isFullyMonospaceLine = orderedItems.every(isMonospaceItem)
+      const currentSegment = lineSegments.at(-1)
 
       if (currentSegment && currentSegment.fenced === isFullyMonospaceLine) {
         currentSegment.orderedLines.push(orderedItems)
@@ -414,6 +421,7 @@ const reconstructPdfMarkdown = (params: {
         const lineText = renderLineText(orderedItems)
 
         if (!lineText) continue
+
         const headingLevel = headingLevels.get(dominantRoundedFontSize(orderedItems)) ?? 0
 
         if (headingLevel > 0) {
@@ -451,10 +459,10 @@ export const extractPdfText = async (pdfData: Uint8Array): Promise<PdfTextResult
   const proxy = await createPdfDocumentProxy(pdfData)
   try {
     const meta = await getMeta(proxy)
-    const { totalPages, items } = await extractTextItems(proxy)
+    const { totalPages, items: itemsByPage } = await extractTextItems(proxy)
     const { links: linksByPage } = await extractLinks(proxy)
 
-    const hasContent = items.flat().some((item) => item.str.trim().length > 0)
+    const hasContent = itemsByPage.flat().some(hasVisibleText)
 
     if (!hasContent) return { text: "", totalPages }
 
@@ -462,7 +470,7 @@ export const extractPdfText = async (pdfData: Uint8Array): Promise<PdfTextResult
       text: reconstructPdfMarkdown({
         title: meta.info.Title,
         totalPages,
-        items,
+        itemsByPage,
         pdfLinks: linksByPage.flat(),
       }),
       totalPages,
