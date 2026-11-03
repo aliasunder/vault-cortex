@@ -98,8 +98,8 @@ const NEVER_SIGNED_IN_CLIENT_MAX_AGE_S = 7 * 24 * 60 * 60
  *  the column was already present. */
 const addSignedInAtColumnAndMarkExistingClients = (db: Database.Database): number => {
   // The column and its marks commit together. A column added without them
-  // would let the sweep delete every signed-in client, and the next boot
-  // would find the column and never mark them.
+  // would let the sweep delete signed-in clients whose tokens are gone, and
+  // the next boot would find the column and never mark them.
   const addColumnAndMarkClients = db.transaction((): number => {
     const hasSignedInAt = db
       .prepare("SELECT 1 FROM pragma_table_info('clients') WHERE name = 'signed_in_at'")
