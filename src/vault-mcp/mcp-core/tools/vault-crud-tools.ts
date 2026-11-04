@@ -567,12 +567,12 @@ Example: vault_patch_note({ path: "Notes/Plan.md", operation: "prepend", content
 When to use: Modifying part of an existing note without overwriting the entire body.${patchNoteAlternativesLine}
 
 Operations:
-- append: add content at end of section (or end of file if no heading), below any empty lines that end it. So when a blank line follows a table, an appended row starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend a table, use vault_insert_at_anchor after its last row")}
+- append: add content at end of section (or end of file if no heading), below any empty lines that end it. So when a blank line follows a table, an appended row starts a new table${whenToolEnabledText("vault_insert_at_anchor", "; to extend the original table, use vault_insert_at_anchor after its last row")}
 - prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading). To start a new section above the note's current first heading, use insert_before on that heading: a no-heading prepend whose content starts with a heading nests any content above the first heading inside the new section.
 - replace: replace section body (requires heading)${whenToolEnabledText("vault_delete_span", "; to empty it, use vault_delete_span on its lines")}
 - insert_before: insert content above the heading line (requires heading)
 
-Heading-targeted ops keep the matched heading. Every operation inserts content as whole lines and adds no empty lines of its own: content ending in a newline ("Done.\\n") leaves an empty line after it, and content without one ("Done.") puts the next line directly below. A repeated append, prepend or insert_before writes the content again, so after a timeout or lost response, re-read the note before retrying.
+Heading-targeted ops keep the matched heading. Every operation inserts content as whole lines and adds no empty lines of its own: content ending in a newline ("Done.\\n") leaves an empty line after it, and content without one ("Done.") puts the next line directly below. A repeated call can write the content again, so after a timeout or lost response, re-read the note before retrying.
 
 Section boundaries: a section spans from its heading to the next heading with the same or a smaller level number (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 

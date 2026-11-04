@@ -3732,7 +3732,7 @@ describe("DISABLED_TOOLS", () => {
   const PATCH_NOTE_APPEND_LINE =
     "- append: add content at end of section (or end of file if no heading), below any empty lines that end it. So when a blank line follows a table, an appended row starts a new table"
   const PATCH_NOTE_APPEND_INSERT_AT_ANCHOR_ADVICE =
-    "; to extend a table, use vault_insert_at_anchor after its last row"
+    "; to extend the original table, use vault_insert_at_anchor after its last row"
   const PATCH_NOTE_REPLACE_LINE = "- replace: replace section body (requires heading)"
   const PATCH_NOTE_REPLACE_DELETE_SPAN_ADVICE = "; to empty it, use vault_delete_span on its lines"
 
