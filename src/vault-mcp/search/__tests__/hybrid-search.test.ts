@@ -2,6 +2,7 @@ import { describe, it, expect, vi, onTestFinished } from "vitest"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { createSearchIndex } from "../search-index.js"
+import type { SearchFilters, SearchIndex } from "../search-index.js"
 import { logger } from "../../../logger.js"
 import { withBodyTags } from "./body-tag-test-helpers.js"
 
@@ -504,8 +505,7 @@ Content about deployment costs and infrastructure.
         logger,
       )
 
-      // The query matches no indexed word, so only the vector leg can return
-      // the note and only the JavaScript mirror of the filter can keep it
+      // No lexical match can rescue a note excluded from vector retrieval.
       const query = "zzqxv"
       expect(hybridIndex.fullTextSearch({ query, filters: { tags: ["WORK"] } }, logger)).toEqual([])
 
@@ -535,8 +535,7 @@ Content about deployment costs and infrastructure.
         )
       }
 
-      // The query matches no indexed word, so only the vector leg can return
-      // a note and only the JavaScript mirror of the filter can keep it
+      // With no lexical match, the vector leg must enforce both requested tags.
       const query = "zzqxv"
       const filters = { tags: ["prop", "body"] }
       expect(hybridIndex.fullTextSearch({ query, filters }, logger)).toEqual([])
@@ -622,8 +621,7 @@ Content about quarterly planning and roadmaps.
         logger,
       )
 
-      // Query with no FTS match — results arrive exclusively via the vector
-      // leg, so the TypeScript filter mirror is the only gate
+      // With no lexical match, the vector leg must enforce the created-date filter.
       const { results } = await hybridIndex.hybridSearch(
         {
           query: "zzz_no_fts_match",
@@ -700,6 +698,210 @@ Content about quarterly planning and roadmaps.
       ).rejects.toThrow(
         new Error('invalid modified.on date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).'),
       )
+    })
+  })
+
+  describe("metadata filters before the vector window", () => {
+    const query = "zzqq"
+    const eligiblePath = "Reference/eligible.md"
+
+    type VectorFilterNote = {
+      path: string
+      metadata: string
+      embedding: Float32Array
+      body?: string | undefined
+      mtimeMs?: number | undefined
+    }
+
+    const closerNotes = (params: {
+      metadata: string
+      folder?: string | undefined
+      body?: string | undefined
+      mtimeMs?: number | undefined
+    }): VectorFilterNote[] => {
+      // Ten nearer chunks exhaust the six-row over-fetch at limit 1.
+      return Array.from({ length: 10 }, (_, noteNumber) => {
+        const embedding = seededEmbedding(0)
+        const angle = (noteNumber + 1) / 100
+        embedding[0] = Math.cos(angle)
+        embedding[1] = Math.sin(angle)
+
+        return {
+          path: `${params.folder ?? "Rejected"}/near-${noteNumber}.md`,
+          metadata: params.metadata,
+          body: params.body,
+          mtimeMs: params.mtimeMs,
+          embedding,
+        }
+      })
+    }
+
+    const createVectorFilterIndex = async (
+      notes: ReadonlyArray<VectorFilterNote>,
+    ): Promise<SearchIndex> => {
+      const mockEmbedder = createHybridMockEmbedder()
+      mockEmbedder.embedText.mockResolvedValue(seededEmbedding(0))
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      // Seeding is sequential so each note consumes its own controlled vector.
+      for (const note of notes) {
+        const rawContent = `---\ntitle: Candidate\n${note.metadata}\n---\n\n${note.body ?? "Planning notes."}\n`
+        const sourceVersion = hybridIndex.upsertNote(
+          withBodyTags({
+            filePath: note.path,
+            rawContent,
+            fileStat: testStat(note.mtimeMs ?? 1000),
+          }),
+          logger,
+        )
+        mockEmbedder.embedText.mockClear().mockResolvedValueOnce(note.embedding)
+
+        await hybridIndex.embedNote({ sourceVersion, notePath: note.path, rawContent }, logger)
+        expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      }
+
+      return hybridIndex
+    }
+
+    it.each([
+      {
+        label: "tags",
+        filters: { tags: ["ELIGIBLE"] },
+        eligibleMetadata: "tags: [eligible/nested]",
+        rejectedMetadata: "tags: [rejected]",
+      },
+      {
+        label: "type",
+        filters: { type: "reference" },
+        eligibleMetadata: "type: reference",
+        rejectedMetadata: "type: archived",
+      },
+      {
+        label: "related links",
+        filters: { related: ["[[Projects/target.md]]"] },
+        eligibleMetadata: 'related: ["[[Projects/target.md]]"]',
+        rejectedMetadata: 'related: ["[[Projects/other.md]]"]',
+      },
+      {
+        label: "properties",
+        filters: { properties: { "literal.key": 4.5, enabled: false } },
+        eligibleMetadata: "literal.key: [4.5]\nenabled: false",
+        rejectedMetadata: 'literal.key: ["4.5"]\nenabled: false',
+      },
+      {
+        label: "created dates",
+        filters: { created: { on: "2026-03-10" } },
+        eligibleMetadata: "created: 2026-03-10",
+        rejectedMetadata: "created: 2026-03-11",
+      },
+      {
+        label: "modified dates",
+        filters: { modified: { on: "2026-06-15" } },
+        eligibleMetadata: "",
+        rejectedMetadata: "",
+        eligibleMtimeMs: DateTime.fromISO("2026-06-15T12:00:00").toMillis(),
+        rejectedMtimeMs: DateTime.fromISO("2026-06-16T12:00:00").toMillis(),
+      },
+      {
+        label: "body-only tags",
+        filters: { tags: ["ELIGIBLE"] },
+        eligibleMetadata: "",
+        eligibleBody: "Planning notes #eligible/nested",
+        rejectedMetadata: "",
+        rejectedBody: "Planning notes #rejected",
+      },
+      {
+        label: "tags split across frontmatter and body",
+        filters: { tags: ["property", "body"] },
+        eligibleMetadata: "tags: [property]",
+        eligibleBody: "Planning notes #body",
+        rejectedMetadata: "tags: [property]",
+        rejectedBody: "Planning notes #other",
+      },
+    ] satisfies ReadonlyArray<{
+      label: string
+      filters: SearchFilters
+      eligibleMetadata: string
+      rejectedMetadata: string
+      eligibleBody?: string | undefined
+      rejectedBody?: string | undefined
+      eligibleMtimeMs?: number | undefined
+      rejectedMtimeMs?: number | undefined
+    }>)(
+      "retrieves a farther note matching $label when closer notes fail the filter",
+      async (scenario) => {
+        const rejectedNotes = closerNotes({
+          metadata: scenario.rejectedMetadata,
+          body: scenario.rejectedBody,
+          mtimeMs: scenario.rejectedMtimeMs,
+        })
+        const hybridIndex = await createVectorFilterIndex([
+          ...rejectedNotes,
+          {
+            path: eligiblePath,
+            metadata: scenario.eligibleMetadata,
+            body: scenario.eligibleBody,
+            mtimeMs: scenario.eligibleMtimeMs,
+            embedding: seededEmbedding(1),
+          },
+        ])
+        expect(hybridIndex.fullTextSearch({ query }, logger)).toEqual([])
+        expect(hybridIndex.fullTextSearch({ query, filters: scenario.filters }, logger)).toEqual([])
+
+        const unfiltered = await hybridIndex.hybridSearch({ query, limit: 1 }, logger)
+        expect(unfiltered.results.map((result) => result.path)).toEqual(["Rejected/near-0.md"])
+
+        const filtered = await hybridIndex.hybridSearch(
+          { query, filters: scenario.filters, limit: 1 },
+          logger,
+        )
+        expect({
+          paths: filtered.results.map((result) => result.path),
+          mode: filtered.search_mode,
+        }).toEqual({
+          paths: [eligiblePath],
+          mode: "hybrid",
+        })
+      },
+    )
+
+    it("combines folder and metadata filters before selecting the nearest chunks", async () => {
+      const hybridIndex = await createVectorFilterIndex([
+        ...closerNotes({ metadata: "tags: [rejected]", folder: "Reference" }),
+        ...closerNotes({ metadata: "tags: [eligible]", folder: "Archive" }),
+        { path: eligiblePath, metadata: "tags: [eligible]", embedding: seededEmbedding(1) },
+      ])
+      const filters = { folder: "Reference", tags: ["eligible"] }
+      expect(hybridIndex.fullTextSearch({ query }, logger)).toEqual([])
+      expect(hybridIndex.fullTextSearch({ query, filters }, logger)).toEqual([])
+
+      const filtered = await hybridIndex.hybridSearch({ query, filters, limit: 1 }, logger)
+      expect({
+        paths: filtered.results.map((result) => result.path),
+        mode: filtered.search_mode,
+      }).toEqual({
+        paths: [eligiblePath],
+        mode: "hybrid",
+      })
+    })
+
+    it("returns no results when no indexed note satisfies the metadata filter", async () => {
+      const hybridIndex = await createVectorFilterIndex(
+        closerNotes({ metadata: "tags: [rejected]" }),
+      )
+      const filters = { tags: ["missing"] }
+      expect(hybridIndex.fullTextSearch({ query }, logger)).toEqual([])
+      expect(hybridIndex.fullTextSearch({ query, filters }, logger)).toEqual([])
+
+      const unfiltered = await hybridIndex.hybridSearch({ query, limit: 1 }, logger)
+      expect(unfiltered.results.map((result) => result.path)).toEqual(["Rejected/near-0.md"])
+
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+
+      const filtered = await hybridIndex.hybridSearch({ query, filters, limit: 1 }, logger)
+      expect(filtered.results).toEqual([])
+      expect(warnSpy).not.toHaveBeenCalled()
     })
   })
 
