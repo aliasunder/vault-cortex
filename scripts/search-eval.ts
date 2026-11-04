@@ -14,8 +14,8 @@
  *     --reuse-snapshot so every configuration sees an identical corpus.
  *  2. Build the search index with real ONNX models and await the embedding
  *     pass, because scoring a partially embedded index measures indexing
- *     order, not ranking. Any embedding error fails the run. No query or
- *     score reads body tags, so the body-tag pass is stopped at once.
+ *     order, not ranking. Any embedding error fails the run. Tag judgments
+ *     use frontmatter tags because the body-tag pass is stopped at once.
  *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
  *  4. Run every judgment query at each --limits value, reporting the rank
  *     of the first expected result, file pollution in the top 5 (or the
@@ -38,7 +38,8 @@
  *  scripts/search-eval-plan.ts): vault_path, exclude_paths,
  *  exclude_prefixes, and queries — each query carries id, class
  *  (recall/precision/sentinel/filtered), query, expected_any or
- *  expected_prefix, and filters.folder on the filtered class.
+ *  expected_prefix, and optional SearchFilters. The filtered class requires
+ *  at least one effective filter.
  *
  *  Usage:
  *    npx tsx scripts/search-eval.ts --judgment <path> [--label baseline]
@@ -52,12 +53,13 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import {
+  assertHealthyEvalResult,
   countUnexpectedFilesInWindow,
   judgmentFileSchema,
   rankOfFirstExpected,
   resolveEvalRunPlan,
 } from "./search-eval-plan.js"
-import type { JudgmentQuery } from "./search-eval-plan.js"
+import type { EvalSearchProblem, JudgmentQuery } from "./search-eval-plan.js"
 import { createVaultSnapshot, snapshotMatchesProvenance } from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
 import { createSearchModels } from "../src/vault-mcp/search/search-models.js"
@@ -70,14 +72,14 @@ import {
 // ── Counting logger ────────────────────────────────────────────
 
 /** Silences the index's per-query info logs, records warn/error lines so
- *  the embedding pass can be failed on any logged problem, and keeps each
+ *  embedding and scored queries can be failed on logged problems, and keeps each
  *  "vector search" line's knnHits and uniqueNotes for the diversity report. */
 const createCountingLogger = (): {
   logger: Logger
-  problems: { level: string; message: string }[]
+  problems: EvalSearchProblem[]
   vectorSearchStats: { knnHits: number; uniqueNotes: number }[]
 } => {
-  const problems: { level: string; message: string }[] = []
+  const problems: EvalSearchProblem[] = []
   const vectorSearchStats: { knnHits: number; uniqueNotes: number }[] = []
   const printProblem = (
     level: "warn" | "error",
@@ -230,8 +232,8 @@ const main = async (): Promise<void> => {
       logger,
     )
 
-    // No eval query or score reads body tags, so closing the parser stops the
-    // background body-tag pass after at most one note
+    // Tag judgments use frontmatter tags, so stop the body-tag pass instead
+    // of waiting for body tags that the judgments do not depend on.
     await bodyTagParser.close()
     await bodyTags
 
@@ -274,6 +276,7 @@ const main = async (): Promise<void> => {
   const scores: QueryScore[] = []
   for (const judgmentQuery of judgment.queries) {
     for (const limit of limits) {
+      const problemsBeforeQuery = problems.length
       const queryStartMs = performance.now()
       const searchResult = await search.hybridSearch(
         {
@@ -285,14 +288,11 @@ const main = async (): Promise<void> => {
       )
       const latencyMs = Math.round(performance.now() - queryStartMs)
 
-      // The probe proves the pipeline once; a reranker failure mid-sweep
-      // would otherwise degrade silently to RRF-only ordering while the
-      // report attributes the numbers to the reranked pipeline.
-      if (searchResult.search_mode !== "hybrid" || !searchResult.reranked) {
-        throw new Error(
-          `query ${judgmentQuery.id} ran search_mode=${searchResult.search_mode} reranked=${String(searchResult.reranked)} — expected hybrid + reranked`,
-        )
-      }
+      assertHealthyEvalResult({
+        queryId: judgmentQuery.id,
+        searchResult,
+        problems: problems.slice(problemsBeforeQuery),
+      })
       const pollutionWindow = Math.min(5, limit)
       scores.push({
         id: judgmentQuery.id,

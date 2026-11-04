@@ -3,13 +3,14 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 import {
+  assertHealthyEvalResult,
   countUnexpectedFilesInWindow,
   judgmentFileSchema,
   rankOfFirstExpected,
   resolveEvalRunPlan,
 } from "../search-eval-plan.js"
 import type { JudgmentQuery } from "../search-eval-plan.js"
-import type { SearchResult } from "../../src/vault-mcp/search/search-index.js"
+import type { HybridSearchResult, SearchResult } from "../../src/vault-mcp/search/search-index.js"
 
 // Test-owned copy of the marker name the snapshot module writes.
 const SNAPSHOT_MARKER = ".search-eval-snapshot"
@@ -230,6 +231,128 @@ describe("judgmentFileSchema", () => {
     expect(parsed.success).toBe(true)
   })
 
+  const filteredQuery = {
+    id: "filtered",
+    class: "filtered",
+    query: "naming rules",
+    expected_any: ["Reference/standards.md"],
+  }
+
+  it("preserves every supported filter field and property value type", () => {
+    const judgment = {
+      ...baseJudgment,
+      queries: [
+        {
+          ...filteredQuery,
+          filters: {
+            folder: "Reference/",
+            tags: ["code-standards", "Development/TypeScript"],
+            related: ["[[Reference/Guide|Guide]]"],
+            type: "reference",
+            properties: { "literal.key": "4", count: 4.5, enabled: false, zero: 0, blank: "" },
+            created: { before: "2026-11-04", on: "2026-11-03", after: "2026-11-02" },
+            modified: { before: "2026-11-06", on: "2026-11-05", after: "2026-11-04" },
+          },
+        },
+      ],
+    }
+    expect(judgmentFileSchema.parse(judgment)).toEqual(judgment)
+  })
+
+  it.each([
+    { label: "folder", filters: { folder: "Reference" } },
+    { label: "tags", filters: { tags: ["code-standards"] } },
+    { label: "related", filters: { related: ["[[Reference/Guide]]"] } },
+    { label: "type", filters: { type: "reference" } },
+    { label: "false property", filters: { properties: { enabled: false } } },
+    { label: "zero property", filters: { properties: { count: 0 } } },
+    { label: "empty string property", filters: { properties: { blank: "" } } },
+    { label: "created.before", filters: { created: { before: "2026-11-04" } } },
+    { label: "created.on", filters: { created: { on: "2026-11-04" } } },
+    { label: "created.after", filters: { created: { after: "2026-11-04" } } },
+    { label: "modified.before", filters: { modified: { before: "2026-11-04" } } },
+    { label: "modified.on", filters: { modified: { on: "2026-11-04" } } },
+    { label: "modified.after", filters: { modified: { after: "2026-11-04" } } },
+  ])("accepts $label as the only effective filter", ({ filters }) => {
+    const judgment = { ...baseJudgment, queries: [{ ...filteredQuery, filters }] }
+    expect(judgmentFileSchema.parse(judgment)).toEqual(judgment)
+  })
+
+  it.each([
+    { label: "empty object", filters: {} },
+    { label: "empty folder", filters: { folder: "" } },
+    { label: "empty tags", filters: { tags: [] } },
+    { label: "empty related", filters: { related: [] } },
+    { label: "empty type", filters: { type: "" } },
+    { label: "empty properties", filters: { properties: {} } },
+    { label: "empty created bounds", filters: { created: {} } },
+    { label: "empty modified bounds", filters: { modified: {} } },
+    {
+      label: "combined no-op fields",
+      filters: {
+        folder: "",
+        tags: [],
+        related: [],
+        type: "",
+        properties: {},
+        created: {},
+        modified: {},
+      },
+    },
+  ])("rejects a filtered query with $label", ({ filters }) => {
+    const parsed = judgmentFileSchema.safeParse({
+      ...baseJudgment,
+      queries: [{ ...filteredQuery, filters }],
+    })
+
+    if (parsed.success) throw new Error("expected ineffective filters to be rejected")
+
+    expect(parsed.error.issues).toEqual([
+      {
+        code: "custom",
+        path: ["queries", 0],
+        message: "a filtered query needs at least one effective filter",
+      },
+    ])
+  })
+
+  it.each([
+    {
+      label: "filter",
+      filters: { folder: "Reference", tag: ["typo"] },
+      path: ["queries", 0, "filters"],
+      key: "tag",
+    },
+    {
+      label: "created",
+      filters: { created: { on: "2026-11-04", since: "2026-11-03" } },
+      path: ["queries", 0, "filters", "created"],
+      key: "since",
+    },
+    {
+      label: "modified",
+      filters: { modified: { on: "2026-11-04", since: "2026-11-03" } },
+      path: ["queries", 0, "filters", "modified"],
+      key: "since",
+    },
+  ])("rejects an unknown $label key instead of dropping it", ({ filters, path, key }) => {
+    const parsed = judgmentFileSchema.safeParse({
+      ...baseJudgment,
+      queries: [{ ...filteredQuery, filters }],
+    })
+
+    if (parsed.success) throw new Error("expected unknown filter key to be rejected")
+
+    expect(parsed.error.issues).toEqual([
+      {
+        code: "unrecognized_keys",
+        keys: [key],
+        path,
+        message: `Unrecognized key: "${key}"`,
+      },
+    ])
+  })
+
   it("rejects an empty expected_any list", () => {
     const parsed = judgmentFileSchema.safeParse({
       ...baseJudgment,
@@ -269,7 +392,7 @@ describe("judgmentFileSchema", () => {
     expect(parsed.success).toBe(false)
     if (parsed.success) return
     expect(parsed.error.issues.map((issue) => issue.message)).toEqual([
-      "a filtered query needs filters.folder",
+      "a filtered query needs at least one effective filter",
     ])
   })
 
@@ -305,6 +428,80 @@ const searchResultAt = (path: string, kind: "note" | "file"): SearchResult => {
     kind,
   }
 }
+
+describe("assertHealthyEvalResult", () => {
+  const firstResult = searchResultAt("Reference/first.md", "note")
+  const secondResult = searchResultAt("Reference/second.md", "note")
+
+  it.each([
+    {
+      label: "empty hybrid",
+      searchResult: { results: [], search_mode: "hybrid", reranked: false },
+    },
+    { label: "empty FTS", searchResult: { results: [], search_mode: "fts", reranked: false } },
+    {
+      label: "singleton hybrid",
+      searchResult: { results: [firstResult], search_mode: "hybrid", reranked: false },
+    },
+    {
+      label: "reranked hybrid",
+      searchResult: { results: [firstResult, secondResult], search_mode: "hybrid", reranked: true },
+    },
+  ] satisfies ReadonlyArray<{ label: string; searchResult: HybridSearchResult }>)(
+    "accepts a healthy $label result",
+    ({ searchResult }) => {
+      expect(assertHealthyEvalResult({ queryId: "q1", searchResult, problems: [] })).toBeUndefined()
+    },
+  )
+
+  it("rejects a nonempty FTS fallback even for a singleton", () => {
+    expect(() =>
+      assertHealthyEvalResult({
+        queryId: "q1",
+        searchResult: { results: [firstResult], search_mode: "fts", reranked: false },
+        problems: [],
+      }),
+    ).toThrow(new Error("query q1 ran search_mode=fts — expected hybrid for nonempty results"))
+  })
+
+  it("rejects multiple results that bypassed reranking without logging a problem", () => {
+    expect(() =>
+      assertHealthyEvalResult({
+        queryId: "q1",
+        searchResult: {
+          results: [firstResult, secondResult],
+          search_mode: "hybrid",
+          reranked: false,
+        },
+        problems: [],
+      }),
+    ).toThrow(new Error("query q1 ran reranked=false — expected reranking for multiple results"))
+  })
+
+  it("rejects a warning even when an empty result needs no reranking", () => {
+    expect(() =>
+      assertHealthyEvalResult({
+        queryId: "q1",
+        searchResult: { results: [], search_mode: "fts", reranked: false },
+        problems: [{ level: "warn", message: "reranker returned no scores" }],
+      }),
+    ).toThrow(new Error("query q1 logged problem(s): [warn] reranker returned no scores"))
+  })
+
+  it("rejects a logged failure even when results report a healthy pipeline", () => {
+    expect(() =>
+      assertHealthyEvalResult({
+        queryId: "q1",
+        searchResult: {
+          results: [firstResult, secondResult],
+          search_mode: "hybrid",
+          reranked: true,
+        },
+        problems: [{ level: "error", message: "reranker inference failed" }],
+      }),
+    ).toThrow(new Error("query q1 logged problem(s): [error] reranker inference failed"))
+  })
+})
 
 describe("rankOfFirstExpected", () => {
   const expectedByPrefix: JudgmentQuery = {

@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
@@ -34,6 +43,25 @@ const listSnapshotFiles = (snapshotDir: string): string[] => {
 }
 
 describe("createVaultSnapshot", () => {
+  it("preserves the source note's historical modification time", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    const notePath = join("notes", "historical.md")
+    writeVaultFile({ vaultPath, notePath })
+    const sourcePath = join(vaultPath, notePath)
+    const historicalTimeSeconds = 946684800
+    utimesSync(sourcePath, historicalTimeSeconds, historicalTimeSeconds)
+
+    createVaultSnapshot({
+      vaultPath,
+      snapshotDir,
+      excludePaths: [],
+      excludePrefixes: [],
+    })
+
+    expect(statSync(sourcePath).mtimeMs).toBe(946684800000)
+    expect(statSync(join(snapshotDir, notePath)).mtimeMs).toBe(statSync(sourcePath).mtimeMs)
+  })
+
   it("skips files under an excluded prefix but copies a sibling whose name merely starts with it", () => {
     const { vaultPath, snapshotDir } = createTempVault()
     writeVaultFile({ vaultPath, notePath: join("sessions", "log.md") })

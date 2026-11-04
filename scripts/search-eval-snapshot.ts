@@ -104,6 +104,7 @@ export const createVaultSnapshot = (params: {
   writeFileSync(join(params.snapshotDir, SNAPSHOT_MARKER), "")
   cpSync(vaultRoot, params.snapshotDir, {
     recursive: true,
+    preserveTimestamps: true,
     filter: (source) => {
       const absoluteSource = resolve(source)
       const relativeFromRoot = relative(vaultRoot, absoluteSource)

@@ -6,7 +6,45 @@ import { tmpdir } from "node:os"
 import { z } from "zod"
 import { isHarnessSnapshot } from "./search-eval-snapshot.js"
 import { caseFoldPath } from "../src/utils/case-fold-path.js"
-import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
+import type {
+  HybridSearchResult,
+  SearchFilters,
+  SearchResult,
+} from "../src/vault-mcp/search/search-index.js"
+
+const judgmentDateFilterSchema = z.strictObject({
+  before: z.string().optional(),
+  on: z.string().optional(),
+  after: z.string().optional(),
+})
+
+const judgmentFiltersSchema = z.strictObject({
+  folder: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  related: z.array(z.string()).optional(),
+  type: z.string().optional(),
+  properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  created: judgmentDateFilterSchema.optional(),
+  modified: judgmentDateFilterSchema.optional(),
+})
+
+const hasEffectiveFilter = (filters: SearchFilters | undefined): boolean => {
+  if (!filters) return false
+
+  return Boolean(
+    filters.folder ||
+    filters.tags?.length ||
+    filters.related?.length ||
+    filters.type ||
+    Object.keys(filters.properties ?? {}).length ||
+    filters.created?.before ||
+    filters.created?.on ||
+    filters.created?.after ||
+    filters.modified?.before ||
+    filters.modified?.on ||
+    filters.modified?.after,
+  )
+}
 
 // The schemas are strict because a plain schema would strip a typoed key
 // (a misspelled expectation or filter field) and silently score a
@@ -18,13 +56,13 @@ const judgmentQuerySchema = z
     query: z.string().min(1),
     expected_any: z.array(z.string().min(1)).min(1).optional(),
     expected_prefix: z.string().min(1).optional(),
-    filters: z.strictObject({ folder: z.string().min(1) }).optional(),
+    filters: judgmentFiltersSchema.optional(),
   })
   .refine((query) => Boolean(query.expected_any || query.expected_prefix), {
     message: "each query needs expected_any or expected_prefix",
   })
-  .refine((query) => query.class !== "filtered" || Boolean(query.filters), {
-    message: "a filtered query needs filters.folder",
+  .refine((query) => query.class !== "filtered" || hasEffectiveFilter(query.filters), {
+    message: "a filtered query needs at least one effective filter",
   })
 
 export const judgmentFileSchema = z.strictObject({
@@ -35,6 +73,32 @@ export const judgmentFileSchema = z.strictObject({
 })
 
 export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
+
+export type EvalSearchProblem = { level: "warn" | "error"; message: string }
+
+/** Empty and singleton results can skip reranking; logged failures cannot. */
+export const assertHealthyEvalResult = (params: {
+  queryId: string
+  searchResult: HybridSearchResult
+  problems: ReadonlyArray<EvalSearchProblem>
+}): void => {
+  const { queryId, searchResult, problems } = params
+
+  if (problems.length > 0) {
+    const problemMessages = problems.map((problem) => `[${problem.level}] ${problem.message}`)
+    throw new Error(`query ${queryId} logged problem(s): ${problemMessages.join("; ")}`)
+  }
+
+  if (searchResult.results.length > 0 && searchResult.search_mode !== "hybrid") {
+    throw new Error(
+      `query ${queryId} ran search_mode=${searchResult.search_mode} — expected hybrid for nonempty results`,
+    )
+  }
+
+  if (searchResult.results.length > 1 && !searchResult.reranked) {
+    throw new Error(`query ${queryId} ran reranked=false — expected reranking for multiple results`)
+  }
+}
 
 // ── Scoring ────────────────────────────────────────────────────
 
