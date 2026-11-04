@@ -2319,6 +2319,30 @@ Body.
     )
     expect(await readTestNote("sub/dir/nested.md")).toBe(`${content}More body.\n`)
   })
+
+  // Each operation puts the content in a different place, so a call routed to
+  // the wrong operation also fails
+  it.each([
+    { operation: "append", expectedNote: "## A\nx\n- item\n- item\n## B\ny\n" },
+    { operation: "prepend", expectedNote: "## A\n- item\n- item\nx\n## B\ny\n" },
+    { operation: "insert_before", expectedNote: "- item\n- item\n## A\nx\n## B\ny\n" },
+  ] as const)(
+    "writes the content again when the same $operation runs twice",
+    async ({ operation, expectedNote }) => {
+      await writeTestNote("repeat.md", "## A\nx\n## B\ny\n")
+      const repeatedPatch = {
+        vaultPath: vault,
+        path: "repeat.md",
+        operation,
+        heading: "A",
+        content: "- item",
+      }
+      await patchNote(repeatedPatch, logger)
+      await patchNote(repeatedPatch, logger)
+
+      expect(await readTestNote("repeat.md")).toBe(expectedNote)
+    },
+  )
 })
 
 // ── replaceInNote ───────────────────────────────────────────────
@@ -2376,6 +2400,37 @@ apple and apple and apple.
     expect(await readTestNote("replace-all.md")).toBe(
       content.replace("apple and apple and apple.", "orange and orange and orange."),
     )
+  })
+
+  it("replaces the copy of old_text inside the first call's new_text when the call repeats", async () => {
+    await writeTestNote("repeat.md", "- [ ] task\n")
+    const repeatedReplace = {
+      vaultPath: vault,
+      path: "repeat.md",
+      oldText: "task",
+      newText: "task (done)",
+    }
+    await replaceInNote(repeatedReplace, logger)
+    const repeatResult = await replaceInNote(repeatedReplace, logger)
+
+    expect(repeatResult).toEqual({ message: "Replaced 1 occurrence in repeat.md", count: 1 })
+    expect(await readTestNote("repeat.md")).toBe("- [ ] task (done) (done)\n")
+  })
+
+  it("rejects a repeated call once old_text is gone, leaving the first call's edit", async () => {
+    await writeTestNote("repeat.md", "Status: draft\n")
+    const repeatedReplace = {
+      vaultPath: vault,
+      path: "repeat.md",
+      oldText: "draft",
+      newText: "final",
+    }
+    await replaceInNote(repeatedReplace, logger)
+
+    await expect(replaceInNote(repeatedReplace, logger)).rejects.toThrow(
+      new Error('text not found in "repeat.md": "draft"'),
+    )
+    expect(await readTestNote("repeat.md")).toBe("Status: final\n")
   })
 
   it("errors on empty old_text", async () => {
@@ -4448,6 +4503,24 @@ title: Shopping
 - Blueberries
 - Cherries
 `)
+  })
+
+  it("inserts the content again when the same call repeats", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    const repeatedInsert = {
+      vaultPath: vault,
+      path: "shopping.md",
+      anchor: "- Bananas",
+      position: "after",
+      content: "- Blueberries",
+    } as const
+    await insertAtAnchor(repeatedInsert, logger)
+    const repeatMessage = await insertAtAnchor(repeatedInsert, logger)
+
+    expect(repeatMessage).toBe("Inserted 1 line after anchor in shopping.md")
+    expect(await readTestNote("shopping.md")).toBe(
+      LIST_NOTE.replace("- Bananas\n", "- Bananas\n- Blueberries\n- Blueberries\n"),
+    )
   })
 
   it("inserts a line before the anchor line", async () => {
