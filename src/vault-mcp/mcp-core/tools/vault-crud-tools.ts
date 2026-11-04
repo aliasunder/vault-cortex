@@ -574,7 +574,7 @@ Operations:
 
 Heading-targeted ops keep the matched heading. Every operation inserts content as whole lines and adds no empty lines of its own: content ending in a newline ("Done.\\n") leaves an empty line after it, and content without one ("Done.") puts the next line directly below. A repeated append, prepend or insert_before writes the content again, so after a timeout or lost response, re-read the note before retrying.
 
-Section boundaries: a section spans from its heading to the next heading with as many # marks or fewer (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
+Section boundaries: a section spans from its heading to the next heading with the same or a smaller level number (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted${whenToolEnabledText("vault_replace_in_note", " — edit their content via vault_replace_in_note instead")}.${leadingCalloutEditText}
 
 Errors:
 ${noteNotFoundCheckErrorEntry}
@@ -921,6 +921,7 @@ When to use: Replacing a block you have already read — a table row, callout, o
 
 Parameters:
 - end_anchor is searched at or after the start line and must be unique among those lines. If start_anchor and end_anchor match the same line, only that one line is replaced. ${fencedBlockEndAnchorText("replace")}
+- With first_match: true, a repeated call can replace the next match, so after a timeout or lost response, re-read the note before retrying.
 
 Line breaks in content:
 - Each line break at content's start or end becomes an empty line on that side, so content ending in one ("| X |\\n") leaves an empty line after it, which splits a table.

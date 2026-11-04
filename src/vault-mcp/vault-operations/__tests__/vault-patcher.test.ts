@@ -3891,6 +3891,21 @@ trailing
 `)
   })
 
+  it("replaces the next match when a first_match call repeats", async () => {
+    await writeTestNote("repeat.md", "- TODO a\n- TODO b\n")
+    const repeatedReplace = {
+      vaultPath: vault,
+      path: "repeat.md",
+      startAnchor: "TODO",
+      content: "- DONE a",
+      firstMatch: true,
+    }
+    await replaceSpan(repeatedReplace, logger)
+    await replaceSpan(repeatedReplace, logger)
+
+    expect(await readTestNote("repeat.md")).toBe("- DONE a\n- DONE a\n")
+  })
+
   it("throws when the note does not exist", async () => {
     await expect(
       replaceSpan(

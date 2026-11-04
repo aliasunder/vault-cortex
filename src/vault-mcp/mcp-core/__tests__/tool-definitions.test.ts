@@ -3846,7 +3846,7 @@ describe("DISABLED_TOOLS", () => {
   )
 
   const PATCH_NOTE_SECTION_BOUNDARIES =
-    'Section boundaries: a section spans from its heading to the next heading with as many # marks or fewer (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted'
+    'Section boundaries: a section spans from its heading to the next heading with the same or a smaller level number (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted'
   const EMPTY_HEADING_EDIT_ADVICE = " — edit their content via vault_replace_in_note instead"
   const LEADING_CALLOUT_EDIT =
     "Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it)."
