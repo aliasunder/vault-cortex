@@ -198,13 +198,17 @@ describe("judgmentFileSchema", () => {
     })
     expect(parsed.success).toBe(false)
     if (parsed.success) return
-    expect(parsed.error.issues.map((issue) => issue.message)).toEqual([
-      "each query needs expected_any or expected_prefix",
+    expect(parsed.error.issues).toEqual([
+      {
+        code: "custom",
+        path: ["queries", 0],
+        message: "each query needs expected_any or expected_prefix",
+      },
     ])
   })
 
-  it("accepts expected_any, expected_prefix, and a filtered query with filters", () => {
-    const parsed = judgmentFileSchema.safeParse({
+  it("preserves expected_any, expected_prefix, and a filtered query with filters", () => {
+    const judgment = {
       ...baseJudgment,
       queries: [
         {
@@ -227,8 +231,8 @@ describe("judgmentFileSchema", () => {
           filters: { folder: "Journal" },
         },
       ],
-    })
-    expect(parsed.success).toBe(true)
+    }
+    expect(judgmentFileSchema.parse(judgment)).toEqual(judgment)
   })
 
   const filteredQuery = {
@@ -359,6 +363,18 @@ describe("judgmentFileSchema", () => {
       queries: [{ id: "q1", class: "recall", query: "some text", expected_any: [] }],
     })
     expect(parsed.success).toBe(false)
+    if (parsed.success) return
+
+    expect(parsed.error.issues).toEqual([
+      {
+        origin: "array",
+        code: "too_small",
+        minimum: 1,
+        inclusive: true,
+        path: ["queries", 0, "expected_any"],
+        message: "Too small: expected array to have >=1 items",
+      },
+    ])
   })
 
   it("rejects an unknown key on a query so a typoed filter cannot score unfiltered", () => {
@@ -375,6 +391,16 @@ describe("judgmentFileSchema", () => {
       ],
     })
     expect(parsed.success).toBe(false)
+    if (parsed.success) return
+
+    expect(parsed.error.issues).toEqual([
+      {
+        code: "unrecognized_keys",
+        keys: ["filter"],
+        path: ["queries", 0],
+        message: 'Unrecognized key: "filter"',
+      },
+    ])
   })
 
   it("rejects a filtered-class query that declares no filters", () => {
@@ -391,8 +417,12 @@ describe("judgmentFileSchema", () => {
     })
     expect(parsed.success).toBe(false)
     if (parsed.success) return
-    expect(parsed.error.issues.map((issue) => issue.message)).toEqual([
-      "a filtered query needs at least one effective filter",
+    expect(parsed.error.issues).toEqual([
+      {
+        code: "custom",
+        path: ["queries", 0],
+        message: "a filtered query needs at least one effective filter",
+      },
     ])
   })
 
@@ -410,6 +440,16 @@ describe("judgmentFileSchema", () => {
       ],
     })
     expect(parsed.success).toBe(false)
+    if (parsed.success) return
+
+    expect(parsed.error.issues).toEqual([
+      {
+        code: "unrecognized_keys",
+        keys: ["excluded_paths"],
+        path: [],
+        message: 'Unrecognized key: "excluded_paths"',
+      },
+    ])
   })
 })
 
