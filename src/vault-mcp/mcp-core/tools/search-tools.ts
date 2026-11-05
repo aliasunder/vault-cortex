@@ -53,13 +53,13 @@ export const registerSearchTools = ({
   // returns notes says which field is which
   const tagsPropertyEditorClause = whenToolEnabledText(
     "vault_update_properties",
-    ", which vault_update_properties edits",
+    "; vault_update_properties edits it",
   )
   const bodyTagsEditorClause = whenToolEnabledText(
     "vault_replace_in_note",
-    ", edited as text with vault_replace_in_note",
+    "; vault_replace_in_note edits them",
   )
-  const tagsFieldsText = `tags (the tags property${tagsPropertyEditorClause}), body_tags (the #tags written in the note's text, each spelling once${bodyTagsEditorClause}; absent when there are none)`
+  const tagsFieldsText = `tags (the tags property${tagsPropertyEditorClause}), body_tags (#tags in the note's text, one per spelling${bodyTagsEditorClause}; absent when none)`
 
   const searchSharedExamples = `Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
@@ -92,7 +92,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const searchResultKindText = config.fileToolsEnabled
     ? `The kind field is "note" for markdown notes or "file" for non-markdown content; file results also carry extension (e.g. ".pdf").`
     : `The kind field is always "note".`
-  const searchResultDetailsText = `${searchResultKindText} The created field is omitted, not null, when a result has none; type is null when the result has no type property. The bytes field is the on-disk file size. With include_leading_callout, each result also carries leading_callout (the callout that opens the note's body, as { type, title, body }) when present.`
+  const searchResultDetailsText = `${searchResultKindText} created is omitted, not null, when a result has none; type is null when the result has no type property; bytes is the on-disk size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }, the callout opening the body) when present.`
 
   // The vector leg embeds the raw query, so an all-operator query still
   // returns semantic neighbours while embeddings are on — unless the query
@@ -745,7 +745,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
   const fileReadableClause = whenToolEnabledText("vault_read_file", " readable via vault_read_file")
   const fileBytesClause = whenToolEnabledText(
     "vault_read_file",
-    " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image is still cheap to read",
+    ", not the delivery cost: vault_read_file downscales a large image to fit response limits",
   )
   const outgoingLinksAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
@@ -767,7 +767,7 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 
 Behavior: ${INDEX_LAG_LEAD}, so a note or canvas created or moved moments ago returns an empty result until the index catches up.
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken, and kind is "note" even for a path like "diagram.png". The title field is null for files and broken links. The daily_note_forward_ref flag is true on a broken link into the vault's daily notes folder — a daily note not yet created, not genuine breakage — and false otherwise, including when Obsidian's Daily Notes folder setting is the vault root or blank. The bytes field is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link into the daily notes folder (a daily note not yet created, not breakage) and false otherwise, always so when Obsidian's Daily Notes folder setting is the vault root or blank. bytes is the on-disk size (null for broken links)${fileBytesClause}.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}

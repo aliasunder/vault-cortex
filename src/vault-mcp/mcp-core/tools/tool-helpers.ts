@@ -242,7 +242,7 @@ const OPENING_BLOCK_REMEDY =
 /** The Errors entry of every tool whose write can leave `---` lines at the
  *  top of a note with no properties. The error carries the ways around it. */
 export const OPENING_BLOCK_ERROR_ENTRY =
-  '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties, around text that can\'t be kept as properties (a body that starts with "---", a line of prose, then "---"); the error says how to avoid it'
+  '- "the note would open with a properties block …" — a note with no properties would start with --- lines around text that can\'t be properties; the error says how to avoid it'
 
 // Sentences two or more tools state word for word. Each tool renders its copy
 // from here, and tool-definitions.test.ts fails when a sibling's copy drifts.
@@ -287,7 +287,7 @@ export const LIMIT_TRUNCATION_CLAUSE =
 /** The result shape the five tools that return note metadata share. The
  *  tags clause names the tools that edit each tag field, so it is passed in. */
 export const describeNoteMetadataResult = (tagsFieldsText: string): string => {
-  return `JSON array of note metadata: path, title (the title property, or the file name without .md when missing or not text), ${tagsFieldsText}, related ([] when missing), folder (top-level folder; "" at the vault root), type (null when missing or not text), created (null when missing or not an ISO date), modified (file modification time, ISO 8601), bytes (on-disk size), plus, when present, leading_callout (the callout that opens the note's body, as { type, title, body }) and additional_properties (every property outside title, type, created, related, and tags).`
+  return `JSON array of note metadata: path, title (file name without .md when missing or not text), ${tagsFieldsText}, related ([] when missing), folder (top-level folder, "" at the root), type (null when missing or not text), created (null when missing or not an ISO date), modified (ISO 8601 file time), bytes (on-disk size), and when present leading_callout ({ type, title, body }, the callout opening the body) and additional_properties (every other property).`
 }
 
 /** The Errors entry of every tool that reads or writes a vault file, for a
@@ -295,11 +295,11 @@ export const describeNoteMetadataResult = (tagsFieldsText: string): string => {
  *  vault-relative, plus the remedy sentence the tool boundary appends
  *  (coded-error-remedy.ts), so the entry names no remedy itself. */
 export const FILESYSTEM_ERROR_ENTRY =
-  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do'
+  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error — the message says what to do'
 
 /** The Errors entry of a tool that resolves a single note or file path. */
 export const PATH_SAFETY_ERROR_ENTRY =
-  '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it'
+  '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — pass a vault-relative path with no dot-prefixed part'
 
 /** The Errors entry of a tool whose path must name a markdown note. */
 export const NOTE_EXTENSION_ERROR_ENTRY = '- "path must end in …" — add the .md extension'
@@ -313,19 +313,19 @@ export const CONCURRENT_WRITE_RETRY_ERROR_ENTRY =
 /** The listing tools' form of the entry: one unreadable folder fails the whole
  *  listing, and the caller can list around it. */
 export const LISTING_FILESYSTEM_ERROR_ENTRY =
-  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message names the folder it could not read, and what to do; until then, pass a folder outside it'
+  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error — the message names the folder it could not read, and what to do; until then, pass a folder outside it'
 
 /** The Errors entry of a tool that reads stored index rows back through the
  *  parsers in search-helpers.ts: a SQLite engine failure or a row the server
  *  cannot read, both with the remedy appended at the boundary. The entry
  *  quotes the error names because SQLite's messages open with no code. */
 export const INDEX_ERROR_ENTRY =
-  '- "[SqliteError]: …" / "[IndexIntegrityError]: …" — the search index failed, not the call; the message says what to do'
+  '- "[SqliteError]: …" / "[IndexIntegrityError]: …" — the index failed, not the call; the message says what to do'
 
 /** The entry for a tool whose index query reads no stored row back through
  *  those parsers, so only the engine itself can fail. */
 export const INDEX_ENGINE_ERROR_ENTRY =
-  '- "[SqliteError]: …" — the search index failed, not the call; the message says what to do'
+  '- "[SqliteError]: …" — the index failed, not the call; the message says what to do'
 
 /** The Errors entry of a tool that rewrites a note's properties block. A
  *  tool that rewrites it only in one mode passes that mode as rewriteCondition

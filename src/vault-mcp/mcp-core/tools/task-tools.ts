@@ -79,7 +79,7 @@ ${NOTE_EXTENSION_ERROR_ENTRY}
 - No matches returns { total: 0, tasks: [] }, not an error
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON { total, tasks }. Every task carries path, line, status, status_char (the checkbox character, such as "x" or "/"), description, folder (the task note's parent folder), depth (0 for top-level, 1+ for sub-tasks), is_kanban_task (true when the task's note is a Kanban board, with kanban-plugin in its properties), depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only: the headings of the lanes whose first line is **Complete**), and subtask_progress — { done, total } over the task's DIRECT checklist children; done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
+Returns: JSON { total, tasks }. Every task carries path, line, status, status_char (the checkbox character, such as "x" or "/"), description, folder (the task note's parent folder), depth (0 for top-level, 1+ for sub-tasks), is_kanban_task (true when the task's note has kanban-plugin in its properties), depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only: the headings of the lanes whose first line is **Complete**), and subtask_progress ({ done, total } over the task's DIRECT checklist children; done counts status "done" only, a cancelled child counts toward total, and the counts ignore the query's filters, so a filtered or top_level_only read still shows each card's progress).`,
       inputSchema: {
         status: z
           .union([
@@ -271,7 +271,7 @@ ${TASK_HEADING_NOT_FOUND_ERROR_ENTRY}
 - "cannot place at position P under "X" — the heading appears N times" — integer position on a note with duplicate heading names; use "top" or "bottom" (they place under the first match), or rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task outside a fenced code block or %% %% comment; re-read the parent's block_id or line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}
 - "parent task ambiguous" — more than one task line ends in that ^id (the message lists their line numbers); pass parent_line instead
-- "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the parent's checkbox character (c) is typed NON_TASK so it is not a task, or todo has no symbol and the default [ ] character has another type; the user must change that character's type or add a todo symbol there, then restart the server
+- "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the parent's checkbox character (c) is typed NON_TASK, or todo has no symbol and the default [ ] character has another type; the user changes that character's type or adds a todo symbol there, then restarts the server
 - "parentBlockId and parentLine are mutually exclusive" / "parent and heading are mutually exclusive" — drop one
 - "blockId ... already exists in this note" / "blockId ... contains invalid characters" — pick a block_id no other line in the note ends in; the invalid-characters message names the allowed characters
 - "blockId is required" — pass block_id
@@ -285,7 +285,7 @@ ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Obsidian syntax: When description or subtasks text ends in a signifier the plugin's parser recognizes as a field (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata, not text. The write still succeeds either way; reword the text to clear any advisories the result carries.
+Obsidian syntax: When description or subtasks text ends in a field the plugin's parser recognizes (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata. The write still succeeds; reword the text to clear the advisories the result carries.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, changes, advisories } — line is the new task's 1-based line number in the file; block_id is omitted when the task has none (line is then its handle); heading is the nearest heading above the new task (omitted when the note has none); subtasks lists each checklist item written as { line, description } (omitted when none); changes lists every field written as "field: (none) → value", and checklist items as "subtasks: 0 → N"; advisories (omitted when the line round-trips clean) lists one sentence per place the stored line parses back differently than submitted — see Obsidian syntax above.`,
       inputSchema: {
@@ -518,9 +518,9 @@ ${NOTE_EXTENSION_ERROR_ENTRY}
 ${PATH_SAFETY_ERROR_ENTRY}
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — the message states the rule
 - "blockId ... not found" / "blockId ... is inside a fenced code block or comment" — no task line outside a fenced code block or %% %% comment ends with that ^id; check the id${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by line
-- "blockId ... matches N task lines" — more than one task line ends in the id (the message lists their line numbers); target the intended task by line. To repair on a regular note, give all but one line a new id with assign_block_id. On a Kanban board, where the plugin copied a sub-task's id onto its card, remove the id from the sub-task's line (assign_block_id: null, by line), then assign the card the id its existing links use, or a new one
+- "blockId ... matches N task lines" — the message lists the lines; target the intended task by line, then repair: on a regular note, give all but one line a new id with assign_block_id; on a Kanban board, where the plugin copies a sub-task's id onto its card, clear the sub-task's id (assign_block_id: null, by line) and give the card the id its links use, or a new one
 - "no task at line N" / "line N is inside a fenced code block or comment" — the line holds no task checkbox, or sits inside a fenced code block or %% %% comment; re-read line numbers${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")}, or target by block_id
-- "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the targeted task's checkbox character (c) is typed NON_TASK so it is not a task, or the status the message names has no symbol and its default character has another type; the user must change that character's type or add a symbol for that status there, then restart the server
+- "checkbox "[c]" is a NON_TASK status" / "no checkbox symbol for status ..." — in the Tasks plugin's status settings, the task's checkbox character (c) is typed NON_TASK, or the named status has no symbol and its default character has another type; the user changes that character's type or adds the symbol there, then restarts the server
 - "at least one mutation" — the message lists the fields that count
 - "cannot move a sub-task to a heading" / "cannot reposition a sub-task" — a heading or position on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")}); sub-tasks move with their parent, so move or reposition the parent instead
 - "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading; the message names the fix
@@ -538,7 +538,7 @@ ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Obsidian syntax: When description or add_subtasks text ends in a signifier the plugin's parser recognizes as a field (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata, not text. The write still succeeds either way; reword the text to clear any advisories the result carries. The ✅/❌ dates a status change adds or removes produce no advisories by themselves.
+Obsidian syntax: When description or add_subtasks text ends in a field the plugin's parser recognizes (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata. The write still succeeds; reword the text to clear the advisories the result carries. The ✅/❌ dates a status change adds or removes produce no advisories by themselves.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied }.
 - line is the task's final 1-based line number in the file; after an on_completion delete, the line the task occupied before removal.

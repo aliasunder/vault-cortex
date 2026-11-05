@@ -15,7 +15,7 @@ import {
 /** One entry for the bare-name checks every tool taking a memory file name
  *  runs, so the three descriptions cannot drift apart. */
 const MEMORY_FILE_NAME_ERROR_ENTRY =
-  '- "memory file must not start with a dot" / "memory file must be a bare name without path separators" / "memory file must be named without .md" — each message names the part of the name to drop'
+  '- "memory file must not start with a dot" / "… must be a bare name without path separators" / "… must be named without .md" — each message names the part of the name to drop'
 
 /** The memory store names a folder standing where the file would go. That
  *  folder is the vault owner's, so the caller picks another name instead of

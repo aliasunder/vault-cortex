@@ -44,7 +44,7 @@ const AMBIGUOUS_SPAN_ANCHOR_ERROR_ENTRY =
 /** The Errors entry of a tool whose write lock refused the call, when the caller
  *  re-reads the note before retrying because the other write may have changed it. */
 const CONCURRENT_WRITE_REREAD_ERROR_ENTRY =
-  '- "concurrent write in progress" — another write to this note is in flight; re-read the note and retry'
+  '- "concurrent write in progress" — another write to this note is in flight; re-read it and retry'
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -541,34 +541,32 @@ Returns: "Wrote <path>".`,
 - To edit a leading callout, read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one; a no-heading prepend would stack a second callout above it.`
     : ""
 
-  const patchNoteAlternativesLine = formatServedSentencesLine([
+  // One "Prefer" sentence lists every served sibling, so the routing reads as
+  // one choice and costs one sentence however many tools are served.
+  const patchNoteAlternatives = [
     whenToolEnabledText(
       "vault_write_note",
-      "Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true).",
+      "vault_write_note for a new note or a full rewrite (overwrite: true)",
     ),
     whenToolEnabledText(
       "vault_replace_in_note",
-      "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location.",
+      "vault_replace_in_note for an in-place text change (a typo, a rename)",
     ),
     whenToolEnabledText(
       "vault_insert_at_anchor",
-      "Prefer vault_insert_at_anchor for inserting next to a specific line inside a section.",
+      "vault_insert_at_anchor for inserting next to a specific line",
     ),
-    whenToolEnabledText(
-      "vault_replace_span",
-      "Prefer vault_replace_span for replacing a run of lines inside a section.",
-    ),
-    whenToolEnabledText("vault_delete_span", "Prefer vault_delete_span for removing lines."),
-    whenToolEnabledText(
-      "vault_update_properties",
-      "Prefer vault_update_properties for changing properties.",
-    ),
-    whenToolEnabledText("vault_create_task", "Prefer vault_create_task for adding a task."),
+    whenToolEnabledText("vault_replace_span", "vault_replace_span for replacing a run of lines"),
+    whenToolEnabledText("vault_delete_span", "vault_delete_span for removing lines"),
+    whenToolEnabledText("vault_update_properties", "vault_update_properties for properties"),
+    whenToolEnabledText("vault_create_task", "vault_create_task for adding a task"),
     whenToolEnabledText(
       "vault_update_task",
-      "Prefer vault_update_task for completing or moving a task in one write.",
+      "vault_update_task for completing or moving a task in one write",
     ),
-  ])
+  ].filter(Boolean)
+  const patchNoteAlternativesLine =
+    patchNoteAlternatives.length > 0 ? `\nPrefer ${patchNoteAlternatives.join("; ")}.` : ""
 
   registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
@@ -1301,7 +1299,7 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and links in properties (e.g. related:) — and Canvas cards that embed the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and links in properties (e.g. related:) — and Canvas cards that embed the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]]). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.

@@ -583,7 +583,7 @@ describe("sentences shared across sibling tools", () => {
     {
       label: "the note-metadata result shape",
       sentence:
-        "Returns: JSON array of note metadata: path, title (the title property, or the file name without .md when missing or not text), tags (the tags property, which vault_update_properties edits), body_tags (the #tags written in the note's text, each spelling once, edited as text with vault_replace_in_note; absent when there are none), related ([] when missing), folder (top-level folder; \"\" at the vault root), type (null when missing or not text), created (null when missing or not an ISO date), modified (file modification time, ISO 8601), bytes (on-disk size), plus, when present, leading_callout (the callout that opens the note's body, as { type, title, body }) and additional_properties (every property outside title, type, created, related, and tags).",
+        'Returns: JSON array of note metadata: path, title (file name without .md when missing or not text), tags (the tags property; vault_update_properties edits it), body_tags (#tags in the note\'s text, one per spelling; vault_replace_in_note edits them; absent when none), related ([] when missing), folder (top-level folder, "" at the root), type (null when missing or not text), created (null when missing or not an ISO date), modified (ISO 8601 file time), bytes (on-disk size), and when present leading_callout ({ type, title, body }, the callout opening the body) and additional_properties (every other property).',
       tools: NOTE_METADATA_TOOLS,
     },
     {
@@ -1379,7 +1379,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   // The two tag fields, as every tool that returns notes describes them while
   // both edit tools are served
   const TAG_FIELDS_WORDING =
-    "tags (the tags property, which vault_update_properties edits), body_tags (the #tags written in the note's text, each spelling once, edited as text with vault_replace_in_note; absent when there are none)"
+    "tags (the tags property; vault_update_properties edits it), body_tags (#tags in the note's text, one per spelling; vault_replace_in_note edits them; absent when none)"
 
   // Search indexes file content only while file tools are on, so with them
   // off the description must not mention file content, the extension field,
@@ -1436,7 +1436,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
       resultFields: searchSection({ startMarker: "results array (", endMarker: "), total" }),
       kindSentence: searchSection({
         startMarker: "The kind field is ",
-        endMarker: " The created field is omitted",
+        endMarker: " created is omitted",
       }),
     }).toEqual(expectedWording)
   })
@@ -1454,13 +1454,13 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
   const PATH_AND_LOOKUP_ERROR_ENTRIES = [
     '- "cannot delete protected path" — the path sits under a protected folder; use vault_delete_memory for a memory entry, or ask the vault\'s owner to delete the note in Obsidian',
     '- "path must end in …" — add the .md extension',
-    '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it',
+    '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — pass a vault-relative path with no dot-prefixed part',
     '- "concurrent write in progress" — another write to this note is in flight; retry',
     '- "note not found: …" — verify path with vault_list_notes',
   ]
   const DELETE_FAILURE_ENTRIES = [
     '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault\'s owner to fix the cause (e.g. permissions), then retry',
-    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do; the note stays put',
+    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error — the message says what to do; the note stays put',
   ]
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
     "- \"cannot read daily notes config from .obsidian/daily-notes.json\" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry"
@@ -3460,7 +3460,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const SHARED_FILESYSTEM_ENTRY =
-    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do'
+    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error — the message says what to do'
 
   // The rename remedy, and its gated vault_move_note name, now live in the
   // message the boundary appends (coded-error-remedy.test.ts pins both forms),
@@ -3790,83 +3790,79 @@ describe("DISABLED_TOOLS", () => {
 
   const PATCH_NOTE_WHEN_TO_USE =
     "When to use: Modifying part of an existing note without overwriting the entire body."
-  const PATCH_NOTE_WRITE_NOTE_SENTENCE =
-    "Prefer vault_write_note for creating new notes, or full rewrites (with overwrite: true)."
-  const PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE =
-    "Prefer vault_replace_in_note for in-place text changes (typos, renaming) that stay in the same location."
-  const PATCH_NOTE_INSERT_AT_ANCHOR_SENTENCE =
-    "Prefer vault_insert_at_anchor for inserting next to a specific line inside a section."
-  const PATCH_NOTE_REPLACE_SPAN_SENTENCE =
-    "Prefer vault_replace_span for replacing a run of lines inside a section."
-  const PATCH_NOTE_DELETE_SPAN_SENTENCE = "Prefer vault_delete_span for removing lines."
-  const PATCH_NOTE_UPDATE_PROPERTIES_SENTENCE =
-    "Prefer vault_update_properties for changing properties."
-  const PATCH_NOTE_CREATE_TASK_SENTENCE = "Prefer vault_create_task for adding a task."
-  const PATCH_NOTE_UPDATE_TASK_SENTENCE =
-    "Prefer vault_update_task for completing or moving a task in one write."
+  const PATCH_NOTE_WRITE_NOTE_ITEM =
+    "vault_write_note for a new note or a full rewrite (overwrite: true)"
+  const PATCH_NOTE_REPLACE_IN_NOTE_ITEM =
+    "vault_replace_in_note for an in-place text change (a typo, a rename)"
+  const PATCH_NOTE_INSERT_AT_ANCHOR_ITEM =
+    "vault_insert_at_anchor for inserting next to a specific line"
+  const PATCH_NOTE_REPLACE_SPAN_ITEM = "vault_replace_span for replacing a run of lines"
+  const PATCH_NOTE_DELETE_SPAN_ITEM = "vault_delete_span for removing lines"
+  const PATCH_NOTE_UPDATE_PROPERTIES_ITEM = "vault_update_properties for properties"
+  const PATCH_NOTE_CREATE_TASK_ITEM = "vault_create_task for adding a task"
+  const PATCH_NOTE_UPDATE_TASK_ITEM =
+    "vault_update_task for completing or moving a task in one write"
   const ALL_PATCH_NOTE_ALTERNATIVES = [
-    PATCH_NOTE_WRITE_NOTE_SENTENCE,
-    PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE,
-    PATCH_NOTE_INSERT_AT_ANCHOR_SENTENCE,
-    PATCH_NOTE_REPLACE_SPAN_SENTENCE,
-    PATCH_NOTE_DELETE_SPAN_SENTENCE,
-    PATCH_NOTE_UPDATE_PROPERTIES_SENTENCE,
-    PATCH_NOTE_CREATE_TASK_SENTENCE,
-    PATCH_NOTE_UPDATE_TASK_SENTENCE,
+    PATCH_NOTE_WRITE_NOTE_ITEM,
+    PATCH_NOTE_REPLACE_IN_NOTE_ITEM,
+    PATCH_NOTE_INSERT_AT_ANCHOR_ITEM,
+    PATCH_NOTE_REPLACE_SPAN_ITEM,
+    PATCH_NOTE_DELETE_SPAN_ITEM,
+    PATCH_NOTE_UPDATE_PROPERTIES_ITEM,
+    PATCH_NOTE_CREATE_TASK_ITEM,
+    PATCH_NOTE_UPDATE_TASK_ITEM,
   ]
 
-  const patchNoteWhenToUseWithout = (droppedSentence: string): string => {
-    const servedSentences = ALL_PATCH_NOTE_ALTERNATIVES.filter(
-      (sentence) => sentence !== droppedSentence,
-    )
-    return `${PATCH_NOTE_WHEN_TO_USE}\n${servedSentences.join(" ")}`
+  const patchNoteWhenToUseWithout = (droppedItem: string): string => {
+    const servedItems = ALL_PATCH_NOTE_ALTERNATIVES.filter((item) => item !== droppedItem)
+    return `${PATCH_NOTE_WHEN_TO_USE}\nPrefer ${servedItems.join("; ")}.`
   }
 
   it.each([
     {
       label: "names all eight tools while they are served",
       disabledTools: "",
-      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\n${ALL_PATCH_NOTE_ALTERNATIVES.join(" ")}`,
+      expectedSection: `${PATCH_NOTE_WHEN_TO_USE}\nPrefer ${ALL_PATCH_NOTE_ALTERNATIVES.join("; ")}.`,
     },
     {
-      label: "drops only the vault_write_note sentence when that tool is disabled",
+      label: "drops only the vault_write_note item when that tool is disabled",
       disabledTools: "vault_write_note",
-      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_WRITE_NOTE_SENTENCE),
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_WRITE_NOTE_ITEM),
     },
     {
-      label: "drops only the vault_replace_in_note sentence when that tool is disabled",
+      label: "drops only the vault_replace_in_note item when that tool is disabled",
       disabledTools: "vault_replace_in_note",
-      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_REPLACE_IN_NOTE_SENTENCE),
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_REPLACE_IN_NOTE_ITEM),
     },
     {
-      label: "drops only the vault_insert_at_anchor sentence when that tool is disabled",
+      label: "drops only the vault_insert_at_anchor item when that tool is disabled",
       disabledTools: "vault_insert_at_anchor",
-      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_INSERT_AT_ANCHOR_SENTENCE),
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_INSERT_AT_ANCHOR_ITEM),
     },
     {
-      label: "drops only the vault_replace_span sentence when that tool is disabled",
+      label: "drops only the vault_replace_span item when that tool is disabled",
       disabledTools: "vault_replace_span",
-      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_REPLACE_SPAN_SENTENCE),
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_REPLACE_SPAN_ITEM),
     },
     {
-      label: "drops only the vault_delete_span sentence when that tool is disabled",
+      label: "drops only the vault_delete_span item when that tool is disabled",
       disabledTools: "vault_delete_span",
-      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_DELETE_SPAN_SENTENCE),
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_DELETE_SPAN_ITEM),
     },
     {
-      label: "drops only the vault_update_properties sentence when that tool is disabled",
+      label: "drops only the vault_update_properties item when that tool is disabled",
       disabledTools: "vault_update_properties",
-      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_UPDATE_PROPERTIES_SENTENCE),
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_UPDATE_PROPERTIES_ITEM),
     },
     {
-      label: "drops only the vault_create_task sentence when that tool is disabled",
+      label: "drops only the vault_create_task item when that tool is disabled",
       disabledTools: "vault_create_task",
-      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_CREATE_TASK_SENTENCE),
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_CREATE_TASK_ITEM),
     },
     {
-      label: "drops only the vault_update_task sentence when that tool is disabled",
+      label: "drops only the vault_update_task item when that tool is disabled",
       disabledTools: "vault_update_task",
-      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_UPDATE_TASK_SENTENCE),
+      expectedSection: patchNoteWhenToUseWithout(PATCH_NOTE_UPDATE_TASK_ITEM),
     },
     {
       label: "leaves only the when-to-use line when all eight tools are disabled",
