@@ -377,7 +377,7 @@ describe("registerTools", () => {
     })
     expect(sortLines).toBe(
       [
-        '- sort_by "modified" uses filesystem mtime, which every note has. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.',
+        '- sort_by "modified" uses filesystem mtime. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.',
         '- sort_by "created" uses the created property; notes where it is missing or not an ISO date sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
       ].join("\n"),
     )
@@ -408,7 +408,7 @@ describe("registerTools", () => {
   it("vault_list_tags description says property and body tags both count", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_TAGS)
     expect(config.description).toContain(
-      "Tags in the tags property and #tags written in note bodies both count, as in Obsidian's Tags view.",
+      "Tags in the tags property and #tags written in note bodies both count.",
     )
     expect(config.description).toContain("unique notes")
   })
@@ -566,12 +566,14 @@ describe("sentences shared across sibling tools", () => {
     },
     {
       label: "what counts as an empty line",
-      sentence: "a line holding only spaces or tabs counts as text, not as an empty line.",
-      tools: [
-        TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-        TOOL_NAMES.VAULT_DELETE_SPAN,
-        TOOL_NAMES.VAULT_REPLACE_SPAN,
-      ],
+      sentence: "- A line holding only spaces or tabs counts as text, not as an empty line.",
+      tools: [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_DELETE_SPAN],
+    },
+    {
+      label: "what counts as an empty line inside replacement content",
+      sentence:
+        "Empty lines inside content are kept as written, and a line holding only spaces or tabs counts as text, not as an empty line.",
+      tools: [TOOL_NAMES.VAULT_REPLACE_SPAN],
     },
     {
       label: "the anchor rule of the anchor tools",
@@ -596,7 +598,7 @@ describe("sentences shared across sibling tools", () => {
     },
     {
       label: "the index-lag lead of every index-backed Behavior section",
-      sentence: "Behavior: Results can lag a file change by a few seconds",
+      sentence: "Behavior: Results can lag a file change by a few seconds.",
       tools: INDEX_LAG_TOOLS,
     },
     {
@@ -1553,7 +1555,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
       [
         "Behavior:",
         '- The "Deleted files" setting decides the outcome, which the caller can\'t choose or see in advance:',
-        '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
+        '  - "Move to system trash" moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
         '  - "Move to Obsidian trash" moves the note to `.trash/` and keeps it forever.',
         '  - "Permanently delete" removes the note for good.',
         LINKS_AND_PROTECTED_PATHS_ENTRY,
@@ -1613,14 +1615,14 @@ describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
 
   // Both variants share this lead; only the Returns line's closing sentence differs
   const RECALL_RETURNS_LEAD =
-    "Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file."
+    "Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory or vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. With file, limit keeps the most relevant matches from that file."
 
   it("describes hybrid recall when EMBEDDING_ENABLED=true", () => {
     const description = findRecallDescription(registerWithConfig({}))
 
     expect(openerAndReturnsLines(description)).toEqual({
       opener:
-        'Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to any-term keyword matching instead of returning nothing.',
+        'Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to any-term keyword matching instead of returning nothing.',
       returns: `${RECALL_RETURNS_LEAD} search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.`,
     })
   })
@@ -3258,7 +3260,7 @@ describe("DISABLED_TOOLS", () => {
         linePrefix: "Returns:",
       }),
     ).toBe(
-      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.',
+      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included). The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. With file, limit keeps the most relevant matches from that file. search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.',
     )
     expect(description).not.toContain("feed directly into")
   })
@@ -3344,7 +3346,7 @@ describe("DISABLED_TOOLS", () => {
         linePrefix: "Returns:",
       }),
     ).toBe(
-      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file. search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.',
+      'Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_delete_memory. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. With file, limit keeps the most relevant matches from that file. search_mode is "hybrid" when semantic matching contributed and "fts" when keyword matching alone did, the any-term fallback included; reranked is true when the reranker ran.',
     )
   })
 
@@ -3480,7 +3482,7 @@ describe("DISABLED_TOOLS", () => {
       label: "names vault_replace_in_note while it is served",
       disabledTools: "",
       expectedLine:
-        "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). To replace a block, use vault_replace_span (one atomic step).",
+        "Prefer vault_replace_in_note for small in-place edits. To replace a block, use vault_replace_span (one atomic step).",
     },
     {
       label: "drops the vault_replace_in_note sentence when that tool is disabled",
@@ -3623,14 +3625,14 @@ describe("DISABLED_TOOLS", () => {
       startMarker: '- "start anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment (the end anchor is searched from the start line down); check the fragment\'s letter case and spacing',
+        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment; check the fragment\'s letter case and spacing',
     },
     {
       toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
       startMarker: '- "start anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment (the end anchor is searched from the start line down); check the fragment\'s letter case and spacing',
+        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment; check the fragment\'s letter case and spacing',
     },
     {
       toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,

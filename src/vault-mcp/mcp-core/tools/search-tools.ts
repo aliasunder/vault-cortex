@@ -47,7 +47,7 @@ export const registerSearchTools = ({
 - type: the type property, matched exactly, letter case included
 - related: every listed link must appear in the related property, written as it is there, brackets and alias included
 - properties: keys and text values match exactly, letter case included; values compare by exact type — pass a number as a number, not "4". Exception: true and false compare as 1 and 0, so true or 1 matches a checked checkbox and the number 1. A list property matches when any element equals the value.
-- created / modified: bounds compare whole calendar days in the server's time zone (returned created and modified values show its UTC offset), so "on" matches anywhere within the day, and before and after exclude the day they name. A note whose created property is missing or not an ISO date never matches a created filter`
+- created / modified: bounds compare whole calendar days in the server's time zone (returned created and modified values show its UTC offset). A note whose created property is missing or not an ISO date never matches a created filter`
 
   // Different tools edit the two tag fields, so every description that
   // returns notes says which field is which
@@ -107,7 +107,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
         stage: "matching",
         outcome: "a query left with no terms returns no results",
       }
-  const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}, so a note written moments ago may not be found yet.`
+  const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}.`
   const searchErrorsSection = `Errors:
 - No matches returns an empty results array with total 0, not an error
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}
@@ -243,9 +243,9 @@ When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no tex
 
 Parameters:
 - tag: a trailing slash matches nothing ("project/" matches neither "project" nor "project/a"), so pass the tag name without it.
-- limit applies after sorting, so you get the most recently modified notes; ${LIMIT_TRUNCATION_CLAUSE}.
+- limit keeps the most recently modified notes; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}: a note written moments ago may not appear yet, and one moved, deleted, or retagged moments ago may still be listed.
+Behavior: ${INDEX_LAG_LEAD}.
 
 Errors:
 - An unknown tag or no matches returns an empty array, not an error.
@@ -298,7 +298,7 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Tags keep the note's lett
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Tags in the tags property and #tags written in note bodies both count, as in Obsidian's Tags view. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
+      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Tags in the tags property and #tags written in note bodies both count. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
@@ -351,10 +351,10 @@ Example: vault_recent_notes({ sort_by: "created", limit: 5 })
 When to use: Catching up on vault changes, finding recent work, or orienting after a break.${recentNotesAlternativesLine}
 
 Parameters:
-- sort_by "modified" uses filesystem mtime, which every note has. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
+- sort_by "modified" uses filesystem mtime. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
 - sort_by "created" uses the created property; notes where it is missing or not an ISO date sort after every dated note, so a small limit can leave them out — use "modified" to see them.
 
-Behavior: ${INDEX_LAG_LEAD}, so a note written moments ago may not be listed yet.
+Behavior: ${INDEX_LAG_LEAD}.
 
 Errors:
 - An empty vault returns an empty array, not an error.
@@ -412,9 +412,9 @@ When to use: Exploring a folder's contents with full context for vault orientati
 
 Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored, and recursive: false keeps only the folder's own notes.
-- limit applies after sorting, so you get the most recently modified notes. There is no offset, and ${LIMIT_TRUNCATION_CLAUSE}.
+- limit keeps the most recently modified notes. There is no offset, and ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}: a note written moments ago may not appear yet, one renamed or deleted moments ago may still be listed, and a just-changed note may show its old metadata. Notes in hidden (dot-prefixed) folders never appear.
+Behavior: ${INDEX_LAG_LEAD}. Notes in hidden (dot-prefixed) folders never appear.
 
 Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
@@ -523,11 +523,11 @@ When to use: Enumerating possible values for a property key${whenToolEnabledText
 Parameters:
 - key is case-sensitive and must match exactly${whenToolEnabledText("vault_list_property_keys", " as returned by vault_list_property_keys")}.
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}.
-- limit applies after sorting by count descending, so you get the most-used values first; ${LIMIT_TRUNCATION_CLAUSE}.
+- limit keeps the most-used values; ${LIMIT_TRUNCATION_CLAUSE}.
 
 Behavior: ${INDEX_LAG_LEAD}.
 - Array elements (tags: ["a", "b"]) are counted individually, so the sum of counts may exceed the note count.
-- Each value is listed as text, and values with the same text share one row with combined occurrence counts: number 1 and text "1" count together, while text "1.0" stays separate. Grouping happens before limit.
+- Each value is listed as text, and values with the same text share one row with combined occurrence counts: number 1 and text "1" count together, while text "1.0" stays separate.
 - Checkbox true and false come back as "1" and "0", counted with the numbers 1 and 0.
 - null values are skipped.
 
@@ -607,12 +607,12 @@ When to use: Finding notes by metadata when you don't have a text query.${search
 Parameters:
 - key and value both match exactly and case-sensitively, with no partial matching or globbing; value matches a stored text value as written.
 - A value written as a complete, finite YAML number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary) matches only as text.
-- A checkbox is stored as 1 (checked) or 0 (unchecked) and matches only as text: pass "1" or "0"; "1.0" and "true" do not match.
+- A checkbox matches only as text: pass "1" (checked) or "0" (unchecked); "1.0" and "true" do not match.
 - A list property matches when an element equals value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; omit it to search the entire vault.
 - limit keeps the most recently modified matches; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}: a note written moments ago may not match yet, and one changed moments ago may still match its old value.
+Behavior: ${INDEX_LAG_LEAD}.
 
 Errors:
 - An unknown key or unmatched value returns an empty array, not an error.
@@ -735,13 +735,13 @@ Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
 
 When to use: Navigating the graph forward, auditing broken links in one note or canvas, or checking dependencies before editing.${outgoingLinksAlternativesLine}
 
-Behavior: ${INDEX_LAG_LEAD}, so a note or canvas created or moved moments ago returns an empty result until the index catches up.
+Behavior: ${INDEX_LAG_LEAD}.
 
 Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link into the daily notes folder (a daily note not yet created, not breakage) and false otherwise, including when Obsidian's Daily Notes folder setting is the vault root or blank. bytes is the on-disk size (null for broken links)${fileBytesClause}.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
-- A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does. If you expected links, ${linkEmptyResultRemedy}.
+- A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does; a note or canvas created or moved in the last few seconds may not appear yet. If you expected links, ${linkEmptyResultRemedy}.
 ${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
         path: z
@@ -821,7 +821,7 @@ Parameters:
 - exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.${orphanDefaultsText.dailyFolderLine}
 - limit applies after exclusions and sorting; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}, so a link written moments ago may not count yet.
+Behavior: ${INDEX_LAG_LEAD}.
 
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.

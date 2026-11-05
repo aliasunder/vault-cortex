@@ -129,17 +129,17 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; ask for a UTF-8 copy
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
-- "PDF is password-protected" — this tool cannot supply a password; read an unprotected copy instead
+- "PDF is password-protected" — read an unprotected copy instead
 - "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; any other PDF or image error comes back in the reading library's own words. Replace or re-export the file
 - "PDF page rendering failed" — read it without raw: true to get its text instead; if that read also finds no text, this tool can't read the PDF
 - "image cannot be fitted into …" — the image is over the image output budget even after shrinking; ask the server's operator to raise MAX_IMAGE_OUTPUT_BYTES
 ${FILESYSTEM_ERROR_ENTRY}
-- "file changed while reading" — the file was written while it was read; retry the read
+- "file changed while reading" — retry the read
 - "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the server's operator to restart the server
 - "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
 
 Returns: by file type:
-- Images (.png/.jpg/.jpeg/.gif/.webp): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels, and delivered untouched otherwise; an animated GIF is reduced to its first frame when recompressed.
+- Images (.png/.jpg/.jpeg/.gif/.webp): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels; an animated GIF is reduced to its first frame when recompressed.
 - Canvas (.canvas): one text block holding a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
 - PDFs (.pdf): one text block of structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer; with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page).
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): one text block holding the file content verbatim.`,
@@ -154,7 +154,7 @@ Returns: by file type:
           .boolean()
           .optional()
           .describe(
-            "Return a canvas's or PDF's alternative form. Changes nothing for text formats, which already return their source.",
+            "Return a canvas's or PDF's alternative form. Changes nothing for text formats.",
           ),
         start_line: z
           .number()
@@ -241,7 +241,7 @@ Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
 When to use: discovering what files exist${whenToolEnabledText("vault_read_file", " before reading them with vault_read_file")}.${listFilesContrastSentence}${whenToolEnabledText("vault_get_outgoing_links", " For the files one specific note links to, prefer vault_get_outgoing_links.")}
 
-Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing. Hidden (dot-prefixed) files and folders, .obsidian/ among them, never appear.
+Behavior: Use the folder's exact letter case; a different case can find nothing. Hidden (dot-prefixed) files and folders, .obsidian/ among them, never appear.
 
 Errors:
 - A visible folder containing no files — or one that doesn't exist, or a path that names a file — returns an empty listing, not an error.
@@ -250,7 +250,7 @@ ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).${whenToolEnabledText(
         "vault_read_file",
-        "\n\nReadable types: vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base. It cannot read any type outside these lists.",
+        "\n\nReadable types: vault_read_file reads only images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base.",
       )}`,
       inputSchema: {
         folder: z

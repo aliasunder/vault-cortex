@@ -103,7 +103,7 @@ export const registerMemoryTools = ({
       title: "Get Memory",
       description: `Read semantic memory from ${config.memoryDir}/ files. Each file holds dated bullet entries under H2 headings. With file: that file. With file+section: just that H2 section's entries. No args: every file, joined by --- lines — can be large.
 
-With file+on_or_after: only the entries dated on or after that date, in document order (newest first by default), from one H2 section when section is given and otherwise from every section, each entry keeping its section attribution.
+With file+on_or_after: only the entries dated on or after that date, in document order (newest first by default), from one H2 section when section is given and otherwise from every section.
 
 Example: vault_get_memory({ file: "Principles" }) — the whole file
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
@@ -250,20 +250,20 @@ Example: vault_memory_recall({ query: "testing philosophy", file: "Opinions" })
 
 When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files.${recallAlternativesSentence}
 
-Behavior: A memory file change takes a few seconds to appear here, so an entry written moments ago may not be recalled yet.
+Behavior: A memory file change takes a few seconds to appear here.
 
 Errors:
 - No matching entries returns entries: [] and total: 0, not an error
 - An unknown file returns empty results — ${memoryFileNotFoundRemedy}
 ${INDEX_ENGINE_ERROR_ENTRY}`
-  const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. The file filter is applied before limit, so limit keeps the most relevant matches from that file.`
+  const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. With file, limit keeps the most relevant matches from that file.`
 
   // The recall description leads with its matching mode — hybrid semantic
   // matching is the tool's core promise, so keyword-only deployments
   // (EMBEDDING_ENABLED=false) get an honest variant with a synonym-requery
   // workaround instead of an overclaim.
   const memoryRecallDescription = config.embeddingEnabled
-    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to any-term keyword matching instead of returning nothing.
+    ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns the relevant dated entries, up to limit, sorted oldest-first — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to any-term keyword matching instead of returning nothing.
 
 ${recallUsageSections}
 

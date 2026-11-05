@@ -269,10 +269,9 @@ export const NOTE_END_BLANK_LINES_SENTENCE =
 
 /** What counts as an empty line for the blank-line rules. */
 export const WHITESPACE_ONLY_LINE_CLAUSE =
-  "a line holding only spaces or tabs counts as text, not as an empty line"
+  "line holding only spaces or tabs counts as text, not as an empty line"
 
-/** How every index-backed tool's Behavior section opens; each tool adds the
- *  consequence its own results show. */
+/** The index-lag sentence every index-backed tool's Behavior section opens with. */
 export const INDEX_LAG_LEAD = "Results can lag a file change by a few seconds"
 
 /** How an index-backed folder input scopes its matches. The filesystem

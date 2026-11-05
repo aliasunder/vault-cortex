@@ -64,7 +64,7 @@ Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) —
 
 When to use: Reading task status and order on one board (path + sort_by: "position"; add status: "all" to include done and cancelled cards). Also any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.${listTasksAlternativesLine}
 
-Behavior: A file change takes a few seconds to appear here, so a task written moments ago may still show its old state.
+Behavior: A file change takes a few seconds to appear here.
 
 Parameters:
 - status: "not_done" and "all" expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
@@ -80,7 +80,7 @@ ${NOTE_EXTENSION_ERROR_ENTRY}
 - No matches returns { total: 0, tasks: [] }, not an error
 ${INDEX_ERROR_ENTRY}
 
-Returns: JSON { total, tasks }. Every task carries path, line, status, status_char (the checkbox character, such as "x" or "/"), description, folder (the task note's parent folder), depth (0 for top-level, 1+ for sub-tasks), is_kanban_task (true when the task's note has kanban-plugin in its properties), depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only: the headings of the lanes whose first line is **Complete**), and subtask_progress ({ done, total } over the task's DIRECT checklist children; done counts status "done" only, a cancelled child counts toward total, and the counts ignore the query's filters, so a filtered or top_level_only read still shows each card's progress).`,
+Returns: JSON { total, tasks }. Every task carries path, line, status, status_char (the checkbox character, such as "x" or "/"), description, folder (the task note's parent folder), depth (0 for top-level, 1+ for sub-tasks), is_kanban_task (true when the task's note has kanban-plugin in its properties), depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only: the headings of the lanes whose first line is **Complete**), and subtask_progress ({ done, total } over the task's DIRECT checklist children; done counts status "done" only, a cancelled child counts toward total, and the counts ignore the query's filters).`,
       inputSchema: {
         status: z
           .union([
@@ -254,7 +254,7 @@ Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", parent_bl
 Example: vault_create_task({ path: "Projects/plan.md", description: "Quick fix", block_id: "quick-fix", parent_line: 42 }) — sub-task in a regular note under a parent identified by line number
 Example: vault_create_task({ path: "TASKS.md", description: "Write release notes", block_id: "release-notes", heading: "Active", position: 3 }) — insert as the 3rd card in the lane
 
-When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering${whenToolEnabledText("vault_list_tasks", ", so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
+When to use: Creating a new task card on a board or in a note.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
 Parameters:
 - heading is required on Kanban boards (notes with a kanban-plugin property) unless a parent is given.
@@ -511,7 +511,7 @@ Parameters:
   Delete (🏁 delete / [onCompletion:: delete]), on "done": removes the task line and its children instead of moving to done. With 🔁 + 🏁, the next occurrence is still created, and the completed task is removed.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the next occurrence. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
-- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Omitted, an unmoved task stays put. Ignored when the task is deleted on completion.
+- position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Ignored when the task is deleted on completion.
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 ${noteNotFoundErrorEntry}
@@ -618,9 +618,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .min(1)
           .nullable()
           .optional()
-          .describe(
-            `Created date (YYYY-MM-DD) to set or clear, for corrections.${whenToolEnabledText("vault_create_task", " vault_create_task stamps it on every new task.")}`,
-          ),
+          .describe("Created date (YYYY-MM-DD) to set or clear, for corrections."),
         task_id: z
           .string()
           .min(1)
@@ -667,7 +665,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .enum(["emoji", "dataview"])
           .optional()
           .describe(
-            "Field format for metadata this call writes; fields it leaves alone keep theirs, so a line can mix formats. Default: auto-detected from .obsidian/ config, falling back to emoji.",
+            "Field format for metadata this call writes; fields it leaves alone keep theirs. Default: auto-detected from .obsidian/ config, falling back to emoji.",
           ),
       },
     },

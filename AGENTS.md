@@ -747,6 +747,16 @@ the description and each parameter's Zod `.describe()` text.
   claim on its own. How the server carries out the call (which
   `.obsidian` file holds a setting, how a save stages its write) goes in
   ARCHITECTURE.md, however accurate; the outcome the caller sees stays.
+- **State a fact, never its absence, its implication or its mechanism.**
+  The reader is an agent picking tools from text it pays for by the
+  token. A definition never says that a limit, cap or restriction does
+  not exist ("no upper cap"): a limit is named only where one applies,
+  and an unnamed one is not assumed. It never spells out what a stated
+  fact already implies ("in the server's timezone" already says the day
+  may not be the caller's), and never explains a mechanism the agent
+  cannot change ("until the index catches up"). The test for any clause:
+  delete it, and if the agent would send the same call and read the
+  result the same way, it stays deleted.
 - **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich
   validation (format, date validity, mutual exclusivity) lives in the
   data layer or handler, where failures flow through `safeHandler` as

@@ -2113,6 +2113,23 @@ describe("unknown parameters", () => {
     })
   })
 
+  it("rejects a glob over the length cap before the matcher sees it", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_list_notes",
+      args: { glob: "a".repeat(1025) },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "MCP error -32602: Input validation error: Invalid arguments for tool vault_list_notes: Too big: expected string to have <=1024 characters at glob",
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it("rejects a misspelled key inside a nested filter", async () => {
     const result = await callTool({
       client,

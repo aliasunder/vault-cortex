@@ -41,6 +41,11 @@ const CONTENT_CONTROL_CHARACTER_ERROR_ENTRY =
 const AMBIGUOUS_SPAN_ANCHOR_ERROR_ENTRY =
   '- "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true'
 
+// picomatch throws its own SyntaxError on a pattern over 65,536 characters, so
+// the glob schema stops a long pattern before the matcher runs. Real patterns
+// are a few dozen characters.
+const MAX_GLOB_LENGTH = 1024
+
 /** The Errors entry of a tool whose write lock refused the call, when the caller
  *  re-reads the note before retrying because the other write may have changed it. */
 const CONCURRENT_WRITE_REREAD_ERROR_ENTRY =
@@ -122,7 +127,7 @@ export const registerVaultCrudTools = ({
   // Errors entries built from those remedies that two or more tools share word for word.
   const noteNotFoundCheckErrorEntry = `- "note not found" — path does not exist; ${noteNotFoundCheckRemedy}`
   const noteNotFoundVerifyErrorEntry = `- "note not found" — ${noteNotFoundVerifyRemedy}`
-  const spanAnchorNotFoundErrorEntry = `- "start anchor not found" / "end anchor not found" — no body line holds the fragment (the end anchor is searched from the start line down); ${anchorNotFoundRemedy}`
+  const spanAnchorNotFoundErrorEntry = `- "start anchor not found" / "end anchor not found" — no body line holds the fragment; ${anchorNotFoundRemedy}`
 
   const protectedPathsText = describeProtectedPaths({
     config,
@@ -406,10 +411,10 @@ Example: vault_list_notes({ folder: "Projects", glob: "*.md" }) — the folder's
 When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.${listNotesAlternativesLine}
 
 Parameters:
-- folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
+- folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case; a different case can find nothing.
 - glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "**/*.md" lists every note under it.
 
-Behavior: Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed; symlinked notes are included.
+Behavior: Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed.
 
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
@@ -428,6 +433,7 @@ Returns: JSON array of every matching vault-relative path (e.g. ["Notes/idea.md"
         glob: z
           .string()
           .min(1)
+          .max(MAX_GLOB_LENGTH)
           .optional()
           .describe('Glob pattern for note paths (e.g. "**/*session-log*.md").'),
       },
@@ -472,7 +478,7 @@ Returns: JSON array of every matching vault-relative path (e.g. ["Notes/idea.md"
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create a markdown note, or with overwrite: true replace an existing note's body; the old body's text is lost unless the new body includes it. Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values. A new note leaves out keys set to null.
+      description: `Create a markdown note, or with overwrite: true replace an existing note's body. Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values. A new note leaves out keys set to null.
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
@@ -731,10 +737,10 @@ Parameters:
 
 Behavior:
 - A non-empty new_text replaces the match exactly; new_text="" deletes it, and when text remains on the line, the line is written exactly as asked.
-- When the line empties, ${BLANK_LINES_NEVER_DOUBLE_CLAUSE}, and by at least one.
+- When new_text="" leaves the match's line empty, ${BLANK_LINES_NEVER_DOUBLE_CLAUSE}, and by at least one.
 - ${NOTE_END_BLANK_LINES_SENTENCE}
 - To remove a table row or list item, include its line break in old_text, or the empty line left behind splits the table or list.
-- Empty lines elsewhere in the note stay as they are, and ${WHITESPACE_ONLY_LINE_CLAUSE}.
+- A ${WHITESPACE_ONLY_LINE_CLAUSE}.
 
 Errors:
 ${noteNotFoundCheckErrorEntry}
@@ -825,7 +831,7 @@ Returns: "Replaced <N> occurrence(s) in <path>".`,
   const deleteSpanAlternativesLine = formatServedSentencesLine([
     whenToolEnabledText(
       "vault_replace_in_note",
-      "Prefer vault_replace_in_note for small in-place edits (this tool only deletes).",
+      "Prefer vault_replace_in_note for small in-place edits.",
     ),
     `To replace a block, ${replaceBlockAdvice}.`,
   ])
@@ -849,7 +855,7 @@ Parameters:
 Behavior:
 - Where the removed lines stood, ${BLANK_LINES_NEVER_DOUBLE_CLAUSE}. So removing a table row leaves the table whole.
 - ${NOTE_END_BLANK_LINES_SENTENCE}
-- Empty lines elsewhere in the note stay as they are, and ${WHITESPACE_ONLY_LINE_CLAUSE}.
+- A ${WHITESPACE_ONLY_LINE_CLAUSE}.
 
 Errors:
 ${noteNotFoundVerifyErrorEntry}
@@ -953,7 +959,7 @@ Parameters:
 Behavior:
 - Each line break at content's start or end becomes an empty line on that side, so content ending in one ("| X |\\n") leaves an empty line after it, which splits a table.
 - Where the note already has empty lines next to content's start or end, the wider run (the note's or content's) is kept, so blank lines never double. At the note's end, content's trailing line breaks count one fewer ("| X |\\n" leaves no empty line).
-- Empty lines inside content and elsewhere in the note are kept as written, and ${WHITESPACE_ONLY_LINE_CLAUSE}.
+- Empty lines inside content are kept as written, and a ${WHITESPACE_ONLY_LINE_CLAUSE}.
 
 Errors:
 ${noteNotFoundVerifyErrorEntry}
@@ -1085,9 +1091,7 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
           .describe("Short, unique substring of the body line to insert next to (case-sensitive)."),
         position: z
           .enum(["before", "after"])
-          .describe(
-            '"before" inserts above the anchor line, "after" below it; the anchor line itself is never changed.',
-          ),
+          .describe('"before" inserts above the anchor line, "after" below it.'),
         content: z.string().min(1).describe("Content to insert (one or more lines)."),
         first_match: z
           .boolean()
@@ -1147,7 +1151,7 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
         opener: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
         trashOutcomeEntries: `
 - The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance:
-  - "Move to system trash" (also what an absent setting means) moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
+  - "Move to system trash" moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
   - "Move to Obsidian trash" moves the note to \`.trash/\` and keeps it forever.
   - "Permanently delete" removes the note for good.`,
         trashMoveErrorEntries: `
@@ -1320,7 +1324,7 @@ Errors:
 - "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder; pick a new_path outside it, or leave a protected note where it is.${dailyNotesConfigErrorEntry ? `${dailyNotesConfigErrorEntry}.` : ""}
 ${NOTE_EXTENSION_ERROR_ENTRY}.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them.
-- "concurrent write in progress" — a write is in flight on the note, the destination, or one of the notes linking to it; retry the move.
+- "concurrent write in progress" — a write is in flight; retry the move.
 - "backlink set did not stabilize" — the notes linking to the note kept changing while the move prepared; nothing was written; retry the move.
 - "move aborted: could not read …" — names the note, or a note linking to it, that could not be read; nothing was written. Fix that note, then retry.
 - "move aborted: could not rewrite …" — says why a note could not be saved with its links rewritten, and how to fix it; nothing was written.
@@ -1419,7 +1423,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update a note's properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block: here null writes a property with no value, as Obsidian does, and {} removes the whole block. The body is kept; a merge only adds a missing final newline.
+      description: `Update a note's properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block: here null writes a property with no value, and {} removes the whole block. The body is kept.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })
