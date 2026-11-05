@@ -399,9 +399,7 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
             .string()
             .min(1)
             .optional()
-            .describe(
-              "ISO YYYY-MM-DD date (defaults to today in the server's timezone, which can differ from the user's)",
-            ),
+            .describe("ISO YYYY-MM-DD date (defaults to today in the server's timezone)"),
           position: z
             .enum(["top", "bottom"])
             .optional()
