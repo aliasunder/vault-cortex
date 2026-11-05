@@ -242,7 +242,51 @@ const OPENING_BLOCK_REMEDY =
 /** The Errors entry of every tool whose write can leave `---` lines at the
  *  top of a note with no properties. The error carries the ways around it. */
 export const OPENING_BLOCK_ERROR_ENTRY =
-  '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties, around text that can\'t be kept as properties; the error says how to avoid it'
+  '- "the note would open with a properties block …" — the edit would leave --- lines at the top of a note with no properties, around text that can\'t be kept as properties (a body that starts with "---", a line of prose, then "---"); the error says how to avoid it'
+
+// Sentences two or more tools state word for word. Each tool renders its copy
+// from here, and tool-definitions.test.ts fails when a sibling's copy drifts.
+
+/** The save rules every body-editing tool opens with. A properties-block
+ *  CRLF that follows a raw CR is kept as it is, so the sentence covers the
+ *  body only. */
+export const EDIT_SAVE_RULES_SENTENCE =
+  "Properties are kept as written, and body line breaks are saved as LF."
+
+/** The clause every non-idempotent note write ends its repeat sentence with. */
+export const RETRY_REREAD_CLAUSE =
+  "so after a timeout or lost response, re-read the note before retrying"
+
+/** How the patcher closes the gap a deleted line leaves. */
+export const BLANK_LINES_NEVER_DOUBLE_SENTENCE =
+  "blank lines never double: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one."
+
+/** The same rule at the note's end, where no text follows the gap. */
+export const NOTE_END_BLANK_LINES_SENTENCE =
+  'At the note\'s end, where no text follows, the run of empty lines above is kept one line shorter ("A\\n\\nB\\n" without "B" → "A\\n").'
+
+/** What counts as an empty line for the blank-line rules. */
+export const WHITESPACE_ONLY_LINE_CLAUSE =
+  "a line holding only spaces or tabs counts as text, not as an empty line"
+
+/** How every index-backed tool's Behavior section opens; each tool adds the
+ *  consequence its own results show. */
+export const INDEX_LAG_LEAD = "Results can lag a file change by a few seconds"
+
+/** How an index-backed folder input scopes its matches. The filesystem
+ *  listing tools match case-sensitively, so they state their own rule. */
+export const INDEX_FOLDER_SCOPE_CLAUSE =
+  'a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case'
+
+/** What a limit on an index-backed listing never tells the caller. */
+export const LIMIT_TRUNCATION_CLAUSE =
+  "nothing in the response signals truncation; raise limit to see more"
+
+/** The result shape the five tools that return note metadata share. The
+ *  tags clause names the tools that edit each tag field, so it is passed in. */
+export const describeNoteMetadataResult = (tagsFieldsText: string): string => {
+  return `JSON array of note metadata: path, title (the title property, or the file name without .md when missing or not text), ${tagsFieldsText}, related ([] when missing), folder (top-level folder; "" at the vault root), type (null when missing or not text), created (null when missing or not an ISO date), modified (file modification time, ISO 8601), bytes (on-disk size), plus, when present, leading_callout (the callout that opens the note's body, as { type, title, body }) and additional_properties (every property outside title, type, created, related, and tags).`
+}
 
 /** The Errors entry of every tool that reads or writes a vault file, for a
  *  raw filesystem error. The message is Node's with the path made

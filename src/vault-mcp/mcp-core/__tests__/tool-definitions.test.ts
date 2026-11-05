@@ -264,7 +264,7 @@ describe("registerTools", () => {
       linePrefix: "- prepend:",
     })
     expect(prependEntry).toBe(
-      "- prepend: add content after heading line (or at the top of the body, below frontmatter, if no heading). To start a new section above the note's current first heading, use insert_before on that heading: a no-heading prepend whose content starts with a heading nests any content above the first heading inside the new section.",
+      "- prepend: add content after heading line (or at the top of the body, below the properties block, if no heading). To start a new section above the note's current first heading, use insert_before on that heading: a no-heading prepend whose content starts with a heading nests any content above the first heading inside the new section.",
     )
   })
 
@@ -318,7 +318,7 @@ describe("registerTools", () => {
       linePrefix: "Append a dated entry",
     })
     expect(opener).toBe(
-      "Append a dated entry to a section of a memory file in About Me/. An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in frontmatter (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries with vault_delete_memory is expected maintenance.",
+      "Append a dated entry to a section of a memory file in About Me/. An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in its properties (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries with vault_delete_memory is expected maintenance.",
     )
   })
 
@@ -378,7 +378,7 @@ describe("registerTools", () => {
     expect(sortLines).toBe(
       [
         '- sort_by "modified" uses filesystem mtime, which every note has. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.',
-        '- sort_by "created" uses the frontmatter created property; notes where it is missing or not an ISO date sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
+        '- sort_by "created" uses the created property; notes where it is missing or not an ISO date sort after every dated note, so a small limit can leave them out — use "modified" to see them.',
       ].join("\n"),
     )
   })
@@ -491,6 +491,162 @@ describe("registerTools", () => {
   })
 })
 
+// Facts several tools state are rendered from one sentence each, so an edit to
+// one tool's copy is an edit to all of them. These are test-owned copies: a
+// changed sentence fails here until the new wording is confirmed on purpose,
+// and a tool that stops rendering the shared sentence fails on its own row.
+describe("sentences shared across sibling tools", () => {
+  const BODY_EDIT_TOOLS = [
+    TOOL_NAMES.VAULT_PATCH_NOTE,
+    TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+    TOOL_NAMES.VAULT_REPLACE_SPAN,
+    TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+    TOOL_NAMES.VAULT_DELETE_SPAN,
+  ] as const
+
+  const NOTE_METADATA_TOOLS = [
+    TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+    TOOL_NAMES.VAULT_RECENT_NOTES,
+    TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
+    TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
+    TOOL_NAMES.VAULT_FIND_ORPHANS,
+  ] as const
+
+  const INDEX_FOLDER_TOOLS = [
+    TOOL_NAMES.VAULT_SEARCH,
+    TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
+    TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
+    TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
+    TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
+    TOOL_NAMES.VAULT_FIND_ORPHANS,
+  ] as const
+
+  const INDEX_LAG_TOOLS = [
+    TOOL_NAMES.VAULT_SEARCH,
+    TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+    TOOL_NAMES.VAULT_RECENT_NOTES,
+    TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
+    TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
+    TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
+    TOOL_NAMES.VAULT_FIND_ORPHANS,
+  ] as const
+
+  const LIMITED_LISTING_TOOLS = [
+    TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+    TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
+    TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
+    TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
+    TOOL_NAMES.VAULT_FIND_ORPHANS,
+  ] as const
+
+  const SHARED_SENTENCES = [
+    {
+      label: "the save rules every body edit opens with",
+      sentence: "Properties are kept as written, and body line breaks are saved as LF.",
+      tools: BODY_EDIT_TOOLS,
+    },
+    {
+      label: "the retry clause every repeatable body edit ends with",
+      sentence: "so after a timeout or lost response, re-read the note before retrying.",
+      tools: BODY_EDIT_TOOLS,
+    },
+    {
+      label: "the blank-line rule of the deleting edits",
+      sentence:
+        "blank lines never double: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one.",
+      tools: [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_DELETE_SPAN],
+    },
+    {
+      label: "the note-end blank-line rule of the deleting edits",
+      sentence:
+        'At the note\'s end, where no text follows, the run of empty lines above is kept one line shorter ("A\\n\\nB\\n" without "B" → "A\\n").',
+      tools: [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_DELETE_SPAN],
+    },
+    {
+      label: "what counts as an empty line",
+      sentence: "a line holding only spaces or tabs counts as text, not as an empty line.",
+      tools: [
+        TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+        TOOL_NAMES.VAULT_DELETE_SPAN,
+        TOOL_NAMES.VAULT_REPLACE_SPAN,
+      ],
+    },
+    {
+      label: "the anchor rule of the anchor tools",
+      sentence:
+        "An anchor matches a body line (any line below the properties block) by substring, case-sensitively.",
+      tools: [
+        TOOL_NAMES.VAULT_DELETE_SPAN,
+        TOOL_NAMES.VAULT_REPLACE_SPAN,
+        TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+      ],
+    },
+    {
+      label: "the note-metadata result shape",
+      sentence:
+        "Returns: JSON array of note metadata: path, title (the title property, or the file name without .md when missing or not text), tags (the tags property, which vault_update_properties edits), body_tags (the #tags written in the note's text, each spelling once, edited as text with vault_replace_in_note; absent when there are none), related ([] when missing), folder (top-level folder; \"\" at the vault root), type (null when missing or not text), created (null when missing or not an ISO date), modified (file modification time, ISO 8601), bytes (on-disk size), plus, when present, leading_callout (the callout that opens the note's body, as { type, title, body }) and additional_properties (every property outside title, type, created, related, and tags).",
+      tools: NOTE_METADATA_TOOLS,
+    },
+    {
+      label: "the folder scope of an index-backed folder input",
+      sentence:
+        'a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case',
+      tools: INDEX_FOLDER_TOOLS,
+    },
+    {
+      label: "the index-lag lead of every index-backed Behavior section",
+      sentence: "Behavior: Results can lag a file change by a few seconds",
+      tools: INDEX_LAG_TOOLS,
+    },
+    {
+      label: "what a listing limit never signals",
+      sentence: "nothing in the response signals truncation; raise limit to see more.",
+      tools: LIMITED_LISTING_TOOLS,
+    },
+    {
+      label: "the protected-path list",
+      sentence:
+        "About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank)",
+      tools: [TOOL_NAMES.VAULT_DELETE_NOTE, TOOL_NAMES.VAULT_MOVE_NOTE],
+    },
+    {
+      label: "the daily-notes config error entry",
+      sentence:
+        "- \"cannot read daily notes config from .obsidian/daily-notes.json\" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry",
+      tools: [TOOL_NAMES.VAULT_DELETE_NOTE, TOOL_NAMES.VAULT_MOVE_NOTE],
+    },
+  ] as const
+
+  const sharedSentenceCases = SHARED_SENTENCES.flatMap(({ label, sentence, tools }) => {
+    return tools.map((toolName) => ({ label, sentence, toolName }))
+  })
+
+  it.each(sharedSentenceCases)("$toolName states $label", ({ sentence, toolName }) => {
+    const [, config] = requireCall(toolName)
+    expect(requireDescription(config, toolName)).toContain(sentence)
+  })
+
+  it("no tool restates Obsidian's properties as frontmatter", () => {
+    const toolsSayingFrontmatter = calls
+      .filter(([toolName, config]) => {
+        return requireDescription(config, toolName).toLowerCase().includes("frontmatter")
+      })
+      .map(([toolName]) => toolName)
+    expect(toolsSayingFrontmatter).toEqual([])
+  })
+
+  it("every tool names the two roles it sends a caller to the same way", () => {
+    const unexpectedRoleWordings = calls.flatMap(([toolName, config]) => {
+      const description = requireDescription(config, toolName)
+      const wrongForms = ["vault owner", "server operator", "server's owner"].filter((form) => {
+        return description.includes(form)
+      })
+      return wrongForms.map((form) => `${toolName}: ${form}`)
+    })
+    expect(unexpectedRoleWordings).toEqual([])
+  })
+})
+
 describe("annotations", () => {
   it.each(READ_ONLY_TOOLS)("%s has readOnlyHint: true", (name) => {
     const [, config] = requireCall(name)
@@ -570,7 +726,7 @@ describe("config interpolation in descriptions", () => {
       linePrefix: "- Links to the note",
     })
     expect(linksEntry).toBe(
-      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank).",
+      "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: Profile/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank).",
     )
   })
 
@@ -587,7 +743,7 @@ describe("config interpolation in descriptions", () => {
 
   it("vault_delete_note description includes memory hint when memory is enabled", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_NOTE)
-    expect(config.description).toContain("use vault_delete_memory for memory entries")
+    expect(config.description).toContain("use vault_delete_memory for a memory entry")
   })
 
   it("vault_find_orphans schema references configured exclusion folders", () => {
@@ -1097,7 +1253,7 @@ describe("vault_patch_note handler", () => {
       content: [
         {
           type: "text",
-          text: 'Applied prepend to hash-only.md → file body. The 12 bytes of pre-existing content above the note\'s first heading are now nested under the inserted heading. The first heading is an empty H3, which operation "insert_before" cannot target.',
+          text: 'Applied prepend to hash-only.md → file body. The 12 bytes of pre-existing content above the note\'s first heading are now nested under the inserted heading. The first heading is an empty H3, which operation "insert_before" cannot target. To add a section below existing content instead, use operation "append".',
         },
       ],
     })
@@ -1232,7 +1388,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   const FILE_RESULT_WORDING = {
     searchedScope: "search across vault notes and file content (canvas, PDF, and text files)",
     filtersLeadIn:
-      "Filters — all conditions AND-combine with each other and the text query; any filter but folder limits results to notes:",
+      "Filters — all conditions AND-combine with each other and the text query; files have no properties or dates, so any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
     kindSentence:
       'The kind field is "note" for markdown notes or "file" for non-markdown content; file results also carry extension (e.g. ".pdf").',
@@ -1297,28 +1453,28 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     })
   }
   const PATH_AND_LOOKUP_ERROR_ENTRIES = [
-    '- "cannot delete protected path" — the path sits under a protected folder; use vault_delete_memory for memory entries',
+    '- "cannot delete protected path" — the path sits under a protected folder; use vault_delete_memory for a memory entry, or ask the vault\'s owner to delete the note in Obsidian',
     '- "path must end in …" — add the .md extension',
     '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it',
     '- "concurrent write in progress" — another write to this note is in flight; retry',
     '- "note not found: …" — verify path with vault_list_notes',
   ]
   const DELETE_FAILURE_ENTRIES = [
-    '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault owner to fix the cause (e.g. permissions), then retry',
+    '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault\'s owner to fix the cause (e.g. permissions), then retry',
     '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error code — the message says what to do; the note stays put',
   ]
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
-    '- "cannot read daily notes config from .obsidian/daily-notes.json" — ask the vault owner to repair it, or the server operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry'
+    "- \"cannot read daily notes config from .obsidian/daily-notes.json\" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry"
 
   it("lists the trash-move and trash-setting errors when the server does not sync", () => {
     expect(deleteNoteErrors({})).toBe(
       [
         "Errors:",
         ...PATH_AND_LOOKUP_ERROR_ENTRIES,
-        '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies; ask the vault owner to clear old copies, then retry',
-        '- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
+        '- "cannot move to trash … — 100 collisions in .trash/" — .trash/ holds this name and 100 numbered copies; ask the vault\'s owner to clear old copies, then retry',
+        '- "cannot move to trash …" without "100 collisions" — the note stays put; ask the vault\'s owner to fix .trash/ (e.g. a plain file blocks a needed folder), then retry',
         ...DELETE_FAILURE_ENTRIES,
-        '- "cannot read trash config from .obsidian/app.json" — ask the vault owner to repair it, then retry',
+        '- "cannot read trash config from .obsidian/app.json" — ask the vault\'s owner to repair it, then retry',
         DAILY_NOTES_CONFIG_ERROR_ENTRY,
       ].join("\n"),
     )
@@ -1350,7 +1506,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     })
   }
   const LINKS_AND_PROTECTED_PATHS_ENTRY =
-    "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank)."
+    "- Links to the note from other notes become broken; list them first with vault_get_backlinks. Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank)."
 
   it("describes the Deleted files outcomes when the server does not sync", () => {
     expect(deleteNoteOpener({})).toBe(
@@ -1360,7 +1516,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
       [
         "Behavior:",
         '- The "Deleted files" setting decides the outcome, which the caller can\'t choose or see in advance:',
-        '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
+        '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`, since the server has no system trash. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
         '  - "Move to Obsidian trash" moves the note to `.trash/` and keeps it forever.',
         '  - "Permanently delete" removes the note for good.',
         LINKS_AND_PROTECTED_PATHS_ENTRY,
@@ -1370,7 +1526,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
 
   it("describes permanent deletion and Sync recovery under OBSIDIAN_SYNC=true", () => {
     expect(deleteNoteOpener({ OBSIDIAN_SYNC: "true" })).toBe(
-      "Delete a markdown note for good. The vault owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
+      "Delete a markdown note for good. The vault's owner can recover it from Obsidian Sync's version history (1 month on Standard, 12 months on Plus).",
     )
     expect(deleteNoteBehavior({ OBSIDIAN_SYNC: "true" })).toBe(
       `Behavior:\n${LINKS_AND_PROTECTED_PATHS_ENTRY}`,
@@ -2052,7 +2208,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. The defaults\' daily notes folder is the one vault_get_daily_note\'s path starts with.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. To keep the daily notes folder excluded, list the folder vault_get_daily_note\'s path starts with.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -2071,8 +2227,8 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n\nBehavior:")[0]
     expect(parametersSection).toBe(
       [
-        '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
-        "- limit applies after exclusions and sorting; nothing in the response signals truncation.",
+        '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
+        "- limit applies after exclusions and sorting; nothing in the response signals truncation; raise limit to see more.",
       ].join("\n"),
     )
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -2088,7 +2244,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
     )
   })
 })
@@ -2899,7 +3055,7 @@ describe("DISABLED_TOOLS", () => {
         registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName: TOOL_NAMES.VAULT_READ_NOTE,
         startMarker: "Prefer vault_search",
-        endMarker: "\n\nSection boundaries:",
+        endMarker: "\n\nBehavior:",
       })
     }
     const ROUTING_LINE_START = "Prefer vault_search when you don't know the path."
@@ -2976,7 +3132,7 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const PROTECTED_PATHS_SENTENCE =
-      " Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank)."
+      " Protected paths are refused: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank)."
 
     expect(linksEntry("")).toBe(
       `- Links to the note from other notes become broken; list them first with vault_get_backlinks.${PROTECTED_PATHS_SENTENCE}`,
@@ -2995,10 +3151,10 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const ENTRY_LEAD =
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_LEAD} The defaults' daily notes folder is the one vault_get_daily_note's path starts with.`,
+      `${ENTRY_LEAD} To keep the daily notes folder excluded, list the folder vault_get_daily_note's path starts with.`,
     )
     expect(excludeFoldersEntry("vault_get_daily_note")).toBe(ENTRY_LEAD)
   })
@@ -3228,7 +3384,7 @@ describe("DISABLED_TOOLS", () => {
   const PROPERTY_VALUES_KEYS_SENTENCE =
     " Call vault_list_property_keys first to discover valid key names."
   const PROPERTY_VALUES_SEARCH_SENTENCE =
-    ' vault_search_by_property matches stored numbers numerically and text exactly; value "1" matches the number 1, the text "1", and a checked checkbox.'
+    ' A value listed here can be passed straight to vault_search_by_property, which matches text exactly and a complete number numerically too, so value "1" finds the number 1, the text "1", and a checked checkbox.'
 
   it.each([
     {
@@ -3362,7 +3518,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FENCED_BLOCK_WARNING =
-    "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
+    "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is searched from the start line down, so it also matches the opening fence, which makes it ambiguous, and first_match: true would end the span there"
 
   it.each([
     {
@@ -3430,21 +3586,21 @@ describe("DISABLED_TOOLS", () => {
       startMarker: '- "start anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; check the fragment\'s letter case and spacing',
+        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment (the end anchor is searched from the start line down); check the fragment\'s letter case and spacing',
     },
     {
       toolName: TOOL_NAMES.VAULT_REPLACE_SPAN,
       startMarker: '- "start anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment where it is searched; check the fragment\'s letter case and spacing',
+        '- "start anchor not found" / "end anchor not found" — no body line holds the fragment (the end anchor is searched from the start line down); check the fragment\'s letter case and spacing',
     },
     {
       toolName: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
       startMarker: '- "anchor not found"',
       endMarker: '\n- "ambiguous',
       expectedEntry:
-        '- "anchor not found" — fragment not on any body line; check the fragment\'s letter case and spacing',
+        '- "anchor not found" — no body line holds the fragment; check the fragment\'s letter case and spacing',
     },
   ])(
     "$toolName's not-found entry keeps a remedy without vault_read_note",
@@ -3527,13 +3683,13 @@ describe("DISABLED_TOOLS", () => {
       label: "names vault_write_note and vault_read_note while they are served",
       disabledTools: "",
       expectedLine:
-        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a block. Arrays are replaced entirely, not appended to.",
+        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused. Arrays are replaced entirely, not appended to.",
     },
     {
       label: "drops the vault_write_note sentence when that tool is disabled",
       disabledTools: "vault_write_note",
       expectedLine:
-        "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a block. Arrays are replaced entirely, not appended to.",
+        "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused. Arrays are replaced entirely, not appended to.",
     },
     {
       label: "drops the vault_read_note sentence when that tool is disabled",
@@ -3628,7 +3784,7 @@ describe("DISABLED_TOOLS", () => {
         linePrefix: "To only change a note's body or properties",
       })
       expect(routingLine).toBe(
-        "To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths cannot be moved: About Me/ and the daily notes folder (Daily Notes/ by default; not protected when it is the vault root or blank).",
+        "To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths can be neither moved nor moved into: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank).",
       )
     },
   )
@@ -3645,7 +3801,7 @@ describe("DISABLED_TOOLS", () => {
     "Prefer vault_replace_span for replacing a run of lines inside a section."
   const PATCH_NOTE_DELETE_SPAN_SENTENCE = "Prefer vault_delete_span for removing lines."
   const PATCH_NOTE_UPDATE_PROPERTIES_SENTENCE =
-    "Prefer vault_update_properties for changing frontmatter properties."
+    "Prefer vault_update_properties for changing properties."
   const PATCH_NOTE_CREATE_TASK_SENTENCE = "Prefer vault_create_task for adding a task."
   const PATCH_NOTE_UPDATE_TASK_SENTENCE =
     "Prefer vault_update_task for completing or moving a task in one write."
@@ -3784,22 +3940,22 @@ describe("DISABLED_TOOLS", () => {
     {
       label: "names both property editors while they are served",
       disabledTools: "",
-      expectedLine: `Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. Body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written, and body line breaks are saved as LF. Edit properties via vault_update_properties or vault_write_note's properties parameter. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
-      expectedLine: `Properties are kept as written — edit them via vault_write_note's properties parameter. Body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written, and body line breaks are saved as LF. Edit properties via vault_write_note's properties parameter. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine: `Properties are kept as written — edit them via vault_update_properties. Body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written, and body line breaks are saved as LF. Edit properties via vault_update_properties. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: `Properties are kept as written. Body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written, and body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
     const propertyEditLine = extractDescriptionSection({
@@ -3846,16 +4002,16 @@ describe("DISABLED_TOOLS", () => {
   )
 
   const PATCH_NOTE_SECTION_BOUNDARIES =
-    'Section boundaries: a section spans from its heading to the next heading with the same or a smaller level number (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted'
-  const EMPTY_HEADING_EDIT_ADVICE = " — edit their content via vault_replace_in_note instead"
+    '- A section spans from its heading to the next heading with the same or a smaller level number (or EOF), so it includes its child headings. Empty headings ("##" with no text) act as boundaries but cannot be targeted'
+  const EMPTY_HEADING_EDIT_ADVICE = "; edit their content via vault_replace_in_note instead"
   const LEADING_CALLOUT_EDIT =
-    "Editing a leading callout: read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one (a no-heading prepend would stack a second callout above it)."
+    "- To edit a leading callout, read it via vault_read_note(outline: true), then vault_replace_in_note the old block for the new one; a no-heading prepend would stack a second callout above it."
 
   it.each([
     {
       label: "names both tools while both are served",
       disabledTools: "",
-      expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}${EMPTY_HEADING_EDIT_ADVICE}.\n\n${LEADING_CALLOUT_EDIT}`,
+      expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}${EMPTY_HEADING_EDIT_ADVICE}.\n${LEADING_CALLOUT_EDIT}`,
     },
     {
       label:
@@ -3868,15 +4024,18 @@ describe("DISABLED_TOOLS", () => {
       disabledTools: "vault_read_note",
       expectedSection: `${PATCH_NOTE_SECTION_BOUNDARIES}${EMPTY_HEADING_EDIT_ADVICE}.`,
     },
-  ])("vault_patch_note's section-boundary text $label", ({ disabledTools, expectedSection }) => {
-    const sectionBoundariesText = extractDescriptionSection({
-      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
-      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
-      startMarker: "Section boundaries:",
-      endMarker: "\n\nErrors:",
-    })
-    expect(sectionBoundariesText).toBe(expectedSection)
-  })
+  ])(
+    "vault_patch_note's section and leading-callout bullets $label",
+    ({ disabledTools, expectedSection }) => {
+      const sectionBoundariesText = extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+        startMarker: "- A section spans",
+        endMarker: "\n\nErrors:",
+      })
+      expect(sectionBoundariesText).toBe(expectedSection)
+    },
+  )
 
   const REPLACE_SPAN_WHEN_TO_USE =
     "When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone."

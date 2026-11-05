@@ -210,7 +210,7 @@ Errors:
 - "cannot list memory folder …" — a file stands at the memory folder's path, or its permissions block the server; ask the vault's owner to fix it
 - "cannot read memory file …" — one listed file can't be read, which fails the whole listing; retry once, then ask the vault's owner to check that file
 
-Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); title is the title property, or file when there is none; bytes is the on-disk file size; headings lists H1 and H2 headings in order, each { level, text }, with entry_count on H2s; leading_callout is the top-of-file callout ({ type, title, body }; by convention a "Scope of this file" block describing what belongs in the file), or null; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter). The server does not enforce either policy.`,
+Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); title is the title property, or file when there is none; bytes is the on-disk file size; headings lists H1 and H2 headings in order, each { level, text }, with entry_count on H2s; leading_callout is the top-of-file callout ({ type, title, body }; by convention a "Scope of this file" block describing what belongs in the file), or null; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared by an \`entry-policy\` property). The server does not enforce either policy.`,
       inputSchema: {},
     },
     async (_args, extra) => {
@@ -350,7 +350,7 @@ ${recallReturnsLead} In keyword-only mode search_mode is always "fts" and rerank
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
       title: "Update Memory",
-      description: `Append a dated entry to a section of a memory file in ${config.memoryDir}/. An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare \`entry-policy: living\` in frontmatter${whenToolEnabledText("vault_list_memory_files", " (surfaced by vault_list_memory_files)")} — a current-state file where pruning expired entries${whenToolEnabledText("vault_delete_memory", " with vault_delete_memory")} is expected maintenance.
+      description: `Append a dated entry to a section of a memory file in ${config.memoryDir}/. An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare \`entry-policy: living\` in its properties${whenToolEnabledText("vault_list_memory_files", " (surfaced by vault_list_memory_files)")} — a current-state file where pruning expired entries${whenToolEnabledText("vault_delete_memory", " with vault_delete_memory")} is expected maintenance.
 
 Example: vault_update_memory({ file: "Opinions", section: "Code patterns (newest first)", entry: "Prefer immutable data structures" })
 Example: vault_update_memory({ file: "Routines", section: "Daily/weekly rhythm (newest first)", entry: "Gym Mon/Wed at 6am", options: { date: "2026-10-01", position: "bottom" } }) — a backdated entry placed below the existing ones
@@ -399,7 +399,9 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
             .string()
             .min(1)
             .optional()
-            .describe("ISO YYYY-MM-DD date (defaults to today, server timezone)"),
+            .describe(
+              "ISO YYYY-MM-DD date (defaults to today in the server's timezone, which can differ from the user's)",
+            ),
           position: z
             .enum(["top", "bottom"])
             .optional()
@@ -464,7 +466,7 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
 Example: vault_delete_memory({ file: "Opinions", section: "Tools and workflows (newest first)", date: "2026-05-01", entry: "Prefer X over Y" })
 Example: vault_delete_memory({ file: "Routines", section: "Daily/weekly rhythm (newest first)", date: "2026-03-10", entry: "Gym Tue/Thu at 7am" }) — prune an expired entry from an entry-policy: living file
 
-When to use: Removing an entry that was wrong when it was written. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state${whenToolEnabledText("vault_update_memory", " via vault_update_memory")} instead. The exception is a file whose frontmatter declares \`entry-policy: living\`${whenToolEnabledText("vault_list_memory_files", " (check via vault_list_memory_files)")} — a current-state file where deleting an expired entry is the intended maintenance.${whenToolEnabledText("vault_get_memory", " Call vault_get_memory(file, section) first to see exact entry text for matching.")}
+When to use: Removing an entry that was wrong when it was written. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state${whenToolEnabledText("vault_update_memory", " via vault_update_memory")} instead. The exception is a file whose properties declare \`entry-policy: living\`${whenToolEnabledText("vault_list_memory_files", " (check via vault_list_memory_files)")} — a current-state file where deleting an expired entry is the intended maintenance.${whenToolEnabledText("vault_get_memory", " Call vault_get_memory(file, section) first to see exact entry text for matching.")}
 ${whenToolEnabledText("vault_delete_note", "Prefer vault_delete_note for deleting whole notes; vault_delete_note refuses protected paths.\n")}
 Parameters:
 - date + entry together pick the bullet line within the given section; identical copies make the match ambiguous. The entry text matches the bullet's first line only, and the delete also removes the lines that continue that entry.

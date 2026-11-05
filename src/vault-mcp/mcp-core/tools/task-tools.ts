@@ -490,7 +490,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
-      description: `Update a task's status, priority, description, dates, recurrence, completion action, dependencies, block_id, checklist items, heading, or position within a lane, in any combination; every field passed is written in a single edit.
+      description: `Update a task's status, priority, description, dates, recurrence, completion action, dependencies, block_id, checklist items, heading, or position within a lane, in any combination; every field passed is written in a single edit. A repeated call with add_subtasks adds the items again, so after a timeout or lost response, re-read the task before retrying.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring

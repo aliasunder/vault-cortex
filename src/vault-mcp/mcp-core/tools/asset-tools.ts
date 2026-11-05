@@ -112,23 +112,17 @@ Example: vault_read_file({ path: "papers/research.pdf" }) — structured text wi
 
 When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", " vault_search also indexes canvas, PDF, and text-format content, but not images or other files.")}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
-What each file type returns:
-- Images (.png/.jpg/.jpeg/.gif/.webp): the image as an image block, downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels, and delivered untouched otherwise. Animated GIFs are reduced to their first frame when recompressed.
-- Canvas (.canvas): a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
-- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer.
-- Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text.
+Parameters:
+- raw: true switches a canvas or PDF to its other form. A canvas returns its exact JSON source (geometry, ids, colors) instead of the outline. A PDF returns each page rendered as an image instead of extracted text, showing layout, diagrams, tables, and formatting; only the first ${config.maxPdfRenderPages} pages are rendered, and later pages are readable only as text, without raw.
+- start_line and limit page any text result as a line window. The text output cap (a fixed 100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap.
 
-raw: true switches a canvas or PDF to its other form:
-- Canvas: the exact JSON source (geometry, ids, colors) instead of the outline.
-- PDF: each page rendered as an image block instead of extracted text, showing layout, diagrams, tables, and formatting. Only the first ${config.maxPdfRenderPages} pages are rendered; later pages are readable only as text, without raw.
-
-Line paging: start_line and limit page any text result as a line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (a fixed 100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; an unpaged read of a text format returns the file byte-exact.
+Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text format returns the file byte-exact.
 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_read_note", "; read notes with vault_read_note")}
 - "file not found" — no file exists at that path (a folder is not a file)${whenToolEnabledText("vault_list_files", "; discover valid paths via vault_list_files")}
 ${PATH_SAFETY_ERROR_ENTRY}
-- "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's owner can raise
+- "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's operator can raise
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
 - "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input
@@ -138,13 +132,17 @@ ${PATH_SAFETY_ERROR_ENTRY}
 - "PDF is password-protected" — this tool cannot supply a password; read an unprotected copy instead
 - "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; any other PDF or image error comes back in the reading library's own words. Replace or re-export the file
 - "PDF page rendering failed" — read it without raw: true to get its text instead; if that read also finds no text, this tool can't read the PDF
-- "image cannot be fitted into …" — the image is over the image output budget even after shrinking; ask the server's owner to raise MAX_IMAGE_OUTPUT_BYTES
+- "image cannot be fitted into …" — the image is over the image output budget even after shrinking; ask the server's operator to raise MAX_IMAGE_OUTPUT_BYTES
 ${FILESYSTEM_ERROR_ENTRY}
 - "file changed while reading" — the file was written while it was read; retry the read
-- "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the vault's owner to restart the server
+- "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the server's operator to restart the server
 - "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
 
-Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,
+Returns: by file type, preceded by a window-metadata text block when start_line or limit was given:
+- Images (.png/.jpg/.jpeg/.gif/.webp): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels, and delivered untouched otherwise; an animated GIF is reduced to its first frame when recompressed.
+- Canvas (.canvas): one text block holding a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
+- PDFs (.pdf): one text block of structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer; with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page).
+- Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): one text block holding the file content verbatim.`,
       inputSchema: {
         path: z
           .string()

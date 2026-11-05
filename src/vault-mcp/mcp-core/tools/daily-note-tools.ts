@@ -30,8 +30,8 @@ Parameters:
 
 Errors:
 - "invalid date …" / "… is not a calendar date" — pass a real date in YYYY-MM-DD form (2026-02-30 is refused)
-- "daily note format contains unsupported token(s): ..." — the configured date format contains tokens the server cannot reproduce; ask the vault's owner to change the format in Obsidian, or the server operator to set DAILY_NOTES_FORMAT (the message names the tokens)
-- "path traversal blocked" / "hidden path blocked" / "absolute path blocked" — the configured daily notes folder or format leads outside the vault or into a hidden folder; ask the vault's owner to change it in Obsidian, or the server operator to set DAILY_NOTES_FOLDER and DAILY_NOTES_FORMAT
+- "daily note format contains unsupported token(s): ..." — the configured date format contains tokens the server cannot reproduce; ask the vault's owner to change the format in Obsidian, or the server's operator to set DAILY_NOTES_FORMAT (the message names the tokens)
+- "path traversal blocked" / "hidden path blocked" / "absolute path blocked" — the configured daily notes folder or format leads outside the vault or into a hidden folder; ask the vault's owner to change it in Obsidian, or the server's operator to set DAILY_NOTES_FOLDER and DAILY_NOTES_FORMAT
 ${FILESYSTEM_ERROR_ENTRY}
 
 Returns: JSON with path (string — resolved vault-relative path), content (string|null — the note's full text, properties block included, or null when the note doesn't exist), and exists (boolean).${whenToolEnabledText("vault_write_note", " When exists is false, create the note with vault_write_note using the returned path.")}`,
