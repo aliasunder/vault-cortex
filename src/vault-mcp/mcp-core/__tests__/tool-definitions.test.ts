@@ -3784,22 +3784,22 @@ describe("DISABLED_TOOLS", () => {
     {
       label: "names both property editors while they are served",
       disabledTools: "",
-      expectedLine: `Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. The note is saved with LF line breaks throughout. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written — edit them via vault_update_properties or vault_write_note's properties parameter. Body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "names only vault_write_note when vault_update_properties is disabled",
       disabledTools: "vault_update_properties",
-      expectedLine: `Properties are kept as written — edit them via vault_write_note's properties parameter. The note is saved with LF line breaks throughout. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written — edit them via vault_write_note's properties parameter. Body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "names only vault_update_properties when vault_write_note is disabled",
       disabledTools: "vault_write_note",
-      expectedLine: `Properties are kept as written — edit them via vault_update_properties. The note is saved with LF line breaks throughout. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written — edit them via vault_update_properties. Body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
     {
       label: "drops the clause when both property editors are disabled",
       disabledTools: "vault_update_properties,vault_write_note",
-      expectedLine: `Properties are kept as written. The note is saved with LF line breaks throughout. ${replaceInNoteRetrySentence}`,
+      expectedLine: `Properties are kept as written. Body line breaks are saved as LF. ${replaceInNoteRetrySentence}`,
     },
   ])("vault_replace_in_note's opening $label", ({ disabledTools, expectedLine }) => {
     const propertyEditLine = extractDescriptionSection({

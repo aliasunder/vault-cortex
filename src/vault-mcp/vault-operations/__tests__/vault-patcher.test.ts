@@ -3906,6 +3906,22 @@ trailing
     expect(await readTestNote("repeat.md")).toBe("- DONE a\n- DONE a\n")
   })
 
+  it("writes the content again when a repeated call's content still holds the start anchor", async () => {
+    await writeTestNote("repeat.md", "| 2024-03-02 | Acme |\n| 2024-03-05 | Beta |\n")
+    const repeatedReplace = {
+      vaultPath: vault,
+      path: "repeat.md",
+      startAnchor: "| 2024-03-02 | Acme",
+      content: "| 2024-03-02 | Acme Corp |\n| 2024-03-03 | Gamma |",
+    }
+    await replaceSpan(repeatedReplace, logger)
+    await replaceSpan(repeatedReplace, logger)
+
+    expect(await readTestNote("repeat.md")).toBe(
+      "| 2024-03-02 | Acme Corp |\n| 2024-03-03 | Gamma |\n| 2024-03-03 | Gamma |\n| 2024-03-05 | Beta |\n",
+    )
+  })
+
   it("throws when the note does not exist", async () => {
     await expect(
       replaceSpan(
