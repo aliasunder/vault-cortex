@@ -3906,6 +3906,20 @@ trailing
     expect(await readTestNote("repeat.md")).toBe("- DONE a\n- DONE a\n")
   })
 
+  it("deletes the next match when a first_match call repeats", async () => {
+    await writeTestNote("repeat.md", "- TODO a\n- TODO b\n- keep\n")
+    const repeatedDelete = {
+      vaultPath: vault,
+      path: "repeat.md",
+      startAnchor: "TODO",
+      firstMatch: true,
+    }
+    await deleteSpan(repeatedDelete, logger)
+    await deleteSpan(repeatedDelete, logger)
+
+    expect(await readTestNote("repeat.md")).toBe("- keep\n")
+  })
+
   it("writes the content again when a repeated call's content still holds the start anchor", async () => {
     await writeTestNote("repeat.md", "| 2024-03-02 | Acme |\n| 2024-03-05 | Beta |\n")
     const repeatedReplace = {
@@ -4534,6 +4548,25 @@ title: Shopping
 - Blueberries
 - Cherries
 `)
+  })
+
+  it("rejects a repeated call as ambiguous when the inserted content holds the anchor", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    const repeatedInsert = {
+      vaultPath: vault,
+      path: "shopping.md",
+      anchor: "- Bananas",
+      position: "after",
+      content: "- Bananas, frozen",
+    } as const
+    await insertAtAnchor(repeatedInsert, logger)
+
+    await expect(insertAtAnchor(repeatedInsert, logger)).rejects.toThrow(
+      'ambiguous anchor in "shopping.md": "- Bananas" matches 2 lines',
+    )
+    expect(await readTestNote("shopping.md")).toBe(
+      LIST_NOTE.replace("- Bananas\n", "- Bananas\n- Bananas, frozen\n"),
+    )
   })
 
   it("inserts the content again when the same call repeats", async () => {

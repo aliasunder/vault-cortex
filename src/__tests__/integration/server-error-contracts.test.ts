@@ -1856,6 +1856,23 @@ describe("parameter combinations", () => {
     expectToolError(result, "heading cannot be empty")
   })
 
+  it("vault_get_daily_note with a date not in YYYY-MM-DD form", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "not-a-date" },
+    })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: invalid date "not-a-date" — use YYYY-MM-DD format (e.g. "2026-05-13")',
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it("vault_get_daily_note with a date the calendar lacks", async () => {
     const result = await callTool({
       client,

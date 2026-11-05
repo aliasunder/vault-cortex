@@ -1152,6 +1152,29 @@ kanban-plugin: board
       )
     })
 
+    it("creates a Kanban sub-task again when the same block_id-less call repeats", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_BOARD)
+      const repeatedCreate = {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "board.md",
+        description: "Child task",
+        parentBlockId: "active-task",
+      }
+
+      await taskMutations.createTask(repeatedCreate, logger)
+      await taskMutations.createTask(repeatedCreate, logger)
+
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        KANBAN_BOARD.replace(
+          "^active-task\n",
+          `^active-task\n  - [ ] Child task ➕ ${today()}\n  - [ ] Child task ➕ ${today()}\n`,
+        ),
+      )
+    })
+
     it("creates a sub-task under a parent identified by block_id", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -1915,6 +1938,26 @@ kanban-plugin: board
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 🆔 abc123 ^my-task\n",
+      )
+    })
+
+    it("adds the checklist items again when an add_subtasks call repeats", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+      const repeatedUpdate = {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "walk-dog",
+        addSubtasks: ["Bring treats"],
+      }
+
+      await taskMutations.updateTask(repeatedUpdate, logger)
+      await taskMutations.updateTask(repeatedUpdate, logger)
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] Bring treats\n  - [ ] Bring treats\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
       )
     })
 

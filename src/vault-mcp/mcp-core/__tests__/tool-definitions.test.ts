@@ -626,9 +626,14 @@ describe("sentences shared across sibling tools", () => {
   })
 
   it("no tool restates Obsidian's properties as frontmatter", () => {
+    // The schema's .describe() texts reach the client too, so they are scanned
+    // as JSON Schema alongside the description.
     const toolsSayingFrontmatter = calls
       .filter(([toolName, config]) => {
-        return requireDescription(config, toolName).toLowerCase().includes("frontmatter")
+        if (!config.inputSchema) throw new Error(`tool ${toolName} registered without a schema`)
+
+        const servedText = `${requireDescription(config, toolName)}\n${JSON.stringify(z.toJSONSchema(config.inputSchema))}`
+        return servedText.toLowerCase().includes("frontmatter")
       })
       .map(([toolName]) => toolName)
     expect(toolsSayingFrontmatter).toEqual([])

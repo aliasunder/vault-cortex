@@ -44,7 +44,7 @@ const AMBIGUOUS_SPAN_ANCHOR_ERROR_ENTRY =
 /** The Errors entry of a tool whose write lock refused the call, when the caller
  *  re-reads the note before retrying because the other write may have changed it. */
 const CONCURRENT_WRITE_REREAD_ERROR_ENTRY =
-  '- "concurrent write in progress" — another write to this note is in flight; re-read it and retry'
+  '- "concurrent write in progress" — a write to this note is in flight; re-read it and retry'
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -1042,7 +1042,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. ${EDIT_SAVE_RULES_SENTENCE} A failed save leaves the note unchanged. A repeated call inserts the content again, ${RETRY_REREAD_CLAUSE}.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. ${EDIT_SAVE_RULES_SENTENCE} A failed save leaves the note unchanged. A repeated call inserts the content again, or fails as ambiguous when the content holds the anchor, ${RETRY_REREAD_CLAUSE}.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.

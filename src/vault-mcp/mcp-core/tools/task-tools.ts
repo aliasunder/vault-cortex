@@ -8,6 +8,7 @@ import {
   dateFilterSchema,
   FILESYSTEM_ERROR_ENTRY,
   INDEX_ERROR_ENTRY,
+  RETRY_REREAD_CLAUSE,
   describePropertiesBlockErrorEntry,
   formatServedSentencesLine,
   NOTE_EXTENSION_ERROR_ENTRY,
@@ -246,7 +247,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
     TOOL_NAMES.VAULT_CREATE_TASK,
     {
       title: "Create Task",
-      description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The task is always created as todo, with its created date (➕) set to today${whenToolEnabledText("vault_update_task", "; set in_progress later with vault_update_task")}. Override format only at the user's request.
+      description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The task is always created as todo, with its created date (➕) set to today${whenToolEnabledText("vault_update_task", "; set in_progress later with vault_update_task")}. Override format only at the user's request. A retried call with no block_id (a Kanban sub-task) creates it again, ${RETRY_REREAD_CLAUSE}.
 
 Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" }) — a card in a Kanban board's Active lane
 Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under fix-login

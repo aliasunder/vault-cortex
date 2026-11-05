@@ -242,7 +242,7 @@ const OPENING_BLOCK_REMEDY =
 /** The Errors entry of every tool whose write can leave `---` lines at the
  *  top of a note with no properties. The error carries the ways around it. */
 export const OPENING_BLOCK_ERROR_ENTRY =
-  '- "the note would open with a properties block …" — a note with no properties would start with --- lines around text that can\'t be properties; the error says how to avoid it'
+  '- "the note would open with a properties block …" — a note without properties would start with --- lines around text that can\'t be properties; the error says how to avoid it'
 
 // Sentences two or more tools state word for word. Each tool renders its copy
 // from here, and tool-definitions.test.ts fails when a sibling's copy drifts.
