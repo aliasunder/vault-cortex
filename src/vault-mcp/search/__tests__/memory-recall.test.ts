@@ -266,6 +266,139 @@ describe("memoryRecall", () => {
     expect(entries.map((entry) => [entry.file, entry.date])).toEqual([["Routines", "2026-07-10"]])
   })
 
+  it("finds a file's semantic-only entry beyond 201 closer entries in another file", async () => {
+    const selectedEmbedding = new Float32Array(DIMENSIONS)
+    selectedEmbedding[1] = Math.sqrt(0.99)
+    selectedEmbedding[2] = 0.1
+    const embeddingForText = (text: string): Float32Array => {
+      return text.includes("Rest blocks") ? selectedEmbedding : seededEmbedding(1)
+    }
+    const embedder = {
+      embedText: async (text: string): Promise<Float32Array> => embeddingForText(text),
+      embedBatch: async (texts: readonly string[]): Promise<Float32Array[]> => {
+        return texts.map(embeddingForText)
+      },
+    }
+    // Every decoy is strictly closer and fills even the doubled k=200 window.
+    const decoyEntries = Array.from(
+      { length: 201 },
+      (_, entryNumber) => `- **2026-07-02**: Sustainable rhythm number ${entryNumber}.`,
+    ).join("\n")
+    const selectedEntry = "- **2026-06-20**: Rest blocks between sprints."
+    const files = {
+      Selected: `## Working style\n\n${selectedEntry}\n`,
+      Other: `## Working style\n\n${decoyEntries}\n`,
+    }
+    const index = createSearchIndex(":memory:", embedder, undefined, { memoryDir: "About Me" })
+    for (const [fileName, content] of Object.entries(files)) {
+      const filePath = `About Me/${fileName}.md`
+      const sourceVersion = index.upsertNote(
+        withBodyTags({ filePath, rawContent: content, fileStat: { mtimeMs: 1000, size: 100 } }),
+        logger,
+      )
+      await index.embedNote({ sourceVersion, notePath: filePath, rawContent: content }, logger)
+    }
+
+    const lexicalOnlyIndex = await createRecallIndex({ withEmbedder: false, files })
+    const query = { query: "pacing recovery", file: "Selected", limit: 1 }
+    expect(await lexicalOnlyIndex.memoryRecall(query, logger)).toEqual({
+      entries: [],
+      total: 0,
+      truncated: false,
+      search_mode: "fts",
+      reranked: false,
+    })
+    expect(await index.memoryRecall(query, logger)).toEqual({
+      entries: [
+        { file: "Selected", section: "Working style", date: "2026-06-20", text: selectedEntry },
+      ],
+      total: 1,
+      truncated: false,
+      search_mode: "hybrid",
+      reranked: false,
+    })
+  })
+
+  it("keeps the complete unfiltered result when file is omitted", async () => {
+    const index = await createRecallIndex()
+
+    expect(await index.memoryRecall({ query: "pacing recovery" }, logger)).toEqual({
+      entries: [
+        {
+          file: "Opinions",
+          section: "Working style (newest first)",
+          date: "2026-06-20",
+          text: "- **2026-06-20**: Sustainable rhythm means rest blocks between sprints.",
+        },
+        {
+          file: "Opinions",
+          section: "Working style (newest first)",
+          date: "2026-07-02",
+          text: "- **2026-07-02**: Pacing beats crunch; protect the recovery window.",
+        },
+        {
+          file: "Routines",
+          section: "Daily rhythm (newest first)",
+          date: "2026-07-10",
+          text: "- **2026-07-10**: Recovery walk every afternoon keeps pacing sane.",
+        },
+      ],
+      total: 3,
+      truncated: false,
+      search_mode: "hybrid",
+      reranked: false,
+    })
+  })
+
+  it("returns the empty lexical result for an unknown memory file", async () => {
+    const index = await createRecallIndex()
+
+    expect(await index.memoryRecall({ query: "pacing recovery", file: "Unknown" }, logger)).toEqual(
+      {
+        entries: [],
+        total: 0,
+        truncated: false,
+        search_mode: "fts",
+        reranked: false,
+      },
+    )
+  })
+
+  it("returns the empty lexical result for a memory file with no entries", async () => {
+    const index = await createRecallIndex({
+      files: { ...DEFAULT_FILES, Empty: "## Working style\n" },
+    })
+
+    expect(await index.memoryRecall({ query: "pacing recovery", file: "Empty" }, logger)).toEqual({
+      entries: [],
+      total: 0,
+      truncated: false,
+      search_mode: "fts",
+      reranked: false,
+    })
+  })
+
+  it("keeps file-scoped recall lexical-only when embeddings are disabled", async () => {
+    const index = await createRecallIndex({ withEmbedder: false })
+
+    expect(
+      await index.memoryRecall({ query: "pacing recovery", file: "Routines" }, logger),
+    ).toEqual({
+      entries: [
+        {
+          file: "Routines",
+          section: "Daily rhythm (newest first)",
+          date: "2026-07-10",
+          text: "- **2026-07-10**: Recovery walk every afternoon keeps pacing sane.",
+        },
+      ],
+      total: 1,
+      truncated: false,
+      search_mode: "fts",
+      reranked: false,
+    })
+  })
+
   it("applies the file filter before limit", async () => {
     const index = await createRecallIndex({
       reranker: createTopicMockReranker(),

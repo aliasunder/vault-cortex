@@ -1073,6 +1073,22 @@ export const createSearchIndex = (
         )
       : null
 
+  /** Restrict eligible entries before vec0 takes its nearest-neighbor window. */
+  const memoryKnnInFileStmt =
+    memoryDir && embedder
+      ? db.prepare<unknown[], queries.MemoryEntryVectorHitRow>(
+          `SELECT me.id, me.file, me.section, me.entry_date, me.entry_text, me.entry_index, mev.distance
+           FROM memory_entry_vectors mev
+           JOIN memory_entries me ON me.id = mev.entry_id
+           WHERE mev.embedding MATCH ?
+             AND mev.k = ?
+             AND mev.entry_id IN (
+               SELECT id FROM memory_entries WHERE file = ?
+             )
+           ORDER BY mev.distance, me.file, me.entry_index`,
+        )
+      : null
+
   // ── Vector query statements ─────────────────────────────────────
   /** KNN search — finds the k nearest chunks to a query embedding. */
   const knnSearchStmt = embedder
@@ -2898,13 +2914,14 @@ export const createSearchIndex = (
     ranking: options?.ranking,
     selectFirstChunkStmt,
     // Null when no memory dir is configured — memoryRecall rejects with a
-    // remediation message. knnStmt is additionally null without an embedder
+    // remediation message. KNN statements are additionally null without an embedder
     // (lexical-only recall).
     memory: memoryFtsSearchStmt
       ? {
           embedder,
           ftsSearchStmt: memoryFtsSearchStmt,
           knnStmt: memoryKnnStmt,
+          knnInFileStmt: memoryKnnInFileStmt,
         }
       : null,
     fileContentFts: searchFileContentFtsStmt ? { searchStmt: searchFileContentFtsStmt } : null,

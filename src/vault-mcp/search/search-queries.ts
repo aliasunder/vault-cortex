@@ -107,12 +107,13 @@ export type SearchQueryContext = {
    *  measure candidate values against the judgment set. */
   readonly ranking?: RankingTuning | undefined
   readonly selectFirstChunkStmt: Database.Statement<[string], { chunk_text: string }> | null
-  /** Null when no memory dir is configured. knnStmt is additionally null
+  /** Null when no memory dir is configured. Both KNN statements are null
    *  without an embedder — recall degrades to its lexical leg. */
   readonly memory: {
     readonly embedder: Embedder | undefined
     readonly ftsSearchStmt: Database.Statement<[string], MemoryEntryRow>
     readonly knnStmt: Database.Statement<unknown[], MemoryEntryVectorHitRow> | null
+    readonly knnInFileStmt: Database.Statement<unknown[], MemoryEntryVectorHitRow> | null
   } | null
   /** Null when FILE_TOOLS_ENABLED is off — hybridSearch skips the file
    *  content FTS leg. */
@@ -450,20 +451,27 @@ type MemoryRecallCandidate = {
  *  lexical leg instead of failing the call. */
 const memoryVectorSearch = async (
   memory: NonNullable<SearchQueryContext["memory"]>,
-  query: string,
+  params: { query: string; file?: string | undefined },
   logger: Logger,
 ): Promise<MemoryEntryVectorHitRow[]> => {
-  if (!memory.embedder || !memory.knnStmt) return []
+  const knnStmt = params.file === undefined ? memory.knnStmt : memory.knnInFileStmt
+
+  if (!memory.embedder || !knnStmt) return []
   try {
-    const queryEmbedding = await memory.embedder.embedText(query)
+    const queryEmbedding = await memory.embedder.embedText(params.query)
+    const queryEmbeddingBuffer = Buffer.from(
+      queryEmbedding.buffer,
+      queryEmbedding.byteOffset,
+      queryEmbedding.byteLength,
+    )
     // k over-fetches at twice the window, then the slice truncates after the
     // statement's ORDER BY secondary keys apply — so entries tied at the
     // window boundary resolve by (file, entry_index) instead of vec0's scan
     // order. Ties spanning the doubled window remain engine-chosen.
-    const overFetchedRows = memory.knnStmt.all(
-      Buffer.from(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength),
-      MEMORY_VECTOR_CANDIDATE_LIMIT * 2,
-    )
+    const overFetchedRows =
+      params.file === undefined
+        ? knnStmt.all(queryEmbeddingBuffer, MEMORY_VECTOR_CANDIDATE_LIMIT * 2)
+        : knnStmt.all(queryEmbeddingBuffer, MEMORY_VECTOR_CANDIDATE_LIMIT * 2, params.file)
     return overFetchedRows.slice(0, MEMORY_VECTOR_CANDIDATE_LIMIT)
   } catch (error) {
     logger.warn("memory vector search failed, falling back to lexical-only", {
@@ -645,11 +653,8 @@ export const memoryRecall = async (
   const matchesFileFilter = (row: MemoryEntryRow): boolean =>
     params.file === undefined || row.file === params.file
 
-  // Vector leg: generous KNN, file-filtered after the join (over-fetch is
-  // safe at memory-layer scale; vec0 post-MATCH WHERE semantics are not).
-  const vectorRows = (await memoryVectorSearch(memory, params.query, logger)).filter(
-    matchesFileFilter,
-  )
+  // The file constraint narrows eligible vectors before KNN takes its candidate window.
+  const vectorRows = await memoryVectorSearch(memory, params, logger)
 
   // Lexical leg: ALL matches, no limit — implicit AND keeps multi-word
   // queries tight, and a lexical hit on a short entry is strong evidence.
