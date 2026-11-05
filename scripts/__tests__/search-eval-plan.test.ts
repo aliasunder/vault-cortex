@@ -42,75 +42,58 @@ describe("resolveEvalRunPlan", () => {
   it("rejects a missing --judgment", () => {
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, judgment: undefined })
-    }).toThrow(/^--judgment <path> is required \(a local judgment JSON — see the file header\)$/)
+    }).toThrow(
+      new Error("--judgment <path> is required (a local judgment JSON — see the file header)"),
+    )
   })
 
-  it("parses --limits and rejects a non-integer entry", () => {
+  it("parses positive integer limits in their requested order", () => {
     const workDir = createWorkDir()
     const plan = resolveEvalRunPlan({ ...baseCliArgs, "work-dir": workDir })
     expect(plan.limits).toEqual([20, 5, 3])
-
-    expect(() => {
-      resolveEvalRunPlan({ ...baseCliArgs, limits: "20,two" })
-    }).toThrow(/^--limits entries must be positive integers: two$/)
-    expect(() => {
-      resolveEvalRunPlan({ ...baseCliArgs, limits: "0" })
-    }).toThrow(/^--limits entries must be positive integers: 0$/)
   })
 
-  it("accepts weight 0, parses a numeric weight, and rejects a non-number", () => {
+  it.each([
+    { label: "a non-integer entry", limits: "20,two", invalidEntry: "two" },
+    { label: "zero", limits: "0", invalidEntry: "0" },
+  ])("rejects $label in --limits", ({ limits, invalidEntry }) => {
+    expect(() => {
+      resolveEvalRunPlan({ ...baseCliArgs, limits })
+    }).toThrow(new Error(`--limits entries must be positive integers: ${invalidEntry}`))
+  })
+
+  it.each([
+    { label: "zero", rawWeight: "0", expectedWeight: 0 },
+    { label: "a fractional number", rawWeight: "0.4", expectedWeight: 0.4 },
+  ])("accepts $label for --file-leg-weight", ({ rawWeight, expectedWeight }) => {
     const workDir = createWorkDir()
-    const zeroWeightPlan = resolveEvalRunPlan({
+    const plan = resolveEvalRunPlan({
       ...baseCliArgs,
       "work-dir": workDir,
-      "file-leg-weight": "0",
+      "file-leg-weight": rawWeight,
     })
-    expect(zeroWeightPlan.fileLegWeight).toBe(0)
-
-    const weightedPlan = resolveEvalRunPlan({
-      ...baseCliArgs,
-      "work-dir": workDir,
-      "file-leg-weight": "0.4",
-    })
-    expect(weightedPlan.fileLegWeight).toBe(0.4)
-
-    expect(() => {
-      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "abc" })
-    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
-    expect(() => {
-      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "-1" })
-    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
-    // An unset shell variable interpolates to --file-leg-weight= — that
-    // must reject, not silently run the shipped default.
-    expect(() => {
-      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "" })
-    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
+    expect(plan.fileLegWeight).toBe(expectedWeight)
   })
 
-  it("rejects a non-finite weight", () => {
-    // Infinity passes a bare >= 0 check and would turn every file
-    // contribution into Infinity in the report.
+  it.each([
+    { label: "non-numeric text", rawWeight: "abc" },
+    { label: "a negative number", rawWeight: "-1" },
+    // An unset shell interpolation must not silently select the shipped default.
+    { label: "an empty value", rawWeight: "" },
+    { label: "Infinity", rawWeight: "Infinity" },
+    { label: "numeric overflow", rawWeight: "1e400" },
+    // Number(" ") coerces to zero, which would silently disable the file legs.
+    { label: "whitespace", rawWeight: " " },
+  ])("rejects $label for --file-leg-weight", ({ rawWeight }) => {
     expect(() => {
-      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "Infinity" })
-    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
-    // 1e400 overflows Number to Infinity the same way.
-    expect(() => {
-      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "1e400" })
-    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
-  })
-
-  it("rejects a whitespace-only weight", () => {
-    // Number(" ") coerces to 0 — accepted, it would silently disable the
-    // file legs instead of rejecting like the empty string.
-    expect(() => {
-      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": " " })
-    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
+      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": rawWeight })
+    }).toThrow(new Error("--file-leg-weight must be a finite number >= 0"))
   })
 
   it("rejects --reuse-index without --reuse-snapshot", () => {
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "reuse-index": true })
-    }).toThrow(/^--reuse-index requires --reuse-snapshot$/)
+    }).toThrow(new Error("--reuse-index requires --reuse-snapshot"))
   })
 
   it("rejects --reuse-index when no harness snapshot exists to pair with", () => {
@@ -123,7 +106,9 @@ describe("resolveEvalRunPlan", () => {
         "reuse-index": true,
       })
     }).toThrow(
-      /^--reuse-index requires the snapshot it was built from, but the snapshot would be rebuilt this run — re-run without --reuse-index$/,
+      new Error(
+        "--reuse-index requires the snapshot it was built from, but the snapshot would be rebuilt this run — re-run without --reuse-index",
+      ),
     )
   })
 
@@ -150,8 +135,10 @@ describe("resolveEvalRunPlan", () => {
       "reuse-snapshot": true,
       "reuse-index": true,
     })
-    expect(plan.snapshotReused).toBe(true)
-    expect(plan.indexReused).toBe(true)
+    expect({ snapshotReused: plan.snapshotReused, indexReused: plan.indexReused }).toEqual({
+      snapshotReused: true,
+      indexReused: true,
+    })
   })
 
   it("rebuilds a missing index even when --reuse-index is set", () => {
@@ -164,8 +151,10 @@ describe("resolveEvalRunPlan", () => {
       "reuse-snapshot": true,
       "reuse-index": true,
     })
-    expect(plan.snapshotReused).toBe(true)
-    expect(plan.indexReused).toBe(false)
+    expect({ snapshotReused: plan.snapshotReused, indexReused: plan.indexReused }).toEqual({
+      snapshotReused: true,
+      indexReused: false,
+    })
   })
 
   it("gives the enriched index its own database file", () => {
@@ -196,8 +185,8 @@ describe("judgmentFileSchema", () => {
       ...baseJudgment,
       queries: [{ id: "q1", class: "recall", query: "some text" }],
     })
-    expect(parsed.success).toBe(false)
-    if (parsed.success) return
+
+    if (parsed.success) throw new Error("expected judgment validation to fail")
     expect(parsed.error.issues).toEqual([
       {
         code: "custom",
@@ -362,8 +351,8 @@ describe("judgmentFileSchema", () => {
       ...baseJudgment,
       queries: [{ id: "q1", class: "recall", query: "some text", expected_any: [] }],
     })
-    expect(parsed.success).toBe(false)
-    if (parsed.success) return
+
+    if (parsed.success) throw new Error("expected judgment validation to fail")
 
     expect(parsed.error.issues).toEqual([
       {
@@ -390,8 +379,8 @@ describe("judgmentFileSchema", () => {
         },
       ],
     })
-    expect(parsed.success).toBe(false)
-    if (parsed.success) return
+
+    if (parsed.success) throw new Error("expected judgment validation to fail")
 
     expect(parsed.error.issues).toEqual([
       {
@@ -415,8 +404,8 @@ describe("judgmentFileSchema", () => {
         },
       ],
     })
-    expect(parsed.success).toBe(false)
-    if (parsed.success) return
+
+    if (parsed.success) throw new Error("expected judgment validation to fail")
     expect(parsed.error.issues).toEqual([
       {
         code: "custom",
@@ -439,8 +428,8 @@ describe("judgmentFileSchema", () => {
         },
       ],
     })
-    expect(parsed.success).toBe(false)
-    if (parsed.success) return
+
+    if (parsed.success) throw new Error("expected judgment validation to fail")
 
     expect(parsed.error.issues).toEqual([
       {

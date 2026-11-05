@@ -220,7 +220,7 @@ describe("createVaultSnapshot", () => {
     ).toBe(true)
   })
 
-  it("reports a mismatch for different exclusions and for a pre-provenance marker", () => {
+  it("reports a mismatch for different exclusions", () => {
     const { vaultPath, snapshotDir } = createTempVault()
     writeVaultFile({ vaultPath, notePath: "current.md" })
 
@@ -237,14 +237,18 @@ describe("createVaultSnapshot", () => {
         excludePrefixes: ["sessions"],
       }),
     ).toBe(false)
+  })
 
-    // A marker from before provenance was recorded must read as mismatch.
+  it("reports a mismatch for a marker without provenance", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    mkdirSync(snapshotDir)
+
     writeFileSync(join(snapshotDir, SNAPSHOT_MARKER), "")
     expect(
       snapshotMatchesProvenance(snapshotDir, {
         vaultPath,
         excludePaths: [],
-        excludePrefixes: ["sessions"],
+        excludePrefixes: [],
       }),
     ).toBe(false)
   })
@@ -302,6 +306,29 @@ describe("createVaultSnapshot", () => {
     expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, "current.md"])
   })
 
+  it("invalidates both index caches even when refreshing the snapshot fails", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    writeVaultFile({ vaultPath, notePath: "old.md" })
+    createVaultSnapshot({ vaultPath, snapshotDir, excludePaths: [], excludePrefixes: [] })
+    for (const cacheFile of INDEX_CACHE_FILES) {
+      writeFileSync(join(dirname(snapshotDir), cacheFile), "index of the old corpus")
+    }
+    const missingVault = join(dirname(vaultPath), "missing-vault")
+
+    expect(() =>
+      createVaultSnapshot({
+        vaultPath: missingVault,
+        snapshotDir,
+        excludePaths: [],
+        excludePrefixes: [],
+      }),
+    ).toThrow(/ENOENT/)
+
+    expect(readdirSync(dirname(snapshotDir)).toSorted()).toEqual(["snapshot", "vault"])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER])
+    expect(readFileSync(join(snapshotDir, SNAPSHOT_MARKER), "utf8")).toBe("")
+  })
+
   it("refuses to delete a directory that is not a harness snapshot", () => {
     const { vaultPath, snapshotDir } = createTempVault()
     writeVaultFile({ vaultPath, notePath: "current.md" })
@@ -319,7 +346,9 @@ describe("createVaultSnapshot", () => {
         excludePrefixes: [],
       })
     }).toThrow(
-      `${snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,
+      new Error(
+        `${snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,
+      ),
     )
     expect(readFileSync(join(snapshotDir, "operator-data.md"), "utf8")).toBe("not ours to delete\n")
     expect(

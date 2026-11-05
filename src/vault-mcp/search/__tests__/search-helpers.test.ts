@@ -327,8 +327,22 @@ describe("rowToTaskEntry", () => {
 
   it("renames note_path to path", () => {
     const entry = rowToTaskEntry(makeTaskRow({ note_path: "Journal/2024-01-01.md" }))
-    expect(entry.path).toBe("Journal/2024-01-01.md")
-    expect("note_path" in entry).toBe(false)
+    expect(entry).toEqual({
+      path: "Journal/2024-01-01.md",
+      line: 5,
+      status: "todo",
+      status_char: " ",
+      description: "Fix the bug",
+      heading: "Tasks",
+      folder: "Projects/Alpha",
+      created: "2024-01-01",
+      due: "2024-03-01",
+      task_id: "abc123",
+      depends_on: ["def456"],
+      tags: ["bug"],
+      depth: 0,
+      is_kanban_task: false,
+    })
   })
 
   it("throws IndexIntegrityError when depends_on column contains a non-array value", () => {
@@ -589,8 +603,10 @@ describe("nestedTagLikePattern", () => {
 describe("dayToEpochMsRange", () => {
   it("brackets exactly one server-local day, half-open", () => {
     const bounds = dayToEpochMsRange("2026-06-15")
-    expect(bounds.startMs).toBe(DateTime.fromISO("2026-06-15").toMillis())
-    expect(bounds.endMs).toBe(DateTime.fromISO("2026-06-16").toMillis())
+    expect(bounds).toEqual({
+      startMs: DateTime.fromISO("2026-06-15").toMillis(),
+      endMs: DateTime.fromISO("2026-06-16").toMillis(),
+    })
   })
 
   it("brackets a 23-hour spring-forward day and a 25-hour fall-back day in a DST zone", () => {
