@@ -352,6 +352,8 @@ describe("memoryRecall", () => {
 
   it("returns the empty lexical result for an unknown memory file", async () => {
     const index = await createRecallIndex()
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
 
     expect(await index.memoryRecall({ query: "pacing recovery", file: "Unknown" }, logger)).toEqual(
       {
@@ -362,12 +364,15 @@ describe("memoryRecall", () => {
         reranked: false,
       },
     )
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 
   it("returns the empty lexical result for a memory file with no entries", async () => {
     const index = await createRecallIndex({
       files: { ...DEFAULT_FILES, Empty: "## Working style\n" },
     })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
 
     expect(await index.memoryRecall({ query: "pacing recovery", file: "Empty" }, logger)).toEqual({
       entries: [],
@@ -376,6 +381,7 @@ describe("memoryRecall", () => {
       search_mode: "fts",
       reranked: false,
     })
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 
   it("keeps file-scoped recall lexical-only when embeddings are disabled", async () => {
@@ -580,6 +586,40 @@ describe("memoryRecall", () => {
       (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
     )
     expect(result.entries.map((entry) => entry.text)).toEqual(survivingEntryTexts)
+  })
+
+  it("fills a file-scoped boundary-straddling vector tie window in entry order", async () => {
+    // The 101 tied vectors exceed the 100-entry window, so the selected
+    // statement must order the over-fetched entries before truncating them.
+    const numberedEntries = Array.from(
+      { length: 101 },
+      (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
+    ).join("\n")
+    const index = await createRecallIndex({
+      files: {
+        Ledger: `# Ledger\n\n## Working style (newest first)\n\n${numberedEntries}\n`,
+      },
+    })
+
+    // Neither query word occurs in the entries; lexical matches cannot
+    // replace a vector dropped from the file-scoped candidate window.
+    const result = await index.memoryRecall(
+      { query: "recovery rhythm", file: "Ledger", limit: 101 },
+      logger,
+    )
+    const survivingEntries = Array.from({ length: 100 }, (_, entryNumber) => ({
+      file: "Ledger",
+      section: "Working style (newest first)",
+      date: "2026-07-02",
+      text: `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
+    }))
+    expect(result).toEqual({
+      entries: survivingEntries,
+      total: 100,
+      truncated: false,
+      search_mode: "hybrid",
+      reranked: false,
+    })
   })
 
   it("orders same-date evidence entries by code units, not locale collation", async () => {
