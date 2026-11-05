@@ -885,6 +885,47 @@ Content about quarterly planning and roadmaps.
       })
     })
 
+    it("matches an explicitly stored __proto__ property without matching an absent property", async () => {
+      const key = "__proto__"
+      const hybridIndex = await createVectorFilterIndex([
+        { path: "absent.md", metadata: "", embedding: seededEmbedding(0) },
+        { path: "stored.md", metadata: `${key}: {}`, embedding: seededEmbedding(1) },
+      ])
+      const storedProperties = hybridIndex
+        .searchByProperty({ key, value: "{}" }, logger)
+        .map((note) => ({
+          path: note.path,
+          ownsProperty: Object.hasOwn(note.properties, key),
+          value: note.properties[key],
+        }))
+      expect(storedProperties).toEqual([{ path: "stored.md", ownsProperty: true, value: {} }])
+
+      const filters = { properties: { [key]: "{}" } }
+      expect(Object.hasOwn(filters.properties, key)).toBe(true)
+      expect(hybridIndex.fullTextSearch({ query }, logger)).toEqual([])
+
+      const filtered = await hybridIndex.hybridSearch({ query, filters, limit: 1 }, logger)
+      expect(filtered.results.map((result) => result.path)).toEqual(["stored.md"])
+    })
+
+    it.each([
+      { folder: "équipe", expectedPath: "équipe/plan.md" },
+      { folder: "Équipe", expectedPath: "Équipe/plan.md" },
+    ])(
+      "keeps non-ASCII folder case distinct when filtering $folder",
+      async ({ folder, expectedPath }) => {
+        const hybridIndex = await createVectorFilterIndex([
+          { path: "Équipe/plan.md", metadata: "tags: [eligible]", embedding: seededEmbedding(0) },
+          { path: "équipe/plan.md", metadata: "tags: [eligible]", embedding: seededEmbedding(1) },
+        ])
+        const filters = { folder, tags: ["eligible"] }
+        expect(hybridIndex.fullTextSearch({ query }, logger)).toEqual([])
+
+        const filtered = await hybridIndex.hybridSearch({ query, filters, limit: 1 }, logger)
+        expect(filtered.results.map((result) => result.path)).toEqual([expectedPath])
+      },
+    )
+
     it("returns no results when no indexed note satisfies the metadata filter", async () => {
       const hybridIndex = await createVectorFilterIndex(
         closerNotes({ metadata: "tags: [rejected]" }),

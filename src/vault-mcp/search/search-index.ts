@@ -422,8 +422,7 @@ export const createSearchIndex = (
     return String(value)
   })
 
-  // Tag predicates compare folded values; the same fold runs in the
-  // JavaScript mirror of the search filters (foldTag)
+  // SQL tag predicates and query inputs use the same Obsidian case-folding rule.
   db.function("fold_tag", { deterministic: true }, (value: unknown): string => {
     return foldTag(String(value))
   })

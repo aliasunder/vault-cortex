@@ -467,7 +467,7 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
    - Ties break by path so equal scores order deterministically
 6. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from their respective tables and a snippet from their best-matching chunk text
 
-A `folder` filter is applied inside SQL on all four legs — a `LIKE 'folder/%'` predicate on the FTS queries and a `chunk_id IN (…)` pre-filter on the KNN queries — so each leg's candidate window is drawn from the folder itself. Folder matching is case-insensitive on every leg.
+A `folder` filter is applied inside SQL on all four legs — a `LIKE 'folder/%'` predicate on the FTS queries and a `chunk_id IN (…)` pre-filter on the KNN queries — so each leg's candidate window is drawn from the folder itself. Folder matching ignores ASCII letter case on every leg.
 
 Note FTS and note KNN share SQL predicates for folder, tags, type, related, properties, created and modified. For note-specific filters, the KNN query selects eligible chunks under the complete predicate before applying its nearest-neighbor window. The predicate builder also identifies note-specific filters so both file-content legs are skipped.
 

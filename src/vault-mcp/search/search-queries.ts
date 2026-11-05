@@ -49,7 +49,7 @@ import type { Embedder } from "./embedder.js"
 
 // ── Context ────────────────────────────────────────────────────
 
-type VectorHitRow = { note_path: string; chunk_text: string; distance: number }
+export type VectorHitRow = { note_path: string; chunk_text: string; distance: number }
 type FileContentVectorHitRow = {
   file_path: string
   chunk_text: string
@@ -163,34 +163,27 @@ const assertFilterDate = (value: string, filterName: string): void => {
 
 // ── Full-text search ───────────────────────────────────────────
 
-export const fullTextSearch = (
-  context: SearchQueryContext,
-  params: {
-    query: string
-    filters?: SearchFilters | undefined
-    limit?: number | undefined
-    snippet_tokens?: number | undefined
-    include_leading_callout?: boolean | undefined
-  },
-  logger: Logger,
-): SearchResult[] => {
-  // Build WHERE clause dynamically: each filter appends a condition + its bind params
+export type NoteFilterSql = {
+  conditions: ReadonlyArray<string>
+  parameters: ReadonlyArray<unknown>
+  hasNoteSpecificFilters: boolean
+}
+
+/** Predicates target note rows aliased `n`; bindings follow their SQL order. */
+export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined): NoteFilterSql => {
   const conditions: string[] = []
   const queryParams: unknown[] = []
 
-  conditions.push("notes_fts MATCH ?")
-  queryParams.push(sanitizeFtsQuery(params.query))
-
-  if (params.filters?.folder) {
+  if (filters?.folder) {
     conditions.push("n.path LIKE ? ESCAPE '\\'")
-    queryParams.push(folderLikePattern(params.filters.folder))
+    queryParams.push(folderLikePattern(filters.folder))
   }
 
-  if (params.filters?.tags) {
-    // Each listed tag matches the tag itself or any tag nested under it, in the
-    // tags property or the body, as Obsidian's tag: search operator does; the
-    // JavaScript mirror is noteMatchesSearchFilters
-    for (const tag of params.filters.tags) {
+  const folderConditionCount = conditions.length
+
+  if (filters?.tags) {
+    // Each requested tag must match the note's frontmatter or body tags.
+    for (const tag of filters.tags) {
       const { condition, conditionParams } = noteHasTagCondition({
         predicate: NESTED_TAG_PREDICATE_SQL,
         boundValue: nestedTagLikePattern(tag),
@@ -200,16 +193,16 @@ export const fullTextSearch = (
     }
   }
 
-  if (params.filters?.related) {
-    for (const relatedNote of params.filters.related) {
+  if (filters?.related) {
+    for (const relatedNote of filters.related) {
       conditions.push("EXISTS (SELECT 1 FROM json_each(n.related) WHERE value = ?)")
       queryParams.push(relatedNote)
     }
   }
 
-  if (params.filters?.type) {
+  if (filters?.type) {
     conditions.push("n.type = ?")
-    queryParams.push(params.filters.type)
+    queryParams.push(filters.type)
   }
 
   /**
@@ -220,8 +213,8 @@ export const fullTextSearch = (
    * - Numeric JSON values compare as REAL to retain stored JavaScript precision;
    *   other JSON types keep their original value for exact text and checkbox matching.
    */
-  if (params.filters?.properties) {
-    for (const [key, value] of Object.entries(params.filters.properties)) {
+  if (filters?.properties) {
+    for (const [key, value] of Object.entries(filters.properties)) {
       conditions.push(`EXISTS (
         SELECT 1 FROM json_each(n.properties) property
         WHERE property.key = ?
@@ -248,8 +241,8 @@ export const fullTextSearch = (
   // index time; its first 10 chars are the calendar day, compared
   // lexicographically against the YYYY-MM-DD bounds. Notes with NULL created
   // never match — SQL comparison with NULL is never true.
-  if (params.filters?.created) {
-    const { on, before, after } = params.filters.created
+  if (filters?.created) {
+    const { on, before, after } = filters.created
 
     if (on !== undefined) {
       assertFilterDate(on, "created.on")
@@ -272,8 +265,8 @@ export const fullTextSearch = (
   // that day covers in the server-local zone. Exclusive at day granularity:
   // before D matches strictly earlier days (mtime < startOf(D)), after D
   // strictly later days (mtime >= startOf(D+1)), on D matches within the day.
-  if (params.filters?.modified) {
-    const { on, before, after } = params.filters.modified
+  if (filters?.modified) {
+    const { on, before, after } = filters.modified
 
     // assertFilterDate checks each bound before dayToEpochMsRange converts it,
     // so a bad bound gets assertFilterDate's message, never the converter's
@@ -294,6 +287,29 @@ export const fullTextSearch = (
       queryParams.push(dayToEpochMsRange(after).endMs)
     }
   }
+
+  return {
+    conditions,
+    parameters: queryParams,
+    hasNoteSpecificFilters: conditions.length > folderConditionCount,
+  }
+}
+
+export const fullTextSearch = (
+  context: SearchQueryContext,
+  params: {
+    query: string
+    filters?: SearchFilters | undefined
+    limit?: number | undefined
+    snippet_tokens?: number | undefined
+    include_leading_callout?: boolean | undefined
+  },
+  logger: Logger,
+): SearchResult[] => {
+  const sanitizedQuery = sanitizeFtsQuery(params.query)
+  const noteFilterSql = buildNoteFilterSql(params.filters)
+  const conditions = ["notes_fts MATCH ?", ...noteFilterSql.conditions]
+  const queryParams = [sanitizedQuery, ...noteFilterSql.parameters]
 
   const limit = Math.max(0, Math.floor(params.limit ?? 20))
   const snippetTokens = params.snippet_tokens ?? 30

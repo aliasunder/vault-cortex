@@ -344,12 +344,9 @@ const getExtension = (filePath: string): string => {
  *  emoji or other non-BMP characters). */
 const codePointLength = (path: string): number => [...path].length
 
-/** Folds ASCII letters to lowercase — SQLite's LIKE folding, which touches
- *  A-Z only. A full toLowerCase would also fold non-ASCII letters and
- *  diverge from the LIKE predicates this fold exists to mirror. Exported so
- *  every LIKE mirror (the asset suffix tiers here, the folder predicate in
- *  search) folds by one rule. */
-export const foldAsciiCase = (path: string): string =>
+/** Asset suffix matching must use ASCII folding so the in-memory and SQL
+ *  resolvers agree with SQLite LIKE. */
+const foldAsciiCase = (path: string): string =>
   path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
 
 /** Picks the winner among same-tier resolution matches: the shortest path,
