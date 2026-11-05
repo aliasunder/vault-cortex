@@ -282,7 +282,7 @@ export const INDEX_FOLDER_SCOPE_CLAUSE =
 
 /** What a limit on an index-backed listing never tells the caller. */
 export const LIMIT_TRUNCATION_CLAUSE =
-  "nothing in the response signals truncation; raise limit to see more"
+  "nothing in the response signals truncation; raise limit for more"
 
 /** The result shape the five tools that return note metadata share. The
  *  tags clause names the tools that edit each tag field, so it is passed in. */

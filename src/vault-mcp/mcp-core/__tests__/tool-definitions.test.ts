@@ -599,7 +599,7 @@ describe("sentences shared across sibling tools", () => {
     },
     {
       label: "what a listing limit never signals",
-      sentence: "nothing in the response signals truncation; raise limit to see more.",
+      sentence: "nothing in the response signals truncation; raise limit for more.",
       tools: LIMITED_LISTING_TOOLS,
     },
     {
@@ -1495,6 +1495,30 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
     )
   })
 
+  it.each([
+    { label: "PROTECTED_PATHS", env: { OBSIDIAN_SYNC: "true", PROTECTED_PATHS: "Private" } },
+    { label: "DAILY_NOTES_FOLDER", env: { OBSIDIAN_SYNC: "true", DAILY_NOTES_FOLDER: "Journal" } },
+  ])("leaves the daily-notes config error out under $label, which bypasses the file", ({ env }) => {
+    expect(deleteNoteErrors(env)).toBe(
+      ["Errors:", ...PATH_AND_LOOKUP_ERROR_ENTRIES, ...DELETE_FAILURE_ENTRIES].join("\n"),
+    )
+    const moveNoteEntry = findDescriptionLine({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+      linePrefix: '- "cannot read daily notes config',
+    })
+    expect(moveNoteEntry).toBeUndefined()
+  })
+
+  it("vault_move_note lists the daily-notes config error when the file is read", () => {
+    const moveNoteEntry = findDescriptionLine({
+      registeredCalls: registerWithConfig({}),
+      toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+      linePrefix: '- "cannot read daily notes config',
+    })
+    expect(moveNoteEntry).toBe(`${DAILY_NOTES_CONFIG_ERROR_ENTRY}.`)
+  })
+
   const deleteNoteOpener = (env: Record<string, string>): string | undefined => {
     const deleteNoteCall = registerWithConfig(env).find(
       ([toolName]) => toolName === TOOL_NAMES.VAULT_DELETE_NOTE,
@@ -2232,7 +2256,7 @@ describe("vault_find_orphans live folder defaults", () => {
     expect(parametersSection).toBe(
       [
         '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
-        "- limit applies after exclusions and sorting; nothing in the response signals truncation; raise limit to see more.",
+        "- limit applies after exclusions and sorting; nothing in the response signals truncation; raise limit for more.",
       ].join("\n"),
     )
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(

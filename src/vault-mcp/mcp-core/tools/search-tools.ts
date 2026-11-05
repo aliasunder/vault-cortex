@@ -569,7 +569,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
           .min(1)
           .optional()
           .default(50)
-          .describe("Max values to return (default 50)."),
+          .describe("Max values to return (default 50, no upper cap)."),
       },
     },
     async ({ key, folder, limit }, extra) => {

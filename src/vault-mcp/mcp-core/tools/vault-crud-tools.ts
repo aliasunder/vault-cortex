@@ -131,7 +131,12 @@ export const registerVaultCrudTools = ({
       "; vault_get_daily_note's path shows the folder in use",
     ),
   })
-  const dailyNotesConfigErrorEntry = `- "cannot read daily notes config from .obsidian/daily-notes.json" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry`
+  // DAILY_NOTES_FOLDER and PROTECTED_PATHS both bypass daily-notes.json, so
+  // the entry is listed only when the file is read.
+  const readsDailyNotesConfig = !config.protectedPathsOverride && !config.dailyNotesFolder
+  const dailyNotesConfigErrorEntry = readsDailyNotesConfig
+    ? `\n- "cannot read daily notes config from .obsidian/daily-notes.json" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry`
+    : ""
 
   // Incoming and outgoing links are separate tools, so the sentence names
   // whichever of the pair is served.
@@ -1183,8 +1188,7 @@ ${PATH_SAFETY_ERROR_ENTRY}
 ${CONCURRENT_WRITE_RETRY_ERROR_ENTRY}
 - "note not found: …" — ${noteNotFoundVerifyRemedy}${deleteNoteText.trashMoveErrorEntries}
 - "cannot delete …" (other than a protected path) — the note stays put; ask the vault's owner to fix the cause (e.g. permissions), then retry
-${FILESYSTEM_ERROR_ENTRY}; the note stays put${deleteNoteText.trashConfigErrorEntry}
-${dailyNotesConfigErrorEntry}
+${FILESYSTEM_ERROR_ENTRY}; the note stays put${deleteNoteText.trashConfigErrorEntry}${dailyNotesConfigErrorEntry}
 
 Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when any were.`,
       inputSchema: {
@@ -1313,8 +1317,7 @@ Errors:
 - "destination exists: …" — this tool never overwrites; pick a free new_path or delete the existing note first.
 - "note not found: …" — old_path does not exist; ${noteNotFoundVerifyRemedy}.
 - "source and destination are the same path" — nothing to move; pass a different new_path.
-- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder; pick a new_path outside it, or leave a protected note where it is.
-${dailyNotesConfigErrorEntry}.
+- "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder; pick a new_path outside it, or leave a protected note where it is.${dailyNotesConfigErrorEntry ? `${dailyNotesConfigErrorEntry}.` : ""}
 ${NOTE_EXTENSION_ERROR_ENTRY}.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them.
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of the notes linking to it; retry the move.
