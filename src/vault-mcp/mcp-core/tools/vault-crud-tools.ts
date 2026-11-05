@@ -714,7 +714,7 @@ Parameters:
 Deleting text (new_text=""):
 - When text remains on the line, it is written exactly as asked.
 - When the line empties, blank lines never double. The text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one.
-- At the note's end, where no text follows, the run above is kept one line shorter ("A\\n\\nB\\n" without "B" → "A\\n").
+- At the note's end, where no text follows, the run of empty lines above is kept one line shorter ("A\\n\\nB\\n" without "B" → "A\\n").
 - To remove a table row or list item, include its line break in old_text, or the empty line left behind splits the table or list.
 - Empty lines elsewhere in the note stay as they are, and a line holding only spaces or tabs counts as text, not as an empty line.
 
@@ -925,7 +925,7 @@ Parameters:
 
 Line breaks in content:
 - Each line break at content's start or end becomes an empty line on that side, so content ending in one ("| X |\\n") leaves an empty line after it, which splits a table.
-- Where the note already has empty lines on that side, the wider run is kept, so blank lines never double. At the note's end, content's trailing line breaks count one fewer ("| X |\\n" leaves no empty line).
+- Where the note already has empty lines next to content's start or end, the wider run (the note's or content's) is kept, so blank lines never double. At the note's end, content's trailing line breaks count one fewer ("| X |\\n" leaves no empty line).
 - Empty lines inside content and elsewhere in the note are kept as written, and a line holding only spaces or tabs counts as text, not as an empty line.
 
 Errors:
