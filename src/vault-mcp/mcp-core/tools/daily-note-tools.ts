@@ -18,7 +18,7 @@ export const registerDailyNoteTools = ({
     TOOL_NAMES.VAULT_GET_DAILY_NOTE,
     {
       title: "Get Daily Note",
-      description: `Read a daily note by date, using the vault's configured Daily Notes folder and filename date format. Each setting comes from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env vars, falling back to the vault's .obsidian/daily-notes.json, then to "Daily Notes" and YYYY-MM-DD.
+      description: `Read a daily note by date, using the vault's configured Daily Notes folder and filename date format.
 
 Example: vault_get_daily_note({ date: "2026-05-13" })
 Example: vault_get_daily_note({}) — returns today's daily note
@@ -29,10 +29,9 @@ Parameters:
 - date: always YYYY-MM-DD, whatever filename format the vault uses; past and future dates are both valid.
 
 Errors:
-- "invalid date" — use YYYY-MM-DD format
-- "… is not a calendar date" — the date names a day that doesn't exist, such as 2026-02-30; pass a real date
-- "daily note format contains unsupported token(s): ..." — the configured format uses tokens the server cannot reproduce; the message names the tokens and the fix
-- "path traversal blocked" / "hidden path blocked" / "absolute path blocked" — the configured daily notes folder or format leads outside the vault or into a hidden folder; change it in Obsidian, or set DAILY_NOTES_FOLDER and DAILY_NOTES_FORMAT
+- "invalid date …" / "… is not a calendar date" — pass a real date in YYYY-MM-DD form (2026-02-30 is refused)
+- "daily note format contains unsupported token(s): ..." — the configured date format contains tokens the server cannot reproduce; ask the vault's owner to change the format in Obsidian, or the server's operator to set DAILY_NOTES_FORMAT (the message names the tokens)
+- "path traversal blocked" / "hidden path blocked" / "absolute path blocked" — the configured daily notes folder or format leads outside the vault or into a hidden folder; ask the vault's owner to change it in Obsidian, or the server's operator to set DAILY_NOTES_FOLDER and DAILY_NOTES_FORMAT
 ${FILESYSTEM_ERROR_ENTRY}
 
 Returns: JSON with path (string — resolved vault-relative path), content (string|null — the note's full text, properties block included, or null when the note doesn't exist), and exists (boolean).${whenToolEnabledText("vault_write_note", " When exists is false, create the note with vault_write_note using the returned path.")}`,

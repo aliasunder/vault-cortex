@@ -112,39 +112,37 @@ Example: vault_read_file({ path: "papers/research.pdf" }) — structured text wi
 
 When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", " vault_search also indexes canvas, PDF, and text-format content, but not images or other files.")}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
-What each file type returns:
-- Images (.png/.jpg/.jpeg/.gif/.webp): the image as an image block, downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels, and delivered untouched otherwise. Animated GIFs are reduced to their first frame when recompressed.
-- Canvas (.canvas): a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
-- PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer.
-- Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text.
+Parameters:
+- raw: true switches a canvas or PDF to its other form. A canvas returns its exact JSON source (geometry, ids, colors) instead of the outline. A PDF returns each page rendered as an image instead of extracted text, showing layout, diagrams, tables, and formatting; only the first ${config.maxPdfRenderPages} pages are rendered, and later pages are readable only as text, without raw.
+- start_line and limit page any text result as a line window. The text output cap (a fixed 100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap.
 
-raw: true switches a canvas or PDF to its other form:
-- Canvas: the exact JSON source (geometry, ids, colors) instead of the outline.
-- PDF: each page rendered as an image block instead of extracted text, showing layout, diagrams, tables, and formatting. Only the first ${config.maxPdfRenderPages} pages are rendered; later pages are readable only as text, without raw.
-
-Line paging: start_line and limit page any text result as a line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (a fixed 100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; an unpaged read of a text format returns the file byte-exact.
+Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text format returns the file byte-exact.
 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_read_note", "; read notes with vault_read_note")}
 - "file not found" — no file exists at that path (a folder is not a file)${whenToolEnabledText("vault_list_files", "; discover valid paths via vault_list_files")}
 ${PATH_SAFETY_ERROR_ENTRY}
-- "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's owner can raise
+- "file too large" — the file exceeds the file-size cap (MAX_FILE_BYTES, default 50 MiB), which the server's operator can raise
 - "text output too large" — a text file, canvas, or PDF renders past the text output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
 - "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; ask for a UTF-8 copy
 - "invalid .canvas JSON" — the canvas file is empty or not valid JSON; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
-- "PDF is password-protected" — this tool cannot supply a password; read an unprotected copy instead
+- "PDF is password-protected" — read an unprotected copy instead
 - "PDF is damaged or not a PDF" / "could not decode image" — the PDF does not parse, or the image is empty, damaged, not an image despite its extension, or over about 268 million pixels; any other PDF or image error comes back in the reading library's own words. Replace or re-export the file
 - "PDF page rendering failed" — read it without raw: true to get its text instead; if that read also finds no text, this tool can't read the PDF
-- "image cannot be fitted into …" — the image is over the image output budget even after shrinking; ask the server's owner to raise MAX_IMAGE_OUTPUT_BYTES
+- "image cannot be fitted into …" — the image is over the image output budget even after shrinking; ask the server's operator to raise MAX_IMAGE_OUTPUT_BYTES
 ${FILESYSTEM_ERROR_ENTRY}
-- "file changed while reading" — the file was written while it was read; retry the read
-- "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the vault's owner to restart the server
+- "file changed while reading" — retry the read
+- "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the server's operator to restart the server
 - "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
 
-Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,
+Returns: by file type:
+- Images (.png/.jpg/.jpeg/.gif/.webp): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels; an animated GIF is reduced to its first frame when recompressed.
+- Canvas (.canvas): one text block holding a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
+- PDFs (.pdf): one text block of structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer; with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page).
+- Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): one text block holding the file content verbatim.`,
       inputSchema: {
         path: z
           .string()
@@ -156,7 +154,7 @@ Returns: for images, an image content block plus a one-line metadata text block;
           .boolean()
           .optional()
           .describe(
-            "Return a canvas's or PDF's alternative form. Changes nothing for text formats, which already return their source.",
+            "Return a canvas's or PDF's alternative form. Changes nothing for text formats.",
           ),
         start_line: z
           .number()
@@ -243,7 +241,7 @@ Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
 When to use: discovering what files exist${whenToolEnabledText("vault_read_file", " before reading them with vault_read_file")}.${listFilesContrastSentence}${whenToolEnabledText("vault_get_outgoing_links", " For the files one specific note links to, prefer vault_get_outgoing_links.")}
 
-Behavior: Use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing. Hidden (dot-prefixed) files and folders, .obsidian/ among them, never appear.
+Behavior: Use the folder's exact letter case; a different case can find nothing. Hidden (dot-prefixed) files and folders, .obsidian/ among them, never appear.
 
 Errors:
 - A visible folder containing no files — or one that doesn't exist, or a path that names a file — returns an empty listing, not an error.
@@ -252,7 +250,7 @@ ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).${whenToolEnabledText(
         "vault_read_file",
-        "\n\nReadable types: vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base. It cannot read any type outside these lists.",
+        "\n\nReadable types: vault_read_file reads only images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base.",
       )}`,
       inputSchema: {
         folder: z
