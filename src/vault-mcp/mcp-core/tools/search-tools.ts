@@ -39,7 +39,7 @@ export const registerSearchTools = ({
   // File-content search applies only the folder filter, so hybrid search
   // drops file results whenever any other filter is set
   const searchFiltersNoteOnlyClause = config.fileToolsEnabled
-    ? "; files have no properties or dates, so any filter but folder returns notes only"
+    ? "; any filter but folder returns notes only"
     : ""
   const searchFiltersSection = `Filters — all conditions AND-combine with each other and the text query${searchFiltersNoteOnlyClause}:
 - folder: ${INDEX_FOLDER_SCOPE_CLAUSE}
@@ -159,16 +159,12 @@ Returns: JSON with results array (${searchResultFieldsText}), total (results ret
           related: z
             .array(z.string().min(1))
             .optional()
-            .describe(
-              'Require all listed related links, each written exactly as in the note\'s related property, brackets and alias included (e.g. "[[Projects/alpha|Alpha]]")',
-            ),
+            .describe('Require all listed related links (e.g. "[[Projects/alpha|Alpha]]")'),
           type: z
             .string()
             .min(1)
             .optional()
-            .describe(
-              'Match the type property (exact, case-sensitive match, e.g. "person", "meeting")',
-            ),
+            .describe('Match the type property (e.g. "person", "meeting")'),
           properties: z
             .record(z.string().min(1), z.union([z.string().min(1), z.number(), z.boolean()]))
             .optional()
@@ -324,7 +320,7 @@ Errors:
 - A vault with no tagged notes returns an empty array, not an error.
 ${INDEX_ENGINE_ERROR_ENTRY}
 
-Returns: JSON array of { tag, count }; tag omits the "#" prefix.`,
+Returns: JSON array of { tag, count } holding every tag in the vault, with no limit or paging; tag omits the "#" prefix.`,
       inputSchema: {},
     },
     async (_args, extra) => {
@@ -509,7 +505,7 @@ Parameters:
 Behavior:
 - Only properties count; inline Dataview fields (key:: value) are not listed.
 - count is the number of notes that have the key, including notes where its value is empty (null).
-- sample_values are the key's 3 most frequent values as text (a number as written, a checkbox as "1" or "0"), counting each array element separately; null values are skipped.
+- sample_values are the key's 3 most frequent values as text (a number as JavaScript prints it, so 1.0 lists as "1"; a checkbox as "1" or "0"), counting each array element separately; null values are skipped.
 
 Errors:
 - An empty vault or folder returns an empty array, not an error.
@@ -859,7 +855,7 @@ Behavior: ${INDEX_LAG_LEAD}, so a link written moments ago may not count yet.
 
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
-- "too many excluded folders" — pass at most 994 exclude_folders entries (the index's expression-depth limit), then retry.
+- "too many excluded folders" — pass at most 994 exclude_folders entries, then retry.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently modified.`,

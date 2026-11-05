@@ -257,9 +257,11 @@ export const EDIT_SAVE_RULES_SENTENCE =
 export const RETRY_REREAD_CLAUSE =
   "so after a timeout or lost response, re-read the note before retrying"
 
-/** How the patcher closes the gap a deleted line leaves. */
-export const BLANK_LINES_NEVER_DOUBLE_SENTENCE =
-  "blank lines never double: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one."
+/** How the patcher closes the gap a deleted line leaves. No full stop: a
+ *  text edit that empties a line keeps that line, so vault_replace_in_note
+ *  adds "and by at least one", while a whole-line delete does not. */
+export const BLANK_LINES_NEVER_DOUBLE_CLAUSE =
+  "blank lines never double: the text above and below ends up separated by the wider of the two runs of empty lines that stood there"
 
 /** The same rule at the note's end, where no text follows the gap. */
 export const NOTE_END_BLANK_LINES_SENTENCE =

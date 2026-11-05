@@ -553,7 +553,7 @@ describe("sentences shared across sibling tools", () => {
     {
       label: "the blank-line rule of the deleting edits",
       sentence:
-        "blank lines never double: the text above and below ends up separated by the wider of the two runs of empty lines that stood there, and by at least one.",
+        "blank lines never double: the text above and below ends up separated by the wider of the two runs of empty lines that stood there",
       tools: [TOOL_NAMES.VAULT_REPLACE_IN_NOTE, TOOL_NAMES.VAULT_DELETE_SPAN],
     },
     {
@@ -573,8 +573,7 @@ describe("sentences shared across sibling tools", () => {
     },
     {
       label: "the anchor rule of the anchor tools",
-      sentence:
-        "An anchor matches a body line (any line below the properties block) by substring, case-sensitively.",
+      sentence: "An anchor matches a body line (any line below the properties block).",
       tools: [
         TOOL_NAMES.VAULT_DELETE_SPAN,
         TOOL_NAMES.VAULT_REPLACE_SPAN,
@@ -1388,7 +1387,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   const FILE_RESULT_WORDING = {
     searchedScope: "search across vault notes and file content (canvas, PDF, and text files)",
     filtersLeadIn:
-      "Filters — all conditions AND-combine with each other and the text query; files have no properties or dates, so any filter but folder returns notes only:",
+      "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
     kindSentence:
       'The kind field is "note" for markdown notes or "file" for non-markdown content; file results also carry extension (e.g. ".pdf").',
@@ -1516,7 +1515,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
       [
         "Behavior:",
         '- The "Deleted files" setting decides the outcome, which the caller can\'t choose or see in advance:',
-        '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`, since the server has no system trash. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
+        '  - "Move to system trash" (also what an absent setting means) moves the note to `.trash/`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).',
         '  - "Move to Obsidian trash" moves the note to `.trash/` and keeps it forever.',
         '  - "Permanently delete" removes the note for good.',
         LINKS_AND_PROTECTED_PATHS_ENTRY,
@@ -3518,7 +3517,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FENCED_BLOCK_WARNING =
-    "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is searched from the start line down, so it also matches the opening fence, which makes it ambiguous, and first_match: true would end the span there"
+    "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
 
   it.each([
     {

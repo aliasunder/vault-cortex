@@ -14,7 +14,7 @@ import { pageTextByLines } from "../../obsidian-markdown/lines.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
-  BLANK_LINES_NEVER_DOUBLE_SENTENCE,
+  BLANK_LINES_NEVER_DOUBLE_CLAUSE,
   CONCURRENT_WRITE_RETRY_ERROR_ENTRY,
   EDIT_SAVE_RULES_SENTENCE,
   FILESYSTEM_ERROR_ENTRY,
@@ -503,9 +503,7 @@ Returns: "Wrote <path>".`,
         properties: z
           .record(z.string().min(1), z.unknown())
           .optional()
-          .describe(
-            "The note's properties; when overwriting, merged into the existing ones (null removes a key).",
-          ),
+          .describe("The note's properties."),
         overwrite: z
           .boolean()
           .optional()
@@ -733,7 +731,7 @@ Parameters:
 
 Behavior:
 - A non-empty new_text replaces the match exactly; new_text="" deletes it, and when text remains on the line, the line is written exactly as asked.
-- When the line empties, ${BLANK_LINES_NEVER_DOUBLE_SENTENCE}
+- When the line empties, ${BLANK_LINES_NEVER_DOUBLE_CLAUSE}, and by at least one.
 - ${NOTE_END_BLANK_LINES_SENTENCE}
 - To remove a table row or list item, include its line break in old_text, or the empty line left behind splits the table or list.
 - Empty lines elsewhere in the note stay as they are, and ${WHITESPACE_ONLY_LINE_CLAUSE}.
@@ -812,13 +810,13 @@ Returns: "Replaced <N> occurrence(s) in <path>".`,
       "vault_replace_in_note",
       `; to ${editVerb} such a block, use vault_replace_in_note${newTextArgument}`,
     )
-    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): the end anchor is searched from the start line down, so it also matches the opening fence, which makes it ambiguous, and first_match: true would end the span there${fallbackAdvice}.`
+    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): the end anchor is ambiguous, and first_match: true would end the span at the opening fence${fallbackAdvice}.`
   }
 
   /** The anchor rule the three anchor tools share. "Body line" is defined here
-   *  because the schema texts use the term without saying what it excludes. */
-  const anchorMatchingText =
-    "An anchor matches a body line (any line below the properties block) by substring, case-sensitively."
+   *  because the schema texts use the term without saying what it excludes;
+   *  substring and case-sensitive matching stay in the schema texts. */
+  const anchorMatchingText = "An anchor matches a body line (any line below the properties block)."
 
   const replaceBlockAdvice = isToolEnabled("vault_replace_span")
     ? "use vault_replace_span (one atomic step)"
@@ -849,7 +847,7 @@ Parameters:
 - ${fencedBlockEndAnchorText("remove")}
 
 Behavior:
-- Where the removed lines stood, ${BLANK_LINES_NEVER_DOUBLE_SENTENCE} So removing a table row leaves the table whole.
+- Where the removed lines stood, ${BLANK_LINES_NEVER_DOUBLE_CLAUSE}. So removing a table row leaves the table whole.
 - ${NOTE_END_BLANK_LINES_SENTENCE}
 - Empty lines elsewhere in the note stay as they are, and ${WHITESPACE_ONLY_LINE_CLAUSE}.
 
@@ -1149,7 +1147,7 @@ Returns: Confirmation message "Inserted <N> line(s) <before|after> anchor in <pa
         opener: `Delete a markdown note, moving it to the vault's .trash/ folder or removing it for good as the vault's Obsidian "Deleted files" setting directs.`,
         trashOutcomeEntries: `
 - The "Deleted files" setting decides the outcome, which the caller can't choose or see in advance:
-  - "Move to system trash" (also what an absent setting means) moves the note to \`.trash/\`, since the server has no system trash. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
+  - "Move to system trash" (also what an absent setting means) moves the note to \`.trash/\`. Notes this server moved there are deleted after its retention period (TRASH_RETENTION_DAYS: 30 days by default, never when set to none).
   - "Move to Obsidian trash" moves the note to \`.trash/\` and keeps it forever.
   - "Permanently delete" removes the note for good.`,
         trashMoveErrorEntries: `

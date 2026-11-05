@@ -138,7 +138,7 @@ ${FILESYSTEM_ERROR_ENTRY}
 - "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the server's operator to restart the server
 - "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
 
-Returns: by file type, preceded by a window-metadata text block when start_line or limit was given:
+Returns: by file type:
 - Images (.png/.jpg/.jpeg/.gif/.webp): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels, and delivered untouched otherwise; an animated GIF is reduced to its first frame when recompressed.
 - Canvas (.canvas): one text block holding a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
 - PDFs (.pdf): one text block of structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer; with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page).

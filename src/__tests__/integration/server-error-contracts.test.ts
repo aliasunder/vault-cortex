@@ -1117,6 +1117,24 @@ describe("unreadable properties blocks", () => {
     expect(await readFile(fullPath, "utf8")).toBe(UNCLOSED_BLOCK_NOTE)
   })
 
+  it("refuses a merge into a block with a YAML type tag, naming the tag and the tag repair steps", async () => {
+    const taggedNote = "---\ncreated: !!timestamp 2026-01-01\n---\nBody line\n"
+    const fullPath = await plantNote("Tagged Properties.md", taggedNote)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: { path: "Tagged Properties.md", properties: { status: "done" } },
+    })
+
+    expect(result).toEqual(
+      toolErrorResult(
+        `[Error]: properties block uses the YAML tag !!timestamp, which rewriting the note would drop. ${TAG_REPAIR_STEPS}`,
+      ),
+    )
+    expect(await readFile(fullPath, "utf8")).toBe(taggedNote)
+  })
+
   it("repairs the block with replace: true, after which a merge keeps, overwrites and deletes keys", async () => {
     const fullPath = await plantNote("Broken Properties.md", UNCLOSED_BLOCK_NOTE)
 
@@ -1533,6 +1551,62 @@ describe("anchor errors", () => {
       'anchor not found in "Projects/alpha.md": "this anchor does not exist anywhere in the file"',
     )
   })
+
+  it("vault_delete_span with an end anchor that no line at or after the start holds", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: {
+        path: "Projects/alpha.md",
+        start_anchor: "First task for Alpha",
+        end_anchor: "This is a test project",
+      },
+    })
+    expectToolError(
+      result,
+      'end anchor not found in "Projects/alpha.md" at or after the start anchor: "This is a test project"',
+    )
+  })
+
+  /** A note whose two TODO lines make a short anchor match twice. */
+  const plantAmbiguousAnchorNote = async (noteName: string): Promise<void> => {
+    const fullPath = join(serverVaultPath, noteName)
+    await writeFile(fullPath, "Intro line\n- TODO first\n- TODO second\n- keep\n")
+    onTestFinished(() => rm(fullPath, { force: true }))
+  }
+
+  it("vault_delete_span with a start anchor that matches two lines", async () => {
+    await plantAmbiguousAnchorNote("Ambiguous Start.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: { path: "Ambiguous Start.md", start_anchor: "TODO" },
+    })
+    expectToolError(
+      result,
+      'ambiguous start anchor in "Ambiguous Start.md": "TODO" matches 2 lines',
+    )
+  })
+
+  it("vault_replace_span with an end anchor that matches two lines after the start", async () => {
+    await plantAmbiguousAnchorNote("Ambiguous End.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: "Ambiguous End.md",
+        start_anchor: "Intro line",
+        end_anchor: "TODO",
+        content: "replacement",
+      },
+    })
+    expectToolError(
+      result,
+      'ambiguous end anchor in "Ambiguous End.md": "TODO" matches 2 lines at or after the start anchor',
+    )
+  })
 })
 
 // ── Memory errors ────────────────────────────────────────────
@@ -1607,6 +1681,35 @@ describe("memory errors", () => {
       },
     })
     expectToolError(result, "entry must be a single line")
+  })
+
+  it("vault_update_memory rejects a multi-line section name", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: {
+        file: "Preferences",
+        section: "Editor\nsettings",
+        entry: "Use two-space indentation",
+      },
+    })
+    expectToolError(result, "section must be a single line")
+  })
+
+  it("vault_update_memory refuses a section name that is a near miss of an existing heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: {
+        file: "Preferences",
+        section: "Editor setings",
+        entry: "Use two-space indentation",
+      },
+    })
+    expectToolError(
+      result,
+      'section not created: "Editor setings" is nearly identical to existing section "Editor settings (newest first)"',
+    )
   })
 
   it("vault_delete_memory with a nonexistent section", async () => {

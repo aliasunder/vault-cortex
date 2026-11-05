@@ -103,7 +103,7 @@ export const registerMemoryTools = ({
       title: "Get Memory",
       description: `Read semantic memory from ${config.memoryDir}/ files. Each file holds dated bullet entries under H2 headings. With file: that file. With file+section: just that H2 section's entries. No args: every file, joined by --- lines — can be large.
 
-With file+on_or_after: only the entries dated on or after that date, in document order (newest first by default). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution.
+With file+on_or_after: only the entries dated on or after that date, in document order (newest first by default), from one H2 section when section is given and otherwise from every section, each entry keeping its section attribution.
 
 Example: vault_get_memory({ file: "Principles" }) — the whole file
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
