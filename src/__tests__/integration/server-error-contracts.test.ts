@@ -1811,6 +1811,82 @@ describe("memory errors", () => {
     expectToolError(result, 'memory file must be named without .md: "Preferences.md"')
   })
 
+  it("vault_delete_memory with no entry matching the date and text", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: {
+        file: "Preferences",
+        section: "Editor settings",
+        date: "2026-01-12",
+        entry: "Prefers light mode",
+      },
+    })
+    expectToolError(
+      result,
+      '[Error]: no entry matching (2026-01-12, "Prefers light mode") under ## Editor settings (newest first) in About Me/Preferences.md',
+    )
+  })
+
+  const plantMemoryFile = async (fileName: string, entries: string): Promise<string> => {
+    const memoryFile = join(serverVaultPath, "About Me", `${fileName}.md`)
+    const content = `---\ntitle: ${fileName}\n---\n\n# ${fileName}\n\n## Notes (newest first)\n\n${entries}`
+    await writeFile(memoryFile, content)
+    onTestFinished(() => rm(memoryFile, { force: true }))
+    return content
+  }
+
+  it("vault_delete_memory with two identical entries", async () => {
+    await plantMemoryFile(
+      "Duplicates",
+      "- **2026-01-01**: same text\n- **2026-01-01**: same text\n",
+    )
+
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: { file: "Duplicates", section: "Notes", date: "2026-01-01", entry: "same text" },
+    })
+    expectToolError(
+      result,
+      '[Error]: ambiguous: 2 entries match (2026-01-01, "same text") under ## Notes (newest first) in About Me/Duplicates.md',
+    )
+  })
+
+  it("vault_delete_memory of an entry that is most of the file", async () => {
+    const bulkEntry = "x".repeat(1400)
+    const plantedContent = await plantMemoryFile("Bulk", `- **2026-01-01**: ${bulkEntry}\n`)
+
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: { file: "Bulk", section: "Notes", date: "2026-01-01", entry: bulkEntry },
+    })
+    expectToolError(
+      result,
+      "[Error]: refusing memory write: deleting memory entry would shrink content from",
+    )
+    await expect(readFile(join(serverVaultPath, "About Me", "Bulk.md"), "utf8")).resolves.toBe(
+      plantedContent,
+    )
+  })
+
+  it("vault_update_memory when a folder sits at the memory file's path", async () => {
+    const folderAtFilePath = join(serverVaultPath, "About Me", "Folderish.md")
+    await mkdir(folderAtFilePath)
+    onTestFinished(() => rm(folderAtFilePath, { recursive: true, force: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Folderish", section: "Notes", entry: "never written" },
+    })
+    expectToolError(
+      result,
+      '[Error]: cannot write memory file "About Me/Folderish.md": that path is not a file',
+    )
+  })
+
   it("vault_delete_memory with a date that is not YYYY-MM-DD", async () => {
     const result = await callTool({
       client,
@@ -1897,6 +1973,123 @@ describe("parameter combinations", () => {
       args: { old_path: "Projects/alpha.md", new_path: "Projects/alpha.md" },
     })
     expectToolError(result, "source and destination are the same path")
+  })
+})
+
+// ── Move aborts ──────────────────────────────────────────────
+
+describe("move aborts", () => {
+  const readProjectNote = (name: string): Promise<string> => {
+    return readFile(join(serverVaultPath, "Projects", name), "utf8")
+  }
+
+  it("vault_move_note onto an existing note", async () => {
+    const sourceBefore = await readProjectNote("beta.md")
+
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Projects/beta.md", new_path: "Projects/alpha.md" },
+    })
+    expectToolError(result, '[Error]: destination exists: "Projects/alpha.md"')
+    await expect(readProjectNote("beta.md")).resolves.toBe(sourceBefore)
+  })
+
+  it.skipIf(runsAsRoot)(
+    "vault_move_note whose backlink source it cannot read aborts before writing",
+    async () => {
+      const sourceBefore = await readProjectNote("alpha.md")
+      const linkingNote = join(serverVaultPath, "Projects", "beta.md")
+      await chmod(linkingNote, 0o000)
+      onTestFinished(() => chmod(linkingNote, 0o644))
+
+      const result = await callTool({
+        client,
+        name: "vault_move_note",
+        args: { old_path: "Projects/alpha.md", new_path: "Projects/alpha-moved.md" },
+      })
+      expectToolError(
+        result,
+        '[Error]: move aborted: could not read backlink source "Projects/beta.md". Nothing was written.',
+      )
+      await expect(readProjectNote("alpha.md")).resolves.toBe(sourceBefore)
+    },
+  )
+
+  it.skipIf(runsAsRoot)(
+    "vault_move_note into a folder it cannot write to aborts before writing",
+    async () => {
+      const sourceBefore = await readProjectNote("alpha.md")
+      const lockedFolder = join(serverVaultPath, "Locked")
+      await mkdir(lockedFolder, { mode: 0o555 })
+      onTestFinished(async () => {
+        await chmod(lockedFolder, 0o755)
+        await rm(lockedFolder, { recursive: true })
+      })
+
+      const result = await callTool({
+        client,
+        name: "vault_move_note",
+        args: { old_path: "Projects/alpha.md", new_path: "Locked/alpha.md" },
+      })
+      expectToolError(
+        result,
+        '[Error]: move aborted: could not write to "Locked/alpha.md". Nothing was written.',
+      )
+      await expect(readProjectNote("alpha.md")).resolves.toBe(sourceBefore)
+    },
+  )
+})
+
+// ── Trash collisions ─────────────────────────────────────────
+
+describe("trash collisions", () => {
+  it("vault_delete_note when .trash/ already holds the name and 100 numbered copies", async () => {
+    const trashFolder = join(serverVaultPath, ".trash")
+    await mkdir(trashFolder, { recursive: true })
+    const crowdedNames = [
+      "Crowded.md",
+      ...Array.from({ length: 100 }, (_, index) => `Crowded ${index + 1}.md`),
+    ]
+    await Promise.all(crowdedNames.map((name) => writeFile(join(trashFolder, name), "trashed\n")))
+    await writeFile(join(serverVaultPath, "Crowded.md"), "to trash\n")
+    onTestFinished(async () => {
+      await rm(join(serverVaultPath, "Crowded.md"), { force: true })
+      await Promise.all(crowdedNames.map((name) => rm(join(trashFolder, name), { force: true })))
+    })
+
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Crowded.md" },
+    })
+    expectToolError(
+      result,
+      '[Error]: cannot move to trash "Crowded.md" — 100 collisions in .trash/',
+    )
+    await expect(readFile(join(serverVaultPath, "Crowded.md"), "utf8")).resolves.toBe("to trash\n")
+  })
+})
+
+// ── Control characters in body edits ─────────────────────────
+
+describe("control characters in body edits", () => {
+  it("vault_patch_note with a control character in content", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: { path: "Projects/alpha.md", operation: "append", content: "line\u0007bell" },
+    })
+    expectToolError(result, "content contains a control character (U+0007 at position 4)")
+  })
+
+  it("vault_write_note with a control character in body", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/control.md", body: "a\u0000b" },
+    })
+    expectToolError(result, "body contains a control character (U+0000 at position 1)")
   })
 })
 

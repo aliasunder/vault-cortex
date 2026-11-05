@@ -529,6 +529,8 @@ describe("sentences shared across sibling tools", () => {
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     TOOL_NAMES.VAULT_FIND_ORPHANS,
+    TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
+    TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
   ] as const
 
   const LIMITED_LISTING_TOOLS = [
@@ -641,10 +643,17 @@ describe("sentences shared across sibling tools", () => {
 
   it("every tool names the two roles it sends a caller to the same way", () => {
     const unexpectedRoleWordings = calls.flatMap(([toolName, config]) => {
-      const description = requireDescription(config, toolName)
-      const wrongForms = ["vault owner", "server operator", "server's owner"].filter((form) => {
-        return description.includes(form)
-      })
+      if (!config.inputSchema) throw new Error(`tool ${toolName} registered without a schema`)
+
+      const servedText = `${requireDescription(config, toolName)}\n${JSON.stringify(z.toJSONSchema(config.inputSchema))}`
+      const wrongForms = [
+        "vault owner",
+        "vault operator",
+        "vault's operator",
+        "server owner",
+        "server operator",
+        "server's owner",
+      ].filter((form) => servedText.includes(form))
       return wrongForms.map((form) => `${toolName}: ${form}`)
     })
     expect(unexpectedRoleWordings).toEqual([])

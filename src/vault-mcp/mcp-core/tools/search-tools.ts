@@ -478,7 +478,7 @@ When to use: Discovering what properties exist before searching by property. Goo
 Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; omit it to scan the entire vault.
 
-Behavior:
+Behavior: ${INDEX_LAG_LEAD}.
 - Only properties count; inline Dataview fields (key:: value) are not listed.
 - count is the number of notes that have the key, including notes where its value is empty (null).
 - sample_values are the key's 3 most frequent values as text (a number as JavaScript prints it, so 1.0 lists as "1"; a checkbox as "1" or "0"), counting each array element separately; null values are skipped.
@@ -525,7 +525,7 @@ Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}.
 - limit applies after sorting by count descending, so you get the most-used values first; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior:
+Behavior: ${INDEX_LAG_LEAD}.
 - Array elements (tags: ["a", "b"]) are counted individually, so the sum of counts may exceed the note count.
 - Each value is listed as text, and values with the same text share one row with combined occurrence counts: number 1 and text "1" count together, while text "1.0" stays separate. Grouping happens before limit.
 - Checkbox true and false come back as "1" and "0", counted with the numbers 1 and 0.
