@@ -583,7 +583,7 @@ describe("sentences shared across sibling tools", () => {
     {
       label: "the note-metadata result shape",
       sentence:
-        'Returns: JSON array of note metadata: path, title (file name without .md when missing or not text), tags (the tags property; vault_update_properties edits it), body_tags (#tags in the note\'s text, one per spelling; vault_replace_in_note edits them; absent when none), related ([] when missing), folder (top-level folder, "" at the root), type (null when missing or not text), created (null when missing or not an ISO date), modified (ISO 8601 file time), bytes (on-disk size), and when present leading_callout ({ type, title, body }, the callout opening the body) and additional_properties (every other property).',
+        'Returns: JSON array of note metadata: path, title (the title property; file name without .md when missing or not text), tags (the tags property; vault_update_properties edits it), body_tags (#tags in the note\'s text, one per spelling; vault_replace_in_note edits them; absent when none), related ([] when missing), folder (top-level, "" at the root), type (null when missing or not text), created (null when missing or not an ISO date), modified (ISO 8601 file time), bytes (on-disk size), and when present leading_callout (the opening callout, { type, title, body }) and additional_properties (every property but title, type, created, related and tags).',
       tools: NOTE_METADATA_TOOLS,
     },
     {
@@ -1390,13 +1390,13 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
     kindSentence:
-      'The kind field is "note" for markdown notes or "file" for non-markdown content; file results also carry extension (e.g. ".pdf").',
+      'kind is "note" or, for non-markdown content, "file", which also carries extension (e.g. ".pdf").',
   }
   const NOTE_ONLY_WORDING = {
     searchedScope: "search across vault notes",
     filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (top-level folder), type, kind, created, modified, bytes`,
-    kindSentence: 'The kind field is always "note".',
+    kindSentence: 'kind is always "note".',
   }
 
   it.each([
@@ -1435,7 +1435,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
       filtersLeadIn: searchSection({ startMarker: "Filters — ", endMarker: "\n- folder:" }),
       resultFields: searchSection({ startMarker: "results array (", endMarker: "), total" }),
       kindSentence: searchSection({
-        startMarker: "The kind field is ",
+        startMarker: "kind is ",
         endMarker: " created is omitted",
       }),
     }).toEqual(expectedWording)
@@ -1460,7 +1460,7 @@ describe("vault_delete_note description reflects OBSIDIAN_SYNC", () => {
   ]
   const DELETE_FAILURE_ENTRIES = [
     '- "cannot delete …" (other than a protected path) — the note stays put; ask the vault\'s owner to fix the cause (e.g. permissions), then retry',
-    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error — the message says what to do; the note stays put',
+    '- "ENAMETOOLONG: …" or another filesystem error — the message says what to do; the note stays put',
   ]
   const DAILY_NOTES_CONFIG_ERROR_ENTRY =
     "- \"cannot read daily notes config from .obsidian/daily-notes.json\" — the file that names the protected daily notes folder can't be parsed; ask the vault's owner to repair it, or the server's operator to set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry"
@@ -3460,7 +3460,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const SHARED_FILESYSTEM_ENTRY =
-    '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error — the message says what to do'
+    '- "ENAMETOOLONG: …" or another filesystem error — the message says what to do'
 
   // The rename remedy, and its gated vault_move_note name, now live in the
   // message the boundary appends (coded-error-remedy.test.ts pins both forms),
@@ -3480,7 +3480,7 @@ describe("DISABLED_TOOLS", () => {
       return findDescriptionLine({
         registeredCalls,
         toolName,
-        linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
+        linePrefix: '- "ENAMETOOLONG: …" or another filesystem error',
       })
     })
     expect(filesystemEntries).toEqual([
@@ -3500,7 +3500,7 @@ describe("DISABLED_TOOLS", () => {
     const filesystemEntry = findDescriptionLine({
       registeredCalls: registerWithConfig({}),
       toolName,
-      linePrefix: '- "ENAMETOOLONG: …", "EACCES: …"',
+      linePrefix: '- "ENAMETOOLONG: …" or another filesystem error',
     })
     expect(filesystemEntry).toBe(SHARED_FILESYSTEM_ENTRY)
   })
@@ -3800,8 +3800,7 @@ describe("DISABLED_TOOLS", () => {
   const PATCH_NOTE_DELETE_SPAN_ITEM = "vault_delete_span for removing lines"
   const PATCH_NOTE_UPDATE_PROPERTIES_ITEM = "vault_update_properties for properties"
   const PATCH_NOTE_CREATE_TASK_ITEM = "vault_create_task for adding a task"
-  const PATCH_NOTE_UPDATE_TASK_ITEM =
-    "vault_update_task for completing or moving a task in one write"
+  const PATCH_NOTE_UPDATE_TASK_ITEM = "vault_update_task for a task's status or lane"
   const ALL_PATCH_NOTE_ALTERNATIVES = [
     PATCH_NOTE_WRITE_NOTE_ITEM,
     PATCH_NOTE_REPLACE_IN_NOTE_ITEM,

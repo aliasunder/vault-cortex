@@ -287,7 +287,7 @@ export const LIMIT_TRUNCATION_CLAUSE =
 /** The result shape the five tools that return note metadata share. The
  *  tags clause names the tools that edit each tag field, so it is passed in. */
 export const describeNoteMetadataResult = (tagsFieldsText: string): string => {
-  return `JSON array of note metadata: path, title (file name without .md when missing or not text), ${tagsFieldsText}, related ([] when missing), folder (top-level folder, "" at the root), type (null when missing or not text), created (null when missing or not an ISO date), modified (ISO 8601 file time), bytes (on-disk size), and when present leading_callout ({ type, title, body }, the callout opening the body) and additional_properties (every other property).`
+  return `JSON array of note metadata: path, title (the title property; file name without .md when missing or not text), ${tagsFieldsText}, related ([] when missing), folder (top-level, "" at the root), type (null when missing or not text), created (null when missing or not an ISO date), modified (ISO 8601 file time), bytes (on-disk size), and when present leading_callout (the opening callout, { type, title, body }) and additional_properties (every property but title, type, created, related and tags).`
 }
 
 /** The Errors entry of every tool that reads or writes a vault file, for a
@@ -295,7 +295,7 @@ export const describeNoteMetadataResult = (tagsFieldsText: string): string => {
  *  vault-relative, plus the remedy sentence the tool boundary appends
  *  (coded-error-remedy.ts), so the entry names no remedy itself. */
 export const FILESYSTEM_ERROR_ENTRY =
-  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error — the message says what to do'
+  '- "ENAMETOOLONG: …" or another filesystem error — the message says what to do'
 
 /** The Errors entry of a tool that resolves a single note or file path. */
 export const PATH_SAFETY_ERROR_ENTRY =
@@ -313,7 +313,7 @@ export const CONCURRENT_WRITE_RETRY_ERROR_ENTRY =
 /** The listing tools' form of the entry: one unreadable folder fails the whole
  *  listing, and the caller can list around it. */
 export const LISTING_FILESYSTEM_ERROR_ENTRY =
-  '- "ENAMETOOLONG: …", "EACCES: …" or another filesystem error — the message names the folder it could not read, and what to do; until then, pass a folder outside it'
+  '- "ENAMETOOLONG: …" or another filesystem error — the message names the folder it could not read, and what to do; until then, pass a folder outside it'
 
 /** The Errors entry of a tool that reads stored index rows back through the
  *  parsers in search-helpers.ts: a SQLite engine failure or a row the server

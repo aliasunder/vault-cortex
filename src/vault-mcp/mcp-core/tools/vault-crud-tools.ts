@@ -560,10 +560,7 @@ Returns: "Wrote <path>".`,
     whenToolEnabledText("vault_delete_span", "vault_delete_span for removing lines"),
     whenToolEnabledText("vault_update_properties", "vault_update_properties for properties"),
     whenToolEnabledText("vault_create_task", "vault_create_task for adding a task"),
-    whenToolEnabledText(
-      "vault_update_task",
-      "vault_update_task for completing or moving a task in one write",
-    ),
+    whenToolEnabledText("vault_update_task", "vault_update_task for a task's status or lane"),
   ].filter(Boolean)
   const patchNoteAlternativesLine =
     patchNoteAlternatives.length > 0 ? `\nPrefer ${patchNoteAlternatives.join("; ")}.` : ""
