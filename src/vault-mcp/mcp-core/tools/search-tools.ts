@@ -308,7 +308,7 @@ Errors:
 - A vault with no tagged notes returns an empty array, not an error.
 ${INDEX_ENGINE_ERROR_ENTRY}
 
-Returns: JSON array of { tag, count } holding every tag in the vault, with no limit or paging; tag omits the "#" prefix.`,
+Returns: JSON array of { tag, count } holding every tag in the vault; tag omits the "#" prefix.`,
       inputSchema: {},
     },
     async (_args, extra) => {
