@@ -4707,6 +4707,31 @@ title: Tasks
     expect(result.changes).toEqual(["status: done → done"])
   })
 
+  it("moves the done date to today when an already-done task is set to done again", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [x] Shipped ➕ 2026-01-01 ✅ 2026-01-05 ^shipped\n",
+    )
+
+    await taskMutations.updateTask(
+      {
+        statusRegistry: DEFAULT_STATUS_REGISTRY,
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "shipped",
+        status: "done",
+      },
+      logger,
+    )
+
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [x] Shipped ➕ 2026-01-01 ✅ ${today()} ^shipped\n`,
+    )
+  })
+
   it("does not spawn or advise when a recurring task is cancelled", async () => {
     const vault = await createVault()
     await writeTestNote(vault, "tasks.md", RECURRING_NOTE)

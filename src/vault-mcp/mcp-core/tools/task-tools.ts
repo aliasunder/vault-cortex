@@ -491,7 +491,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
-      description: `Update a task's status, priority, description, dates, recurrence, completion action, dependencies, block_id, checklist items, heading, or position within a lane, in any combination; every field passed is written in a single edit. A repeated call with add_subtasks adds the items again, so after a timeout or lost response, re-read the task before retrying.
+      description: `Update a task's status, priority, description, dates, recurrence, completion action, dependencies, block_id, checklist items, heading, or position within a lane, in any combination; every field passed is written in a single edit. A repeated call with add_subtasks adds the items again, and a repeated "done" or "cancelled" moves its date stamp to the retry day, so after a timeout or lost response, re-read the task before retrying.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring
@@ -539,7 +539,7 @@ ${FILESYSTEM_ERROR_ENTRY}
 ${describePropertiesBlockErrorEntry()}
 ${OPENING_BLOCK_ERROR_ENTRY}
 
-Obsidian syntax: When description or add_subtasks text ends in a field the plugin's parser recognizes (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata. The write still succeeds; reword the text to clear the advisories the result carries. The ✅/❌ dates a status change adds or removes produce no advisories by themselves.
+Obsidian syntax: When description or add_subtasks text ends in a field the plugin's parser recognizes (an emoji field like "🔁 every week", or a Dataview [key:: value] field), with only other recognized fields after it, that text is read back as metadata. The write still succeeds; reword the text to clear the advisories the result carries. The ✅/❌ dates a status change adds or removes produce no advisories.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied }.
 - line is the task's final 1-based line number in the file; after an on_completion delete, the line the task occupied before removal.
