@@ -97,7 +97,7 @@ export type SearchQueryContext = {
     readonly embedder: Embedder | undefined
     readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null
     /** Same KNN narrowed to chunks whose note path matches a folder LIKE
-     *  pattern before the k-window — used whenever a folder filter is set. */
+     *  pattern before the k-window — used for folder-only filtering. */
     readonly knnSearchInFolderStmt: Database.Statement<unknown[], VectorHitRow> | null
     readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }

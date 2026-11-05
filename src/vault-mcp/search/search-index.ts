@@ -791,11 +791,8 @@ export const createSearchIndex = (
   const resolveNonMdByBasePathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
-  /** Suffix match on the full stored path, for targets that include their
-   *  extension — [[photo.png]] or ![img](attachments/photo.png) where the file
-   *  lives in a deeper folder (Obsidian's shortest-path format). The
-   *  base_path/basename columns strip the extension, so with-extension targets
-   *  can only ever match the path column. Same ESCAPE rationale as above. */
+  /** Full-filename suffix matches precede stem matches, so photo.png beats photo.png.canvas.
+   *  Escape LIKE wildcards as in the base-path suffix query. */
   const resolveNonMdByFullPathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
