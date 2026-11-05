@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { z } from "zod"
-import { isHarnessSnapshot } from "./search-eval-snapshot.js"
+import { EVAL_INDEX_FILENAMES, isHarnessSnapshot } from "./search-eval-snapshot.js"
 import { caseFoldPath } from "../src/utils/case-fold-path.js"
 import type {
   HybridSearchResult,
@@ -223,7 +223,7 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   // file — the plain index stays reusable for weight sweeps.
   const indexDbPath = join(
     workDir,
-    cliArgs["enrich-metadata"] ? "search-eval-enriched.db" : "search-eval.db",
+    cliArgs["enrich-metadata"] ? EVAL_INDEX_FILENAMES.enriched : EVAL_INDEX_FILENAMES.plain,
   )
 
   // Only a directory the harness created may be adopted — an operator's own
