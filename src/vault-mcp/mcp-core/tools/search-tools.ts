@@ -180,13 +180,7 @@ Returns: JSON with results array (${searchResultFieldsText}), total (results ret
         })
           .optional()
           .describe("Optional structured filters"),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(20)
-          .describe("Max results (default 20, no upper cap)"),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
         snippet_tokens: z
           .number()
           .int()
@@ -269,13 +263,7 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Tags keep the note's lett
           .optional()
           .default(false)
           .describe("Match only the tag itself (default: false)"),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(20)
-          .describe("Max results (default 20, no upper cap)"),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
     async ({ tag, exact, limit }, extra) => {
@@ -379,13 +367,7 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Newest first by the sort_
           .optional()
           .default("modified")
           .describe('Timestamp to sort by (default "modified")'),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(20)
-          .describe("Max results (default 20, no upper cap)"),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
     async ({ sort_by, limit }, extra) => {
@@ -451,13 +433,7 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently m
           .optional()
           .default(true)
           .describe("Include subfolders (default: true)"),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(20)
-          .describe("Max results (default 20, no upper cap)"),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
     async ({ folder, recursive, limit }, extra) => {
@@ -569,7 +545,7 @@ Returns: JSON array of { value, count } sorted by count descending, then by valu
           .min(1)
           .optional()
           .default(50)
-          .describe("Max values to return (default 50, no upper cap)."),
+          .describe("Max values to return (default 50)."),
       },
     },
     async ({ key, folder, limit }, extra) => {
@@ -647,13 +623,7 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently m
         key: z.string().min(1).describe('Property key name (e.g. "status", "type", "tags").'),
         value: z.string().min(1).describe('Value to match (e.g. "active", "4", "1e-7").'),
         folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(20)
-          .describe("Max results (default 20, no upper cap)"),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
     async ({ key, value, folder, limit }, extra) => {
@@ -866,13 +836,7 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently m
           .describe(
             `Folder paths to exclude (e.g. Projects; default: ${orphanDefaultsText.folders})`,
           ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(50)
-          .describe("Max results (default 50, no upper cap)"),
+        limit: z.number().int().min(1).optional().default(50).describe("Max results (default 50)"),
       },
     },
     async ({ exclude_folders, limit }, extra) => {

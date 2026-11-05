@@ -25,7 +25,7 @@
           },
           "limit": {
             "default": 50,
-            "description": "Max results (default 50, no upper cap)",
+            "description": "Max results (default 50)",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
@@ -204,7 +204,7 @@
           },
           "limit": {
             "default": 50,
-            "description": "Max values to return (default 50, no upper cap).",
+            "description": "Max values to return (default 50).",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
@@ -591,7 +591,7 @@
           },
           "limit": {
             "default": 20,
-            "description": "Max results (default 20, no upper cap)",
+            "description": "Max results (default 20)",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
@@ -723,7 +723,7 @@
           },
           "limit": {
             "default": 20,
-            "description": "Max results (default 20, no upper cap)",
+            "description": "Max results (default 20)",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
@@ -776,7 +776,7 @@
           },
           "limit": {
             "default": 20,
-            "description": "Max results (default 20, no upper cap)",
+            "description": "Max results (default 20)",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
@@ -822,7 +822,7 @@
           },
           "limit": {
             "default": 20,
-            "description": "Max results (default 20, no upper cap)",
+            "description": "Max results (default 20)",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
@@ -864,7 +864,7 @@
           },
           "limit": {
             "default": 20,
-            "description": "Max results (default 20, no upper cap)",
+            "description": "Max results (default 20)",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
