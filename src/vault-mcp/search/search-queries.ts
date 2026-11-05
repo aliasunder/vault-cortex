@@ -179,6 +179,7 @@ export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined)
     queryParams.push(folderLikePattern(filters.folder))
   }
 
+  // Folder also applies to files; only clauses added below require note-only retrieval.
   const folderConditionCount = conditions.length
 
   if (filters?.tags) {
@@ -242,22 +243,22 @@ export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined)
   // lexicographically against the YYYY-MM-DD bounds. Notes with NULL created
   // never match — SQL comparison with NULL is never true.
   if (filters?.created) {
-    const { on, before, after } = filters.created
+    const { on: createdOn, before: createdBefore, after: createdAfter } = filters.created
 
-    if (on !== undefined) {
-      assertFilterDate(on, "created.on")
+    if (createdOn !== undefined) {
+      assertFilterDate(createdOn, "created.on")
       conditions.push("substr(n.created, 1, 10) = ?")
-      queryParams.push(on)
+      queryParams.push(createdOn)
     }
-    if (before !== undefined) {
-      assertFilterDate(before, "created.before")
+    if (createdBefore !== undefined) {
+      assertFilterDate(createdBefore, "created.before")
       conditions.push("substr(n.created, 1, 10) < ?")
-      queryParams.push(before)
+      queryParams.push(createdBefore)
     }
-    if (after !== undefined) {
-      assertFilterDate(after, "created.after")
+    if (createdAfter !== undefined) {
+      assertFilterDate(createdAfter, "created.after")
       conditions.push("substr(n.created, 1, 10) > ?")
-      queryParams.push(after)
+      queryParams.push(createdAfter)
     }
   }
 
@@ -266,25 +267,25 @@ export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined)
   // before D matches strictly earlier days (mtime < startOf(D)), after D
   // strictly later days (mtime >= startOf(D+1)), on D matches within the day.
   if (filters?.modified) {
-    const { on, before, after } = filters.modified
+    const { on: modifiedOn, before: modifiedBefore, after: modifiedAfter } = filters.modified
 
     // assertFilterDate checks each bound before dayToEpochMsRange converts it,
     // so a bad bound gets assertFilterDate's message, never the converter's
-    if (on !== undefined) {
-      assertFilterDate(on, "modified.on")
-      const dayRange = dayToEpochMsRange(on)
+    if (modifiedOn !== undefined) {
+      assertFilterDate(modifiedOn, "modified.on")
+      const dayRange = dayToEpochMsRange(modifiedOn)
       conditions.push("n.mtime >= ? AND n.mtime < ?")
       queryParams.push(dayRange.startMs, dayRange.endMs)
     }
-    if (before !== undefined) {
-      assertFilterDate(before, "modified.before")
+    if (modifiedBefore !== undefined) {
+      assertFilterDate(modifiedBefore, "modified.before")
       conditions.push("n.mtime < ?")
-      queryParams.push(dayToEpochMsRange(before).startMs)
+      queryParams.push(dayToEpochMsRange(modifiedBefore).startMs)
     }
-    if (after !== undefined) {
-      assertFilterDate(after, "modified.after")
+    if (modifiedAfter !== undefined) {
+      assertFilterDate(modifiedAfter, "modified.after")
       conditions.push("n.mtime >= ?")
-      queryParams.push(dayToEpochMsRange(after).endMs)
+      queryParams.push(dayToEpochMsRange(modifiedAfter).endMs)
     }
   }
 
@@ -903,19 +904,26 @@ const DATE_CASCADE: Record<string, readonly string[]> = {
   created: ["due", "scheduled", "start"],
 }
 
+/** Sort keys that default to descending — "most recent first" is the natural
+ *  view for "what did I start/create/finish lately?". The remaining keys
+ *  ("due", "scheduled") default ascending — soonest deadline first (overdue
+ *  triage). "priority" also defaults ascending (highest priority first). */
+const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
+  "start",
+  "created",
+  "done",
+  "note_mtime",
+])
+
 const toSqlDirection = (direction: "asc" | "desc" | undefined): "ASC" | "DESC" | undefined => {
   if (direction === undefined) return undefined
   return direction === "desc" ? "DESC" : "ASC"
 }
 
-/** Builds a cascaded ORDER BY for a date sort key: primary date column, then
- *  each fallback date column (all with NULL-last), then note mtime descending
- *  as a recency tiebreaker for fully dateless tasks.
- *
- *  When explicitDirection is provided the caller asked for a uniform direction
- *  — every column sorts that way. When undefined each column uses its own
- *  natural default so the cascade doesn't force ASC-defaulting fields onto
- *  DESC-defaulting fallbacks (or vice-versa). */
+/** Date sorts put NULLs last and cascade through related task dates.
+ *  - An explicit direction applies to every task-date column.
+ *  - Without one, each task-date column uses its natural default.
+ *  - Note mtime stays descending as the final recency tiebreaker. */
 const buildDateOrderBy = (
   column: string,
   explicitDirection: "ASC" | "DESC" | undefined,
@@ -934,17 +942,6 @@ const buildDateOrderBy = (
     .join(", ")
   return `${primary}, ${fallbacks}, n.mtime DESC`
 }
-
-/** Sort keys that default to descending — "most recent first" is the natural
- *  view for "what did I start/create/finish lately?". The remaining keys
- *  ("due", "scheduled") default ascending — soonest deadline first (overdue
- *  triage). "priority" also defaults ascending (highest priority first). */
-const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set([
-  "start",
-  "created",
-  "done",
-  "note_mtime",
-])
 
 /** ORDER BY fragment per sort key. Values are trusted SQL assembled from the
  *  whitelisted TaskSortKey union — never raw user input. Date keys cascade
@@ -1597,6 +1594,7 @@ export const findOrphans = (
     try {
       return context.db.prepare<unknown[], NoteRow>(sql).all(...escapedExcludeFolders, limit)
     } catch (error) {
+      // SQLite reports capacity and syntax failures with the same SQLITE_ERROR code.
       const isExclusionCapacityError =
         error instanceof Error &&
         "code" in error &&
@@ -1666,6 +1664,7 @@ export const brokenLinkCount = (
     )
     .all()
 
+  // Keep the same case-sensitive folder test as getOutgoingLinks' forward-reference flag.
   const count = brokenTargets.filter((row) => !row.target.startsWith(excludedFolderPrefix)).length
   const excludedCount = brokenTargets.length - count
 

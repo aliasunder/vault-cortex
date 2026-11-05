@@ -93,6 +93,7 @@ const vectorSearch = (
   const readNoteVectorRows = (): VectorHitRow[] => {
     if (params.noteFilterSql.hasNoteSpecificFilters) {
       // Restrict eligible chunk IDs before KNN so closer rejected notes cannot fill its window.
+      // Metadata clauses vary with the filter shape, so this statement is prepared per call.
       const scopedStatement = context.db.prepare<unknown[], VectorHitRow>(`
         SELECT nc.note_path, nc.chunk_text, nv.distance
         FROM note_vectors nv
@@ -390,6 +391,7 @@ export const hybridSearch = async (
   )
 
   const noteFilterSql = buildNoteFilterSql(params.filters)
+
   // File retrieval implements only folder filtering, so note-specific clauses exclude both legs.
   // Weight 0 must exclude the file legs, not just zero their contribution —
   // RRF would still emit their identifiers at score 0, so file results

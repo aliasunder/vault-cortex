@@ -545,7 +545,10 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
 
 - **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
-- **Chunk prefixes:** every fragment starts with the note title; aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path (capped at the remaining token budget — leading ancestors are dropped when deep nesting with long names would floor the body budget, keeping the deepest segments; the Section line is suppressed entirely when the title and metadata exhaust the budget), while preamble fragments, a singleton wrapper's aggregate, and the TOC chunk keep the bare title. A heading whose slice is empty emits no section chunk — its name still rides the TOC chunk, and descendant chunks' Section lines carry it when it has children. A top-level heading with children but no body of its own still emits its aggregate (the slice spans the subtree)
+- **Chunk prefixes:** every fragment starts with the note title. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
+  - Long ancestor paths drop their leading segments to fit the remaining token budget, keeping the deepest segments. The label is omitted when the title and metadata exhaust the budget.
+  - Preamble and TOC fragments omit the label. The aggregate also omits it when one top-level heading opens the note with no preceding text or heading, because that heading wraps the whole note.
+- **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' Section lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
 
@@ -1354,8 +1357,9 @@ Docker hardening, and durability seatbelts above.
 
 #### SQL + search safety
 
-- **Parameterized statements**: every SQLite query uses `?` parameters,
-  never string interpolation — no user input reaches SQL syntax.
+- **Parameterized statements**: search text, paths and metadata values use bound
+  parameters. Dynamic clauses use code-owned SQL fragments; interpolated snippet
+  sizes are converted with `Number()`.
 - **`sanitizeFtsQuery()`** (`fts-query.ts`): strips FTS5 metacharacters
   (`*^():`), reserved words (`AND`/`OR`/`NOT`/`NEAR`), and
   compound-joiner punctuation so user input can never produce FTS5 syntax

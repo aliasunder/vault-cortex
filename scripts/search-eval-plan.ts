@@ -89,13 +89,18 @@ export const assertHealthyEvalResult = (params: {
     throw new Error(`query ${queryId} logged problem(s): ${problemMessages.join("; ")}`)
   }
 
-  if (searchResult.results.length > 0 && searchResult.search_mode !== "hybrid") {
+  const nonemptyResultUsedOnlyKeywords =
+    searchResult.results.length > 0 && searchResult.search_mode !== "hybrid"
+
+  if (nonemptyResultUsedOnlyKeywords) {
     throw new Error(
       `query ${queryId} ran search_mode=${searchResult.search_mode} — expected hybrid for nonempty results`,
     )
   }
 
-  if (searchResult.results.length > 1 && !searchResult.reranked) {
+  const multipleResultsSkippedReranking = searchResult.results.length > 1 && !searchResult.reranked
+
+  if (multipleResultsSkippedReranking) {
     throw new Error(`query ${queryId} ran reranked=false — expected reranking for multiple results`)
   }
 }

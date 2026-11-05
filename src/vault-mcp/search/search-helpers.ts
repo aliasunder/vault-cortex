@@ -15,9 +15,10 @@ const isScalarListElement = (element: unknown): boolean => {
   return element != null && typeof element !== "object"
 }
 
-/** Coerces a YAML frontmatter field to a string array: scalar elements are
- *  stringified; null elements, mappings and nested lists are dropped. A
- *  multi-value field may be written as one value (`tags: a`) or as a list. */
+/** Normalizes single-value and list-valued frontmatter fields.
+ *  - Lists stringify scalar entries, including 0, false and empty text.
+ *  - Single scalars stringify only when truthy.
+ *  - Nulls, mappings and nested lists yield no entries. */
 export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.filter(isScalarListElement).map(String)
 

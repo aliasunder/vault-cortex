@@ -96,15 +96,15 @@ const createCountingLogger = (): {
   const logger: Logger = {
     debug: () => {},
     info: (message, data) => {
-      if (
-        message === "vector search" &&
-        typeof data?.knnHits === "number" &&
-        typeof data.uniqueNotes === "number"
-      ) {
-        vectorSearchStats.push({
-          knnHits: data.knnHits,
-          uniqueNotes: data.uniqueNotes,
-        })
+      // vectorSearch in hybrid-search.ts supplies this summary once per note-KNN query.
+      if (message !== "vector search") return
+
+      const knnHits = data?.knnHits
+      const uniqueNotes = data?.uniqueNotes
+      const hasNumericCounts = typeof knnHits === "number" && typeof uniqueNotes === "number"
+
+      if (hasNumericCounts) {
+        vectorSearchStats.push({ knnHits, uniqueNotes })
       }
     },
     warn: (message, data) => {
@@ -232,8 +232,8 @@ const main = async (): Promise<void> => {
       logger,
     )
 
-    // Tag judgments use frontmatter tags, so stop the body-tag pass instead
-    // of waiting for body tags that the judgments do not depend on.
+    // Tag judgments use frontmatter tags. Closing settles pending parses as
+    // "closed", so the body-tag pass can finish without parsing the remaining notes.
     await bodyTagParser.close()
     await bodyTags
 
@@ -338,14 +338,14 @@ const main = async (): Promise<void> => {
   // while unique notes fall, so a shrinking ratio is the warning sign.
   const scoringVectorSearchStats = vectorSearchStats.slice(vectorSearchStatsBeforeScoring)
   const totalKnnHits = scoringVectorSearchStats.reduce((sum, stats) => sum + stats.knnHits, 0)
-  const totalUniqueNotes = scoringVectorSearchStats.reduce(
+  const totalPerQueryUniqueNotes = scoringVectorSearchStats.reduce(
     (sum, stats) => sum + stats.uniqueNotes,
     0,
   )
 
   if (totalKnnHits > 0) {
     console.log(
-      `note-KNN diversity: ${totalUniqueNotes} unique notes from ${totalKnnHits} chunk hits (${((100 * totalUniqueNotes) / totalKnnHits).toFixed(1)}%)`,
+      `note-KNN diversity: ${totalPerQueryUniqueNotes} unique notes from ${totalKnnHits} chunk hits (${((100 * totalPerQueryUniqueNotes) / totalKnnHits).toFixed(1)}%)`,
     )
   }
 
@@ -374,7 +374,7 @@ const main = async (): Promise<void> => {
           indexDbPath,
           indexReused,
           snapshotReused,
-          knnDiversity: { totalKnnHits, totalUniqueNotes },
+          knnDiversity: { totalKnnHits, totalUniqueNotes: totalPerQueryUniqueNotes },
           scores,
         },
         null,

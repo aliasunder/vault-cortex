@@ -64,13 +64,8 @@ const safeDecodeURIComponent = (encoded: string): string => {
   }
 }
 
-/** Strips a trailing backslash from a wikilink target. In Obsidian tables the
- *  pipe alias separator must be escaped as `\|` to avoid breaking column syntax.
- *  The WIKILINK_RE regex captures the `\` as part of the target — e.g.
- *  `[[path\|alias]]` yields group 1 = `path\`. Stripping the trailing backslash
- *  recovers the real target. Safe unconditionally: backslash is never valid in
- *  a file path on macOS or Windows, so a target ending in `\` is always an
- *  escaped pipe, never a legitimate path character. */
+/** Treats a trailing backslash as Obsidian's table-pipe escape (`[[path\|alias]]`),
+ *  including when the link appears outside a table. */
 const stripEscapedPipe = (target: string): string => target.replace(/\\$/, "")
 
 // ── Types ───────────────────────────────────────────────────────
@@ -113,10 +108,8 @@ type MarkdownLinkParts = {
 
 // ── Line scanning ───────────────────────────────────────────────
 
-/** Finds every wikilink and markdown link in a single line, with the offsets a
- *  rewriter needs to splice replacements. Does not exclude inline code — the
- *  caller decides (via inlineCodeSpans), since the indexer and rewriter handle
- *  code spans differently. */
+/** Finds links with replacement offsets, grouped by kind rather than text position.
+ *  Inline code is included because the indexer and rewriter handle it differently. */
 const matchLinksInLine = (line: string): LinkMatch[] => [
   ...[...line.matchAll(WIKILINK_RE)].map((match) => ({
     text: match[0],
@@ -142,11 +135,22 @@ const inlineCodeSpans = (line: string): CodeSpan[] =>
 
 // ── Parsing ─────────────────────────────────────────────────────
 
-/** Splits a matched wikilink into its parts, or null when the text is not a
- *  well-formed wikilink. A trailing `\` on the target (from Obsidian's `\|`
- *  table-pipe escape) is always stripped — consistent with stripEscapedPipe's
- *  rule that backslash is never valid in a file path — and shifted into the
- *  alias so reconstruction via concatenation preserves the escape. */
+/** Only the filename's last nonleading dot starts an extension; folder dots do not. */
+const getExtension = (filePath: string): string => {
+  const fileName = posix.basename(filePath)
+  const dotIndex = fileName.lastIndexOf(".")
+
+  if (dotIndex <= 0) return ""
+  return fileName.slice(dotIndex)
+}
+
+const stripExtension = (filePath: string): string => {
+  const extension = getExtension(filePath)
+  return filePath.slice(0, filePath.length - extension.length)
+}
+
+/** Splits a matched wikilink, or returns null for malformed text.
+ *  A trailing backslash moves from the target to the alias to preserve a table-pipe escape. */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
   const parts = WIKILINK_PARTS.exec(linkText)
 
@@ -201,6 +205,7 @@ const extractFromBody = (content: string): string[] => {
   for (const { text, inCode } of classifyLines(content)) {
     if (inCode) continue
 
+    // Spaces keep text on either side of an ignored span from forming a new link.
     const linkExtractableLine = text
       .replace(INLINE_CODE_RE, (match) => " ".repeat(match.length))
       .replace(TEMPLATER_RE, (match) => " ".repeat(match.length))
@@ -311,32 +316,6 @@ const resolve = (params: {
   // winner never depends on allPaths order (callers feed it from unordered
   // SQL scans that change across index rebuilds).
   return shortestOf(basenameMatches)
-}
-
-/** Strips the file extension from a path, or returns the path unchanged when
- *  the filename has no extension. Uses the last dot in the filename (not the
- *  path), so a multi-dot name keeps its inner dots ("photo.png.canvas" →
- *  "photo.png") and dots in folder names are ignored. A leading-dot file
- *  (".hidden") has no extension. */
-const stripExtension = (filePath: string): string => {
-  const fileName = posix.basename(filePath)
-  const dotIndex = fileName.lastIndexOf(".")
-
-  if (dotIndex <= 0) return filePath
-  const extensionLength = fileName.length - dotIndex
-  return filePath.slice(0, filePath.length - extensionLength)
-}
-
-/** Returns the file extension including its dot ("photo.png" → ".png"), or ""
- *  when the filename has none. Mirrors stripExtension's semantics exactly —
- *  last dot in the filename (not the path), leading-dot files (".hidden") are
- *  extensionless — so the two can never disagree about where a name splits. */
-const getExtension = (filePath: string): string => {
-  const fileName = posix.basename(filePath)
-  const dotIndex = fileName.lastIndexOf(".")
-
-  if (dotIndex <= 0) return ""
-  return fileName.slice(dotIndex)
 }
 
 /** Code-point count of a path — SQLite's length() metric, not the UTF-16

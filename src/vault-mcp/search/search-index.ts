@@ -747,7 +747,7 @@ export const createSearchIndex = (
     `SELECT body_tags FROM notes WHERE path = ?`,
   )
 
-  /** Canvas saves share this catalog until a committed note write or rebuild changes it. */
+  /** Note upserts, removals, rebuild resets and rebuild rollbacks invalidate this canvas catalog. */
   let cachedCanvasNotePaths: readonly string[] | undefined
   const getCanvasNotePaths = (): readonly string[] => {
     if (cachedCanvasNotePaths) return cachedCanvasNotePaths
@@ -1267,15 +1267,17 @@ export const createSearchIndex = (
 
       // This broad suffix check includes SQLite LIKE's ASCII case folding;
       // the resolver remains authoritative for match ordering and exact case.
-      return (
+      const matchesFullFilename =
         filePath === link.target ||
         filePath === relativeTarget ||
-        foldedFilePath.endsWith(targetSuffix) ||
+        foldedFilePath.endsWith(targetSuffix)
+      const matchesStem =
         basePath === link.target ||
         basePath === relativeTarget ||
         foldedBasePath.endsWith(targetSuffix) ||
         baseFilename === link.target
-      )
+
+      return matchesFullFilename || matchesStem
     }
     const unresolvedLinks = selectUnresolvedLinksStmt.all()
     for (const link of unresolvedLinks) {
@@ -1498,6 +1500,7 @@ export const createSearchIndex = (
         }
       }
 
+      // Rebuild FTS only after deleting stale entries, since it reads the surviving rows.
       deleteMemoryFtsForFileStmt.run(memoryFile)
       for (const row of selectMemoryEntriesForFileStmt.all(memoryFile)) {
         insertMemoryFtsStmt.run({
@@ -1592,7 +1595,7 @@ export const createSearchIndex = (
       content: noteBody,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
-      // First path segment only — search filters drill into subfolders
+      // Metadata reports the top-level folder; folder filters use the full note path.
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(frontmatter.type) ? frontmatter.type : null,
       // toISO() returns null for a value Luxon cannot parse, so such a note
@@ -1857,6 +1860,7 @@ export const createSearchIndex = (
           content_hash: hash,
         })
 
+        // INSERT OR REPLACE assigns a new rowid, so the vector must use the replacement's ID.
         const chunkRow = selectChunkIdStmt.get(notePath, chunk.index)
 
         if (!chunkRow) {
@@ -2068,6 +2072,7 @@ export const createSearchIndex = (
           content_hash: hash,
         })
 
+        // INSERT OR REPLACE assigns a new rowid, so the vector must use the replacement's ID.
         const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
 
         if (!chunkRow) {
@@ -2200,6 +2205,8 @@ export const createSearchIndex = (
 
     sourceVersions.clear()
     cachedCanvasNotePaths = undefined
+
+    // If directory listing fails after this reset, source tables stay empty until the next rebuild.
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
