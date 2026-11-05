@@ -294,7 +294,9 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 
 **Query pipeline:**
 
-1. **Retrieve** — union all lexical matches with the vector top-100, fuse by RRF
+1. **Retrieve** — union all lexical matches with the vector top-100, fuse by RRF.
+   With `file`, lexical results are filtered to that file and KNN chooses its
+   window from that file's entries
 2. **Cut** — adaptive cross-encoder relevance floor: 10% of the best score,
    clamped between a 0.001 sanity floor and a 0.05 ceiling. Lexical hits always
    survive the cut
@@ -323,7 +325,7 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 
 Link queries use a `links` table populated during indexing:
 
-- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Canvas `file`-type node references are also extracted as links — text-node `[[wikilink]]`s are not (matching Obsidian's behavior). Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
+- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Canvas `file`-type node references are also extracted as links — text-node `[[wikilink]]`s are not. Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
 - **Resolution:** Each target is resolved against all known note paths covering Obsidian's three "New link format" modes:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
