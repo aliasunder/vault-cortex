@@ -1,7 +1,7 @@
 // ── Eval vault snapshot ────────────────────────────────────────
 
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { join, relative, resolve, sep } from "node:path"
 import { z } from "zod"
 import { caseFoldPath } from "../src/utils/case-fold-path.js"
 import { hasHiddenPathSegment } from "../src/utils/has-hidden-path-segment.js"
@@ -11,11 +11,6 @@ import { hasHiddenPathSegment } from "../src/utils/has-hidden-path-segment.js"
  *  provenance a reuse must match — a snapshot built from another vault or
  *  other exclusions is a different corpus than the judgment file describes. */
 const SNAPSHOT_MARKER = ".search-eval-snapshot"
-
-export const EVAL_INDEX_FILENAMES = {
-  plain: "search-eval.db",
-  enriched: "search-eval-enriched.db",
-} as const
 
 const snapshotProvenanceSchema = z.object({
   vaultPath: z.string().min(1),
@@ -100,12 +95,6 @@ export const createVaultSnapshot = (params: {
     )
   }
 
-  // Invalidate both index modes before copying, so an interrupted refresh cannot reuse stale data.
-  for (const indexFilename of Object.values(EVAL_INDEX_FILENAMES)) {
-    for (const suffix of ["", "-wal", "-shm"]) {
-      rmSync(join(dirname(params.snapshotDir), `${indexFilename}${suffix}`), { force: true })
-    }
-  }
   rmSync(params.snapshotDir, { recursive: true, force: true })
   mkdirSync(params.snapshotDir, { recursive: true })
   // The marker is written in two phases. The empty ownership claim before

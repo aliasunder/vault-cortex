@@ -12,7 +12,6 @@ import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 import { createVaultSnapshot, snapshotMatchesProvenance } from "../search-eval-snapshot.js"
-import { resolveEvalRunPlan } from "../search-eval-plan.js"
 
 // Test-owned copy of the marker name the snapshot writes — drift between
 // this and the module's constant should fail these tests.
@@ -154,50 +153,29 @@ describe("createVaultSnapshot", () => {
     expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, "current.md"])
   })
 
-  it("invalidates only the known index caches before a refreshed snapshot can be reused", () => {
-    const { vaultPath } = createTempVault()
+  it("refreshes copied content while preserving the existing index caches", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
     const workDir = dirname(vaultPath)
-    const snapshotDir = join(workDir, "vault-snapshot")
     writeVaultFile({ vaultPath, notePath: "current.md" })
     createVaultSnapshot({ vaultPath, snapshotDir, excludePaths: [], excludePrefixes: [] })
-    for (const cacheFile of INDEX_CACHE_FILES) {
-      writeFileSync(join(workDir, cacheFile), "index of the old corpus")
+    const cacheFiles = INDEX_CACHE_FILES.map((filename) => ({
+      filename,
+      content: `existing vectors in ${filename}`,
+    }))
+    for (const { filename, content } of cacheFiles) {
+      writeFileSync(join(workDir, filename), content)
     }
-    writeFileSync(join(workDir, "custom.db"), "not an eval cache")
-    mkdirSync(join(workDir, "models"))
-    writeFileSync(join(workDir, "models", "model.onnx"), "cached model")
     writeFileSync(join(vaultPath, "current.md"), "new corpus")
 
     createVaultSnapshot({ vaultPath, snapshotDir, excludePaths: [], excludePrefixes: [] })
 
     expect(readFileSync(join(snapshotDir, "current.md"), "utf8")).toBe("new corpus")
-    expect(readdirSync(workDir).toSorted()).toEqual([
-      "custom.db",
-      "models",
-      "vault",
-      "vault-snapshot",
-    ])
-    expect(readFileSync(join(workDir, "custom.db"), "utf8")).toBe("not an eval cache")
-    expect(readFileSync(join(workDir, "models", "model.onnx"), "utf8")).toBe("cached model")
-    const reusePlan = resolveEvalRunPlan({
-      judgment: join(workDir, "judgment.json"),
-      limits: "20",
-      "enrich-metadata": false,
-      "work-dir": workDir,
-      "reuse-snapshot": true,
-      "reuse-index": true,
-    })
-
-    expect(reusePlan).toEqual({
-      judgmentPath: join(workDir, "judgment.json"),
-      limits: [20],
-      fileLegWeight: undefined,
-      workDir,
-      snapshotDir,
-      indexDbPath: join(workDir, "search-eval.db"),
-      snapshotReused: true,
-      indexReused: false,
-    })
+    expect(
+      cacheFiles.map(({ filename }) => ({
+        filename,
+        content: readFileSync(join(workDir, filename), "utf8"),
+      })),
+    ).toEqual(cacheFiles)
   })
 
   it("records provenance a matching reuse accepts, in any exclusion order", () => {
@@ -306,37 +284,11 @@ describe("createVaultSnapshot", () => {
     expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, "current.md"])
   })
 
-  it("invalidates both index caches even when refreshing the snapshot fails", () => {
-    const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile({ vaultPath, notePath: "old.md" })
-    createVaultSnapshot({ vaultPath, snapshotDir, excludePaths: [], excludePrefixes: [] })
-    for (const cacheFile of INDEX_CACHE_FILES) {
-      writeFileSync(join(dirname(snapshotDir), cacheFile), "index of the old corpus")
-    }
-    const missingVault = join(dirname(vaultPath), "missing-vault")
-
-    expect(() =>
-      createVaultSnapshot({
-        vaultPath: missingVault,
-        snapshotDir,
-        excludePaths: [],
-        excludePrefixes: [],
-      }),
-    ).toThrow(/ENOENT/)
-
-    expect(readdirSync(dirname(snapshotDir)).toSorted()).toEqual(["snapshot", "vault"])
-    expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER])
-    expect(readFileSync(join(snapshotDir, SNAPSHOT_MARKER), "utf8")).toBe("")
-  })
-
   it("refuses to delete a directory that is not a harness snapshot", () => {
     const { vaultPath, snapshotDir } = createTempVault()
     writeVaultFile({ vaultPath, notePath: "current.md" })
     mkdirSync(snapshotDir, { recursive: true })
     writeFileSync(join(snapshotDir, "operator-data.md"), "not ours to delete\n")
-    for (const cacheFile of INDEX_CACHE_FILES) {
-      writeFileSync(join(dirname(snapshotDir), cacheFile), "untouched cache")
-    }
 
     expect(() => {
       createVaultSnapshot({
@@ -351,17 +303,5 @@ describe("createVaultSnapshot", () => {
       ),
     )
     expect(readFileSync(join(snapshotDir, "operator-data.md"), "utf8")).toBe("not ours to delete\n")
-    expect(
-      INDEX_CACHE_FILES.map((cacheFile) =>
-        readFileSync(join(dirname(snapshotDir), cacheFile), "utf8"),
-      ),
-    ).toEqual([
-      "untouched cache",
-      "untouched cache",
-      "untouched cache",
-      "untouched cache",
-      "untouched cache",
-      "untouched cache",
-    ])
   })
 })

@@ -231,6 +231,116 @@ describe("judgmentFileSchema", () => {
     expected_any: ["Reference/standards.md"],
   }
 
+  describe.each([
+    { queryClass: "recall" },
+    { queryClass: "precision" },
+    { queryClass: "sentinel" },
+    { queryClass: "filtered" },
+  ])("$queryClass query filters", ({ queryClass }) => {
+    it.each([
+      { label: "folder", filters: { folder: "" }, fieldPath: ["folder"] },
+      { label: "tags item", filters: { tags: [""] }, fieldPath: ["tags", 0] },
+      { label: "related item", filters: { related: [""] }, fieldPath: ["related", 0] },
+      { label: "type", filters: { type: "" }, fieldPath: ["type"] },
+      {
+        label: "created.before",
+        filters: { created: { before: "" } },
+        fieldPath: ["created", "before"],
+      },
+      { label: "created.on", filters: { created: { on: "" } }, fieldPath: ["created", "on"] },
+      {
+        label: "created.after",
+        filters: { created: { after: "" } },
+        fieldPath: ["created", "after"],
+      },
+      {
+        label: "modified.before",
+        filters: { modified: { before: "" } },
+        fieldPath: ["modified", "before"],
+      },
+      { label: "modified.on", filters: { modified: { on: "" } }, fieldPath: ["modified", "on"] },
+      {
+        label: "modified.after",
+        filters: { modified: { after: "" } },
+        fieldPath: ["modified", "after"],
+      },
+    ])("rejects an empty $label even alongside an effective filter", ({ filters, fieldPath }) => {
+      const parsed = judgmentFileSchema.safeParse({
+        ...baseJudgment,
+        queries: [
+          {
+            ...filteredQuery,
+            class: queryClass,
+            filters: { properties: { count: 0 }, ...filters },
+          },
+        ],
+      })
+
+      if (parsed.success) throw new Error("expected empty filter strings to be rejected")
+
+      expect(parsed.error.issues).toEqual([
+        {
+          origin: "string",
+          code: "too_small",
+          minimum: 1,
+          inclusive: true,
+          path: ["queries", 0, "filters", ...fieldPath],
+          message: "Too small: expected string to have >=1 characters",
+        },
+      ])
+    })
+
+    it("preserves zero, false and empty-string property values", () => {
+      const judgment = {
+        ...baseJudgment,
+        queries: [
+          {
+            ...filteredQuery,
+            class: queryClass,
+            filters: { properties: { count: 0, enabled: false, blank: "" } },
+          },
+        ],
+      }
+
+      expect(judgmentFileSchema.parse(judgment)).toEqual(judgment)
+    })
+  })
+
+  describe.each([
+    { queryClass: "recall" },
+    { queryClass: "precision" },
+    { queryClass: "sentinel" },
+  ])("$queryClass query without effective filters", ({ queryClass }) => {
+    it("accepts omitted filters", () => {
+      const judgment = {
+        ...baseJudgment,
+        queries: [{ ...filteredQuery, class: queryClass }],
+      }
+
+      expect(judgmentFileSchema.parse(judgment)).toEqual(judgment)
+    })
+
+    it.each([
+      { label: "empty object", filters: {} },
+      { label: "empty tags", filters: { tags: [] } },
+      { label: "empty related", filters: { related: [] } },
+      { label: "empty properties", filters: { properties: {} } },
+      { label: "empty created bounds", filters: { created: {} } },
+      { label: "empty modified bounds", filters: { modified: {} } },
+      {
+        label: "combined empty containers",
+        filters: { tags: [], related: [], properties: {}, created: {}, modified: {} },
+      },
+    ])("preserves $label", ({ filters }) => {
+      const judgment = {
+        ...baseJudgment,
+        queries: [{ ...filteredQuery, class: queryClass, filters }],
+      }
+
+      expect(judgmentFileSchema.parse(judgment)).toEqual(judgment)
+    })
+  })
+
   it("preserves every supported filter field and property value type", () => {
     const judgment = {
       ...baseJudgment,
@@ -273,20 +383,16 @@ describe("judgmentFileSchema", () => {
 
   it.each([
     { label: "empty object", filters: {} },
-    { label: "empty folder", filters: { folder: "" } },
     { label: "empty tags", filters: { tags: [] } },
     { label: "empty related", filters: { related: [] } },
-    { label: "empty type", filters: { type: "" } },
     { label: "empty properties", filters: { properties: {} } },
     { label: "empty created bounds", filters: { created: {} } },
     { label: "empty modified bounds", filters: { modified: {} } },
     {
       label: "combined no-op fields",
       filters: {
-        folder: "",
         tags: [],
         related: [],
-        type: "",
         properties: {},
         created: {},
         modified: {},
@@ -308,6 +414,37 @@ describe("judgmentFileSchema", () => {
       },
     ])
   })
+
+  it.each([
+    { field: "folder", filters: { folder: "" } },
+    { field: "type", filters: { type: "" } },
+  ])(
+    "rejects an empty $field as an ineffective filtered-query constraint",
+    ({ field, filters }) => {
+      const parsed = judgmentFileSchema.safeParse({
+        ...baseJudgment,
+        queries: [{ ...filteredQuery, filters }],
+      })
+
+      if (parsed.success) throw new Error("expected an empty ineffective filter to be rejected")
+
+      expect(parsed.error.issues).toEqual([
+        {
+          origin: "string",
+          code: "too_small",
+          minimum: 1,
+          inclusive: true,
+          path: ["queries", 0, "filters", field],
+          message: "Too small: expected string to have >=1 characters",
+        },
+        {
+          code: "custom",
+          path: ["queries", 0],
+          message: "a filtered query needs at least one effective filter",
+        },
+      ])
+    },
+  )
 
   it.each([
     {

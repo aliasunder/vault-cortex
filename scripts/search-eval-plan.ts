@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { z } from "zod"
-import { EVAL_INDEX_FILENAMES, isHarnessSnapshot } from "./search-eval-snapshot.js"
+import { isHarnessSnapshot } from "./search-eval-snapshot.js"
 import { caseFoldPath } from "../src/utils/case-fold-path.js"
 import type {
   HybridSearchResult,
@@ -13,16 +13,16 @@ import type {
 } from "../src/vault-mcp/search/search-index.js"
 
 const judgmentDateFilterSchema = z.strictObject({
-  before: z.string().optional(),
-  on: z.string().optional(),
-  after: z.string().optional(),
+  before: z.string().min(1).optional(),
+  on: z.string().min(1).optional(),
+  after: z.string().min(1).optional(),
 })
 
 const judgmentFiltersSchema = z.strictObject({
-  folder: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  related: z.array(z.string()).optional(),
-  type: z.string().optional(),
+  folder: z.string().min(1).optional(),
+  tags: z.array(z.string().min(1)).optional(),
+  related: z.array(z.string().min(1)).optional(),
+  type: z.string().min(1).optional(),
   properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   created: judgmentDateFilterSchema.optional(),
   modified: judgmentDateFilterSchema.optional(),
@@ -223,7 +223,7 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   // file — the plain index stays reusable for weight sweeps.
   const indexDbPath = join(
     workDir,
-    cliArgs["enrich-metadata"] ? EVAL_INDEX_FILENAMES.enriched : EVAL_INDEX_FILENAMES.plain,
+    cliArgs["enrich-metadata"] ? "search-eval-enriched.db" : "search-eval.db",
   )
 
   // Only a directory the harness created may be adopted — an operator's own
