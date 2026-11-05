@@ -370,9 +370,8 @@ export const hybridSearch = async (
   const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
   const fileLegWeight = context.ranking?.fileLegWeight ?? DEFAULT_FILE_LEG_WEIGHT
   const rerankKindPrefix = context.ranking?.rerankKindPrefix ?? DEFAULT_RERANK_KIND_PREFIX
-  // One LIKE pattern shared by every leg that scopes to a folder in SQL —
-  // the file-content FTS leg and both KNN legs (fullTextSearch builds its own
-  // from the same helper), so no leg can drift from the others.
+  // File retrieval and folder-only note KNN share this pattern. Keyword and
+  // metadata-scoped note queries build theirs with the same helper.
   const folderPathPattern = params.filters?.folder
     ? folderLikePattern(params.filters.folder)
     : undefined
