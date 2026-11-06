@@ -85,10 +85,11 @@ it("indexes newly bootstrapped memory templates before accepting requests", asyn
 // that never stopped holding would never index this note.
 it("indexes a note written after startup once the file watcher reports it", async () => {
   // On macOS, native file events come from fseventsd, which on a busy machine
-  // delivers a write 10 seconds or more late, or never. WINDOWS_MODE makes the
-  // server poll instead. Linux CI keeps native inotify events.
+  // delivers a write 10 seconds or more late, or never. CHOKIDAR_USEPOLLING is
+  // the watcher library's own switch to poll instead. Linux CI keeps native
+  // inotify events.
   const pollingEnv: Record<string, string> =
-    process.platform === "darwin" ? { WINDOWS_MODE: "true" } : {}
+    process.platform === "darwin" ? { CHOKIDAR_USEPOLLING: "true" } : {}
   const server = await startServer(await freePort(), pollingEnv)
   onTestFinished(server.cleanup)
   const client = await createTestClient(server.port)
