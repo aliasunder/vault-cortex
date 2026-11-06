@@ -361,9 +361,9 @@ describe("file-watcher", () => {
     const paths = index
       .fullTextSearch({ query: "symlink watcher" }, logger)
       .map((result) => result.path)
-    // On macOS a late event for real.md, written just before the watcher
-    // started, can index it too, so only the link's presence is asserted.
-    expect(paths).toContain("linked.md")
+    // real.md was written before the watcher started and the rebuild is
+    // stubbed, so only the link's own event can index anything
+    expect(paths).toEqual(["linked.md"])
   })
 
   it("calls embedNote when indexing a .md file", { timeout: 15000 }, async () => {
@@ -422,8 +422,9 @@ describe("file-watcher", () => {
   )
 
   // Polling is the Windows-mode path (inotify doesn't cross the Docker Desktop ↔
-  // WSL2 bridge). It works on any filesystem, so this verifies the usePolling
-  // option is wired through and indexing still happens under polling.
+  // WSL2 bridge). On Linux, where the other tests here use native events, this
+  // is the one test that indexes through chokidar's polling backend. The
+  // "chokidar watch options" tests check that usePolling reaches chokidar.
   it("indexes a new .md file when polling", { timeout: 15000 }, async () => {
     await startWatcherWithoutRebuild(
       { vaultPath: vault, search: index },
