@@ -101,17 +101,30 @@ const waitFor = async (check: () => boolean, timeoutMs = 8000, intervalMs = 100)
   throw new Error(`waitFor timed out after ${timeoutMs}ms`)
 }
 
-/** Retry policy for suites that watch real temp dirs.
- *
- *  Why: on macOS, fs.watch rides libuv's FSEventStream, whose kernel-side
- *  capture starts asynchronously — a write landing right after the watcher
- *  reports ready can produce no event at all, so waitFor times out
- *  (observed as bursty local-only failures; events arrive in <1s or never).
- *
- *  Why it's safe: Linux (CI and every production deployment) registers
- *  inotify watches synchronously and has no such gap, and a code
- *  regression fails every attempt — retries only absorb the macOS race. */
-const REAL_WATCHER_RETRY = { retry: 2 }
+/** Whether the suites that watch real temp dirs poll instead of using native
+ *  events. On macOS, native events come from fseventsd, which on a busy
+ *  machine delivers a write 10 seconds or more late, or never. Polling is the
+ *  mode the server's watcher uses under WINDOWS_MODE. Linux, where CI and
+ *  every deployment run, keeps native inotify events. */
+const REAL_WATCHERS_USE_POLLING = process.platform === "darwin"
+
+const REAL_WATCHER_OPTIONS = {
+  stabilityThreshold: 200,
+  pollInterval: 50,
+  usePolling: REAL_WATCHERS_USE_POLLING,
+}
+
+// watchVaultAndBuildIndex returns no handle to close its watcher, so each test
+// closes the real watchers it started, found through the spied chokidar.watch.
+// Left open, they keep watching temp vaults the tests have already deleted.
+afterEach(async () => {
+  const startedWatchers = vi
+    .mocked(watch)
+    .mock.results.map((result) => result.value)
+    .filter((value) => value instanceof FSWatcher)
+  vi.mocked(watch).mockClear()
+  await Promise.all(startedWatchers.map((watcher) => watcher.close()))
+})
 
 const registerSharedVaultHooks = (): void => {
   beforeEach(async () => {
@@ -124,17 +137,11 @@ const registerSharedVaultHooks = (): void => {
   })
 }
 
-describe("file-watcher", REAL_WATCHER_RETRY, () => {
+describe("file-watcher", () => {
   registerSharedVaultHooks()
 
   it("indexes a new .md file", { timeout: 15000 }, async () => {
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "test.md"), "---\ntitle: Test\n---\n\nHello watcher\n", "utf8")
 
@@ -149,13 +156,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     "indexes a note the server saves through its hidden temp file",
     { timeout: 15000 },
     async () => {
-      await startWatcherWithoutRebuild(
-        { vaultPath: vault, search: index },
-        {
-          stabilityThreshold: 200,
-          pollInterval: 50,
-        },
-      )
+      await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
       await atomicWriteFile({ filePath: join(vault, "saved.md"), content: "savedopal\n" }, logger)
 
@@ -173,7 +174,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
         createParserHoldingFirstRequest()
       await startWatcherWithoutRebuild(
         { vaultPath: vault, search: index },
-        { stabilityThreshold: 200, pollInterval: 50 },
+        REAL_WATCHER_OPTIONS,
         bodyTagParser,
       )
 
@@ -199,7 +200,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
         createParserHoldingFirstRequest()
       await startWatcherWithoutRebuild(
         { vaultPath: vault, search: index },
-        { stabilityThreshold: 200, pollInterval: 50 },
+        REAL_WATCHER_OPTIONS,
         bodyTagParser,
       )
 
@@ -238,7 +239,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       }
       await startWatcherWithoutRebuild(
         { vaultPath: vault, search: index },
-        { stabilityThreshold: 200, pollInterval: 50 },
+        REAL_WATCHER_OPTIONS,
         bodyTagParser,
       )
 
@@ -259,13 +260,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   )
 
   it("re-indexes a modified file", { timeout: 15000 }, async () => {
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "modify.md"), "original content\n", "utf8")
     await waitFor(() => index.fullTextSearch({ query: "original" }, logger).length > 0)
@@ -278,13 +273,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   })
 
   it("removes a deleted file from index", { timeout: 15000 }, async () => {
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "delete-me.md"), "ephemeral\n", "utf8")
     await waitFor(() => index.fullTextSearch({ query: "ephemeral" }, logger).length > 0)
@@ -297,13 +286,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   })
 
   it("ignores non-.md files", { timeout: 15000 }, async () => {
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "data.json"), '{"key": "value"}', "utf8")
     await writeFile(join(vault, "check.md"), "check file\n", "utf8")
@@ -327,13 +310,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       vi.mocked(statOrNull).mockRestore()
     })
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "vanished.png"), "gone", "utf8")
     await writeFile(join(vault, "kept.png"), "here", "utf8")
@@ -358,13 +335,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   it("ignores hidden directories", { timeout: 15000 }, async () => {
     await mkdir(join(vault, ".obsidian"), { recursive: true })
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, ".obsidian/workspace.md"), "hidden content\n", "utf8")
     await writeFile(join(vault, "visible.md"), "visible content\n", "utf8")
@@ -378,13 +349,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   it("indexes a symlinked .md file", { timeout: 15000 }, async () => {
     await writeFile(join(vault, "real.md"), "symlink watcher target\n", "utf8")
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await symlink("real.md", join(vault, "linked.md"))
 
@@ -396,9 +361,9 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     const paths = index
       .fullTextSearch({ query: "symlink watcher" }, logger)
       .map((result) => result.path)
-    // On macOS a late event for real.md, written just before the watcher
-    // started, can index it too, so only the link's presence is asserted.
-    expect(paths).toContain("linked.md")
+    // real.md was written before the watcher started and the rebuild is
+    // stubbed, so only the link's own event can index anything
+    expect(paths).toEqual(["linked.md"])
   })
 
   it("calls embedNote when indexing a .md file", { timeout: 15000 }, async () => {
@@ -410,13 +375,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       capturedVersion.resolve(sourceVersion)
       return sourceVersion
     })
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(
       join(vault, "embed-test.md"),
@@ -443,8 +402,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       await startWatcherWithoutRebuild(
         { vaultPath: vault, search: index },
         {
-          stabilityThreshold: 200,
-          pollInterval: 50,
+          ...REAL_WATCHER_OPTIONS,
           newDirectoryRescanDelay: 500,
         },
       )
@@ -464,8 +422,9 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   )
 
   // Polling is the Windows-mode path (inotify doesn't cross the Docker Desktop ↔
-  // WSL2 bridge). It works on any filesystem, so this verifies the usePolling
-  // option is wired through and indexing still happens under polling.
+  // WSL2 bridge). On Linux, where the other tests here use native events, this
+  // is the one test that indexes through chokidar's polling backend. The
+  // "chokidar watch options" tests check that usePolling reaches chokidar.
   it("indexes a new .md file when polling", { timeout: 15000 }, async () => {
     await startWatcherWithoutRebuild(
       { vaultPath: vault, search: index },
@@ -484,7 +443,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   })
 })
 
-describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
+describe("file-watcher — file content indexing", () => {
   registerSharedVaultHooks()
 
   it("indexes a text file into file content FTS", { timeout: 15000 }, async () => {
@@ -493,22 +452,16 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     })
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: fileIndex },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "notes.txt"), "deployment checklist for production release", "utf8")
 
     await waitFor(() => upsertSpy.mock.calls.length > 0)
 
     const { results } = await fileIndex.hybridSearch({ query: "deployment checklist" }, logger)
-    const textResult = results.find((result) => result.path === "notes.txt")
-    expect(textResult?.kind).toBe("file")
-    expect(textResult?.extension).toBe(".txt")
+    expect(results.map(({ path, kind, extension }) => ({ path, kind, extension }))).toEqual([
+      { path: "notes.txt", kind: "file", extension: ".txt" },
+    ])
   })
 
   it("removes text file content on delete", { timeout: 15000 }, async () => {
@@ -518,13 +471,7 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
     const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: fileIndex },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "temp.csv"), "id,name\n1,ephemeral-data-row", "utf8")
     await waitFor(() => upsertSpy.mock.calls.length > 0)
@@ -543,21 +490,15 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     })
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: fileIndex },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     await waitFor(() => upsertSpy.mock.calls.length > 0)
 
     const { results } = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
-    const pdfResult = results.find((result) => result.path === "doc.pdf")
-    expect(pdfResult?.kind).toBe("file")
-    expect(pdfResult?.extension).toBe(".pdf")
+    expect(results.map(({ path, kind, extension }) => ({ path, kind, extension }))).toEqual([
+      { path: "doc.pdf", kind: "file", extension: ".pdf" },
+    ])
   })
 
   it("calls embedFileContent when indexing a non-md file", { timeout: 15000 }, async () => {
@@ -573,13 +514,7 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
       return sourceVersion
     })
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: fileIndex },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "data.csv"), "id,name,value\n1,deploy,active\n", "utf8")
 
@@ -2866,7 +2801,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
   })
 })
 
-describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCHER_RETRY, () => {
+describe("watchVaultAndBuildIndex — startup through real chokidar", () => {
   it(
     "indexes edits, creations and deletions that land while the rebuild reads the vault",
     { timeout: 20000 },
@@ -2959,7 +2894,11 @@ describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCH
         {
           vaultPath: testVault,
           search,
-          watcherOptions: { stabilityThreshold: 100, pollInterval: 25 },
+          watcherOptions: {
+            stabilityThreshold: 100,
+            pollInterval: 25,
+            usePolling: REAL_WATCHERS_USE_POLLING,
+          },
           bodyTagParser: inProcessBodyTagParser,
         },
         logger,
@@ -3093,7 +3032,7 @@ describe("file watcher — chokidar watch options", () => {
 // outside, so these tests drive the reconciliation directly: a fake watcher
 // captures the addDir handler, reports test-controlled tracking via
 // getWatched(), and records add() calls — against a real temp vault and index.
-describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
+describe("file watcher — new-directory rescan", () => {
   registerSharedVaultHooks()
 
   const RESCAN_TEST_OPTIONS = {
