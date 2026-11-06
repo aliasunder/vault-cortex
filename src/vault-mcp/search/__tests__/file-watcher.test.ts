@@ -126,6 +126,18 @@ const REAL_WATCHER_OPTIONS = {
   usePolling: REAL_WATCHERS_USE_POLLING,
 }
 
+// watchVaultAndBuildIndex returns no handle to close its watcher, so each test
+// closes the real watchers it started, found through the spied chokidar.watch.
+// Left open, they keep watching temp vaults the tests have already deleted.
+afterEach(async () => {
+  const startedWatchers = vi
+    .mocked(watch)
+    .mock.results.map((result) => result.value)
+    .filter((value) => value instanceof FSWatcher)
+  vi.mocked(watch).mockClear()
+  await Promise.all(startedWatchers.map((watcher) => watcher.close()))
+})
+
 const registerSharedVaultHooks = (): void => {
   beforeEach(async () => {
     vault = await mkdtemp(join(tmpdir(), "watcher-test-"))
