@@ -96,8 +96,8 @@ export type SearchQueryContext = {
   readonly vector: {
     readonly embedder: Embedder | undefined
     readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null
-    /** Same KNN narrowed to chunks whose note path matches a folder LIKE
-     *  pattern before the k-window — used for folder-only filtering. */
+    /** Searches only chunks whose note path matches a folder LIKE pattern;
+     *  hybridSearch uses it when the folder is the only filter. */
     readonly knnSearchInFolderStmt: Database.Statement<unknown[], VectorHitRow> | null
     readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }
@@ -653,7 +653,8 @@ export const memoryRecall = async (
   const matchesFileFilter = (row: MemoryEntryRow): boolean =>
     params.file === undefined || row.file === params.file
 
-  // The file constraint narrows eligible vectors before KNN takes its candidate window.
+  // The vector query already searches only the requested file, so only the lexical
+  // rows below need matchesFileFilter.
   const vectorRows = await memoryVectorSearch(memory, params, logger)
 
   // Lexical leg: ALL matches, no limit — implicit AND keeps multi-word

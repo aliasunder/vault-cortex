@@ -74,7 +74,8 @@ const embedQuery = async (
   }
 }
 
-/** KNN chooses its window from eligible notes before deduplicating their chunks. */
+/** Picks the nearest chunks from notes that pass the filters, then keeps each
+ *  note's closest chunk. */
 const vectorSearch = (
   context: SearchQueryContext,
   params: {
@@ -90,9 +91,13 @@ const vectorSearch = (
 
   if (!knnSearchStmt || !knnSearchInFolderStmt) return []
 
+  // Fetch twice the limit so `slice(0, params.limit)` below cuts distance ties in path
+  // order, not sqlite-vec's scan order. Only a tie wider than twice the limit keeps scan order.
+  const overFetchedK = params.limit * 2
+
   const readNoteVectorRows = (): VectorHitRow[] => {
     if (params.noteFilterSql.hasNoteSpecificFilters) {
-      // Restrict eligible chunk IDs before KNN so closer rejected notes cannot fill its window.
+      // Search only matching notes' chunks, so closer excluded notes cannot take all k rows.
       // Metadata clauses vary with the filter shape, so this statement is prepared per call.
       const scopedStatement = context.db.prepare<unknown[], VectorHitRow>(`
         SELECT nc.note_path, nc.chunk_text, nv.distance
@@ -111,7 +116,7 @@ const vectorSearch = (
 
       return scopedStatement.all(
         params.queryEmbeddingBuffer,
-        params.limit * 2,
+        overFetchedK,
         ...params.noteFilterSql.parameters,
       )
     }
@@ -119,18 +124,14 @@ const vectorSearch = (
     if (params.folderPathPattern) {
       return knnSearchInFolderStmt.all(
         params.queryEmbeddingBuffer,
-        params.limit * 2,
+        overFetchedK,
         params.folderPathPattern,
       )
     }
-    return knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit * 2)
+    return knnSearchStmt.all(params.queryEmbeddingBuffer, overFetchedK)
   }
 
   try {
-    // k over-fetches at twice the window, then the slice truncates after the
-    // statement's ORDER BY secondary keys apply — so chunks tied at the
-    // window boundary resolve by path order instead of vec0's scan order.
-    // Ties spanning the doubled window remain engine-chosen.
     const overFetchedNoteRows = readNoteVectorRows()
     const noteKnnRows = overFetchedNoteRows.slice(0, params.limit)
 

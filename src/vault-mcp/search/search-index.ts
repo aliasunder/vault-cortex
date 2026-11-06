@@ -1073,7 +1073,8 @@ export const createSearchIndex = (
         )
       : null
 
-  /** Restrict eligible entries before vec0 takes its nearest-neighbor window. */
+  /** Searches only the requested file's entries, so closer entries from other files
+   *  cannot take all k rows and leave that file with no matches. */
   const memoryKnnInFileStmt =
     memoryDir && embedder
       ? db.prepare<unknown[], queries.MemoryEntryVectorHitRow>(
