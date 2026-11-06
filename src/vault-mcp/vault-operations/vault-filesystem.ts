@@ -20,7 +20,6 @@ import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import { withExclusiveFileLock, withFileLock } from "../../utils/file-write-lock.js"
-import { links } from "../obsidian-markdown/links.js"
 import {
   findBodyStartLine,
   OverwriteBlockedError,
@@ -1044,7 +1043,7 @@ const readAsset = async (
     return {
       buffer,
       bytes: buffer.length,
-      extension: links.getExtension(params.path).toLowerCase(),
+      extension: posix.extname(params.path).toLowerCase(),
     }
   } finally {
     await fileHandle.close()

@@ -1087,7 +1087,7 @@ export const listTasks = (
 
   if (params.folder !== undefined) {
     conditions.push("t.note_path LIKE ? ESCAPE '\\'")
-    queryParams.push(`${escapeLikeWildcards(stripTrailingSlashes(params.folder))}/%`)
+    queryParams.push(folderLikePattern(params.folder))
   }
 
   if (params.tag !== undefined) {

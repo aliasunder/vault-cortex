@@ -135,10 +135,8 @@ const inlineCodeSpans = (line: string): CodeSpan[] =>
 
 // ── Parsing ─────────────────────────────────────────────────────
 
-const getExtension = (filePath: string): string => posix.extname(filePath)
-
 const stripExtension = (filePath: string): string => {
-  const extension = getExtension(filePath)
+  const extension = posix.extname(filePath)
   return filePath.slice(0, filePath.length - extension.length)
 }
 
@@ -437,6 +435,5 @@ export const links = {
   extractAll,
   resolve,
   stripExtension,
-  getExtension,
   resolveAsset,
 }
