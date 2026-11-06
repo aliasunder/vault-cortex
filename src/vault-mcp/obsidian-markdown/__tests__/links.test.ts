@@ -698,6 +698,10 @@ describe("getExtension", () => {
     expect(links.getExtension("v1.2/note")).toBe("")
   })
 
+  it("treats a parent-folder segment as having no extension", () => {
+    expect(links.getExtension("notes/..")).toBe("")
+  })
+
   it("returns .png for a typical image path", () => {
     expect(links.getExtension("attachments/photo.png")).toBe(".png")
   })

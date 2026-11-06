@@ -135,14 +135,7 @@ const inlineCodeSpans = (line: string): CodeSpan[] =>
 
 // ── Parsing ─────────────────────────────────────────────────────
 
-/** Only the filename's last nonleading dot starts an extension; folder dots do not. */
-const getExtension = (filePath: string): string => {
-  const fileName = posix.basename(filePath)
-  const dotIndex = fileName.lastIndexOf(".")
-
-  if (dotIndex <= 0) return ""
-  return fileName.slice(dotIndex)
-}
+const getExtension = (filePath: string): string => posix.extname(filePath)
 
 const stripExtension = (filePath: string): string => {
   const extension = getExtension(filePath)
