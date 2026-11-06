@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.56.3] — 2026-11-06
+
+### Bug Fixes
+
+- **tools:** Align every tool definition's shared wording, sections and retry rules (#737)
+
 ## [0.56.2] — 2026-11-03
 
 ### Bug Fixes
