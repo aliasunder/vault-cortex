@@ -459,9 +459,9 @@ describe("file-watcher — file content indexing", () => {
     await waitFor(() => upsertSpy.mock.calls.length > 0)
 
     const { results } = await fileIndex.hybridSearch({ query: "deployment checklist" }, logger)
-    const textResult = results.find((result) => result.path === "notes.txt")
-    expect(textResult?.kind).toBe("file")
-    expect(textResult?.extension).toBe(".txt")
+    expect(results.map(({ path, kind, extension }) => ({ path, kind, extension }))).toEqual([
+      { path: "notes.txt", kind: "file", extension: ".txt" },
+    ])
   })
 
   it("removes text file content on delete", { timeout: 15000 }, async () => {
@@ -496,9 +496,9 @@ describe("file-watcher — file content indexing", () => {
     await waitFor(() => upsertSpy.mock.calls.length > 0)
 
     const { results } = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
-    const pdfResult = results.find((result) => result.path === "doc.pdf")
-    expect(pdfResult?.kind).toBe("file")
-    expect(pdfResult?.extension).toBe(".pdf")
+    expect(results.map(({ path, kind, extension }) => ({ path, kind, extension }))).toEqual([
+      { path: "doc.pdf", kind: "file", extension: ".pdf" },
+    ])
   })
 
   it("calls embedFileContent when indexing a non-md file", { timeout: 15000 }, async () => {
