@@ -104,8 +104,8 @@ const waitFor = async (check: () => boolean, timeoutMs = 8000, intervalMs = 100)
 /** Whether the suites that watch real temp dirs poll instead of using native
  *  events. On macOS, native events come from fseventsd, which on a busy
  *  machine delivers a write 10 seconds or more late, or never. Polling is the
- *  server's own WINDOWS_MODE watcher. Linux, where CI and every deployment
- *  run, keeps native inotify events. */
+ *  mode the server's watcher uses under WINDOWS_MODE. Linux, where CI and
+ *  every deployment run, keeps native inotify events. */
 const REAL_WATCHERS_USE_POLLING = process.platform === "darwin"
 
 const REAL_WATCHER_OPTIONS = {
