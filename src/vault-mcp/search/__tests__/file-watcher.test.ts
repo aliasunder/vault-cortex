@@ -113,6 +113,19 @@ const waitFor = async (check: () => boolean, timeoutMs = 8000, intervalMs = 100)
  *  regression fails every attempt — retries only absorb the macOS race. */
 const REAL_WATCHER_RETRY = { retry: 2 }
 
+/** Whether the suites that watch real temp dirs poll instead of using native
+ *  events. On macOS, native events come from fseventsd, which on a busy
+ *  machine delivers a write 10 seconds or more late, or never. Polling is the
+ *  server's own WINDOWS_MODE watcher. Linux, where CI and every deployment
+ *  run, keeps native inotify events. */
+const REAL_WATCHERS_USE_POLLING = process.platform === "darwin"
+
+const REAL_WATCHER_OPTIONS = {
+  stabilityThreshold: 200,
+  pollInterval: 50,
+  usePolling: REAL_WATCHERS_USE_POLLING,
+}
+
 const registerSharedVaultHooks = (): void => {
   beforeEach(async () => {
     vault = await mkdtemp(join(tmpdir(), "watcher-test-"))
@@ -128,13 +141,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   registerSharedVaultHooks()
 
   it("indexes a new .md file", { timeout: 15000 }, async () => {
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "test.md"), "---\ntitle: Test\n---\n\nHello watcher\n", "utf8")
 
@@ -149,13 +156,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     "indexes a note the server saves through its hidden temp file",
     { timeout: 15000 },
     async () => {
-      await startWatcherWithoutRebuild(
-        { vaultPath: vault, search: index },
-        {
-          stabilityThreshold: 200,
-          pollInterval: 50,
-        },
-      )
+      await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
       await atomicWriteFile({ filePath: join(vault, "saved.md"), content: "savedopal\n" }, logger)
 
@@ -173,7 +174,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
         createParserHoldingFirstRequest()
       await startWatcherWithoutRebuild(
         { vaultPath: vault, search: index },
-        { stabilityThreshold: 200, pollInterval: 50 },
+        REAL_WATCHER_OPTIONS,
         bodyTagParser,
       )
 
@@ -199,7 +200,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
         createParserHoldingFirstRequest()
       await startWatcherWithoutRebuild(
         { vaultPath: vault, search: index },
-        { stabilityThreshold: 200, pollInterval: 50 },
+        REAL_WATCHER_OPTIONS,
         bodyTagParser,
       )
 
@@ -238,7 +239,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       }
       await startWatcherWithoutRebuild(
         { vaultPath: vault, search: index },
-        { stabilityThreshold: 200, pollInterval: 50 },
+        REAL_WATCHER_OPTIONS,
         bodyTagParser,
       )
 
@@ -259,13 +260,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   )
 
   it("re-indexes a modified file", { timeout: 15000 }, async () => {
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "modify.md"), "original content\n", "utf8")
     await waitFor(() => index.fullTextSearch({ query: "original" }, logger).length > 0)
@@ -278,13 +273,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   })
 
   it("removes a deleted file from index", { timeout: 15000 }, async () => {
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "delete-me.md"), "ephemeral\n", "utf8")
     await waitFor(() => index.fullTextSearch({ query: "ephemeral" }, logger).length > 0)
@@ -297,13 +286,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   })
 
   it("ignores non-.md files", { timeout: 15000 }, async () => {
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "data.json"), '{"key": "value"}', "utf8")
     await writeFile(join(vault, "check.md"), "check file\n", "utf8")
@@ -327,13 +310,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       vi.mocked(statOrNull).mockRestore()
     })
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "vanished.png"), "gone", "utf8")
     await writeFile(join(vault, "kept.png"), "here", "utf8")
@@ -358,13 +335,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   it("ignores hidden directories", { timeout: 15000 }, async () => {
     await mkdir(join(vault, ".obsidian"), { recursive: true })
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, ".obsidian/workspace.md"), "hidden content\n", "utf8")
     await writeFile(join(vault, "visible.md"), "visible content\n", "utf8")
@@ -378,13 +349,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   it("indexes a symlinked .md file", { timeout: 15000 }, async () => {
     await writeFile(join(vault, "real.md"), "symlink watcher target\n", "utf8")
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await symlink("real.md", join(vault, "linked.md"))
 
@@ -410,13 +375,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       capturedVersion.resolve(sourceVersion)
       return sourceVersion
     })
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: index },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: index }, REAL_WATCHER_OPTIONS)
 
     await writeFile(
       join(vault, "embed-test.md"),
@@ -443,8 +402,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       await startWatcherWithoutRebuild(
         { vaultPath: vault, search: index },
         {
-          stabilityThreshold: 200,
-          pollInterval: 50,
+          ...REAL_WATCHER_OPTIONS,
           newDirectoryRescanDelay: 500,
         },
       )
@@ -493,13 +451,7 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     })
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: fileIndex },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "notes.txt"), "deployment checklist for production release", "utf8")
 
@@ -518,13 +470,7 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
     const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: fileIndex },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "temp.csv"), "id,name\n1,ephemeral-data-row", "utf8")
     await waitFor(() => upsertSpy.mock.calls.length > 0)
@@ -543,13 +489,7 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     })
     const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: fileIndex },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     await waitFor(() => upsertSpy.mock.calls.length > 0)
@@ -573,13 +513,7 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
       return sourceVersion
     })
 
-    await startWatcherWithoutRebuild(
-      { vaultPath: vault, search: fileIndex },
-      {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      },
-    )
+    await startWatcherWithoutRebuild({ vaultPath: vault, search: fileIndex }, REAL_WATCHER_OPTIONS)
 
     await writeFile(join(vault, "data.csv"), "id,name,value\n1,deploy,active\n", "utf8")
 
@@ -2959,7 +2893,11 @@ describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCH
         {
           vaultPath: testVault,
           search,
-          watcherOptions: { stabilityThreshold: 100, pollInterval: 25 },
+          watcherOptions: {
+            stabilityThreshold: 100,
+            pollInterval: 25,
+            usePolling: REAL_WATCHERS_USE_POLLING,
+          },
           bodyTagParser: inProcessBodyTagParser,
         },
         logger,

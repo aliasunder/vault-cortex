@@ -84,7 +84,12 @@ it("indexes newly bootstrapped memory templates before accepting requests", asyn
 // Startup holds file-watcher events until its index batch ends, so a server
 // that never stopped holding would never index this note.
 it("indexes a note written after startup once the file watcher reports it", async () => {
-  const server = await startServer(await freePort())
+  // On macOS, native file events come from fseventsd, which on a busy machine
+  // delivers a write 10 seconds or more late, or never. WINDOWS_MODE makes the
+  // server poll instead. Linux CI keeps native inotify events.
+  const pollingEnv: Record<string, string> =
+    process.platform === "darwin" ? { WINDOWS_MODE: "true" } : {}
+  const server = await startServer(await freePort(), pollingEnv)
   onTestFinished(server.cleanup)
   const client = await createTestClient(server.port)
   onTestFinished(() => client.close())
