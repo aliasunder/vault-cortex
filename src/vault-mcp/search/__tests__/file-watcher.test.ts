@@ -101,18 +101,6 @@ const waitFor = async (check: () => boolean, timeoutMs = 8000, intervalMs = 100)
   throw new Error(`waitFor timed out after ${timeoutMs}ms`)
 }
 
-/** Retry policy for suites that watch real temp dirs.
- *
- *  Why: on macOS, fs.watch rides libuv's FSEventStream, whose kernel-side
- *  capture starts asynchronously — a write landing right after the watcher
- *  reports ready can produce no event at all, so waitFor times out
- *  (observed as bursty local-only failures; events arrive in <1s or never).
- *
- *  Why it's safe: Linux (CI and every production deployment) registers
- *  inotify watches synchronously and has no such gap, and a code
- *  regression fails every attempt — retries only absorb the macOS race. */
-const REAL_WATCHER_RETRY = { retry: 2 }
-
 /** Whether the suites that watch real temp dirs poll instead of using native
  *  events. On macOS, native events come from fseventsd, which on a busy
  *  machine delivers a write 10 seconds or more late, or never. Polling is the
@@ -149,7 +137,7 @@ const registerSharedVaultHooks = (): void => {
   })
 }
 
-describe("file-watcher", REAL_WATCHER_RETRY, () => {
+describe("file-watcher", () => {
   registerSharedVaultHooks()
 
   it("indexes a new .md file", { timeout: 15000 }, async () => {
@@ -454,7 +442,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
   })
 })
 
-describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
+describe("file-watcher — file content indexing", () => {
   registerSharedVaultHooks()
 
   it("indexes a text file into file content FTS", { timeout: 15000 }, async () => {
@@ -2812,7 +2800,7 @@ describe("watchVaultAndBuildIndex — changes during startup", HELD_BATCH_TIMEOU
   })
 })
 
-describe("watchVaultAndBuildIndex — startup through real chokidar", REAL_WATCHER_RETRY, () => {
+describe("watchVaultAndBuildIndex — startup through real chokidar", () => {
   it(
     "indexes edits, creations and deletions that land while the rebuild reads the vault",
     { timeout: 20000 },
@@ -3043,7 +3031,7 @@ describe("file watcher — chokidar watch options", () => {
 // outside, so these tests drive the reconciliation directly: a fake watcher
 // captures the addDir handler, reports test-controlled tracking via
 // getWatched(), and records add() calls — against a real temp vault and index.
-describe("file watcher — new-directory rescan", REAL_WATCHER_RETRY, () => {
+describe("file watcher — new-directory rescan", () => {
   registerSharedVaultHooks()
 
   const RESCAN_TEST_OPTIONS = {
