@@ -141,13 +141,13 @@
     "@types/node": "26.6.6",
     "@types/picomatch": "4.0.3",
     "@typescript/native": "npm:typescript@7.0.2",
-    "@vitest/coverage-v8": "5.0.5",
+    "@vitest/coverage-v8": "5.1.0",
     "commander": "15.0.0",
     "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",
     "husky": "9.1.7",
     "jiti": "2.7.0",
-    "knip": "6.44.0",
+    "knip": "6.44.1",
     "lint-staged": "17.6.0",
     "markdownlint-cli2": "0.24.0",
     "node-pty": "1.1.0",
@@ -157,7 +157,7 @@
     "tsx": "4.23.15",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.72.1",
-    "vitest": "5.0.5"
+    "vitest": "5.1.0"
   },
   "allowScripts": {
     "puppeteer@25.8.0": true,
