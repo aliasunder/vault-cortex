@@ -12,6 +12,9 @@ import type {
   SearchResult,
 } from "../src/vault-mcp/search/search-index.js"
 
+// The schemas are strict because a plain schema would strip a typoed key
+// (a misspelled expectation or filter field) and silently score a
+// different query shape than the judgment file describes.
 const judgmentDateFilterSchema = z.strictObject({
   before: z.string().min(1).optional(),
   on: z.string().min(1).optional(),
@@ -28,7 +31,7 @@ const judgmentFiltersSchema = z.strictObject({
   modified: judgmentDateFilterSchema.optional(),
 })
 
-const hasEffectiveFilter = (filters: SearchFilters | undefined): boolean => {
+const hasNarrowingFilter = (filters: SearchFilters | undefined): boolean => {
   if (!filters) return false
 
   return Boolean(
@@ -46,9 +49,6 @@ const hasEffectiveFilter = (filters: SearchFilters | undefined): boolean => {
   )
 }
 
-// The schemas are strict because a plain schema would strip a typoed key
-// (a misspelled expectation or filter field) and silently score a
-// different query shape than the judgment file describes.
 const judgmentQuerySchema = z
   .strictObject({
     id: z.string().min(1),
@@ -61,8 +61,8 @@ const judgmentQuerySchema = z
   .refine((query) => Boolean(query.expected_any || query.expected_prefix), {
     message: "each query needs expected_any or expected_prefix",
   })
-  .refine((query) => query.class !== "filtered" || hasEffectiveFilter(query.filters), {
-    message: "a filtered query needs at least one effective filter",
+  .refine((query) => query.class !== "filtered" || hasNarrowingFilter(query.filters), {
+    message: "a filtered query needs at least one filter that narrows results",
   })
 
 export const judgmentFileSchema = z.strictObject({
@@ -76,7 +76,9 @@ export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
 
 export type EvalSearchProblem = { level: "warn" | "error"; message: string }
 
-/** Empty and singleton results can skip reranking; logged failures cannot. */
+/** Fails a scored query that logged a warning or error, returned results without the vector
+ *  leg, or returned several results without reranking. Empty results may skip both stages,
+ *  and a single result may skip reranking. */
 export const assertHealthyEvalResult = (params: {
   queryId: string
   searchResult: HybridSearchResult

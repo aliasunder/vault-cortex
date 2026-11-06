@@ -279,7 +279,8 @@ describe("memoryRecall", () => {
         return texts.map(embeddingForText)
       },
     }
-    // Every decoy is strictly closer and fills even the doubled k=200 window.
+    // All 201 decoys are closer than the selected entry, more than the 200 rows a vault-wide
+    // search fetches.
     const decoyEntries = Array.from(
       { length: 201 },
       (_, entryNumber) => `- **2026-07-02**: Sustainable rhythm number ${entryNumber}.`,
@@ -588,9 +589,9 @@ describe("memoryRecall", () => {
     expect(result.entries.map((entry) => entry.text)).toEqual(survivingEntryTexts)
   })
 
-  it("fills a file-scoped boundary-straddling vector tie window in entry order", async () => {
-    // The 101 tied vectors exceed the 100-entry window, so the selected
-    // statement must order the over-fetched entries before truncating them.
+  it("keeps the first 100 of 101 equally distant entries in entry order when file is set", async () => {
+    // All 101 entries are equally distant and only 100 are kept, so the file-scoped
+    // statement's ORDER BY decides which entry is dropped.
     const numberedEntries = Array.from(
       { length: 101 },
       (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
@@ -601,8 +602,8 @@ describe("memoryRecall", () => {
       },
     })
 
-    // Neither query word occurs in the entries; lexical matches cannot
-    // replace a vector dropped from the file-scoped candidate window.
+    // Neither query word occurs in the entries, so no lexical match can replace an entry the
+    // vector leg dropped.
     const result = await index.memoryRecall(
       { query: "recovery rhythm", file: "Ledger", limit: 101 },
       logger,

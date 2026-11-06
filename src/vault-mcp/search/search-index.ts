@@ -747,7 +747,8 @@ export const createSearchIndex = (
     `SELECT body_tags FROM notes WHERE path = ?`,
   )
 
-  /** Note upserts, removals, rebuild resets and rebuild rollbacks invalidate this canvas catalog. */
+  /** Note paths cached for resolving canvas links. Note upserts, removals, rebuild resets and
+   *  rebuild rollbacks clear the cache. */
   let cachedCanvasNotePaths: readonly string[] | undefined
   const getCanvasNotePaths = (): readonly string[] => {
     if (cachedCanvasNotePaths) return cachedCanvasNotePaths
@@ -1073,8 +1074,9 @@ export const createSearchIndex = (
         )
       : null
 
-  /** Searches only the requested file's entries, so closer entries from other files
-   *  cannot take all k rows and leave that file with no matches. */
+  /** The entry_id IN (...) constraint limits this KNN to the requested file's entries.
+   *  - entry_id is the vec0 rowid, so sqlite-vec applies the constraint inside the KNN query.
+   *  - Without it, closer entries from other files could take all k rows. */
   const memoryKnnInFileStmt =
     memoryDir && embedder
       ? db.prepare<unknown[], queries.MemoryEntryVectorHitRow>(
@@ -1103,11 +1105,9 @@ export const createSearchIndex = (
       )
     : null
 
-  // Folder-scoped KNN: the chunk_id IN (...) constraint narrows the vector
-  // search to in-folder chunks BEFORE the k-window is taken, so a folder
-  // filter sees the folder's own nearest neighbours rather than whatever
-  // survives a vault-wide top-k. sqlite-vec honours rowid IN constraints
-  // inside KNN queries; chunk_id is the vec0 rowid alias.
+  // The chunk_id IN (...) constraint limits this KNN to the folder's chunks.
+  // - chunk_id is the vec0 rowid, so sqlite-vec applies the constraint inside the KNN query.
+  // - Without it, closer chunks outside the folder could take all k rows.
   const knnSearchInFolderStmt = embedder
     ? db.prepare<unknown[], { note_path: string; chunk_text: string; distance: number }>(
         `SELECT nc.note_path, nc.chunk_text, nv.distance
@@ -1142,7 +1142,7 @@ export const createSearchIndex = (
       )
     : null
 
-  // Folder-scoped variant — same pre-window narrowing as knnSearchInFolderStmt.
+  // Folder-scoped variant, limited to the folder's chunks like knnSearchInFolderStmt.
   const fileContentKnnSearchInFolderStmt = fileContentVectorEnabled
     ? db.prepare<unknown[], { file_path: string; chunk_text: string; distance: number }>(
         `SELECT fc.file_path, fc.chunk_text, fv.distance

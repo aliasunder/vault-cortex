@@ -699,7 +699,7 @@ Content about quarterly planning and roadmaps.
     })
   })
 
-  describe("metadata filters before the vector window", () => {
+  describe("metadata filters inside the note KNN query", () => {
     const query = "zzqq"
     const eligiblePath = "Reference/eligible.md"
 
@@ -717,7 +717,7 @@ Content about quarterly planning and roadmaps.
       body?: string | undefined
       mtimeMs?: number | undefined
     }): VectorFilterNote[] => {
-      // Ten nearer chunks exhaust the six-row over-fetch at limit 1.
+      // limit 1 fetches six rows (three candidates, doubled), so ten nearer chunks fill every row.
       return Array.from({ length: 10 }, (_, noteNumber) => {
         const embedding = seededEmbedding(0)
         const angle = (noteNumber + 1) / 100
@@ -1618,7 +1618,7 @@ describe("hybridSearch — file content vector search", () => {
     {
       label: "metadata-scoped",
       filters: { properties: { title: "Career" } },
-      sqlFragment: "FROM note_chunks eligible",
+      sqlFragment: "FROM note_chunks matching_chunk",
     },
   ])(
     "falls back to FTS ordering when the $label note KNN query throws",

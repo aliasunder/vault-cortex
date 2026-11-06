@@ -162,49 +162,53 @@ const assertFilterDate = (value: string, filterName: string): void => {
   )
 }
 
-// ── Full-text search ───────────────────────────────────────────
+// ── Note filters ───────────────────────────────────────────────
 
 export type NoteFilterSql = {
   conditions: ReadonlyArray<string>
   parameters: ReadonlyArray<unknown>
+  /** True when a filter other than folder is set. The file-content legs apply only folder. */
   hasNoteSpecificFilters: boolean
 }
 
-/** Predicates target note rows aliased `n`; bindings follow their SQL order. */
+/** Each condition refers to the notes table as `n`, so the caller's query must alias it that
+ *  way. `parameters` lists the bound values in placeholder order. */
 export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined): NoteFilterSql => {
   const conditions: string[] = []
-  const queryParams: unknown[] = []
+  const parameters: unknown[] = []
 
   if (filters?.folder) {
     conditions.push("n.path LIKE ? ESCAPE '\\'")
-    queryParams.push(folderLikePattern(filters.folder))
+    parameters.push(folderLikePattern(filters.folder))
   }
 
-  // Folder also applies to files; only clauses added below require note-only retrieval.
+  // The file-content legs can filter by folder too, so only the conditions added below make a
+  // filter note-specific. The folder condition must therefore be pushed before this count.
   const folderConditionCount = conditions.length
 
   if (filters?.tags) {
-    // Each requested tag must match the note's frontmatter or body tags.
+    // Each listed tag matches itself or a tag nested under it, in the tags property or the
+    // body, as Obsidian's tag: search does.
     for (const tag of filters.tags) {
       const { condition, conditionParams } = noteHasTagCondition({
         predicate: NESTED_TAG_PREDICATE_SQL,
         boundValue: nestedTagLikePattern(tag),
       })
       conditions.push(condition)
-      queryParams.push(...conditionParams)
+      parameters.push(...conditionParams)
     }
   }
 
   if (filters?.related) {
     for (const relatedNote of filters.related) {
       conditions.push("EXISTS (SELECT 1 FROM json_each(n.related) WHERE value = ?)")
-      queryParams.push(relatedNote)
+      parameters.push(relatedNote)
     }
   }
 
   if (filters?.type) {
     conditions.push("n.type = ?")
-    queryParams.push(filters.type)
+    parameters.push(filters.type)
   }
 
   /**
@@ -235,7 +239,7 @@ export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined)
       // better-sqlite3 cannot bind a JS boolean, and SQLite's JSON functions
       // read true/false as integers 1/0, so the bound value uses the same.
       const boundValue = typeof value === "boolean" ? Number(value) : value
-      queryParams.push(key, boundValue, boundValue)
+      parameters.push(key, boundValue, boundValue)
     }
   }
 
@@ -249,17 +253,17 @@ export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined)
     if (createdOn !== undefined) {
       assertFilterDate(createdOn, "created.on")
       conditions.push("substr(n.created, 1, 10) = ?")
-      queryParams.push(createdOn)
+      parameters.push(createdOn)
     }
     if (createdBefore !== undefined) {
       assertFilterDate(createdBefore, "created.before")
       conditions.push("substr(n.created, 1, 10) < ?")
-      queryParams.push(createdBefore)
+      parameters.push(createdBefore)
     }
     if (createdAfter !== undefined) {
       assertFilterDate(createdAfter, "created.after")
       conditions.push("substr(n.created, 1, 10) > ?")
-      queryParams.push(createdAfter)
+      parameters.push(createdAfter)
     }
   }
 
@@ -276,26 +280,28 @@ export const buildNoteFilterSql = (filters: Readonly<SearchFilters> | undefined)
       assertFilterDate(modifiedOn, "modified.on")
       const dayRange = dayToEpochMsRange(modifiedOn)
       conditions.push("n.mtime >= ? AND n.mtime < ?")
-      queryParams.push(dayRange.startMs, dayRange.endMs)
+      parameters.push(dayRange.startMs, dayRange.endMs)
     }
     if (modifiedBefore !== undefined) {
       assertFilterDate(modifiedBefore, "modified.before")
       conditions.push("n.mtime < ?")
-      queryParams.push(dayToEpochMsRange(modifiedBefore).startMs)
+      parameters.push(dayToEpochMsRange(modifiedBefore).startMs)
     }
     if (modifiedAfter !== undefined) {
       assertFilterDate(modifiedAfter, "modified.after")
       conditions.push("n.mtime >= ?")
-      queryParams.push(dayToEpochMsRange(modifiedAfter).endMs)
+      parameters.push(dayToEpochMsRange(modifiedAfter).endMs)
     }
   }
 
   return {
     conditions,
-    parameters: queryParams,
+    parameters,
     hasNoteSpecificFilters: conditions.length > folderConditionCount,
   }
 }
+
+// ── Full-text search ───────────────────────────────────────────
 
 export const fullTextSearch = (
   context: SearchQueryContext,
@@ -389,13 +395,11 @@ export const fullTextSearch = (
 
 // ── Memory recall ──────────────────────────────────────────────
 
-/** Vector-leg window size. The KNN binds k at 2× this value and the slice
- *  keeps this many lowest-distance rows, so the window's size is this
- *  constant while boundary ties order by the statement's secondary keys.
- *  An entry outside a topic's top 100 with zero lexical overlap is, for
- *  practical purposes, unrelated text, and the cross-encoder can't rescue
- *  what it never scores. sqlite-vec brute-forces the doubled fetch in ~1ms
- *  at memory-layer scale. */
+/** The vector leg keeps this many candidates per recall.
+ *  - An entry outside a topic's 100 nearest that shares no query word is effectively
+ *    unrelated, and the cross-encoder cannot rescue an entry it never scores.
+ *  - memoryVectorSearch fetches twice this many, which sqlite-vec scans in about 1ms at
+ *    memory-layer scale. */
 const MEMORY_VECTOR_CANDIDATE_LIMIT = 100
 
 /** Latency safety valve on the cross-encoder pass (~10ms/pair, so ~1–2s at
@@ -454,9 +458,10 @@ const memoryVectorSearch = async (
   params: { query: string; file?: string | undefined },
   logger: Logger,
 ): Promise<MemoryEntryVectorHitRow[]> => {
-  const knnStmt = params.file === undefined ? memory.knnStmt : memory.knnInFileStmt
+  const selectedKnnStmt = params.file === undefined ? memory.knnStmt : memory.knnInFileStmt
+  const fileBindings = params.file === undefined ? [] : [params.file]
 
-  if (!memory.embedder || !knnStmt) return []
+  if (!memory.embedder || !selectedKnnStmt) return []
   try {
     const queryEmbedding = await memory.embedder.embedText(params.query)
     const queryEmbeddingBuffer = Buffer.from(
@@ -464,14 +469,10 @@ const memoryVectorSearch = async (
       queryEmbedding.byteOffset,
       queryEmbedding.byteLength,
     )
-    // k over-fetches at twice the window, then the slice truncates after the
-    // statement's ORDER BY secondary keys apply — so entries tied at the
-    // window boundary resolve by (file, entry_index) instead of vec0's scan
-    // order. Ties spanning the doubled window remain engine-chosen.
-    const overFetchedRows =
-      params.file === undefined
-        ? knnStmt.all(queryEmbeddingBuffer, MEMORY_VECTOR_CANDIDATE_LIMIT * 2)
-        : knnStmt.all(queryEmbeddingBuffer, MEMORY_VECTOR_CANDIDATE_LIMIT * 2, params.file)
+    // sqlite-vec picks its k rows before ORDER BY sorts them. With k at twice the limit, ties at
+    // the slice below sort by (file, entry_index). A tie that runs past row k keeps scan order.
+    const overFetchedK = MEMORY_VECTOR_CANDIDATE_LIMIT * 2
+    const overFetchedRows = selectedKnnStmt.all(queryEmbeddingBuffer, overFetchedK, ...fileBindings)
     return overFetchedRows.slice(0, MEMORY_VECTOR_CANDIDATE_LIMIT)
   } catch (error) {
     logger.warn("memory vector search failed, falling back to lexical-only", {

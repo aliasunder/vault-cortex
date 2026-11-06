@@ -64,8 +64,8 @@ const safeDecodeURIComponent = (encoded: string): string => {
   }
 }
 
-/** Treats a trailing backslash as Obsidian's table-pipe escape (`[[path\|alias]]`),
- *  including when the link appears outside a table. */
+/** Treats a trailing backslash as Obsidian's table-pipe escape (`[[path\|alias]]`), even
+ *  outside a table, because Obsidian does not allow a backslash in a file name. */
 const stripEscapedPipe = (target: string): string => target.replace(/\\$/, "")
 
 // ── Types ───────────────────────────────────────────────────────
@@ -108,8 +108,8 @@ type MarkdownLinkParts = {
 
 // ── Line scanning ───────────────────────────────────────────────
 
-/** Finds links with replacement offsets, grouped by kind rather than text position.
- *  Inline code is included because the indexer and rewriter handle it differently. */
+/** Finds wikilinks, then markdown links (not in text order), with the offsets a rewriter
+ *  needs to splice replacements. Links in inline code are kept for each caller to exclude. */
 const matchLinksInLine = (line: string): LinkMatch[] => [
   ...[...line.matchAll(WIKILINK_RE)].map((match) => ({
     text: match[0],

@@ -14,8 +14,9 @@
  *     --reuse-snapshot so every configuration sees an identical corpus.
  *  2. Build the search index with real ONNX models and await the embedding
  *     pass, because scoring a partially embedded index measures indexing
- *     order, not ranking. Any embedding error fails the run. Tag judgments
- *     use frontmatter tags because the body-tag pass is stopped at once.
+ *     order, not ranking. Any embedding error fails the run. The body-tag
+ *     pass is stopped at once, so tag filters in the judgment file match
+ *     frontmatter tags only.
  *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
  *  4. Run every judgment query at each --limits value, reporting the rank
  *     of the first expected result, file pollution in the top 5 (or the
@@ -39,7 +40,7 @@
  *  exclude_prefixes, and queries — each query carries id, class
  *  (recall/precision/sentinel/filtered), query, expected_any or
  *  expected_prefix, and optional SearchFilters. The filtered class requires
- *  at least one effective filter.
+ *  at least one filter that narrows results.
  *
  *  Usage:
  *    npx tsx scripts/search-eval.ts --judgment <path> [--label baseline]
@@ -232,8 +233,8 @@ const main = async (): Promise<void> => {
       logger,
     )
 
-    // Tag judgments use frontmatter tags. Closing settles pending parses as
-    // "closed", so the body-tag pass can finish without parsing the remaining notes.
+    // Closing the parser settles every pending parse as "closed", so the body-tag pass ends
+    // without parsing the remaining notes. Tag filters therefore match frontmatter tags only.
     await bodyTagParser.close()
     await bodyTags
 
@@ -269,8 +270,8 @@ const main = async (): Promise<void> => {
     )
   }
 
-  // The probe's vault-wide KNN window would dilute the diversity ratio —
-  // only stats recorded from here on belong to the scoring runs.
+  // The probe's vault-wide KNN rows would dilute the diversity ratio, so only
+  // stats recorded from here on belong to the scoring runs.
   const vectorSearchStatsBeforeScoring = vectorSearchStats.length
 
   const scores: QueryScore[] = []
@@ -293,6 +294,7 @@ const main = async (): Promise<void> => {
         searchResult,
         problems: problems.slice(problemsBeforeQuery),
       })
+
       const pollutionWindow = Math.min(5, limit)
       scores.push({
         id: judgmentQuery.id,

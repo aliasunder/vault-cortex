@@ -91,14 +91,15 @@ const vectorSearch = (
 
   if (!knnSearchStmt || !knnSearchInFolderStmt) return []
 
-  // Fetch twice the limit so `slice(0, params.limit)` below cuts distance ties in path
-  // order, not sqlite-vec's scan order. Only a tie wider than twice the limit keeps scan order.
+  // sqlite-vec picks its k rows before ORDER BY sorts them. With k at twice the limit, ties at
+  // `slice(0, params.limit)` below sort by path. A tie that runs past row k keeps scan order.
   const overFetchedK = params.limit * 2
 
   const readNoteVectorRows = (): VectorHitRow[] => {
+    // KNN sees only chunks of notes that pass every filter, so excluded notes can't take all k
+    // rows. noteFilterSql.conditions include the folder, so this branch ignores folderPathPattern.
     if (params.noteFilterSql.hasNoteSpecificFilters) {
-      // Search only matching notes' chunks, so closer excluded notes cannot take all k rows.
-      // Metadata clauses vary with the filter shape, so this statement is prepared per call.
+      // The conditions vary with the filters, so this statement is prepared per call.
       const scopedStatement = context.db.prepare<unknown[], VectorHitRow>(`
         SELECT nc.note_path, nc.chunk_text, nv.distance
         FROM note_vectors nv
@@ -106,9 +107,9 @@ const vectorSearch = (
         WHERE nv.embedding MATCH ?
           AND nv.k = ?
           AND nv.chunk_id IN (
-            SELECT eligible.id
-            FROM note_chunks eligible
-            JOIN notes n ON n.path = eligible.note_path
+            SELECT matching_chunk.id
+            FROM note_chunks matching_chunk
+            JOIN notes n ON n.path = matching_chunk.note_path
             WHERE ${params.noteFilterSql.conditions.join(" AND ")}
           )
         ORDER BY nv.distance, nc.note_path, nc.chunk_index
@@ -128,6 +129,7 @@ const vectorSearch = (
         params.folderPathPattern,
       )
     }
+
     return knnSearchStmt.all(params.queryEmbeddingBuffer, overFetchedK)
   }
 
@@ -162,9 +164,9 @@ const vectorSearch = (
   }
 }
 
-/** KNN over file content vectors — the best-matching chunk per file. With a
- *  folder pattern the k-window is taken over in-folder chunks only, mirroring
- *  vectorSearch. Empty when file content vectors are disabled or the query fails. */
+/** KNN over file content vectors that keeps each file's closest chunk. A folder pattern
+ *  limits the search to that folder's chunks. Empty when file content vectors are disabled
+ *  or the query fails. */
 const fileContentVectorSearch = (
   context: SearchQueryContext,
   params: {
@@ -179,16 +181,15 @@ const fileContentVectorSearch = (
   const { knnSearchStmt, knnSearchInFolderStmt } = context.fileContentVector
 
   try {
-    // The same over-fetch-then-truncate as vectorSearch, so boundary ties
-    // resolve by path order instead of vec0's scan order. Ties spanning the
-    // doubled window remain engine-chosen.
+    // Fetch twice the limit so ties sort by path, as in vectorSearch.
+    const overFetchedK = params.limit * 2
     const overFetchedFileRows = params.folderPathPattern
       ? knnSearchInFolderStmt.all(
           params.queryEmbeddingBuffer,
-          params.limit * 2,
+          overFetchedK,
           params.folderPathPattern,
         )
-      : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit * 2)
+      : knnSearchStmt.all(params.queryEmbeddingBuffer, overFetchedK)
     const fileKnnRows = overFetchedFileRows.slice(0, params.limit)
 
     const bestChunkPerFile = new Map<string, VectorHit>()
@@ -371,8 +372,8 @@ export const hybridSearch = async (
   const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
   const fileLegWeight = context.ranking?.fileLegWeight ?? DEFAULT_FILE_LEG_WEIGHT
   const rerankKindPrefix = context.ranking?.rerankKindPrefix ?? DEFAULT_RERANK_KIND_PREFIX
-  // File retrieval and folder-only note KNN share this pattern. Keyword and
-  // metadata-scoped note queries build theirs with the same helper.
+  // The file-content legs and the folder-only note KNN bind this pattern. buildNoteFilterSql
+  // builds the same pattern for note FTS and for note KNN with metadata filters.
   const folderPathPattern = params.filters?.folder
     ? folderLikePattern(params.filters.folder)
     : undefined
@@ -392,7 +393,7 @@ export const hybridSearch = async (
 
   const noteFilterSql = buildNoteFilterSql(params.filters)
 
-  // File retrieval implements only folder filtering, so note-specific clauses exclude both legs.
+  // The file-content legs can filter only by folder, so any note-specific filter skips both.
   // Weight 0 must exclude the file legs, not just zero their contribution —
   // RRF would still emit their identifiers at score 0, so file results
   // would surface whenever the candidate window has room.
@@ -525,7 +526,8 @@ export const hybridSearch = async (
       continue
     }
 
-    // Note vector-only result — look up metadata from the notes table
+    // Note vector-only result. vectorSearch already applied every note filter in SQL, so this
+    // hit needs no filter check before its metadata lookup.
     const noteRow = context.vector.selectNoteMetadataStmt.get(path)
 
     if (noteRow) {

@@ -295,8 +295,8 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 **Query pipeline:**
 
 1. **Retrieve** — union all lexical matches with the vector top-100, fuse by RRF.
-   With `file`, lexical results are filtered to that file and KNN chooses its
-   window from that file's entries
+   With `file`, lexical matches are filtered to that file, and the vector top-100
+   is drawn from that file's entries only
 2. **Cut** — adaptive cross-encoder relevance floor: 10% of the best score,
    clamped between a 0.001 sanity floor and a 0.05 ceiling. Lexical hits always
    survive the cut
@@ -469,9 +469,12 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
    - Ties break by path so equal scores order deterministically
 6. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from their respective tables and a snippet from their best-matching chunk text
 
-A `folder` filter is applied inside SQL on all four legs — a `LIKE 'folder/%'` predicate on the FTS queries and a `chunk_id IN (…)` pre-filter on the KNN queries — so each leg's candidate window is drawn from the folder itself. Folder matching ignores ASCII letter case on every leg.
+A `folder` filter is applied inside SQL on all four legs — a `LIKE 'folder/%'` predicate on the FTS queries and a `chunk_id IN (…)` pre-filter on the KNN queries — so each leg picks its top candidates from inside the folder, and closer matches elsewhere in the vault cannot fill its result limit. Folder matching ignores ASCII letter case on every leg.
 
-Note FTS and note KNN share SQL predicates for folder, tags, type, related, properties, created and modified. For note-specific filters, the KNN query selects eligible chunks under the complete predicate before applying its nearest-neighbor window. The predicate builder also identifies note-specific filters so both file-content legs are skipped.
+Note FTS and note KNN build their filter clauses with one function, `buildNoteFilterSql`, covering folder, tags, type, related, properties, created and modified:
+
+- With any filter besides `folder`, the note KNN query keeps only chunks of notes that pass every filter (a `chunk_id IN (…)` subquery) before sqlite-vec picks the k nearest, so closer notes the filters exclude cannot fill the result.
+- The same function reports whether a filter besides `folder` is set, and `hybridSearch` then skips both file-content legs, which can filter only by folder.
 
 ### Cross-encoder reranking
 
@@ -548,9 +551,9 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 - **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
 - **Chunk prefixes:** every fragment starts with the note title. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
-  - Long ancestor paths drop their leading segments to fit the remaining token budget, keeping the deepest segments. The label is omitted when the title and metadata exhaust the budget.
-  - Preamble and TOC fragments omit the label. The aggregate also omits it when one top-level heading opens the note with no preceding text or heading, because that heading wraps the whole note.
-- **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' Section lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.
+  - Long ancestor paths drop their leading segments to fit the remaining token budget, keeping the deepest segments. The `Section:` line is omitted when the title and metadata exhaust the budget.
+  - Preamble and TOC fragments omit the `Section:` line. The aggregate also omits it when one top-level heading opens the note with no preceding text or heading, because that heading wraps the whole note.
+- **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' `Section:` lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
 
@@ -1360,8 +1363,9 @@ Docker hardening, and durability seatbelts above.
 #### SQL + search safety
 
 - **Parameterized statements**: search text, paths and metadata values use bound
-  parameters. Dynamic clauses use code-owned SQL fragments; interpolated snippet
-  sizes are converted with `Number()`.
+  parameters, so no user input reaches SQL syntax. Interpolated clauses are fixed
+  SQL written in the code, and the one interpolated number (the snippet size)
+  passes through `Number()`.
 - **`sanitizeFtsQuery()`** (`fts-query.ts`): strips FTS5 metacharacters
   (`*^():`), reserved words (`AND`/`OR`/`NOT`/`NEAR`), and
   compound-joiner punctuation so user input can never produce FTS5 syntax

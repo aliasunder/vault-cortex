@@ -264,7 +264,7 @@ describe("judgmentFileSchema", () => {
         filters: { modified: { after: "" } },
         fieldPath: ["modified", "after"],
       },
-    ])("rejects an empty $label even alongside an effective filter", ({ filters, fieldPath }) => {
+    ])("rejects an empty $label even alongside a narrowing filter", ({ filters, fieldPath }) => {
       const parsed = judgmentFileSchema.safeParse({
         ...baseJudgment,
         queries: [
@@ -310,7 +310,7 @@ describe("judgmentFileSchema", () => {
     { queryClass: "recall" },
     { queryClass: "precision" },
     { queryClass: "sentinel" },
-  ])("$queryClass query without effective filters", ({ queryClass }) => {
+  ])("$queryClass query without narrowing filters", ({ queryClass }) => {
     it("accepts omitted filters", () => {
       const judgment = {
         ...baseJudgment,
@@ -376,7 +376,7 @@ describe("judgmentFileSchema", () => {
     { label: "modified.before", filters: { modified: { before: "2026-11-04" } } },
     { label: "modified.on", filters: { modified: { on: "2026-11-04" } } },
     { label: "modified.after", filters: { modified: { after: "2026-11-04" } } },
-  ])("accepts $label as the only effective filter", ({ filters }) => {
+  ])("accepts $label as the only narrowing filter", ({ filters }) => {
     const judgment = { ...baseJudgment, queries: [{ ...filteredQuery, filters }] }
     expect(judgmentFileSchema.parse(judgment)).toEqual(judgment)
   })
@@ -404,13 +404,13 @@ describe("judgmentFileSchema", () => {
       queries: [{ ...filteredQuery, filters }],
     })
 
-    if (parsed.success) throw new Error("expected ineffective filters to be rejected")
+    if (parsed.success) throw new Error("expected non-narrowing filters to be rejected")
 
     expect(parsed.error.issues).toEqual([
       {
         code: "custom",
         path: ["queries", 0],
-        message: "a filtered query needs at least one effective filter",
+        message: "a filtered query needs at least one filter that narrows results",
       },
     ])
   })
@@ -418,33 +418,30 @@ describe("judgmentFileSchema", () => {
   it.each([
     { field: "folder", filters: { folder: "" } },
     { field: "type", filters: { type: "" } },
-  ])(
-    "rejects an empty $field as an ineffective filtered-query constraint",
-    ({ field, filters }) => {
-      const parsed = judgmentFileSchema.safeParse({
-        ...baseJudgment,
-        queries: [{ ...filteredQuery, filters }],
-      })
+  ])("rejects an empty $field as a filter that does not narrow results", ({ field, filters }) => {
+    const parsed = judgmentFileSchema.safeParse({
+      ...baseJudgment,
+      queries: [{ ...filteredQuery, filters }],
+    })
 
-      if (parsed.success) throw new Error("expected an empty ineffective filter to be rejected")
+    if (parsed.success) throw new Error("expected an empty non-narrowing filter to be rejected")
 
-      expect(parsed.error.issues).toEqual([
-        {
-          origin: "string",
-          code: "too_small",
-          minimum: 1,
-          inclusive: true,
-          path: ["queries", 0, "filters", field],
-          message: "Too small: expected string to have >=1 characters",
-        },
-        {
-          code: "custom",
-          path: ["queries", 0],
-          message: "a filtered query needs at least one effective filter",
-        },
-      ])
-    },
-  )
+    expect(parsed.error.issues).toEqual([
+      {
+        origin: "string",
+        code: "too_small",
+        minimum: 1,
+        inclusive: true,
+        path: ["queries", 0, "filters", field],
+        message: "Too small: expected string to have >=1 characters",
+      },
+      {
+        code: "custom",
+        path: ["queries", 0],
+        message: "a filtered query needs at least one filter that narrows results",
+      },
+    ])
+  })
 
   it.each([
     {
@@ -547,7 +544,7 @@ describe("judgmentFileSchema", () => {
       {
         code: "custom",
         path: ["queries", 0],
-        message: "a filtered query needs at least one effective filter",
+        message: "a filtered query needs at least one filter that narrows results",
       },
     ])
   })

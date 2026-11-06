@@ -326,16 +326,14 @@ export const fileContentRowToSearchResult = (
   bytes: row.bytes,
 })
 
-// ── Filters ────────────────────────────────────────────────────
+// ── Date ranges ────────────────────────────────────────────────
 
-/** Converts a YYYY-MM-DD day into the window of time it covers — from
- *  midnight that day to midnight the next, as half-open epoch-ms
- *  [startMs, endMs) in the process-local zone (governed by the TZ env var).
- *  plus({ days: 1 }) is calendar-aware, so DST-shortened and -lengthened
- *  days get a correct range. Throws on anything but a strict YYYY-MM-DD
- *  day — a malformed date would otherwise yield a NaN range and a
- *  timestamped one a silently time-shifted window, both mis-filtering
- *  instead of failing fast. */
+/** Converts a YYYY-MM-DD day into the half-open epoch-ms range [startMs, endMs) from its
+ *  midnight to the next, in the process-local zone (the TZ env var).
+ *  - plus({ days: 1 }) is calendar-aware, so DST-shortened and -lengthened days get a
+ *    correct range.
+ *  - Throws on anything but a strict YYYY-MM-DD day. A malformed date would yield a NaN
+ *    range, and a timestamp would silently shift the range. */
 export const dayToEpochMsRange = (date: string): { startMs: number; endMs: number } => {
   const dayStart = DateTime.fromFormat(date, "yyyy-MM-dd")
 
