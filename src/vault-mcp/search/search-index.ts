@@ -2720,14 +2720,14 @@ export const createSearchIndex = (
     // Files of an embedded kind whose text this rebuild indexed. Each file's
     // text loads from file_content only when the embedding pass reaches it,
     // so the pass holds one file's text at a time.
-    const withFileSourceVersion = (file: { path: string }) => {
-      const sourceVersion = fileVersionsForEmbedding.get(file.path)
-      const isEmbeddedKind = EMBEDDED_FILE_KINDS.has(getFileKind(file.path))
-
-      return sourceVersion && isEmbeddedKind ? [{ path: file.path, sourceVersion }] : []
+    const isEmbeddedFilePath = ([filePath]: [string, symbol]): boolean => {
+      return EMBEDDED_FILE_KINDS.has(getFileKind(filePath))
     }
-    const filesForEmbedding =
-      selectAllFileContentPathsStmt?.all().flatMap(withFileSourceVersion) ?? []
+    const filesForEmbedding = fileContentVectorEnabled
+      ? [...fileVersionsForEmbedding]
+          .filter(isEmbeddedFilePath)
+          .map(([path, sourceVersion]) => ({ path, sourceVersion }))
+      : []
     // Every note read from disk, including notes that failed to index, unlike indexedNotes
     const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
 

@@ -511,9 +511,8 @@ const readAssetContent = async (
 // ── Browsing ────────────────────────────────────────────────────
 
 /** The extension a listing shows, lowercased with its dot, or "(none)" for an
- *  extensionless file. It splits the name with posix.extname, as
- *  vaultFs.readAsset does, so a listed extension is the one a read dispatches
- *  on. */
+ *  extensionless file. It splits the name with posix.extname, as getFileKind
+ *  does, so a listed extension is the one a read dispatches on. */
 const getListingExtension = (assetPath: string): string => {
   return posix.extname(assetPath).toLowerCase() || "(none)"
 }
