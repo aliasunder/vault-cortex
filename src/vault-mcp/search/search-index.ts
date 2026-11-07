@@ -742,15 +742,34 @@ export const createSearchIndex = (
   // Prepared statements are compiled once here and reused across all calls.
   // Each returned statement retains its compiled SQL; preparing inside an
   // operation would compile it again on every invocation.
-  const upsertNotesStmt = db.prepare(`
-    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes, body_tags)
+
+  // Each notes_fts row has its notes row's rowid, so a write finds the FTS row
+  // by rowid. The file_content tables below are paired the same way.
+  // - FTS5 cannot index path. Finding the row by path scans the whole table, so
+  //   a rebuild over thousands of notes or files would take time quadratic in
+  //   their count.
+  // - The rowids stay paired because the rebuild empties each pair of tables
+  //   together and every other write goes through these statements.
+  // - The upsert updates a row in place. INSERT OR REPLACE would give it a new
+  //   rowid.
+  const upsertNotesStmt = db.prepare<unknown[], { rowid: number }>(`
+    INSERT INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes, body_tags)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (path) DO UPDATE SET
+      title = excluded.title, content = excluded.content, tags = excluded.tags,
+      related = excluded.related, folder = excluded.folder, type = excluded.type,
+      created = excluded.created, mtime = excluded.mtime, properties = excluded.properties,
+      leading_callout = excluded.leading_callout, bytes = excluded.bytes,
+      kanban_done_lanes = excluded.kanban_done_lanes, body_tags = excluded.body_tags
+    RETURNING rowid
   `)
-  const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
-  const insertFtsStmt = db.prepare(
-    `INSERT INTO notes_fts (path, title, content, metadata) VALUES (?, ?, ?, ?)`,
+  const deleteFtsStmt = db.prepare<[number]>(`DELETE FROM notes_fts WHERE rowid = ?`)
+  const insertFtsStmt = db.prepare<[number, string, string, string, string]>(
+    `INSERT INTO notes_fts (rowid, path, title, content, metadata) VALUES (?, ?, ?, ?, ?)`,
   )
-  const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`)
+  const removeNotesStmt = db.prepare<[string], { rowid: number }>(
+    `DELETE FROM notes WHERE path = ? RETURNING rowid`,
+  )
   const deleteTasksStmt = db.prepare(`DELETE FROM tasks WHERE note_path = ?`)
   const insertTaskStmt = db.prepare(`
     INSERT INTO tasks (note_path, line, status_char, status, description,
@@ -835,14 +854,8 @@ export const createSearchIndex = (
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
-  // Each file_content_fts row has its file_content row's rowid, so a write finds
-  // the FTS row by rowid.
-  // - FTS5 cannot index path. Finding the row by path scans the whole table, so
-  //   a rebuild over thousands of files would take time quadratic in their count.
-  // - The rowids stay paired because the rebuild empties both tables together
-  //   and every other write goes through these statements.
-  // - The upsert updates a row in place. INSERT OR REPLACE would give it a new
-  //   rowid.
+  // Each file_content_fts row has its file_content row's rowid, as the notes
+  // statements above explain.
   const upsertFileContentStmt = fileToolsEnabled
     ? db.prepare<[string, string, string, string, number, number], { rowid: number }>(
         `INSERT INTO file_content (path, title, content, folder, mtime, bytes)
@@ -1376,6 +1389,7 @@ export const createSearchIndex = (
   const upsertFileContent = (
     params: {
       filePath: string
+      /** The file's own text, or a PDF's extracted text. */
       rawContent: string
       fileStat: { mtimeMs: number; size: number }
     },
@@ -1694,8 +1708,7 @@ export const createSearchIndex = (
     // throw rolls back), so code after the wrap's `)()` runs on both paths
     // — no link-phase work may live there.
     db.transaction(() => {
-      deleteFtsStmt.run(note.path)
-      upsertNotesStmt.run(
+      const upsertedNoteRow = upsertNotesStmt.get(
         note.path,
         note.title,
         note.content,
@@ -1711,7 +1724,11 @@ export const createSearchIndex = (
         note.kanban_done_lanes,
         note.body_tags,
       )
-      insertFtsStmt.run(note.path, note.title, note.content, metadataText)
+
+      // RETURNING yields the inserted or updated row on every upsert.
+      if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
+      deleteFtsStmt.run(upsertedNoteRow.rowid)
+      insertFtsStmt.run(upsertedNoteRow.rowid, note.path, note.title, note.content, metadataText)
 
       deleteTasksStmt.run(note.path)
       // Line→blockId lookup so each child can resolve its parent's
@@ -2185,11 +2202,11 @@ export const createSearchIndex = (
     return embeddedCount
   }
 
-  /** Embed a file's rendered content into vector storage. Reads the processed
-   *  content from the file_content table (already linearized/truncated by
-   *  upsertFileContent). No-op when the embedding pipeline or file tools are
-   *  disabled, the file is a script, or the file is not in the FTS index.
-   *  Safe to call unconditionally. */
+  /** The watcher's entry point for embedding a file. It drops
+   *  embedAndStoreFileChunks' chunk count, so the watcher's queue of pending
+   *  embeds holds one promise type for notes and files. Safe to call for any
+   *  file: it does nothing when embedding or file tools are off, for a kind
+   *  search does not embed, or for a file not in the index. */
   const embedFileContent = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
@@ -2207,8 +2224,9 @@ export const createSearchIndex = (
     // All deletes commit or roll back together — a mid-sequence throw must
     // not leave the note half-removed across notes/FTS/tasks/links.
     db.transaction(() => {
-      deleteFtsStmt.run(filePath)
-      removeNotesStmt.run(filePath)
+      const removedNoteRow = removeNotesStmt.get(filePath)
+
+      if (removedNoteRow) deleteFtsStmt.run(removedNoteRow.rowid)
       deleteLinksStmt.run(filePath)
       deleteTasksStmt.run(filePath)
       if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
@@ -2357,21 +2375,33 @@ export const createSearchIndex = (
       mapper: readFileSize,
     })
     const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
-    const canvasFiles = allNonMdFiles.filter((file) => isCanvasPath(file.relativePath))
-    // PDF, text, HTML and script files are only read when file content FTS is
-    // enabled — without the tables, the extraction is wasted I/O.
-    const pdfFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "pdf")
-      : []
-    const textFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "text")
-      : []
-    const htmlAndScriptFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => {
-          const fileKind = getFileKind(file.relativePath)
-          return fileKind === "html" || fileKind === "script"
-        })
-      : []
+    // A canvas is read for its links whether or not file tools are on. PDF,
+    // text, HTML and script content is read only when the file content tables
+    // exist, because without them the extraction is wasted I/O. The switch
+    // names every kind, so a new kind does not compile until it has a reader.
+    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "pdf" | "text" | "decoded" | null => {
+      switch (fileKind) {
+        case "canvas":
+          return "canvas"
+        case "pdf":
+          return fileToolsEnabled ? "pdf" : null
+        case "text":
+          return fileToolsEnabled ? "text" : null
+        case "html":
+        case "script":
+          return fileToolsEnabled ? "decoded" : null
+        case "image":
+        case "other":
+          return null
+      }
+    }
+    const nonMdFilesByReader = Map.groupBy(allNonMdFiles, (file) => {
+      return rebuildReaderFor(getFileKind(file.relativePath))
+    })
+    const canvasFiles = nonMdFilesByReader.get("canvas") ?? []
+    const pdfFiles = nonMdFilesByReader.get("pdf") ?? []
+    const textFiles = nonMdFilesByReader.get("text") ?? []
+    const htmlAndScriptFiles = nonMdFilesByReader.get("decoded") ?? []
 
     const readRebuildFileContent = async (params: {
       file: RebuildFilePaths

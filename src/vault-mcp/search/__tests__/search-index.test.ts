@@ -1525,6 +1525,51 @@ describe("removeNote", () => {
   it("does not throw for non-existent path", () => {
     expect(() => index.removeNote("ghost.md")).not.toThrow()
   })
+
+  it("leaves other notes' text searchable", () => {
+    const upsertText = (filePath: string, body: string): void => {
+      index.upsertNote(
+        withBodyTags({ filePath, rawContent: `${body}\n`, fileStat: testStat(1000) }),
+        logger,
+      )
+    }
+    upsertText("a.md", "amberwick lantern")
+    upsertText("b.md", "copperfen meadow")
+
+    index.removeNote("a.md")
+
+    const searchPaths = (query: string): string[] => {
+      return index.fullTextSearch({ query }, logger).map((result) => result.path)
+    }
+    expect(searchPaths("amberwick")).toEqual([])
+    expect(searchPaths("copperfen")).toEqual(["b.md"])
+  })
+})
+
+describe("note text across repeated updates", () => {
+  it("keeps only a note's latest text searchable", () => {
+    const upsertText = (filePath: string, body: string): void => {
+      index.upsertNote(
+        withBodyTags({ filePath, rawContent: `${body}\n`, fileStat: testStat(1000) }),
+        logger,
+      )
+    }
+    const searchPaths = (query: string): string[] => {
+      return index.fullTextSearch({ query }, logger).map((result) => result.path)
+    }
+
+    // The third version catches an FTS row left behind by the second, which
+    // a single update cannot show.
+    upsertText("a.md", "amberwick lantern")
+    upsertText("b.md", "copperfen meadow")
+    upsertText("a.md", "slatebrook harbor")
+    upsertText("a.md", "thistledown quarry")
+
+    expect(searchPaths("amberwick")).toEqual([])
+    expect(searchPaths("slatebrook")).toEqual([])
+    expect(searchPaths("thistledown")).toEqual(["a.md"])
+    expect(searchPaths("copperfen")).toEqual(["b.md"])
+  })
 })
 
 describe("removeNote atomicity", () => {
