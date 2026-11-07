@@ -111,7 +111,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? {
         stage: "keyword matching",
         outcome:
-          'a query left with no terms is matched by meaning only, or finds nothing when only keyword matching ran (search_mode "fts")',
+          'a query left with no terms is matched by meaning only, or finds nothing when search_mode is "fts"',
       }
     : {
         stage: "matching",
@@ -126,7 +126,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const keywordCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP)
   const hybridCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP * 2)
   const resultCapSentence = config.embeddingEnabled
-    ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
+    ? `With search_mode "fts", at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
   const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}.`

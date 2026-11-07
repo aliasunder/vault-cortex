@@ -1563,12 +1563,12 @@ describe("vault_search result cap", () => {
     {
       label: "bounds both modes for notes and files by default",
       env: {},
-      expectedLine: `${BEHAVIOR_LEAD} When only keyword matching ran (search_mode "fts"), at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files.`,
+      expectedLine: `${BEHAVIOR_LEAD} With search_mode "fts", at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files.`,
     },
     {
       label: "bounds both modes for notes only when file tools are off",
       env: { FILE_TOOLS_ENABLED: "false" },
-      expectedLine: `${BEHAVIOR_LEAD} When only keyword matching ran (search_mode "fts"), at most 100 notes come back; with "hybrid", at most 200 notes.`,
+      expectedLine: `${BEHAVIOR_LEAD} With search_mode "fts", at most 100 notes come back; with "hybrid", at most 200 notes.`,
     },
     {
       label: "states only the keyword bound for notes and files when embeddings are off",

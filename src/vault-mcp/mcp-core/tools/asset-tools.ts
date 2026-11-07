@@ -245,7 +245,7 @@ Returns: by file type:
       title: "List Files",
       description: `List non-markdown files in the vault or a folder — images, canvases, PDFs, data files — with per-file byte sizes and per-extension counts.
 
-Example: vault_list_files({}) — non-markdown files across the whole vault
+Example: vault_list_files({})
 Example: vault_list_files({ folder: "attachments" })
 Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
