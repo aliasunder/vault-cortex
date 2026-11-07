@@ -1116,6 +1116,56 @@ describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
   })
 })
 
+// Each stub reports the extension lowercased, as readAsset does, while the path
+// keeps the caller's uppercase extension
+describe("readAssetContent — uppercase extensions", () => {
+  it("returns the outline of a canvas whose extension is uppercase", async () => {
+    const canvasSource = JSON.stringify({
+      nodes: [{ id: "t1", type: "text", text: "Launch plan", x: 0, y: 0, width: 200, height: 100 }],
+      edges: [],
+    })
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from(canvasSource, "utf8"),
+      bytes: Buffer.byteLength(canvasSource, "utf8"),
+      extension: ".canvas",
+    })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "Boards/Roadmap.CANVAS" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "# Canvas: 1 node, 0 edges\n\n[text]\nLaunch plan",
+      path: "Boards/Roadmap.CANVAS",
+    })
+  })
+
+  it("fits an image whose extension is uppercase to the image budget", async () => {
+    const imageBuffer = Buffer.from("fake-png-bytes")
+    const fitted = buildFittedImage()
+    mockedReadAsset.mockResolvedValue({ buffer: imageBuffer, bytes: 14, extension: ".png" })
+    mockedFitImage.mockResolvedValue(fitted)
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "Scans/Receipt.PNG" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "image",
+      fitted,
+      originalBytes: 14,
+      path: "Scans/Receipt.PNG",
+    })
+    expect(mockedFitImage).toHaveBeenCalledExactlyOnceWith({
+      buffer: imageBuffer,
+      budgetBytes: defaultParams.maxImageOutputBytes,
+    })
+  })
+})
+
 describe("readAssetContent — line paging", () => {
   /** Stubs readAsset with a UTF-8 text file of the given extension. */
   const stubReadAsset = (content: string, extension: string): void => {

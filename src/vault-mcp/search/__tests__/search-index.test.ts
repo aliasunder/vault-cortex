@@ -12,6 +12,7 @@ import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "..
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 import { statOrNull } from "../../../utils/fs.js"
+import { decodeTextBuffer } from "../../../utils/decode-text-buffer.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
 import { buildPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
 import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
@@ -19,6 +20,7 @@ import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js
 
 vi.mock("node:fs/promises", { spy: true })
 vi.mock("../../../utils/fs.js", { spy: true })
+vi.mock("../../../utils/decode-text-buffer.js", { spy: true })
 vi.mock("../../obsidian-markdown/pdf.js", { spy: true })
 
 const realSqliteVec = await vi.importActual<typeof sqliteVec>("sqlite-vec")
@@ -4055,6 +4057,83 @@ describe("rebuildFromVault filesystem failures", () => {
     },
   )
 
+  it.each([
+    { label: "HTML page", fileName: "broken.html" },
+    { label: "script", fileName: "broken.py" },
+  ])("warns and skips an unreadable $label while indexing healthy files", async ({ fileName }) => {
+    const { vaultPath, search } = await createRebuildVault()
+    const filePath = join(vaultPath, fileName)
+    await writeFile(filePath, "brokenquartz")
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === filePath) throw new Error("controlled read failure")
+      return actualFs.readFile(requestedPath, options)
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      readSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(rebuilt.count).toBe(1)
+    // Read as bytes, so the strict UTF-8 check sees them
+    expect(readSpy).toHaveBeenCalledWith(filePath)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable file during rebuild", {
+      path: fileName,
+      error: "[Error]: controlled read failure",
+    })
+    expect(
+      (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.md"])
+    expect((await search.hybridSearch({ query: "brokenquartz" }, logger)).results).toEqual([])
+  })
+
+  it("warns and skips a page whose text fails to decode, and indexes the other pages", async () => {
+    const { vaultPath, search } = await createRebuildVault()
+    await writeFile(join(vaultPath, "huge.html"), "<p>brokenquartz</p>")
+    await writeFile(join(vaultPath, "plain.html"), "<p>plainopal</p>")
+    const actualDecoder = await vi.importActual<
+      typeof import("../../../utils/decode-text-buffer.js")
+    >("../../../utils/decode-text-buffer.js")
+    // Stands in for the error V8 throws on text past its string length limit,
+    // which a test cannot allocate
+    const decodeSpy = vi.mocked(decodeTextBuffer).mockImplementation((buffer) => {
+      if (Buffer.from(buffer).toString("utf8") === "<p>brokenquartz</p>") {
+        throw new Error("controlled decode failure")
+      }
+      return actualDecoder.decodeTextBuffer(buffer)
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      decodeSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable file during rebuild", {
+      path: "huge.html",
+      error: "[Error]: controlled decode failure",
+    })
+    const searchPaths = async (query: string): Promise<string[]> => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+    expect(await searchPaths("plainopal")).toEqual(["plain.html"])
+    expect(await searchPaths("brokenquartz")).toEqual([])
+    expect(await searchPaths("healthyamber")).toEqual(["healthy.md"])
+  })
+
   it("contains a rebuild PDF extraction failure and indexes its next valid extraction", async () => {
     const { vaultPath, search } = await createRebuildVault()
     await writeFile(join(vaultPath, "broken.pdf"), "controlled bytes")
@@ -7828,6 +7907,34 @@ describe("canvas file content and links", () => {
       expect(removedResults.map((result) => result.path)).toEqual([])
       expect(keptResults.map((result) => result.path)).toEqual(["logs/b.log"])
     })
+
+    it("removeFileContent leaves none of a file's text for a later file at its path to bring back", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertText = (filePath: string, rawContent: string): void => {
+        fileIndex.upsertNonMdFile(filePath, rawContent.length)
+        fileIndex.upsertFileContent(
+          { filePath, rawContent, fileStat: testStat(1000, rawContent.length) },
+          logger,
+        )
+      }
+      const searchPaths = async (query: string): Promise<string[]> => {
+        const { results } = await fileIndex.hybridSearch({ query }, logger)
+        return results.map((result) => result.path)
+      }
+
+      // b.log holds a later row id, so the re-added a.log takes a new one
+      // instead of reusing the removed row's id
+      upsertText("logs/a.log", "amberwick lantern")
+      upsertText("logs/b.log", "copperfen meadow")
+      fileIndex.removeFileContent({ filePath: "logs/a.log" }, logger)
+      upsertText("logs/a.log", "slatebrook harbor")
+
+      expect(await searchPaths("amberwick")).toEqual([])
+      expect(await searchPaths("slatebrook")).toEqual(["logs/a.log"])
+      expect(await searchPaths("copperfen")).toEqual(["logs/b.log"])
+    })
   })
 
   describe("note-specific filter suppression", () => {
@@ -8008,9 +8115,11 @@ describe("files with an uppercase extension", { timeout: 15_000 }, () => {
 })
 
 describe("HTML pages", () => {
-  /** Rebuilds an index over a vault holding the given files. */
+  /** Rebuilds an index over a vault holding the given files, waiting for the
+   *  embedding pass when an embedder is given. */
   const rebuildVaultOf = async (
     files: ReadonlyArray<{ path: string; content: string | Buffer }>,
+    embedder?: Parameters<typeof createSearchIndex>[1],
   ): Promise<SearchIndex> => {
     const vaultDir = await mkdtemp(join(tmpdir(), "html-pages-"))
     onTestFinished(() => rm(vaultDir, { recursive: true }))
@@ -8018,13 +8127,14 @@ describe("HTML pages", () => {
       await writeFile(join(vaultDir, file.path), file.content)
     }
 
-    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+    const fileIndex = createSearchIndex(":memory:", embedder, undefined, {
       fileToolsEnabled: true,
     })
-    await fileIndex.rebuildFromVault(
+    const rebuilt = await fileIndex.rebuildFromVault(
       { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
       logger,
     )
+    await rebuilt.embedding
     return fileIndex
   }
 
@@ -8048,6 +8158,21 @@ describe("HTML pages", () => {
 
     const queries = ["visiblequartz", "scriptquartz", "visibleopal", "scriptopal"]
     expect(await searchEach(fileIndex, queries)).toEqual([["runbook.html"], [], ["report.htm"], []])
+  })
+
+  it("embeds a page's visible text, not its source, for semantic search", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(vector),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+
+    await rebuildVaultOf(
+      [{ path: "runbook.html", content: "<p>visiblequartz</p><script>scriptquartz()</script>" }],
+      embedder,
+    )
+
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("runbook\n\nvisiblequartz")
   })
 
   it("indexes a page's last paragraph when its markup passes the 100 KiB cap but its text does not", async () => {
@@ -8170,6 +8295,10 @@ describe("scripts", () => {
       embedText: vi.fn().mockResolvedValue(vector),
       embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
     }
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => {
+      infoSpy.mockRestore()
+    })
     const { database } = await rebuildVaultOf({
       files: [...SCRIPT_FILES, { path: "notes.txt", content: "plain text control\n" }],
       embedder,
@@ -8196,6 +8325,11 @@ describe("scripts", () => {
       count: 1,
     })
     expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("notes\n\nplain text control")
+    // The embedding pass never queues the scripts, so it counts the text file alone
+    expect(infoSpy).toHaveBeenCalledWith("file content embedding pass complete", {
+      files: 1,
+      fileChunksEmbedded: 1,
+    })
   })
 
   it("leaves a script holding a NUL byte out of search", async () => {

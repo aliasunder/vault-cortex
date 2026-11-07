@@ -56,6 +56,10 @@ describe("extractHtmlVisibleText", () => {
     )
   })
 
+  it("breaks no line for a block element inside a hidden element", () => {
+    expect(extractAll("<p>one <template><div>inert</div></template>two</p>")).toBe("one two")
+  })
+
   it("hides everything after a template that never closes", () => {
     expect(extractAll("<p>shown</p><template><p>never shown</p>")).toBe("shown")
   })
@@ -76,6 +80,10 @@ describe("extractHtmlVisibleText", () => {
     expect(extractAll("<p><span>one</span> <span>two</span><em> three</em></p>")).toBe(
       "one two three",
     )
+  })
+
+  it("keeps a space that ends the text inside an inline tag", () => {
+    expect(extractAll("<p><b>one </b>two</p>")).toBe("one two")
   })
 
   it("joins words that inline tags split with no whitespace", () => {

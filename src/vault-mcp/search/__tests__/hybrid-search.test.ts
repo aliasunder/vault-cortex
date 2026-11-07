@@ -2269,7 +2269,10 @@ describe("hybridSearch — ranking tuning", () => {
     ])
   })
 
-  it("uses 'PDF file' kind label for .pdf file results", async () => {
+  it.each([
+    { label: ".pdf", filePath: "docs/report.pdf", title: "report" },
+    { label: "uppercase .PDF", filePath: "docs/Report.PDF", title: "Report" },
+  ])("uses 'PDF file' kind label for $label file results", async ({ filePath, title }) => {
     const pdfContent = "quarterly earnings report for fiscal year"
     const capturingReranker = {
       rerankPairs: vi.fn().mockImplementation((_query: string, documents: string[]) => {
@@ -2297,25 +2300,22 @@ describe("hybridSearch — ranking tuning", () => {
       },
       logger,
     )
-    index.upsertNonMdFile("docs/report.pdf", 100)
+    index.upsertNonMdFile(filePath, 100)
     const reportFileSourceVersion = index.upsertFileContent(
       {
-        filePath: "docs/report.pdf",
+        filePath,
         rawContent: pdfContent,
         fileStat: testStat(1000, 100),
       },
       logger,
     )
-    await index.embedFileContent(
-      { sourceVersion: reportFileSourceVersion, filePath: "docs/report.pdf" },
-      logger,
-    )
+    await index.embedFileContent({ sourceVersion: reportFileSourceVersion, filePath }, logger)
 
     await index.hybridSearch({ query: "quarterly earnings" }, logger)
 
     expect(capturingReranker.rerankPairs).toHaveBeenCalledTimes(1)
     expect(capturingReranker.rerankPairs).toHaveBeenCalledWith("quarterly earnings", [
-      `PDF file: report\n\n${pdfContent}`,
+      `PDF file: ${title}\n\n${pdfContent}`,
       "Career\n\n\nCareer goals and aspirations.",
     ])
   })
