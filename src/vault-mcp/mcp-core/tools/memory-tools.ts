@@ -112,7 +112,7 @@ When to use: Reading user preferences, principles, opinions, or other persistent
 
 Behavior:
 - No args reads every file, joined by --- lines, which can be large.
-- Entries come back in document order, newest first by default.
+- Entries come back in the order the file holds them, which is newest first when entries were added at the top.
 
 Errors:
 - "section requires a file" / "on_or_after requires a file" — add file
@@ -203,7 +203,7 @@ Returns: Without on_or_after, raw markdown with the properties block stripped, o
 
 Example: vault_list_memory_files()
 
-When to use: ${discoveryPurpose}${whenToolEnabledText("vault_delete_memory", ", and each file's entry_policy to check before pruning entries")}.${whenToolEnabledText("vault_memory_recall", " To find entries by topic instead, use vault_memory_recall.")}
+When to use: ${discoveryPurpose}${whenToolEnabledText("vault_delete_memory", "; and checking each file's entry_policy before pruning entries")}.${whenToolEnabledText("vault_memory_recall", " To find entries by topic instead, use vault_memory_recall.")}
 
 Behavior: An empty or nonexistent memory folder returns an empty array, not an error. Lists every .md file directly inside ${config.memoryDir}/, sorted by file name. Subfolders are not read, and hidden (dot-prefixed) files are skipped.
 
@@ -467,7 +467,7 @@ Example: vault_delete_memory({ file: "Opinions", section: "Tools and workflows (
 Example: vault_delete_memory({ file: "Routines", section: "Daily/weekly rhythm (newest first)", date: "2026-03-10", entry: "Gym Tue/Thu at 7am" }) — prune an expired entry from an entry-policy: living file
 
 When to use: Removing an entry that was wrong when it was written. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state${whenToolEnabledText("vault_update_memory", " via vault_update_memory")} instead. The exception is a file whose properties declare \`entry-policy: living\`${whenToolEnabledText("vault_list_memory_files", " (check via vault_list_memory_files)")} — a current-state file where deleting an expired entry is the intended maintenance.${whenToolEnabledText("vault_get_memory", " Call vault_get_memory(file, section) first to see exact entry text for matching.")}
-${whenToolEnabledText("vault_delete_note", "Prefer vault_delete_note for deleting whole notes; vault_delete_note refuses protected paths.\n")}
+${whenToolEnabledText("vault_delete_note", `Prefer vault_delete_note for deleting whole notes; it refuses protected paths, ${config.memoryDir}/ among them.\n`)}
 Parameters:
 - date + entry together pick the bullet line within the given section; identical copies make the match ambiguous. The entry text matches the bullet's first line only.
 - section scopes the match — an identical entry under a different heading is not found.

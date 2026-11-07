@@ -425,7 +425,7 @@ When to use: Exploring a folder's contents with full context for vault orientati
 
 Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored. With recursive: false, only the folder's own notes are kept.
-- limit keeps the most recently modified notes. There is no offset, and ${LIMIT_TRUNCATION_CLAUSE}.
+- limit keeps the most recently modified notes; ${LIMIT_TRUNCATION_CLAUSE}.
 
 Behavior: ${INDEX_LAG_LEAD}. An empty or nonexistent folder returns an empty array, not an error. Notes in hidden (dot-prefixed) folders never appear.
 
@@ -615,7 +615,7 @@ Example: vault_search_by_property({ key: "type", value: "session-log", folder: "
 When to use: Finding notes by metadata when you don't have a text query.${searchByPropertyAlternativesLine}
 
 Parameters:
-- key and value both match exactly and case-sensitively, with no partial matching or globbing; value matches a stored text value as written.
+- key and value both match exactly and case-sensitively; value matches a stored text value as written.
 - A value written as a complete, finite YAML 1.2 core number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary) matches only as text.
 - A checkbox matches only as text: pass "1" (checked) or "0" (unchecked); "1.0" and "true" do not match.
 - A list property matches when an element equals value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
@@ -804,7 +804,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     : {
         folders: `the daily notes folder (none when Obsidian's Daily Notes folder setting is the vault root or blank), "Templates", ${JSON.stringify(config.memoryDir)}`,
         dailyFolderLine: isToolEnabled("vault_get_daily_note")
-          ? " To keep the daily notes folder excluded, list it yourself: the folder vault_get_daily_note's path starts with."
+          ? " (the daily notes folder is the folder vault_get_daily_note's path starts with)"
           : "",
       }
 
@@ -827,7 +827,7 @@ Example: vault_find_orphans({ exclude_folders: ["Templates", "Archive"], limit: 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}${findOrphansAlternativesLine}
 
 Parameters:
-- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.${orphanDefaultsText.dailyFolderLine}
+- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it${orphanDefaultsText.dailyFolderLine}. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.
 - limit applies after exclusions and sorting; ${LIMIT_TRUNCATION_CLAUSE}.
 
 Behavior: ${INDEX_LAG_LEAD}. An empty array means no orphans were found (after exclusions), not an error.

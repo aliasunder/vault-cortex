@@ -2343,7 +2343,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. To keep the daily notes folder excluded, list it yourself: the folder vault_get_daily_note\'s path starts with.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it (the daily notes folder is the folder vault_get_daily_note\'s path starts with). Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -3286,12 +3286,14 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const ENTRY_LEAD =
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
+      "- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it"
+    const ENTRY_TAIL =
+      '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_LEAD} To keep the daily notes folder excluded, list it yourself: the folder vault_get_daily_note's path starts with.`,
+      `${ENTRY_LEAD} (the daily notes folder is the folder vault_get_daily_note's path starts with)${ENTRY_TAIL}`,
     )
-    expect(excludeFoldersEntry("vault_get_daily_note")).toBe(ENTRY_LEAD)
+    expect(excludeFoldersEntry("vault_get_daily_note")).toBe(`${ENTRY_LEAD}${ENTRY_TAIL}`)
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
