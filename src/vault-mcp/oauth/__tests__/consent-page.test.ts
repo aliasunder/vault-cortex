@@ -13,6 +13,12 @@ const GRANT_TEXT = "Everything this server's tools can do in your vault"
 /** Matches a field's label div followed by its value div, capturing both texts. */
 const FIELD_ROW_PATTERN = /<div class="label">([^<]*)<\/div>\s*<div class="value">([^<]*)<\/div>/g
 
+/** Matches the masked token input, capturing its id. */
+const TOKEN_INPUT_ID_PATTERN = /<input type="password" id="([^"]+)" name="token"/
+
+/** Matches the reveal button, capturing its onclick handler. */
+const REVEAL_ONCLICK_PATTERN = /class="reveal"[^>]*onclick="([^"]+)"/
+
 /** Every label and value row on the page, in page order. */
 const readFieldRows = (html: string) => {
   return [...html.matchAll(FIELD_ROW_PATTERN)].map((match) => ({
@@ -119,12 +125,8 @@ describe("consent page reveal toggle", () => {
 
   it("wires the reveal button to the token input's id", () => {
     const html = renderConsentPage(baseParams)
-    const tokenIdMatch = /<input type="password" id="([^"]+)" name="token"/.exec(html)
-    const onclickMatch = /class="reveal"[^>]*onclick="([^"]+)"/.exec(html)
-    expect(tokenIdMatch).not.toBeNull()
-    expect(onclickMatch).not.toBeNull()
-    const tokenId = tokenIdMatch![1]
-    const onclick = onclickMatch![1]
+    const tokenId = TOKEN_INPUT_ID_PATTERN.exec(html)?.[1]
+    const onclick = REVEAL_ONCLICK_PATTERN.exec(html)?.[1]
     expect(tokenId).toBe("token")
     // The toggle must target the input by its id and flip it to a visible
     // type — otherwise "Show" silently does nothing.
