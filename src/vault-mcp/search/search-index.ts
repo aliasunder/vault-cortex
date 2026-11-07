@@ -2434,13 +2434,15 @@ export const createSearchIndex = (
     const readDecodedSourceFile = async (
       file: RebuildFilePaths,
     ): Promise<RebuildFileContent | null> => {
+      // Decoding throws on text longer than V8's string limit, so it shares the
+      // read's try, and one such file is skipped rather than failing the rebuild.
       const readSource = async () => {
         try {
           const [buffer, fileStat] = await Promise.all([
             readFile(file.absolutePath),
             stat(file.absolutePath),
           ])
-          return { buffer, fileStat }
+          return { decodedSource: decodeTextBuffer(buffer), fileStat }
         } catch (error) {
           logger.warn("skipped unreadable file during rebuild", {
             path: file.relativePath,
@@ -2453,7 +2455,7 @@ export const createSearchIndex = (
 
       if (!source) return null
 
-      const decodedSource = decodeTextBuffer(source.buffer)
+      const { decodedSource } = source
 
       switch (decodedSource.status) {
         case "text":
