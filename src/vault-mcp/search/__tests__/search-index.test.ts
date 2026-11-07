@@ -8092,8 +8092,15 @@ describe("files with an uppercase extension", { timeout: 15_000 }, () => {
 
     const outgoingLinks = fileIndex.getOutgoingLinks({ path: "files/Board.Canvas" }, logger)
 
-    expect(outgoingLinks.map(({ path, exists }) => ({ path, exists }))).toEqual([
-      { path: "Notes/Plan.md", exists: true },
+    expect(outgoingLinks).toEqual([
+      {
+        path: "Notes/Plan.md",
+        title: "Plan",
+        exists: true,
+        kind: "note",
+        bytes: Buffer.byteLength("# Plan\n"),
+        daily_note_forward_ref: false,
+      },
     ])
   })
 
@@ -8102,7 +8109,15 @@ describe("files with an uppercase extension", { timeout: 15_000 }, () => {
 
     const backlinks = fileIndex.getBacklinks({ path: "Notes/Plan.md" }, logger)
 
-    expect(backlinks.map((backlink) => backlink.path)).toEqual(["files/Board.Canvas"])
+    expect(backlinks).toEqual([
+      {
+        path: "files/Board.Canvas",
+        title: "Board",
+        bytes: Buffer.byteLength(
+          buildCanvasWithFileCard({ cardPath: "Notes/Plan.md", text: "indigo board" }),
+        ),
+      },
+    ])
   })
 
   it("lists the notes linking to a canvas with an uppercase extension", async () => {
@@ -8110,7 +8125,13 @@ describe("files with an uppercase extension", { timeout: 15_000 }, () => {
 
     const backlinks = fileIndex.getBacklinks({ path: "files/Board.Canvas" }, logger)
 
-    expect(backlinks.map((backlink) => backlink.path)).toEqual(["Notes/Index.md"])
+    expect(backlinks).toEqual([
+      {
+        path: "Notes/Index.md",
+        title: "Index",
+        bytes: Buffer.byteLength("See [[files/Board.Canvas]].\n"),
+      },
+    ])
   })
 })
 

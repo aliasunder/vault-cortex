@@ -117,13 +117,15 @@ describe("extractHtmlVisibleText", () => {
   })
 
   it("extracts 1 MB of unclosed nested tags within a second", () => {
-    const unclosedTags = "<div><span><b>x".repeat(Math.ceil(1_000_000 / 15))
+    const repeatCount = Math.ceil(1_000_000 / 15)
+    const unclosedTags = "<div><span><b>x".repeat(repeatCount)
 
     const startedAt = DateTime.now()
     const text = extractAll(unclosedTags)
     const elapsedMs = DateTime.now().diff(startedAt).as("milliseconds")
 
-    expect(text.slice(0, 5)).toBe("x\nx\nx")
+    // Each <div> starts a line of its own, so every "x" sits on its own line
+    expect(text).toBe(Array.from({ length: repeatCount }, () => "x").join("\n"))
     expect(elapsedMs).toBeLessThan(1_000)
   })
 })

@@ -598,8 +598,17 @@ describe("file-watcher — file content indexing", () => {
       await writeFile(join(vault, "Board.Canvas"), canvasSource, "utf8")
       await waitFor(() => upsertSpy.mock.calls.length > 0)
 
-      const linkedTargets = fileIndex.getOutgoingLinks({ path: "Board.Canvas" }, logger)
-      expect(linkedTargets.map((link) => link.path)).toEqual(["Plan.md"])
+      // Plan.md is never written, so the card is a link to a missing note
+      expect(fileIndex.getOutgoingLinks({ path: "Board.Canvas" }, logger)).toEqual([
+        {
+          path: "Plan.md",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: false,
+        },
+      ])
 
       await unlink(join(vault, "Board.Canvas"))
       await waitFor(() => removeSpy.mock.calls.length > 0)
@@ -1634,7 +1643,9 @@ describe("file watcher — obsolete events and embedding queues", () => {
 
     await writeFile(join(testVault, "report.py"), "def get_order_total():\n    pass\n", "utf8")
     await fire("change", "report.py")
-    await vi.waitFor(() => expect(settledEmbeds).toHaveLength(3))
+    await vi.waitFor(() => {
+      expect(settledEmbeds.toSorted()).toEqual(["control.txt", "report.py", "report.py"])
+    })
 
     expect(keywordPaths("get order total")).toEqual(["report.py"])
     expect(keywordPaths("get user name")).toEqual([])
