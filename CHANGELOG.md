@@ -8,6 +8,13 @@
 - **oauth:** Bound the consent requests /authorize holds and rate-limit IPv6 by /56 (#745)
 - **tools:** Name result extents and the search bound, and move behavior rules under a Behavior section (#744)
 
+### Security
+
+This release fixes two low-severity advisories:
+
+- GHSA-4h6g-pqh8-qfpc (Low): the OAuth consent page could be shown inside another site's frame, so a hostile page could steer the owner into approving its client. The owner still had to enter the server token. Details: https://github.com/aliasunder/vault-cortex/security/advisories/GHSA-4h6g-pqh8-qfpc
+- GHSA-348h-758h-5787 (Low): consent requests that were never submitted stayed in server memory until a restart. Details: https://github.com/aliasunder/vault-cortex/security/advisories/GHSA-348h-758h-5787
+
 ## [0.56.4] — 2026-11-07
 
 ### Bug Fixes
