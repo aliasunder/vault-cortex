@@ -1082,6 +1082,20 @@ describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
     )
   })
 
+  it("names a binary file with no extension as type (none)", async () => {
+    stubReadAsset({ buffer: buildBufferWithNulAt({ length: 40, nulIndex: 0 }), extension: "" })
+
+    await expect(
+      assetOperations.readAssetContent({ ...defaultParams, path: "bin/firmware" }, logger),
+    ).rejects.toThrow(
+      new Error(
+        'unsupported file type (none): "bin/firmware" exists (40 bytes) and holds a NUL ' +
+          "byte in its first 8,000 bytes (binary data or UTF-16 text). Readable types: images " +
+          "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and UTF-8 text files",
+      ),
+    )
+  })
+
   it("reads an HTML page whose first NUL byte sits just past the first 8,000 bytes", async () => {
     const buffer = buildBufferWithNulAt({ length: 8_001, nulIndex: 8_000 })
     stubReadAsset({ buffer, extension: ".html" })

@@ -172,14 +172,17 @@ const buildUtf8SourceResult = (params: {
   switch (decodedSource.status) {
     case "text":
       return buildTextResult({ text: decodedSource.text, path, startLine, limit })
-    case "binary":
+    case "binary": {
+      // "(none)" matches the listing's label for a file with no extension.
+      const fileType = asset.extension ? `"${asset.extension}"` : "(none)"
       throw new Error(
-        `unsupported file type "${asset.extension}": "${path}" exists ` +
+        `unsupported file type ${fileType}: "${path}" exists ` +
           `(${asset.bytes} bytes) and holds a NUL byte in its first ` +
           `${NUL_SEARCH_WINDOW_BYTES.toLocaleString("en-US")} bytes (binary data or UTF-16 text). ` +
           `Readable types: images (${getExtensionsOfKind("image").join("/")}), .canvas, .pdf, ` +
           `and UTF-8 text files`,
       )
+    }
     case "invalid-utf8":
       throw new Error(notValidUtf8Message(path))
   }
