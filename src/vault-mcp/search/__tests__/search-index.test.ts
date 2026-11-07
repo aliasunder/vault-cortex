@@ -7040,8 +7040,8 @@ Shared datefilter content for mtime boundary tests.
 // ── File content indexing constants ──────────────────────────
 
 describe("CONTENT_INDEXED_FILE_KINDS", () => {
-  it("indexes the content of PDF and text files", () => {
-    expect([...CONTENT_INDEXED_FILE_KINDS].toSorted()).toEqual(["pdf", "text"])
+  it("indexes the content of PDF, text and HTML files and scripts", () => {
+    expect([...CONTENT_INDEXED_FILE_KINDS].toSorted()).toEqual(["html", "pdf", "script", "text"])
   })
 })
 

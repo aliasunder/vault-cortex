@@ -69,7 +69,17 @@ export const PDF_EXTRACTION_CONCURRENCY = 4
 /** File kinds whose content is indexed into file_content_fts when file tools
  *  are on. A canvas is left out because it is read whatever that setting is,
  *  since its file cards are graph links. */
-export const CONTENT_INDEXED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["pdf", "text", "html"])
+export const CONTENT_INDEXED_FILE_KINDS: ReadonlySet<FileKind> = new Set([
+  "pdf",
+  "text",
+  "html",
+  "script",
+])
+
+/** File kinds whose indexed text is also embedded for semantic search. A
+ *  script is found by keyword only, because the markdown chunker reads its
+ *  "# comment" lines as headings and turns snake_case names into one word. */
+const EMBEDDED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["canvas", "pdf", "text", "html"])
 
 /** Cap on rendered content indexed into file_content_fts — prevents
  *  pathological FTS rows from large CSVs or verbose JSONs. */
@@ -1060,11 +1070,6 @@ export const createSearchIndex = (
   const selectAllNoteChunkPathsStmt = embedder
     ? db.prepare<[], { note_path: string }>("SELECT DISTINCT note_path FROM note_chunks")
     : null
-  const selectAllFileContentForEmbeddingStmt = fileContentVectorEnabled
-    ? db.prepare<[], { path: string; title: string; content: string }>(
-        "SELECT path, title, content FROM file_content",
-      )
-    : null
   const selectAllFileContentPathsStmt = fileContentVectorEnabled
     ? db.prepare<[], { path: string }>("SELECT path FROM file_content")
     : null
@@ -2035,14 +2040,16 @@ export const createSearchIndex = (
     }
   }
 
-  /** The return counts changed chunks committed before completion or obsolescence.
-   *  Zero covers disabled, cached and obsolete calls. */
+  /** Embeds a file's indexed text from file_content. The return counts changed
+   *  chunks committed before completion or obsolescence. Zero covers disabled,
+   *  unembedded-kind, cached and obsolete calls. */
   const embedAndStoreFileChunks = async (
-    params: { filePath: string; title: string; content: string; sourceVersion: symbol },
+    params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<number> => {
     if (
       !embedder ||
+      !selectFileContentForEmbeddingStmt ||
       !upsertFileChunkStmt ||
       !selectFileChunkHashesStmt ||
       !selectFileChunkIdStmt ||
@@ -2053,6 +2060,8 @@ export const createSearchIndex = (
       return 0
     }
 
+    // Checked before the content loads, so a script's text is never read for embedding
+    if (!EMBEDDED_FILE_KINDS.has(getFileKind(params.filePath))) return 0
     if (
       !isCurrentSourceVersion(
         { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
@@ -2061,11 +2070,15 @@ export const createSearchIndex = (
     )
       return 0
 
+    const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
+
+    if (!fileContentRow) return 0
+
     // chunkContent handles file content too — sourcePath extracts folder
     // segments for the TOC chunk's disambiguation line.
     const chunks = chunkContent({
-      noteTitle: params.title,
-      bodyContent: params.content,
+      noteTitle: fileContentRow.title,
+      bodyContent: fileContentRow.content,
       sourcePath: params.filePath,
     })
 
@@ -2156,32 +2169,13 @@ export const createSearchIndex = (
   /** Embed a file's rendered content into vector storage. Reads the processed
    *  content from the file_content table (already linearized/truncated by
    *  upsertFileContent). No-op when the embedding pipeline or file tools are
-   *  disabled, or the file is not in the FTS index. Safe to call unconditionally. */
+   *  disabled, the file is a script, or the file is not in the FTS index.
+   *  Safe to call unconditionally. */
   const embedFileContent = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<void> => {
-    if (!embedder || !selectFileContentForEmbeddingStmt) return
-    if (
-      !isCurrentSourceVersion(
-        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
-    )
-      return
-
-    const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
-
-    if (!fileContentRow) return
-    await embedAndStoreFileChunks(
-      {
-        filePath: params.filePath,
-        sourceVersion: params.sourceVersion,
-        title: fileContentRow.title,
-        content: fileContentRow.content,
-      },
-      logger,
-    )
+    await embedAndStoreFileChunks(params, logger)
   }
 
   /** Removes a note from the notes table, FTS index, links, tasks, vectors,
@@ -2353,8 +2347,11 @@ export const createSearchIndex = (
     const textFiles = fileToolsEnabled
       ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "text")
       : []
-    const htmlFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "html")
+    const sourceFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => {
+          const fileKind = getFileKind(file.relativePath)
+          return fileKind === "html" || fileKind === "script"
+        })
       : []
 
     const readRebuildFileContent = async (params: {
@@ -2431,9 +2428,9 @@ export const createSearchIndex = (
     })
     const textFileContents = textFileContentResults.filter((entry) => entry !== null)
 
-    /** Reads an HTML page as bytes and keeps it only when the bytes are UTF-8
-     *  with no NUL byte early on, the test vault_read_file applies, so search
-     *  never holds text that a read refuses. */
+    /** Reads an HTML page or script as bytes and keeps it only when the bytes
+     *  are UTF-8 with no NUL byte early on, the test vault_read_file applies,
+     *  so search never holds text that a read refuses. */
     const readDecodedSourceFile = async (
       file: RebuildFilePaths,
     ): Promise<RebuildFileContent | null> => {
@@ -2475,12 +2472,12 @@ export const createSearchIndex = (
           return null
       }
     }
-    const htmlContentResults = await mapWithConcurrency({
-      items: htmlFiles,
+    const sourceContentResults = await mapWithConcurrency({
+      items: sourceFiles,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: readDecodedSourceFile,
     })
-    const htmlContents = htmlContentResults.filter((entry) => entry !== null)
+    const sourceContents = sourceContentResults.filter((entry) => entry !== null)
 
     const noteContentResults = await mapWithConcurrency({
       items: markdownFiles,
@@ -2619,14 +2616,14 @@ export const createSearchIndex = (
           }
         }
 
-        // Canvas content is indexed with its links, and PDF, text and HTML
-        // content for search only. upsertFileContent deletes old canvas links
-        // before inserting, so canvas links append cleanly after the note link pass.
+        // Canvas content is indexed with its links, and PDF, text, HTML and
+        // script content for search only. upsertFileContent deletes old canvas
+        // links before inserting, so canvas links append cleanly after the note link pass.
         const allFileContents = [
           ...canvasContents,
           ...pdfContents,
           ...textFileContents,
-          ...htmlContents,
+          ...sourceContents,
         ]
         for (const fileEntry of allFileContents) {
           try {
@@ -2668,15 +2665,17 @@ export const createSearchIndex = (
       ...(skippedNotePaths.size > 0 ? { skipped: skippedNotePaths.size } : {}),
     })
 
-    // File content for embedding — read the processed text from file_content
-    // (already linearized/extracted/truncated by upsertFileContent above).
-    const withFileSourceVersion = (file: { path: string; title: string; content: string }) => {
+    // Files of an embedded kind whose text this rebuild indexed. Each file's
+    // text loads from file_content only when the embedding pass reaches it,
+    // so the pass holds one file's text at a time.
+    const withFileSourceVersion = (file: { path: string }) => {
       const sourceVersion = fileVersionsForEmbedding.get(file.path)
+      const isEmbeddedKind = EMBEDDED_FILE_KINDS.has(getFileKind(file.path))
 
-      return sourceVersion ? [{ ...file, sourceVersion }] : []
+      return sourceVersion && isEmbeddedKind ? [{ path: file.path, sourceVersion }] : []
     }
     const filesForEmbedding =
-      selectAllFileContentForEmbeddingStmt?.all().flatMap(withFileSourceVersion) ?? []
+      selectAllFileContentPathsStmt?.all().flatMap(withFileSourceVersion) ?? []
     // Every note read from disk, including notes that failed to index, unlike indexedNotes
     const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
 
@@ -2804,12 +2803,7 @@ export const createSearchIndex = (
 
                 try {
                   fileChunksEmbedded += await embedAndStoreFileChunks(
-                    {
-                      filePath: file.path,
-                      sourceVersion: file.sourceVersion,
-                      title: file.title,
-                      content: file.content,
-                    },
+                    { filePath: file.path, sourceVersion: file.sourceVersion },
                     logger,
                   )
                 } catch (err) {

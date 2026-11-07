@@ -227,7 +227,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
 
     // Canvas files are always read — link extraction is unconditional.
-    // PDF, text and HTML files are only read when file content FTS is enabled.
+    // PDF, text, HTML and script files are only read when file content FTS is enabled.
     const fileKind = getFileKind(filePath)
     const isCanvas = fileKind === "canvas"
     const isIndexableNonCanvas =
@@ -235,8 +235,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
     if (isCanvas || isIndexableNonCanvas) {
       try {
-        /** The file's text, or null for an HTML page that is not UTF-8 or
-         *  holds a NUL byte early on, which vault_read_file refuses too. */
+        /** The file's text, or null for an HTML page or script that is not
+         *  UTF-8 or holds a NUL byte early on, which vault_read_file refuses too. */
         const readContentToIndex = async (): Promise<string | null> => {
           switch (fileKind) {
             case "pdf": {
@@ -247,7 +247,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
               const pdfResult = await extractPdfText(pdfData)
               return pdfResult.text
             }
-            case "html": {
+            case "html":
+            case "script": {
               const decodedSource = decodeTextBuffer(await readFile(filePath))
 
               if (decodedSource.status !== "text") return null
@@ -256,7 +257,6 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
             case "canvas":
             case "text":
             case "image":
-            case "script":
             case "other":
               return await readFile(filePath, "utf8")
           }
@@ -265,7 +265,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
         if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
 
-        // A page that stopped reading as text loses what search held for it,
+        // A file that stopped reading as text loses what search held for it,
         // while its file row above stays
         if (contentToIndex === null) {
           search.removeFileContent({ filePath: relativePath }, logger)
