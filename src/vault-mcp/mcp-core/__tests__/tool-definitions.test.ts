@@ -1375,7 +1375,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({}))
     const openingSentence = description.slice(0, description.indexOf(". ") + 1)
     expect(openingSentence).toBe(
-      "Hybrid search across vault notes and file content (canvas, PDF, and text files), ranked by combined keyword and semantic relevance.",
+      "Hybrid search across vault notes and file content (canvas, PDF, text files, HTML pages, and scripts), ranked by combined keyword and semantic relevance.",
     )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1401,7 +1401,8 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   // off the description must not mention file content, the extension field,
   // or file results. Both embedding variants share this wording.
   const FILE_RESULT_WORDING = {
-    searchedScope: "search across vault notes and file content (canvas, PDF, and text files)",
+    searchedScope:
+      "search across vault notes and file content (canvas, PDF, text files, HTML pages, and scripts)",
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
@@ -3338,7 +3339,7 @@ describe("DISABLED_TOOLS", () => {
 
   it("vault_list_files contrasts itself with the note discovery tools while all three are served", () => {
     expect(listFilesWhenToUse("")).toBe(
-      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
+      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, text-format, HTML, and script files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
     )
   })
 

@@ -84,7 +84,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   // File content is searched only while FILE_TOOLS_ENABLED is on, so the text
   // that mentions file results follows that setting, not any one tool
   const searchedContentText = config.fileToolsEnabled
-    ? "vault notes and file content (canvas, PDF, and text files)"
+    ? "vault notes and file content (canvas, PDF, text files, HTML pages, and scripts)"
     : "vault notes"
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`
