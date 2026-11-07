@@ -141,7 +141,7 @@ mechanism-level detail.
 
 ### Response headers
 
-Both servers set these headers:
+The server, and the `:remote` image's setup mode, set these headers:
 
 - **Framing** — every response carries `X-Frame-Options: DENY` and
   `Content-Security-Policy: frame-ancestors 'none'`, so no other site can
