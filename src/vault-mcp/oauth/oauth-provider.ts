@@ -546,6 +546,30 @@ export const createOAuthProvider = ({
 
   const isRevoked = (token: string): boolean => Boolean(selectRevokedTokenStmt.get(token))
 
+  const isPendingRequestExpired = (pending: PendingAuthRequest): boolean => {
+    return pending.createdAt.plus({ seconds: PENDING_REQUEST_TTL_S }) < DateTime.now()
+  }
+
+  const purgeExpiredPendingRequests = (): void => {
+    const expiredRequestIds: string[] = []
+
+    // A Map iterates in insertion order, which is creation order, so the
+    // expired requests come first and the walk stops at the first live one.
+    // Without the early stop, each new request would walk the whole Map.
+    for (const [requestId, pending] of pendingRequests) {
+      if (!isPendingRequestExpired(pending)) break
+      expiredRequestIds.push(requestId)
+    }
+    for (const requestId of expiredRequestIds) {
+      pendingRequests.delete(requestId)
+    }
+
+    if (expiredRequestIds.length === 0) return
+    oauthLogger.info("oauth_pending_requests_purged", {
+      purgedRequestCount: expiredRequestIds.length,
+    })
+  }
+
   // Methods below implement OAuthServerProvider from the MCP SDK.
   // They appear unused locally but are called by mcpAuthRouter() in
   // oauth-routes.ts and requireBearerAuth() in mcp-core/mcp-router.ts.
@@ -570,6 +594,9 @@ export const createOAuthProvider = ({
       // The SDK splits `scope=` into [""], so blank entries count as none.
       const requestedScopes = (params.scopes ?? []).filter((scope) => scope !== "")
       const scopes = requestedScopes.length > 0 ? requestedScopes : [DEFAULT_SCOPE]
+      // /authorize needs no sign-in. Its rate limit bounds how fast requests
+      // arrive; purging on each new one bounds how long abandoned ones stay.
+      purgeExpiredPendingRequests()
       pendingRequests.set(requestId, {
         client,
         params: { ...params, scopes },
@@ -844,7 +871,7 @@ export const createOAuthProvider = ({
     const pending = pendingRequests.get(requestId)
 
     if (!pending) return undefined
-    if (pending.createdAt.plus({ seconds: PENDING_REQUEST_TTL_S }) < DateTime.now()) {
+    if (isPendingRequestExpired(pending)) {
       pendingRequests.delete(requestId)
       reqLogger.info("oauth_request_expired")
       return undefined

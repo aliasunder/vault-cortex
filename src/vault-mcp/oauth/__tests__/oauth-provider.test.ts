@@ -1110,6 +1110,7 @@ describe("OAuth authorization code client binding", () => {
 })
 
 describe("OAuth pending consent request expiry", () => {
+  const FIVE_MINUTES_MS = 5 * 60 * 1000
   const TEN_MINUTES_MS = 10 * 60 * 1000
 
   /** Freezes the clock at the returned start time; Luxon reads Date.now. */
@@ -1165,6 +1166,45 @@ describe("OAuth pending consent request expiry", () => {
     )
     const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
     expect(expiryLogs).toEqual([{ level: "info", message: "oauth_request_expired", data: {} }])
+  })
+
+  it("purges consent requests older than ten minutes when a new one starts, keeping younger ones", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    const abandonedRequestId = await startAuthFlow(oauth, client)
+    vi.setSystemTime(startedAt + FIVE_MINUTES_MS)
+    const liveRequestId = await startAuthFlow(oauth, client)
+
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS + 1000)
+    await startAuthFlow(oauth, client)
+
+    const purgeLogs = logs.filter((log) => log.message === "oauth_pending_requests_purged")
+    expect(purgeLogs).toEqual([
+      {
+        level: "info",
+        message: "oauth_pending_requests_purged",
+        data: { component: "oauth", purgedRequestCount: 1 },
+      },
+    ])
+    expect(oauth.getPendingRequest(liveRequestId, testLogger)?.client).toEqual(client)
+    // The purge already removed the abandoned request, so this lookup finds
+    // nothing to expire and logs no oauth_request_expired.
+    expect(oauth.getPendingRequest(abandonedRequestId, testLogger)).toBeUndefined()
+    const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
+    expect(expiryLogs).toEqual([])
+  })
+
+  it("purges nothing when a new consent request starts while the others are ten minutes old or younger", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    const firstRequestId = await startAuthFlow(oauth, client)
+
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS)
+    await startAuthFlow(oauth, client)
+
+    const purgeLogs = logs.filter((log) => log.message === "oauth_pending_requests_purged")
+    expect(purgeLogs).toEqual([])
+    expect(oauth.getPendingRequest(firstRequestId, testLogger)?.client).toEqual(client)
   })
 })
 
