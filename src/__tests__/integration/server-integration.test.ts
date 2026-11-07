@@ -1419,14 +1419,24 @@ describe("default config", () => {
       })
 
       expect(response.status).toBe(404)
-      // Express's 404 page replaces Content-Security-Policy with a policy of
-      // its own, so X-Frame-Options alone forbids framing it.
-      expect(response.headers.get("x-frame-options")).toBe("DENY")
-      expect(response.headers.get("x-powered-by")).toBeNull()
     })
   })
 
   describe("security headers", () => {
+    it("forbids framing Express's 404 page, without X-Powered-By", async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/`, {
+        headers: { accept: "text/html,application/xhtml+xml" },
+      })
+
+      expect(response.status).toBe(404)
+      // Express's 404 page replaces Content-Security-Policy with a policy of
+      // its own, so X-Frame-Options alone forbids framing it.
+      expect({
+        frameOptions: response.headers.get("x-frame-options"),
+        poweredBy: response.headers.get("x-powered-by"),
+      }).toEqual({ frameOptions: "DENY", poweredBy: null })
+    })
+
     it.each([
       { label: "/healthz", path: "/healthz", init: {}, expectedStatus: 200 },
       {

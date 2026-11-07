@@ -1913,7 +1913,7 @@ describe("OAuth default scope", () => {
     expect(issued.scope).toBe("vault")
   })
 
-  it("keeps the scope a request names", async () => {
+  it("grants vault when the request names vault", async () => {
     const { logs, testLogger, oauth, client } = await setupAuditTest()
 
     const { consentHtml, requestId } = await startAuthFlowWithScopes(oauth, client, ["vault"])

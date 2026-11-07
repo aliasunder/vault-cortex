@@ -174,7 +174,6 @@ describe("OAuth consent token submission", () => {
     const { requestId } = await startPendingRequest()
     const response = await submitToken(requestId, token)
     expect(response.status).toBe(302)
-    expect(response.headers.get("cache-control")).toBe("no-store")
     const locationHeader = response.headers.get("location")
 
     if (!locationHeader) throw new Error("expected Location header on 302")
@@ -211,7 +210,6 @@ describe("OAuth consent token submission", () => {
       const response = await submitToken(requestId, token)
       expect(response.status).toBe(200)
       expect(response.headers.get("location")).toBeNull()
-      expect(response.headers.get("cache-control")).toBe("no-store")
       expect(readConsentPage(await response.text())).toEqual({
         error: "Invalid token. Please try again.",
         values: ["Test Client", clientId, REDIRECT_DESTINATION, GRANT_TEXT],
@@ -232,6 +230,18 @@ describe("OAuth consent token submission", () => {
       requestId,
     })
     expect(html).not.toContain("admin-zq9")
+  })
+
+  it.each([
+    { label: "approval redirect", token: AUTH_TOKEN, expectedStatus: 302 },
+    { label: "wrong-token re-render", token: "not-the-token", expectedStatus: 200 },
+  ])("marks the $label as not cacheable", async ({ token, expectedStatus }) => {
+    const { requestId } = await startPendingRequest()
+
+    const response = await submitToken(requestId, token)
+
+    expect(response.status).toBe(expectedStatus)
+    expect(response.headers.get("cache-control")).toBe("no-store")
   })
 })
 
@@ -276,7 +286,6 @@ describe("OAuth consent body validation", () => {
       body: "request_id=a&request_id=b&token=t&action=approve",
     })
     expect(response.status).toBe(400)
-    expect(response.headers.get("cache-control")).toBe("no-store")
     const text = await response.text()
     expect(text).toBe("Invalid form submission.")
   })
@@ -288,7 +297,6 @@ describe("OAuth consent body validation", () => {
       body: "request_id=a",
     })
     expect(response.status).toBe(400)
-    expect(response.headers.get("cache-control")).toBe("no-store")
     const text = await response.text()
     expect(text).toBe("Invalid form submission.")
   })
@@ -301,21 +309,35 @@ describe("OAuth consent body validation", () => {
     })
 
     expect(response.status).toBe(400)
-    expect(response.headers.get("cache-control")).toBe("no-store")
     await expect(response.text()).resolves.toBe("Authorization request expired or invalid.")
   })
 
-  it("marks the form parser's 413 for an oversized form as not cacheable", async () => {
-    // Over express.urlencoded's default 100 KB body limit
-    const oversizedToken = "t".repeat(200 * 1024)
-
+  it.each([
+    {
+      label: "400 for duplicate form fields",
+      body: "request_id=a&request_id=b&token=t&action=approve",
+      expectedStatus: 400,
+    },
+    { label: "400 for missing fields", body: "request_id=a", expectedStatus: 400 },
+    {
+      label: "400 for a request ID with no pending request",
+      body: "request_id=nonexistent-id&token=t&action=approve",
+      expectedStatus: 400,
+    },
+    {
+      // The body exceeds express.urlencoded's default 100 KB limit.
+      label: "form parser's 413 for an oversized form",
+      body: `request_id=a&token=${"t".repeat(200 * 1024)}&action=approve`,
+      expectedStatus: 413,
+    },
+  ])("marks the $label as not cacheable", async ({ body, expectedStatus }) => {
     const response = await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: `request_id=a&token=${oversizedToken}&action=approve`,
+      body,
     })
 
-    expect(response.status).toBe(413)
+    expect(response.status).toBe(expectedStatus)
     expect(response.headers.get("cache-control")).toBe("no-store")
   })
 })
