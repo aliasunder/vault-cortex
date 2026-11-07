@@ -3718,7 +3718,7 @@ describe("file watcher — new-directory rescan", () => {
         logger,
       )
       // readdir order isn't guaranteed, so compare sorted ("loop" < "settled.md").
-      expect([...addedPaths].sort()).toEqual([loopLink, settledPath])
+      expect([...addedPaths].toSorted()).toEqual([loopLink, settledPath])
     },
   )
 

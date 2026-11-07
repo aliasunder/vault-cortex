@@ -4011,8 +4011,9 @@ describe("rebuildFromVault filesystem failures", () => {
     const actualFs =
       await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
     const statSpy = vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
-      if (requestedPath === filePath)
+      if (requestedPath === filePath) {
         throw Object.assign(new Error("controlled stat failure"), { code })
+      }
       return actualFs.statOrNull(requestedPath)
     })
     const warnSpy = vi.spyOn(logger, "warn")
@@ -4855,7 +4856,7 @@ describe("rebuildFromVault", () => {
 
     const results = index.fullTextSearch({ query: "symlink target content" }, logger)
     expect(results).toHaveLength(2)
-    const paths = results.map((result) => result.path).sort()
+    const paths = results.map((result) => result.path).toSorted()
     expect(paths).toEqual(["linked.md", "real/original.md"])
   })
 
