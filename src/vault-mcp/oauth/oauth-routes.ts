@@ -178,6 +178,8 @@ export const createOAuthRoutes = ({
         clientId,
       })
 
+      // Any action but an explicit Approve denies, so an unexpected form
+      // value can never grant access.
       if (action !== "approve") {
         consentLogger.info("oauth_consent_denied_by_user")
         deletePendingRequest(request_id)

@@ -220,7 +220,8 @@ const startServer = async (): Promise<void> => {
   })
 
   const app = express()
-  // First, so every response carries the headers, errors and redirects included.
+  // First, so a response that later middleware ends early, such as an error
+  // or a redirect, carries the headers too.
   app.use(securityHeaders)
   app.disable("x-powered-by")
   // Proxy trust is deployment-explicit: TRUST_PROXY_HOPS grants one

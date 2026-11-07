@@ -57,9 +57,9 @@ const MAX_PENDING_REQUEST_PARAMS_BYTES = 8192
 // Every rejected code gets this one message, so a code issued to another
 // client looks the same as an unknown one.
 const INVALID_AUTH_CODE_MESSAGE = "Authorization code expired or invalid"
-// The scope every new sign-in is granted (see authorize); also what the static
-// token carries (see verifyAccessToken) and what the metadata advertises as
-// scopes_supported.
+// The server has only this scope. Every new sign-in is granted it (see
+// authorize), the static token carries it (see verifyAccessToken), and the
+// metadata advertises it as scopes_supported.
 export const DEFAULT_SCOPE = "vault" as const
 
 /** `authorize` sets the granted scope before storing a request, so scopes is always set. */

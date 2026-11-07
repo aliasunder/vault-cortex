@@ -17,8 +17,8 @@ import type { HostingPlatform } from "./setup-page.js"
 
 /** Which container hosting platform the page is served from, read from the
  *  variable each platform sets on its services. Checked in the same order
- *  as print-derived-env's PUBLIC_URL derivation, so the page never names a
- *  different platform than the one the URL came from. */
+ *  as the PUBLIC_URL derivation in rootfs/etc/s6-overlay/scripts/print-derived-env,
+ *  so the page never names a different platform than the one the URL came from. */
 const detectHostingPlatform = (): HostingPlatform | undefined => {
   if (env.get("RENDER_EXTERNAL_URL").asString()?.trim()) return "render"
   if (env.get("RAILWAY_PUBLIC_DOMAIN").asString()?.trim()) return "railway"
@@ -48,13 +48,15 @@ const startSetupServer = (): void => {
     .asUrlString()
   const vaultName = env.get("VAULT_NAME").default("").asString().trim()
   const vaultPassword = env.get("VAULT_PASSWORD").asString() || undefined
+  // init-obsidian-login sets this value when Obsidian rejects the saved login.
   const savedLoginRejected = env.get("SETUP_REASON").default("").asString() === "login-failed"
   const hostingPlatform = detectHostingPlatform()
 
   const setupUrl = publicUrl ? new URL("/setup", publicUrl).href : "/setup"
 
   const app = express()
-  // First, so every response carries the headers, errors and redirects included.
+  // First, so a response that later middleware ends early, such as an error
+  // or a redirect, carries the headers too.
   app.use(securityHeaders)
   app.disable("x-powered-by")
   // Setup mode serves sign-in forms and their results, so no response may be cached.
@@ -104,6 +106,8 @@ const startSetupServer = (): void => {
     res.status(503).json({ error: "setup required", setup_url: setupUrl })
   })
 
+  // Not server.ts's createErrorMiddleware, because importing server.ts would
+  // load the index, OAuth and MCP modules that setup mode never runs.
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
     logger.error("unhandled_error", {
       method: req.method,

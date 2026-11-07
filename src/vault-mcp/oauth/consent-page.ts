@@ -15,14 +15,17 @@ type ConsentPageParams = {
 const GRANT_DESCRIPTION = "Everything this server's tools can do in your vault"
 
 /** Where Approve sends access, as the page shows it:
- *  - an address with a host: its scheme and host, port included, so only a
- *    web address starts with `https://`;
- *  - an address with no host, such as the app link `claude.ai:callback`, or
- *    one URL.parse cannot read: the address as written. */
+ *  - an address with a host: its scheme and host, port included. The scheme
+ *    always shows, so an app link never reads as a website.
+ *  - an address with no host, such as the app link `claude.ai:callback`: the
+ *    address as written.
+ *  The SDK passes only addresses URL.parse can read; one it cannot would also
+ *  show as written. */
 const redirectUriToDestination = (redirectUri: string): string => {
   const redirectUrl = URL.parse(redirectUri)
 
   if (!redirectUrl?.host) return redirectUri
+  // Not URL.origin, which is "null" for an app scheme such as claude://.
   return `${redirectUrl.protocol}//${redirectUrl.host}`
 }
 
