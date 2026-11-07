@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.56.4] — 2026-11-07
+
+### Bug Fixes
+
+- **search:** Preserve semantic matches in filtered searches (#739)
+
+### Maintenance
+
+- **deps:** Bump the production group with 2 updates (#742)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.39.1 to 4.39.2 (#741)
+
+### Other Changes
+
+- **search:** Make the file-watcher tests pass on a busy Mac (#740)
+
 ## [0.56.3] — 2026-11-06
 
 ### Bug Fixes
