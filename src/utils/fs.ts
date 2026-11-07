@@ -1,5 +1,8 @@
 import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises"
+import { createReadStream } from "node:fs"
 import type { Dirent, Stats } from "node:fs"
+import { buffer as streamToBuffer } from "node:stream/consumers"
+import { StringDecoder } from "node:string_decoder"
 import { isErrnoException } from "./is-errno-exception.js"
 
 /** True for the errors that mean nothing is reachable at a path: the entry is
@@ -20,6 +23,23 @@ export const readFileOrNull = async (path: string): Promise<string | null> => {
     if (isMissingPathError(error) || isErrnoException(error, "EISDIR")) return null
     throw error
   }
+}
+
+/** Reads at most maxBytes from the start of a file and decodes them as UTF-8
+ *  the way readFile does: an invalid byte becomes a replacement character and
+ *  a byte-order mark stays. The rest of the file is never loaded. */
+export const readFileTextPrefix = async (params: {
+  path: string
+  maxBytes: number
+}): Promise<string> => {
+  // end is inclusive, so the stream stops after maxBytes bytes
+  const prefix = await streamToBuffer(
+    createReadStream(params.path, { start: 0, end: params.maxBytes - 1 }),
+  )
+
+  // The cut can split a character. write() holds back that character's bytes,
+  // so the text never ends in a replacement character.
+  return new StringDecoder("utf8").write(prefix)
 }
 
 /** Stats a path, returning null instead of throwing when nothing exists there

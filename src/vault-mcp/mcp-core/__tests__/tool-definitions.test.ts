@@ -1465,7 +1465,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({}))
     const openingSentence = description.slice(0, description.indexOf(". ") + 1)
     expect(openingSentence).toBe(
-      "Hybrid search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages up to 16 MiB, and .py/.sh/.ps1 scripts; each file's first 100 KiB of text is searched; scripts match by keyword only), ranked by combined keyword and semantic relevance.",
+      "Hybrid search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts; a page or script over 16 MiB is found by its name only; each file's first 100 KiB of text is searched; scripts match by keyword only), ranked by combined keyword and semantic relevance.",
     )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1493,7 +1493,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   // only the hybrid variant says scripts match by keyword alone.
   const FILE_RESULT_WORDING = {
     searchedScope:
-      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages up to 16 MiB, and .py/.sh/.ps1 scripts; each file's first 100 KiB of text is searched; scripts match by keyword only)",
+      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts; a page or script over 16 MiB is found by its name only; each file's first 100 KiB of text is searched; scripts match by keyword only)",
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
@@ -1509,7 +1509,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   const KEYWORD_ONLY_FILE_RESULT_WORDING = {
     ...FILE_RESULT_WORDING,
     searchedScope:
-      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages up to 16 MiB, and .py/.sh/.ps1 scripts; each file's first 100 KiB of text is searched)",
+      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts; a page or script over 16 MiB is found by its name only; each file's first 100 KiB of text is searched)",
   }
 
   it.each([

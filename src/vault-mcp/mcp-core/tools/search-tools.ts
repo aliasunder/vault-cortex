@@ -6,7 +6,10 @@ import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
-import { MAX_INDEXED_CONTENT_BYTES } from "../../search/search-index.js"
+import {
+  MAX_INDEXED_CONTENT_BYTES,
+  MAX_INDEXED_HTML_OR_SCRIPT_BYTES,
+} from "../../search/search-index.js"
 import { SEARCH_LEG_ROW_CAP } from "../../search/hybrid-search.js"
 import {
   createStrictInputObject,
@@ -91,7 +94,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const scriptExtensions = getExtensionsOfKind("script").join("/")
   const textExtensions = getExtensionsOfKind("text").join("/")
   const searchedContentText = config.fileToolsEnabled
-    ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages up to 16 MiB, and ${scriptExtensions} scripts; each file's first ${MAX_INDEXED_CONTENT_BYTES / 1024} KiB of text is searched${scriptMatchClause})`
+    ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages, and ${scriptExtensions} scripts; a page or script over ${MAX_INDEXED_HTML_OR_SCRIPT_BYTES / (1024 * 1024)} MiB is found by its name only; each file's first ${MAX_INDEXED_CONTENT_BYTES / 1024} KiB of text is searched${scriptMatchClause})`
     : "vault notes"
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`

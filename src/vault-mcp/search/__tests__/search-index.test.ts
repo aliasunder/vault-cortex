@@ -11,7 +11,7 @@ import { createSearchIndex, CONTENT_INDEXED_FILE_KINDS } from "../search-index.j
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
-import { statOrNull } from "../../../utils/fs.js"
+import { readFileTextPrefix, statOrNull } from "../../../utils/fs.js"
 import { decodeTextBuffer } from "../../../utils/decode-text-buffer.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
 import { buildPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
@@ -3860,10 +3860,19 @@ describe("rebuildFromVault bounded I/O", () => {
         })
         restoreOperations.push(() => statSpy.mockRestore())
       }
-      if (operation !== "size") {
+      // Text files go through the prefix reader; notes and canvases are read whole
+      if (operation === "text") {
+        const prefixReadSpy = vi.mocked(readFileTextPrefix).mockImplementation(async (params) => {
+          if (targetPaths.has(params.path)) await holdTargetOperation(params.path)
+          return actualFsUtils.readFileTextPrefix(params)
+        })
+        restoreOperations.push(() => prefixReadSpy.mockRestore())
+      }
+      if (operation === "note" || operation === "canvas") {
         const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
-          if (typeof requestedPath === "string" && targetPaths.has(requestedPath))
+          if (typeof requestedPath === "string" && targetPaths.has(requestedPath)) {
             await holdTargetOperation(requestedPath)
+          }
           return actualFs.readFile(requestedPath, options)
         })
         restoreOperations.push(() => readSpy.mockRestore())
@@ -4060,10 +4069,44 @@ describe("rebuildFromVault filesystem failures", () => {
     expect(warnSpy).toHaveBeenCalledTimes(1)
   })
 
+  it("warns and skips an unreadable text file while indexing healthy files", async () => {
+    const { vaultPath, search } = await createRebuildVault()
+    const filePath = join(vaultPath, "broken.txt")
+    await writeFile(filePath, "brokenquartz")
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const prefixReadSpy = vi.mocked(readFileTextPrefix).mockImplementation(async (params) => {
+      if (params.path === filePath) throw new Error("controlled read failure")
+      return actualFsUtils.readFileTextPrefix(params)
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      prefixReadSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(rebuilt.count).toBe(1)
+    expect(prefixReadSpy).toHaveBeenCalledWith({ path: filePath, maxBytes: 102_400 })
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable text file during rebuild", {
+      path: "broken.txt",
+      error: "[Error]: controlled read failure",
+    })
+    expect(
+      (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.md"])
+    expect((await search.hybridSearch({ query: "brokenquartz" }, logger)).results).toEqual([])
+  })
+
   it.each([
     { fileName: "broken.md", sourceKind: "note" },
     { fileName: "broken.canvas", sourceKind: "canvas file" },
-    { fileName: "broken.txt", sourceKind: "text file" },
     { fileName: "broken.pdf", sourceKind: "PDF" },
   ])(
     "warns and skips an unreadable $sourceKind while indexing healthy files",
@@ -8406,13 +8449,26 @@ describe("scripts", () => {
     })
   })
 
-  it("finds a script over 16 MiB by its text, since the page size limit is for HTML only", async () => {
+  it("finds a script over 16 MiB by its name without reading it", async () => {
     const filler = "# filler\n".repeat(Math.ceil((16 * 1024 * 1024) / 9) + 1)
-    const { database } = await rebuildVaultOf({
+    const { fileIndex } = await rebuildVaultOf({
       files: [{ path: "giganticscript.py", content: `buriedjasper = 1\n${filler}` }],
     })
+    const searchPaths = async (query: string) => {
+      const { results } = await fileIndex.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
 
-    expect(keywordPaths(database, "buriedjasper")).toEqual(["giganticscript.py"])
+    expect(await searchPaths("giganticscript")).toEqual(["giganticscript.py"])
+    expect(await searchPaths("buriedjasper")).toEqual([])
+    // readFile takes at most two arguments, so these two cover every read of the script
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
+      expect.stringMatching(/giganticscript\.py$/),
+    )
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
+      expect.stringMatching(/giganticscript\.py$/),
+      expect.anything(),
+    )
   })
 
   it("leaves a script holding a NUL byte out of search", async () => {
@@ -8429,6 +8485,42 @@ describe("scripts", () => {
     expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual([
       { path: "plain.py" },
     ])
+  })
+})
+
+describe("text formats in a rebuild", () => {
+  it("reads only the first 100 KiB of a text file, all the text search keeps", async () => {
+    const vaultDir = await mkdtemp(join(tmpdir(), "text-formats-"))
+    onTestFinished(() => rm(vaultDir, { recursive: true }))
+    // The opening word sits inside the first 100 KiB and the closing word past it
+    await writeFile(
+      join(vaultDir, "prefixread.log"),
+      `openingtopaz\n${"x ".repeat(60_000)}\nclosingtopaz\n`,
+    )
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    await fileIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    const searchPaths = async (query: string) => {
+      const { results } = await fileIndex.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    expect(await searchPaths("openingtopaz")).toEqual(["prefixread.log"])
+    expect(await searchPaths("closingtopaz")).toEqual([])
+    expect(vi.mocked(readFileTextPrefix)).toHaveBeenCalledWith({
+      path: expect.stringMatching(/prefixread\.log$/),
+      maxBytes: 102_400,
+    })
+    // readFile takes at most two arguments, so these two cover every whole-file read
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(expect.stringMatching(/prefixread\.log$/))
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
+      expect.stringMatching(/prefixread\.log$/),
+      expect.anything(),
+    )
   })
 })
 

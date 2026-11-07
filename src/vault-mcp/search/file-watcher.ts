@@ -11,7 +11,8 @@ import { join, relative, resolve as resolvePath, sep } from "node:path"
 import {
   CONTENT_INDEXED_FILE_KINDS,
   INDEXING_FILE_READ_CONCURRENCY,
-  isHtmlPageIndexedByNameOnly,
+  isIndexedByNameOnly,
+  MAX_INDEXED_CONTENT_BYTES,
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
 import type { RebuildResult, SearchIndex } from "./search-index.js"
@@ -27,7 +28,13 @@ import type { Logger } from "../../logger.js"
 import { decodeTextBuffer } from "../../utils/decode-text-buffer.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
-import { isMissingPathError, readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js"
+import {
+  isMissingPathError,
+  readdirOrNull,
+  readFileTextPrefix,
+  realpathOrNull,
+  statOrNull,
+} from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 
@@ -238,8 +245,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     if (isCanvas || isIndexableNonCanvas) {
       try {
         /** The text to index for the file:
-         *  - empty for an HTML page too large to extract, which is never read, so
-         *    its file_content row still lets search find it by name;
+         *  - empty for an HTML page or script over the size limit, which is never
+         *    read, so its file_content row still lets search find it by name;
          *  - null for an HTML page or script that is not UTF-8 or holds a NUL byte
          *    early on, which vault_read_file refuses too;
          *  - the file's text otherwise. */
@@ -255,7 +262,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
             }
             case "html":
             case "script": {
-              const indexedByNameOnly = isHtmlPageIndexedByNameOnly({
+              const indexedByNameOnly = isIndexedByNameOnly({
                 filePath: relativePath,
                 fileBytes: fileStat.size,
               })
@@ -266,11 +273,18 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
               if (decodedSource.status !== "text") return null
               return decodedSource.text
             }
-            // Canvases and text formats decode leniently, so a stray invalid byte
-            // or NUL padding keeps them in search. Images and other files never
-            // reach this switch: the guard above reads only the kinds search indexes.
-            case "canvas":
+            // Text formats and canvases decode leniently, so a stray invalid byte
+            // or NUL padding keeps them in search. Search keeps a text file's
+            // first MAX_INDEXED_CONTENT_BYTES only, so no more is read.
             case "text":
+              return await readFileTextPrefix({
+                path: filePath,
+                maxBytes: MAX_INDEXED_CONTENT_BYTES,
+              })
+            // A canvas is read whole, because its links need the whole JSON.
+            // Images and other files never reach this switch: the guard above
+            // reads only the kinds search indexes.
+            case "canvas":
             case "image":
             case "other":
               return await readFile(filePath, "utf8")

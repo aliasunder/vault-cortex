@@ -8,6 +8,7 @@ import { tmpdir } from "node:os"
 vi.mock("node:fs/promises", { spy: true })
 import {
   readFileOrNull,
+  readFileTextPrefix,
   readdirOrNull,
   realpathOrNull,
   fileExists,
@@ -73,13 +74,64 @@ describe("readFileOrNull", () => {
   )
 })
 
+describe("readFileTextPrefix", () => {
+  it("returns the whole text of a file shorter than maxBytes", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "short.log")
+    await writeFile(path, "short line\n", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 100 })).toBe("short line\n")
+  })
+
+  it("returns only the first maxBytes of a longer file", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "long.log")
+    await writeFile(path, "0123456789abcdef", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 10 })).toBe("0123456789")
+  })
+
+  it("leaves out a character the cut splits instead of ending in a replacement character", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "accent.log")
+    // "é" is the two bytes 0xC3 0xA9, so a 3-byte cut keeps only its first byte
+    await writeFile(path, "abé", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 3 })).toBe("ab")
+  })
+
+  it("keeps a byte-order mark and replaces an invalid byte, as readFile does", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "latin1.log")
+    // 0xEF 0xBB 0xBF is the UTF-8 byte-order mark; 0xE9 alone is never valid UTF-8
+    await writeFile(path, Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0xe9, 0x62]))
+
+    expect(await readFileTextPrefix({ path, maxBytes: 100 })).toBe("﻿a�b")
+  })
+
+  it("rejects when no file exists at the path", async () => {
+    const dir = await makeTempDir()
+    const missingPath = join(dir, "missing.log")
+
+    // Node reports ENOENT as errno -2 on both Linux and macOS
+    const missingFileError = Object.assign(
+      new Error(`ENOENT: no such file or directory, open '${missingPath}'`),
+      { errno: -2, code: "ENOENT", syscall: "open", path: missingPath },
+    )
+
+    await expect(readFileTextPrefix({ path: missingPath, maxBytes: 100 })).rejects.toThrow(
+      missingFileError,
+    )
+  })
+})
+
 describe("readdirOrNull", () => {
   it("returns recursive directory entries when the directory exists", async () => {
     const dir = await makeTempDir()
     await mkdir(join(dir, "sub"))
     await writeFile(join(dir, "sub", "a.md"), "x", "utf8")
     const entries = await readdirOrNull(dir)
-    const names = entries?.map((entry) => entry.name).sort()
+    const names = entries?.map((entry) => entry.name).toSorted()
     expect(names).toEqual(["a.md", "sub"])
   })
 

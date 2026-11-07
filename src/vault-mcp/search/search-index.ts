@@ -31,7 +31,7 @@ import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
-import { statOrNull } from "../../utils/fs.js"
+import { readFileTextPrefix, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import {
@@ -85,18 +85,21 @@ const EMBEDDED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["canvas", "pdf", "te
  *  pathological FTS rows from large CSVs or verbose JSONs. */
 export const MAX_INDEXED_CONTENT_BYTES = 102_400
 
-/** An HTML page larger than this is indexed by its name only, like a scanned
- *  PDF. Extracting its text runs on the main thread, which answers no request
- *  meanwhile, and attribute-heavy pages at 16 MiB already took up to 1.7 s. */
-const MAX_INDEXED_HTML_PAGE_BYTES = 16 * 1024 * 1024
+/** An HTML page or script larger than this is indexed by its name only, like a
+ *  scanned PDF. Each kind has its own reason for the same limit:
+ *  - a page's text is extracted on the main thread, which answers no request
+ *    meanwhile, and attribute-heavy pages at 16 MiB already took up to 1.7 s;
+ *  - a script is read whole, because indexing keeps its text only when every
+ *    byte is UTF-8, so the limit bounds the memory one read takes. */
+export const MAX_INDEXED_HTML_OR_SCRIPT_BYTES = 16 * 1024 * 1024
 
-/** True for an HTML page too large to extract. Search finds such a page by its
- *  name only, so indexing never reads it. */
-export const isHtmlPageIndexedByNameOnly = (params: {
-  filePath: string
-  fileBytes: number
-}): boolean => {
-  return getFileKind(params.filePath) === "html" && params.fileBytes > MAX_INDEXED_HTML_PAGE_BYTES
+/** True for an HTML page or script over the size limit. Search finds such a
+ *  file by its name only, so indexing never reads it. */
+export const isIndexedByNameOnly = (params: { filePath: string; fileBytes: number }): boolean => {
+  const fileKind = getFileKind(params.filePath)
+  const isHtmlOrScript = fileKind === "html" || fileKind === "script"
+
+  return isHtmlOrScript && params.fileBytes > MAX_INDEXED_HTML_OR_SCRIPT_BYTES
 }
 
 /** The text file_content_fts holds for a file, built from the text its reader
@@ -113,7 +116,7 @@ const fileTextToIndexedText = (params: {
     case "canvas":
       return linearizeCanvas(params.fileText)
     case "html":
-      if (isHtmlPageIndexedByNameOnly(params)) return ""
+      if (isIndexedByNameOnly(params)) return ""
       return extractHtmlVisibleText({
         html: params.fileText,
         maxBytes: MAX_INDEXED_CONTENT_BYTES,
@@ -2419,11 +2422,23 @@ export const createSearchIndex = (
     }): Promise<RebuildFileContent | null> => {
       const { file, sourceKind } = params
 
+      // Search keeps a text file's first MAX_INDEXED_CONTENT_BYTES only, so no
+      // more is read. A canvas's links and a note's body need the whole file.
+      const readContent = (): Promise<string> => {
+        switch (sourceKind) {
+          case "text file":
+            return readFileTextPrefix({
+              path: file.absolutePath,
+              maxBytes: MAX_INDEXED_CONTENT_BYTES,
+            })
+          case "canvas file":
+          case "note":
+            return readFile(file.absolutePath, "utf8")
+        }
+      }
+
       try {
-        const [content, fileStat] = await Promise.all([
-          readFile(file.absolutePath, "utf8"),
-          stat(file.absolutePath),
-        ])
+        const [content, fileStat] = await Promise.all([readContent(), stat(file.absolutePath)])
         return {
           relativePath: file.relativePath,
           content,
@@ -2489,8 +2504,8 @@ export const createSearchIndex = (
     const textFileContents = textFileContentResults.filter((entry) => entry !== null)
 
     /** Reads an HTML page or script for indexing:
-     *  - a page too large to extract is never read and keeps empty text, so its
-     *    file_content row still lets search find it by name;
+     *  - a page or script over the size limit is never read and keeps empty
+     *    text, so its file_content row still lets search find it by name;
      *  - any other file keeps its text only when its bytes are UTF-8 with no NUL
      *    byte early on, the test vault_read_file applies, so search never holds
      *    text that a read refuses. */
@@ -2502,7 +2517,7 @@ export const createSearchIndex = (
       const readDecodedFile = async () => {
         try {
           const fileStat = await stat(file.absolutePath)
-          const indexedByNameOnly = isHtmlPageIndexedByNameOnly({
+          const indexedByNameOnly = isIndexedByNameOnly({
             filePath: file.relativePath,
             fileBytes: fileStat.size,
           })

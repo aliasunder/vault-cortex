@@ -20,7 +20,7 @@ import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 import { createSearchIndex } from "../search-index.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
-import { readdirOrNull, statOrNull } from "../../../utils/fs.js"
+import { readdirOrNull, readFileTextPrefix, statOrNull } from "../../../utils/fs.js"
 import type { SearchIndex } from "../search-index.js"
 import { watchVaultAndBuildIndex } from "../file-watcher.js"
 import { atomicWriteFile } from "../../vault-operations/vault-filesystem.js"
@@ -967,10 +967,11 @@ describe("file watcher — obsolete events and embedding queues", () => {
       const { testVault, search, database, fire } = await createControlledWatcher()
       const filePath = join(testVault, "content.txt")
       await writeFile(filePath, "currentopal")
-      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
-      const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
-        if (requestedPath === filePath) throw new Error("controlled content read failure")
-        return actualFs.readFile(requestedPath, options)
+      const actualFsUtils =
+        await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+      const readSpy = vi.mocked(readFileTextPrefix).mockImplementation(async (params) => {
+        if (params.path === filePath) throw new Error("controlled content read failure")
+        return actualFsUtils.readFileTextPrefix(params)
       })
       const contentSpy = vi.spyOn(search, "upsertFileContent")
       const warnSpy = vi.spyOn(logger, "warn")
@@ -980,7 +981,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       })
 
       await expect(fire(event, "content.txt")).resolves.toBeUndefined()
-      expect(readSpy).toHaveBeenCalledWith(filePath, "utf8")
+      expect(readSpy).toHaveBeenCalledWith({ path: filePath, maxBytes: 102_400 })
       expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content indexing failed", {
         path: "content.txt",
         error: "[Error]: controlled content read failure",
@@ -1194,22 +1195,36 @@ describe("file watcher — obsolete events and embedding queues", () => {
     })
   })
 
+  /** Holds the first read of filePath open until release() runs. A note is
+   *  read whole and a text file through the prefix reader, so both are held. */
   const delayFirstRead = async (filePath: string) => {
     const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
     const entered = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
     const delayedPaths = new Set<string>()
+    const holdFirstRead = async (requestedPath: unknown): Promise<void> => {
+      if (requestedPath !== filePath || delayedPaths.has(filePath)) return
+
+      delayedPaths.add(filePath)
+      entered.resolve(undefined)
+      await release.promise
+    }
     vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
       const content = await actualFs.readFile(requestedPath, options)
-
-      if (requestedPath === filePath && !delayedPaths.has(filePath)) {
-        delayedPaths.add(filePath)
-        entered.resolve(undefined)
-        await release.promise
-      }
+      await holdFirstRead(requestedPath)
       return content
     })
-    onTestFinished(() => vi.mocked(readFile).mockRestore())
+    vi.mocked(readFileTextPrefix).mockImplementation(async (params) => {
+      const content = await actualFsUtils.readFileTextPrefix(params)
+      await holdFirstRead(params.path)
+      return content
+    })
+    onTestFinished(() => {
+      vi.mocked(readFile).mockRestore()
+      vi.mocked(readFileTextPrefix).mockRestore()
+    })
     return { entered: entered.promise, release: () => release.resolve(undefined) }
   }
 
@@ -1606,6 +1621,48 @@ describe("file watcher — obsolete events and embedding queues", () => {
     // readFile takes at most two arguments, so these two cover every read of the page
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath)
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath, expect.anything())
+  })
+
+  it("finds a script over 16 MiB by its name without reading it", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    const filler = "# filler\n".repeat(Math.ceil((16 * 1024 * 1024) / 9) + 1)
+    const scriptPath = join(testVault, "giganticscript.py")
+    await writeFile(scriptPath, `buriedjasper = 1\n${filler}`, "utf8")
+    const searchPaths = async (query: string) => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    await fire("add", "giganticscript.py")
+
+    expect(await searchPaths("giganticscript")).toEqual(["giganticscript.py"])
+    expect(await searchPaths("buriedjasper")).toEqual([])
+    // readFile takes at most two arguments, so these two cover every read of the script
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath, expect.anything())
+  })
+
+  it("reads only the first 100 KiB of a changed text file, all the text search keeps", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    const logPath = join(testVault, "prefixread.log")
+    // The opening word sits inside the first 100 KiB and the closing word past it
+    await writeFile(logPath, `openingtopaz\n${"x ".repeat(60_000)}\nclosingtopaz\n`, "utf8")
+    const searchPaths = async (query: string) => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    await fire("add", "prefixread.log")
+
+    expect(await searchPaths("openingtopaz")).toEqual(["prefixread.log"])
+    expect(await searchPaths("closingtopaz")).toEqual([])
+    expect(vi.mocked(readFileTextPrefix)).toHaveBeenCalledWith({
+      path: logPath,
+      maxBytes: 102_400,
+    })
+    // readFile takes at most two arguments, so these two cover every whole-file read
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath, expect.anything())
   })
 
   it("leaves a page that is not UTF-8 out of search", async () => {
