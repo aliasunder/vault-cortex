@@ -789,9 +789,9 @@ cryptographic or binding checks. The binding claims
 it at authorization time, whatever scope the client requests, so the access
 token and every refresh carry the same value as the static token. A refresh
 grant that an earlier version stored with another scope keeps that scope. The
-consent page shows where
-Approve sends access (the redirect address's scheme and host, or the whole
-address when it has no host) and a fixed description of the grant.
+consent page shows where Approve sends access (the redirect address's scheme
+and host, or the whole address when it has no host) and a fixed description of
+the grant.
 
 **Token storage:** what each credential is and where it lives.
 

@@ -60,7 +60,7 @@ const INVALID_AUTH_CODE_MESSAGE = "Authorization code expired or invalid"
 // The server has only this scope. Every new sign-in is granted it (see
 // authorize), the static token carries it (see verifyAccessToken), and the
 // metadata advertises it as scopes_supported.
-export const DEFAULT_SCOPE = "vault" as const
+export const VAULT_SCOPE = "vault" as const
 
 /** `authorize` sets the granted scope before storing a request, so scopes is always set. */
 type GrantedAuthorizationParams = AuthorizationParams & { scopes: string[] }
@@ -589,7 +589,7 @@ export const createOAuthProvider = ({
       return store
     },
 
-    /** Every request is granted DEFAULT_SCOPE, whatever scope it names. The
+    /** Every request is granted VAULT_SCOPE, whatever scope it names. The
      *  grant is set here, before the request is stored, so the code exchange
      *  and every later refresh read the same value. */
     async authorize(
@@ -605,7 +605,7 @@ export const createOAuthProvider = ({
       // redirect the client with error=invalid_target.
       assertResourceIsThisServer(params.resource, client.client_id)
       const requestId = randomUUID()
-      const scopes = [DEFAULT_SCOPE]
+      const scopes = [VAULT_SCOPE]
       const grantedParams = { ...params, scopes }
       const paramsBytes = Buffer.byteLength(JSON.stringify(grantedParams))
 
@@ -807,7 +807,7 @@ export const createOAuthProvider = ({
         return {
           token,
           clientId: "static",
-          scopes: [DEFAULT_SCOPE],
+          scopes: [VAULT_SCOPE],
           expiresAt: DateTime.now().plus({ years: 10 }).toUnixInteger(),
         }
       }

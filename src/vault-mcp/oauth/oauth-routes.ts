@@ -8,7 +8,7 @@ import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { extractClientIp, safeEqual, tokenBindingForServer } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
-import { DEFAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
+import { VAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
 
 type OAuthRoutesOptions = {
@@ -77,7 +77,7 @@ export const createOAuthRoutes = ({
     },
   }
 
-  const scopesSupported = [DEFAULT_SCOPE]
+  const scopesSupported = [VAULT_SCOPE]
 
   // The same derivation the provider mints tokens from, so metadata and
   // tokens can't disagree.
