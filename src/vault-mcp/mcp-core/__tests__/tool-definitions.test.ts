@@ -566,9 +566,11 @@ describe("sentences shared across sibling tools", () => {
   const INDEX_LAG_TOOLS = [
     TOOL_NAMES.VAULT_SEARCH,
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+    TOOL_NAMES.VAULT_LIST_TAGS,
     TOOL_NAMES.VAULT_RECENT_NOTES,
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
+    TOOL_NAMES.VAULT_GET_BACKLINKS,
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     TOOL_NAMES.VAULT_FIND_ORPHANS,
     TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
@@ -2323,7 +2325,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. To keep the daily notes folder excluded, list it yourself: the folder named in Obsidian\'s Daily Notes settings, which vault_get_daily_note\'s path starts with.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. To keep the daily notes folder excluded, list it yourself: the folder vault_get_daily_note\'s path starts with.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -3269,7 +3271,7 @@ describe("DISABLED_TOOLS", () => {
       '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_LEAD} To keep the daily notes folder excluded, list it yourself: the folder named in Obsidian's Daily Notes settings, which vault_get_daily_note's path starts with.`,
+      `${ENTRY_LEAD} To keep the daily notes folder excluded, list it yourself: the folder vault_get_daily_note's path starts with.`,
     )
     expect(excludeFoldersEntry("vault_get_daily_note")).toBe(ENTRY_LEAD)
   })

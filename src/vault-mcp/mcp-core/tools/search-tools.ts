@@ -313,11 +313,10 @@ Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "p
 
 When to use: Discovering what tags exist before searching by tag. Good first step for vault orientation.${listTagsAlternativesLine}
 
-Behavior:
+Behavior: ${INDEX_LAG_LEAD}.
 - Tags in the tags property and #tags written in note bodies both count, and count is unique notes, not occurrences.
 - Spellings that differ only in letter case are one tag, shown as the spelling written most often.
 - Each hierarchical tag appears as one full entry, not split into segments.
-- ${INDEX_LAG_LEAD}.
 
 Errors:
 - A vault with no tagged notes returns an empty array, not an error.
@@ -810,7 +809,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     : {
         folders: `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`,
         dailyFolderLine: isToolEnabled("vault_get_daily_note")
-          ? " To keep the daily notes folder excluded, list it yourself: the folder named in Obsidian's Daily Notes settings, which vault_get_daily_note's path starts with."
+          ? " To keep the daily notes folder excluded, list it yourself: the folder vault_get_daily_note's path starts with."
           : "",
       }
 
