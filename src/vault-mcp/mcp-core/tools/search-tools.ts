@@ -84,7 +84,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   // File content is searched only while FILE_TOOLS_ENABLED is on, so the text
   // that mentions file results follows that setting, not any one tool. Scripts
   // are never embedded, which matters to a caller only while semantic matching runs.
-  const scriptMatchClause = config.embeddingEnabled ? ", which match by keyword only" : ""
+  const scriptMatchClause = config.embeddingEnabled ? "; scripts match by keyword only" : ""
   const searchedContentText = config.fileToolsEnabled
     ? `vault notes and file content (canvas, PDF, text files, HTML pages, and scripts${scriptMatchClause})`
     : "vault notes"

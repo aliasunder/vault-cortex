@@ -5,6 +5,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { assetOperations } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
+import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
+import type { FileKind } from "../../obsidian-markdown/file-kinds.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
@@ -77,6 +79,10 @@ const formatAssetReadResult = (result: AssetReadResult): CallToolResult["content
   }
 }
 
+/** A file kind's extensions as the tool text writes them (".html/.htm"), read
+ *  from the file-kind map so the text follows it when a type is added. */
+const formatExtensionsOfKind = (kind: FileKind): string => getExtensionsOfKind(kind).join("/")
+
 export const registerAssetTools = ({
   registerTool,
   safeHandler,
@@ -94,8 +100,11 @@ export const registerAssetTools = ({
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     TOOL_NAMES.VAULT_SEARCH,
   ].every(isToolEnabled)
+  const htmlExtensions = formatExtensionsOfKind("html")
+  const scriptExtensions = formatExtensionsOfKind("script")
+  const textExtensions = formatExtensionsOfKind("text")
   const listFilesContrastSentence = noteDiscoveryToolsServed
-    ? " vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, HTML (.html/.htm), script (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files, so this is the discovery surface for everything else."
+    ? ` vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, HTML (${htmlExtensions}), script (${scriptExtensions}), and ${textExtensions} files, so this is the discovery surface for everything else.`
     : " This is the discovery surface for every file that is not a markdown note."
 
   registerTool(
@@ -110,7 +119,7 @@ Example: vault_read_file({ path: "exports/data.json" }) — the file content as 
 Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines
 Example: vault_read_file({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 
-When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", " vault_search also indexes the content of canvases, PDFs, HTML pages (.html/.htm), scripts (.py/.sh/.ps1), and the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, but not images or other files.")}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
+When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", ` vault_search also indexes the content of canvases, PDFs, HTML pages (${htmlExtensions}), scripts (${scriptExtensions}), and the text formats ${textExtensions}, but not images or other files.`)}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
 Parameters:
 - raw: true switches a canvas or PDF to its other form. A canvas returns its exact JSON source (geometry, ids, colors) instead of the outline. A PDF returns each page rendered as an image instead of extracted text, showing layout, diagrams, tables, and formatting; only the first ${config.maxPdfRenderPages} pages are rendered, and later pages are readable only as text, without raw.
