@@ -2848,19 +2848,35 @@ describe("file tool handlers", () => {
     })
   })
 
-  it("rejects an unsupported extension naming the readable types", async () => {
+  it("rejects a file holding NUL bytes, naming the readable types", async () => {
     const { vault, readAsset } = await setupAssetHarness()
-    await writeFile(join(vault, "song.mp3"), "xxxx", "utf8")
+    // An ID3v2.4 tag header, which opens most MP3 files and holds NUL bytes
+    await writeFile(join(vault, "song.mp3"), Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]))
     const result = await readAsset({ path: "song.mp3" })
     expect(result).toEqual({
       isError: true,
       content: [
         {
           type: "text",
-          text: '[Error]: unsupported file type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)',
+          text: '[Error]: unsupported file type ".mp3": "song.mp3" exists (6 bytes) and holds a NUL byte in its first 8,000 bytes (binary data or UTF-16 text). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and UTF-8 text files',
         },
       ],
     })
+  })
+
+  it("returns an HTML page's source as text", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    const pageSource = "<!doctype html>\n<h1>Runbook</h1>\n<script>restart()</script>\n"
+    await writeFile(join(vault, "runbook.html"), pageSource, "utf8")
+    const result = await readAsset({ path: "runbook.html" })
+    expect(result).toEqual({ content: [{ type: "text", text: pageSource }] })
+  })
+
+  it("reads a note whose .MD extension is uppercase as text, until notes with that extension are supported", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "Note.MD"), "# Upper\n", "utf8")
+    const result = await readAsset({ path: "Note.MD" })
+    expect(result).toEqual({ content: [{ type: "text", text: "# Upper\n" }] })
   })
 
   it("rejects a .md path without touching the note", async () => {
