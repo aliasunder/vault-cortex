@@ -154,6 +154,15 @@ describe("readFileTextPrefix", () => {
     expect(await readFileTextPrefix({ path, maxBytes: 100 })).toBe("ab\uFFFD")
   })
 
+  it("replaces an unfinished character at the end of a file exactly maxBytes long", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "exact.log")
+    // The file ends at the limit, so nothing is cut and readFile's decoding applies
+    await writeFile(path, Buffer.from([0x61, 0x62, 0xe2, 0x82]))
+
+    expect(await readFileTextPrefix({ path, maxBytes: 4 })).toBe("ab\uFFFD")
+  })
+
   it("keeps a byte-order mark and replaces an invalid byte, as readFile does", async () => {
     const dir = await makeTempDir()
     const path = join(dir, "latin1.log")

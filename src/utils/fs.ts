@@ -25,10 +25,9 @@ export const readFileOrNull = async (path: string): Promise<string | null> => {
   }
 }
 
-/** Reads at most maxBytes from the start of a file and decodes them as UTF-8
- *  the way readFile does: an invalid byte becomes a replacement character and
- *  a byte-order mark stays. The rest of the file is never loaded, and a
- *  character that the maxBytes cut splits is left out. */
+/** Decodes as UTF-8 the way readFile does: an invalid byte becomes a
+ *  replacement character and a byte-order mark stays. Reads at most one byte
+ *  past maxBytes, and leaves out a character that the maxBytes cut splits. */
 export const readFileTextPrefix = async (params: {
   path: string
   maxBytes: number
@@ -37,17 +36,20 @@ export const readFileTextPrefix = async (params: {
 
   if (byteLimit < 1) return ""
 
-  // end is inclusive, so the stream stops after byteLimit bytes
-  const prefix = await streamToBuffer(
-    createReadStream(params.path, { start: 0, end: byteLimit - 1 }),
+  // end is inclusive, so the stream stops after byteLimit + 1 bytes. The extra
+  // byte shows whether the file goes on past byteLimit.
+  const readBytes = await streamToBuffer(
+    createReadStream(params.path, { start: 0, end: byteLimit }),
   )
   const decoder = new StringDecoder("utf8")
-  const reachedEndOfFile = prefix.length < byteLimit
+  const fileContinuesPastLimit = readBytes.length > byteLimit
 
-  // At the end of the file, end() turns an unfinished character into a
-  // replacement character, as readFile does. At a cut, write() holds back the
-  // bytes of the character the cut splits, so the text never ends in one.
-  return reachedEndOfFile ? decoder.end(prefix) : decoder.write(prefix)
+  // At a cut, write() holds back the bytes of the character the cut splits, so
+  // the text never ends in a replacement character. At the end of the file,
+  // end() turns an unfinished character into one, as readFile does.
+  return fileContinuesPastLimit
+    ? decoder.write(readBytes.subarray(0, byteLimit))
+    : decoder.end(readBytes)
 }
 
 /** Stats a path, returning null instead of throwing when nothing exists there
