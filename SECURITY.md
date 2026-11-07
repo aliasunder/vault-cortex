@@ -264,7 +264,9 @@ while the owner decides are bounded:
   `invalid_request`, and a held request keeps its client's ID, not a copy
   of the registration
 - **Rate-limited** — 5 requests per minute per client IP (an IPv6 client
-  by its /56)
+  by its /56). The rate limit is what bounds how many requests are held,
+  so it is only as strong as the client IP: set `TRUST_PROXY_HOPS` and
+  `TRUST_FORWARDED_HOPS` above 0 only for a proxy that writes those headers
 
 ### Symlink safety
 

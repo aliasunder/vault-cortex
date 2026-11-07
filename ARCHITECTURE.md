@@ -808,6 +808,9 @@ value as the static token.
 - **Consent requests** — held in memory for 10 minutes while the consent page
   waits for the owner. `/authorize` needs no sign-in, so the server bounds
   what anyone can make it hold:
+  - the per-client-IP rate limit bounds how many requests arrive in those
+    10 minutes, so the bound is only as strong as the client IP (see Rate
+    limiting below);
   - each new request first removes the held requests that have expired,
     logged as `oauth_pending_requests_purged`;
   - a request whose parameters exceed 8 KB of JSON is refused with

@@ -975,6 +975,38 @@ describe("OAuth refresh over HTTP", () => {
     return { code, verifier }
   }
 
+  it("redirects an authorization request over 8 KB back to the client with invalid_request", async () => {
+    const { baseUrl } = await createRefreshTest()
+    const client = await registerClient(baseUrl, "203.0.113.40")
+    const oversizedState = "s".repeat(9000)
+    const authorizeUrl = new URL(`${baseUrl}/authorize`)
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: client.client_id,
+      redirect_uri: REDIRECT_URI,
+      code_challenge: base64Url(randomBytes(32)),
+      code_challenge_method: "S256",
+      state: oversizedState,
+    }).toString()
+
+    const response = await fetch(authorizeUrl, {
+      headers: { forwarded: "for=203.0.113.40" },
+      redirect: "manual",
+    })
+
+    expect(response.status).toBe(302)
+    const location = response.headers.get("location")
+
+    if (!location) throw new Error("the refusal carried no redirect location")
+    const redirect = new URL(location)
+    expect(`${redirect.origin}${redirect.pathname}`).toBe(REDIRECT_URI)
+    expect(Object.fromEntries(redirect.searchParams)).toEqual({
+      error: "invalid_request",
+      error_description: "Authorization request parameters are too large",
+      state: oversizedState,
+    })
+  })
+
   /** Consent page → approve → PKCE code exchange, all over HTTP. */
   const issueTokens = async (
     baseUrl: string,

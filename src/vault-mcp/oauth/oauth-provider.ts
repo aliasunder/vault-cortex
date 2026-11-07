@@ -300,8 +300,9 @@ export const createOAuthProvider = ({
   const db = initDb(dbPath, oauthLogger)
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, StoredPendingRequest>()
-  // Only a consent approved with MCP_AUTH_TOKEN adds a code, so unlike
-  // pendingRequests this Map needs no purge of expired entries.
+  // Only a consent approved with MCP_AUTH_TOKEN adds a code, so this Map
+  // grows only with the owner's own unredeemed sign-ins. Unlike
+  // pendingRequests, it needs no purge of expired entries.
   const authCodes = new Map<string, StoredAuthCode>()
   const { issuer, audience } = tokenBindingForServer(serverUrl)
   // The root discovery document (/.well-known/oauth-protected-resource,
@@ -597,6 +598,10 @@ export const createOAuthProvider = ({
       params: AuthorizationParams,
       res: Response,
     ): Promise<void> {
+      // /authorize needs no sign-in. Its rate limit bounds how fast requests
+      // arrive; purging on each one, refused or not, keeps expired requests
+      // from piling up.
+      purgeExpiredPendingRequests()
       // Thrown before anything is sent, so the SDK's handler can still
       // redirect the client with error=invalid_target.
       assertResourceIsThisServer(params.resource, client.client_id)
@@ -616,9 +621,6 @@ export const createOAuthProvider = ({
         })
         throw new InvalidRequestError("Authorization request parameters are too large")
       }
-      // /authorize needs no sign-in. Its rate limit bounds how fast requests
-      // arrive; purging on each new one keeps expired ones from piling up.
-      purgeExpiredPendingRequests()
       pendingRequests.set(requestId, {
         clientId: client.client_id,
         params: grantedParams,
