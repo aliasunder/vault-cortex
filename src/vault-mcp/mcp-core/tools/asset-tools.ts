@@ -95,7 +95,7 @@ export const registerAssetTools = ({
     TOOL_NAMES.VAULT_SEARCH,
   ].every(isToolEnabled)
   const listFilesContrastSentence = noteDiscoveryToolsServed
-    ? " vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, text-format, HTML, and script files, so this is the discovery surface for everything else."
+    ? " vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, HTML (.html/.htm), script (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files, so this is the discovery surface for everything else."
     : " This is the discovery surface for every file that is not a markdown note."
 
   registerTool(
@@ -110,7 +110,7 @@ Example: vault_read_file({ path: "exports/data.json" }) — the file content as 
 Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines
 Example: vault_read_file({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 
-When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", " vault_search also indexes canvas, PDF, text-format, HTML, and script content, but not images or other files.")}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
+When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", " vault_search also indexes the content of canvases, PDFs, HTML pages (.html/.htm), scripts (.py/.sh/.ps1), and the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, but not images or other files.")}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
 Parameters:
 - raw: true switches a canvas or PDF to its other form. A canvas returns its exact JSON source (geometry, ids, colors) instead of the outline. A PDF returns each page rendered as an image instead of extracted text, showing layout, diagrams, tables, and formatting; only the first ${config.maxPdfRenderPages} pages are rendered, and later pages are readable only as text, without raw.
@@ -136,7 +136,7 @@ ${PATH_SAFETY_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 - "file changed while reading" — retry the read
 - "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the server's operator to restart the server
-- "unsupported file type …" — the file holds binary data (audio, archives, UTF-16 text, …), found by a NUL byte in its first 8,000 bytes; the error names the readable types plus the file's existence and size. Ask for a UTF-8 copy of UTF-16 text
+- "unsupported file type …" — the file holds binary data (audio, archives, UTF-16 text, …); the error names the readable types plus the file's existence and size. Ask for a UTF-8 copy of UTF-16 text
 
 Returns: by file type:
 - Images (.png/.jpg/.jpeg/.gif/.webp): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels; an animated GIF is reduced to its first frame when recompressed.
