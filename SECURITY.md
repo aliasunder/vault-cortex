@@ -145,9 +145,9 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 - **Framing** — every response carries `X-Frame-Options: DENY` and
   `Content-Security-Policy: frame-ancestors 'none'`, so no other site can
-  frame the consent or setup pages. The server's 404 for an unknown address
-  is Express's built-in page, which replaces that content policy with its
-  own; `X-Frame-Options` still applies there
+  frame the consent or setup pages. The server's 404 for a request no route
+  answers is Express's built-in page, which replaces that content policy
+  with its own; `X-Frame-Options` still applies there
 - **Content type and referrer** — every response carries
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, and
   none carries `X-Powered-By`
