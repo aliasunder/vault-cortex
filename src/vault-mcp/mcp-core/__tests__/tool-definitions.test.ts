@@ -673,10 +673,18 @@ describe("sentences shared across sibling tools", () => {
     expect(requireDescription(config, toolName)).toContain(sentence)
   })
 
-  it("no tool lists its empty-result contract under Errors", () => {
+  // Each switch here changes some tool's Errors text, so the default config
+  // alone would miss an entry that only one of them renders.
+  it.each([
+    { label: "by default", env: {} },
+    { label: "with embeddings off", env: { EMBEDDING_ENABLED: "false" } },
+    { label: "with file tools off", env: { FILE_TOOLS_ENABLED: "false" } },
+    { label: "with memory off", env: { MEMORY_ENABLED: "false" } },
+    { label: "with Obsidian Sync on", env: { OBSIDIAN_SYNC: "true" } },
+  ])("no tool lists its empty-result contract under Errors $label", ({ env }) => {
     // AGENTS.md puts "returns an empty …, not an error" under Behavior; an
     // Errors entry for it reads as a failure to the calling agent.
-    const toolsWithEmptyResultErrors = calls
+    const toolsWithEmptyResultErrors = registerWithConfig(env)
       .filter(([toolName, config]) => {
         const [, errorsAndAfter] = requireDescription(config, toolName).split("\nErrors:")
 
@@ -1542,29 +1550,29 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
 })
 
 describe("vault_search result cap", () => {
-  const LAG_SENTENCE =
+  const BEHAVIOR_LEAD =
     "Behavior: Results can lag a file change by a few seconds. No matches returns an empty results array with total 0, not an error."
 
   it.each([
     {
       label: "bounds both modes for notes and files by default",
       env: {},
-      expectedLine: `${LAG_SENTENCE} When only keyword matching ran (search_mode "fts"), at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files.`,
+      expectedLine: `${BEHAVIOR_LEAD} When only keyword matching ran (search_mode "fts"), at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files.`,
     },
     {
       label: "bounds both modes for notes only when file tools are off",
       env: { FILE_TOOLS_ENABLED: "false" },
-      expectedLine: `${LAG_SENTENCE} When only keyword matching ran (search_mode "fts"), at most 100 notes come back; with "hybrid", at most 200 notes.`,
+      expectedLine: `${BEHAVIOR_LEAD} When only keyword matching ran (search_mode "fts"), at most 100 notes come back; with "hybrid", at most 200 notes.`,
     },
     {
       label: "states only the keyword bound for notes and files when embeddings are off",
       env: { EMBEDDING_ENABLED: "false" },
-      expectedLine: `${LAG_SENTENCE} At most 100 notes and 100 files come back.`,
+      expectedLine: `${BEHAVIOR_LEAD} At most 100 notes and 100 files come back.`,
     },
     {
       label: "states only the keyword bound for notes when embeddings and file tools are off",
       env: { EMBEDDING_ENABLED: "false", FILE_TOOLS_ENABLED: "false" },
-      expectedLine: `${LAG_SENTENCE} At most 100 notes come back.`,
+      expectedLine: `${BEHAVIOR_LEAD} At most 100 notes come back.`,
     },
   ])("$label", ({ env, expectedLine }) => {
     const behaviorLine = findDescriptionLine({
