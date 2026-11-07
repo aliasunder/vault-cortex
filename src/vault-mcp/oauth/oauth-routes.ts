@@ -135,7 +135,8 @@ export const createOAuthRoutes = ({
 
   // No consent decision response may be cached: the re-rendered page holds the
   // request ID, and the redirect holds the authorization code. Mounted ahead of
-  // the form parser so its errors, such as a 413 for an oversized form, carry it too.
+  // the form parser so the response to a parser error, such as an oversized
+  // form, carries it too.
   router.use("/oauth/decide", (_req: Request, res: Response, next: NextFunction) => {
     res.set("Cache-Control", "no-store")
     next()
