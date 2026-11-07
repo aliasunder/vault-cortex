@@ -57,12 +57,12 @@ const MAX_PENDING_REQUEST_PARAMS_BYTES = 8192
 // Every rejected code gets this one message, so a code issued to another
 // client looks the same as an unknown one.
 const INVALID_AUTH_CODE_MESSAGE = "Authorization code expired or invalid"
-// The scope granted to a request that names none (see authorize); also what
-// the static token carries (see verifyAccessToken) and what the metadata
-// advertises as scopes_supported.
+// The scope every new sign-in is granted (see authorize); also what the static
+// token carries (see verifyAccessToken) and what the metadata advertises as
+// scopes_supported.
 export const DEFAULT_SCOPE = "vault" as const
 
-/** `authorize` fills in the default scope before storing a request, so scopes is always set. */
+/** `authorize` sets the granted scope before storing a request, so scopes is always set. */
 type GrantedAuthorizationParams = AuthorizationParams & { scopes: string[] }
 
 type PendingAuthRequest = {
@@ -589,10 +589,9 @@ export const createOAuthProvider = ({
       return store
     },
 
-    /** A request that names no scope is granted DEFAULT_SCOPE; named scopes
-     *  are granted as requested. The default is applied here, before the
-     *  request is stored, so the consent page, the code exchange, and every
-     *  later refresh read the same value. */
+    /** Every request is granted DEFAULT_SCOPE, whatever scope it names. The
+     *  grant is set here, before the request is stored, so the code exchange
+     *  and every later refresh read the same value. */
     async authorize(
       client: OAuthClientInformationFull,
       params: AuthorizationParams,
@@ -606,9 +605,7 @@ export const createOAuthProvider = ({
       // redirect the client with error=invalid_target.
       assertResourceIsThisServer(params.resource, client.client_id)
       const requestId = randomUUID()
-      // The SDK splits `scope=` into [""], so blank entries count as none.
-      const requestedScopes = (params.scopes ?? []).filter((scope) => scope !== "")
-      const scopes = requestedScopes.length > 0 ? requestedScopes : [DEFAULT_SCOPE]
+      const scopes = [DEFAULT_SCOPE]
       const grantedParams = { ...params, scopes }
       const paramsBytes = Buffer.byteLength(JSON.stringify(grantedParams))
 
@@ -636,7 +633,7 @@ export const createOAuthProvider = ({
         renderConsentPage({
           clientName: client.client_name ?? client.client_id,
           clientId: client.client_id,
-          scopes,
+          redirectUri: params.redirectUri,
           requestId,
         }),
       )

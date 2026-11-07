@@ -1851,6 +1851,9 @@ describe("OAuth resource parameter (RFC 8707)", () => {
 })
 
 describe("OAuth default scope", () => {
+  const GRANT_ROW_VALUE =
+    '<div class="value">Everything this server\'s tools can do in your vault</div>'
+
   /** Starts an authorization flow with the given scopes and returns the
    *  rendered consent HTML plus the request id it carries. */
   const startAuthFlowWithScopes = async (
@@ -1882,8 +1885,7 @@ describe("OAuth default scope", () => {
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
     expect(started?.data.scopes).toEqual(["vault"])
-    expect(consentHtml).toContain("<li>vault</li>")
-    expect(consentHtml).not.toContain("No specific scopes requested")
+    expect(consentHtml).toContain(GRANT_ROW_VALUE)
 
     const code = oauth.approveRequest(requestId, testLogger)
     const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
@@ -1904,8 +1906,7 @@ describe("OAuth default scope", () => {
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
     expect(started?.data.scopes).toEqual(["vault"])
-    expect(consentHtml).toContain("<li>vault</li>")
-    expect(consentHtml).not.toContain("<li></li>")
+    expect(consentHtml).toContain(GRANT_ROW_VALUE)
 
     const code = oauth.approveRequest(requestId, testLogger)
     const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
@@ -1919,36 +1920,47 @@ describe("OAuth default scope", () => {
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
     expect(started?.data.scopes).toEqual(["vault"])
-    expect(consentHtml).toContain("<li>vault</li>")
+    expect(consentHtml).toContain(GRANT_ROW_VALUE)
 
     const code = oauth.approveRequest(requestId, testLogger)
     const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
     expect(issued.scope).toBe("vault")
   })
 
-  it("does not widen a narrower explicit scope to vault", async () => {
-    const { oauth, testLogger, client } = await setupAuditTest()
+  it("grants vault when the request names another scope", async () => {
+    const { logs, oauth, testLogger, client } = await setupAuditTest()
 
-    const { consentHtml, requestId } = await startAuthFlowWithScopes(oauth, client, ["read"])
+    const { requestId } = await startAuthFlowWithScopes(oauth, client, ["read"])
 
-    expect(consentHtml).toContain("<li>read</li>")
-    expect(consentHtml).not.toContain("<li>vault</li>")
+    const started = logs.find((log) => log.message === "oauth_authorize_started")
+    expect(started?.data.scopes).toEqual(["vault"])
 
     const code = oauth.approveRequest(requestId, testLogger)
     const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
-    expect(issued.scope).toBe("read")
+    expect(issued.scope).toBe("vault")
+    const verified = await oauth.provider.verifyAccessToken(issued.access_token)
+    expect(verified.scopes).toEqual(["vault"])
+  })
+
+  it("leaves the scope a request names off the consent page", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    const { consentHtml } = await startAuthFlowWithScopes(oauth, client, ["admin-zq9"])
+
+    expect(consentHtml).toContain('<div class="value">https://example.com</div>')
+    expect(consentHtml).toContain(GRANT_ROW_VALUE)
+    expect(consentHtml).not.toContain("admin-zq9")
   })
 
   it("grants vault when the scopes key is absent from the request", async () => {
     const { logs, testLogger, oauth, client } = await setupAuditTest()
 
-    // When the SDK receives no `scope` parameter at all, params.scopes is
-    // undefined — the ?? [] nullish guard in authorize handles this.
+    // When the SDK receives no `scope` parameter at all, params.scopes is undefined.
     const { consentHtml, requestId } = await startAuthFlowWithScopes(oauth, client, undefined)
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
     expect(started?.data.scopes).toEqual(["vault"])
-    expect(consentHtml).toContain("<li>vault</li>")
+    expect(consentHtml).toContain(GRANT_ROW_VALUE)
 
     const code = oauth.approveRequest(requestId, testLogger)
     const issued = await oauth.provider.exchangeAuthorizationCode(client, code)

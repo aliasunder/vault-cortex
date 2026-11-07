@@ -46,6 +46,9 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 const AUTH_TOKEN = "local-dev-token"
 const TEST_URLS = { serverUrl: new URL("http://localhost:8000") }
 const REDIRECT_URI = "http://localhost:9999/callback"
+// What the consent page shows for REDIRECT_URI and for the grant
+const REDIRECT_DESTINATION = "http://localhost:9999"
+const GRANT_TEXT = "Everything this server's tools can do in your vault"
 // A test request's peer address is loopback, in a form that varies by
 // platform (127.0.0.1, ::1, or IPv4-mapped).
 const LOOPBACK_ADDRESSES = ["127.0.0.1", "::1", "::ffff:127.0.0.1"]
@@ -197,7 +200,6 @@ describe("OAuth consent token submission", () => {
     return {
       error: /<div class="error">([^<]*)<\/div>/.exec(html)?.[1],
       values: [...html.matchAll(/<div class="value">([^<]*)<\/div>/g)].map((match) => match[1]),
-      scopes: [...html.matchAll(/<li>([^<]*)<\/li>/g)].map((match) => match[1]),
       requestId: REQUEST_ID_PATTERN.exec(html)?.[1],
     }
   }
@@ -212,24 +214,24 @@ describe("OAuth consent token submission", () => {
       expect(response.headers.get("cache-control")).toBe("no-store")
       expect(readConsentPage(await response.text())).toEqual({
         error: "Invalid token. Please try again.",
-        values: ["Test Client", clientId],
-        scopes: ["vault"],
+        values: ["Test Client", clientId, REDIRECT_DESTINATION, GRANT_TEXT],
         requestId,
       })
     },
   )
 
-  it("re-renders the consent page with the default scope after a wrong token when the request named none", async () => {
-    const { requestId, clientId } = await startPendingRequest([])
+  it("re-renders the consent page without the scope the request named after a wrong token", async () => {
+    const { requestId, clientId } = await startPendingRequest(["admin-zq9"])
 
     const response = await submitToken(requestId, "not-the-token")
+    const html = await response.text()
 
-    expect(readConsentPage(await response.text())).toEqual({
+    expect(readConsentPage(html)).toEqual({
       error: "Invalid token. Please try again.",
-      values: ["Test Client", clientId],
-      scopes: ["vault"],
+      values: ["Test Client", clientId, REDIRECT_DESTINATION, GRANT_TEXT],
       requestId,
     })
+    expect(html).not.toContain("admin-zq9")
   })
 })
 
