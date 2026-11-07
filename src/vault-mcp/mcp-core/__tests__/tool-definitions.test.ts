@@ -810,7 +810,7 @@ describe("config interpolation in descriptions", () => {
     const exclusionDescription = config.inputSchema?.shape.exclude_folders?.description
 
     expect(exclusionDescription).toBe(
-      'Folder paths to exclude (e.g. Projects; default: the daily notes folder, "Templates", "Profile")',
+      'Folder paths to exclude (e.g. Projects; default: the daily notes folder (none when Obsidian\'s Daily Notes folder setting is the vault root or blank), "Templates", "Profile")',
     )
   })
 })
@@ -2329,7 +2329,7 @@ describe("vault_find_orphans live folder defaults", () => {
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
-      'Folder paths to exclude (e.g. Projects; default: the daily notes folder, "Templates", "About Me")',
+      'Folder paths to exclude (e.g. Projects; default: the daily notes folder (none when Obsidian\'s Daily Notes folder setting is the vault root or blank), "Templates", "About Me")',
     )
   })
 

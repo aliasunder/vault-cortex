@@ -807,7 +807,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
         dailyFolderLine: "",
       }
     : {
-        folders: `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`,
+        folders: `the daily notes folder (none when Obsidian's Daily Notes folder setting is the vault root or blank), "Templates", ${JSON.stringify(config.memoryDir)}`,
         dailyFolderLine: isToolEnabled("vault_get_daily_note")
           ? " To keep the daily notes folder excluded, list it yourself: the folder vault_get_daily_note's path starts with."
           : "",

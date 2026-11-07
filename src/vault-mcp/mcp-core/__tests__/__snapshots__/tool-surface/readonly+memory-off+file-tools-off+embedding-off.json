@@ -16,7 +16,7 @@
         "type": "object",
         "properties": {
           "exclude_folders": {
-            "description": "Folder paths to exclude (e.g. Projects; default: the daily notes folder, \"Templates\", \"About Me\")",
+            "description": "Folder paths to exclude (e.g. Projects; default: the daily notes folder (none when Obsidian's Daily Notes folder setting is the vault root or blank), \"Templates\", \"About Me\")",
             "type": "array",
             "items": {
               "type": "string",
