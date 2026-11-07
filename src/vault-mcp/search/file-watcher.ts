@@ -7,9 +7,9 @@ import { watch } from "chokidar"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import type { Stats } from "node:fs"
-import { extname, join, relative, resolve as resolvePath, sep } from "node:path"
+import { join, relative, resolve as resolvePath, sep } from "node:path"
 import {
-  INDEXABLE_TEXT_EXTENSIONS,
+  CONTENT_INDEXED_FILE_KINDS,
   INDEXING_FILE_READ_CONCURRENCY,
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
@@ -21,6 +21,7 @@ import {
 } from "./body-tag-parser.js"
 import { splitPropertiesBlock } from "../obsidian-markdown/frontmatter.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
+import { getFileKind, isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import type { Logger } from "../../logger.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
@@ -225,17 +226,16 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
 
     // Canvas files are always read — link extraction is unconditional.
-    // PDF and text files (INDEXABLE_TEXT_EXTENSIONS, which includes .pdf) are
-    // only read when file content FTS is enabled.
-    const extension = extname(filePath)
-    const isCanvas = extension === ".canvas"
+    // PDF and text files are only read when file content FTS is enabled.
+    const fileKind = getFileKind(filePath)
+    const isCanvas = fileKind === "canvas"
     const isIndexableNonCanvas =
-      search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+      search.fileContentIndexingEnabled && CONTENT_INDEXED_FILE_KINDS.has(fileKind)
 
     if (isCanvas || isIndexableNonCanvas) {
       try {
         const readContentToIndex = async (): Promise<string> => {
-          if (extension !== ".pdf") return await readFile(filePath, "utf8")
+          if (fileKind !== "pdf") return await readFile(filePath, "utf8")
 
           const buffer = await readFile(filePath)
           // pdfjs throws on a Node Buffer, so it gets a plain Uint8Array view
@@ -518,10 +518,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
       // The content rows live in their own tables, so they are removed even
       // when the asset-table removal above failed.
-      const deletedExtension = extname(filePath)
-      const isDeletedCanvas = deletedExtension === ".canvas"
+      const isDeletedCanvas = isCanvasPath(filePath)
       const isDeletedIndexable =
-        search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
+        search.fileContentIndexingEnabled && CONTENT_INDEXED_FILE_KINDS.has(getFileKind(filePath))
 
       if (isDeletedCanvas || isDeletedIndexable) {
         try {
@@ -914,7 +913,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // indexChangedNonMdFile extracts a PDF's text only when file content
     // indexing is on; otherwise a PDF is only statted and keeps the general bound.
     const needsPdfExtraction = ({ filePath }: ReservedPath): boolean => {
-      return search.fileContentIndexingEnabled && extname(filePath) === ".pdf"
+      return search.fileContentIndexingEnabled && getFileKind(filePath) === "pdf"
     }
     const pdfReads = reservedPaths.filter(needsPdfExtraction)
     const otherReads = reservedPaths.filter((reservedPath) => !needsPdfExtraction(reservedPath))

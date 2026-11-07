@@ -3,6 +3,7 @@ import { getMeta, renderPageAsImage } from "unpdf"
 import type { PDFDocumentProxy } from "unpdf/pdfjs"
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
+import { getExtensionsOfKind, getFileKind } from "../obsidian-markdown/file-kinds.js"
 import { pageTextByLines } from "../obsidian-markdown/lines.js"
 import type { LineWindow } from "../obsidian-markdown/lines.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
@@ -34,25 +35,7 @@ import type { Logger } from "../../logger.js"
 
 // ── Reading ─────────────────────────────────────────────────────
 
-/** Extensions dispatched to the image pipeline (model-visible image blocks). */
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"])
-
-/** Extensions returned verbatim as text with no NUL byte check, so a
- *  NUL-padded log still reads. .svg is XML source; .base is Obsidian Bases
- *  YAML. */
-const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
-  ".svg",
-  ".json",
-  ".txt",
-  ".csv",
-  ".xml",
-  ".log",
-  ".yaml",
-  ".yml",
-  ".base",
-])
-
-/** Fixed cap on text output (passthrough files, canvas renditions and
+/** Fixed cap on text output (text files, canvas renditions and
  *  PDF-extracted text) so a huge text asset can't blow a client's response
  *  limit. Deliberately not an env var — the image budget is the tunable
  *  surface; text past this size is read in line windows, not raised into a
@@ -191,7 +174,7 @@ const buildUtf8SourceResult = (params: {
         `unsupported file type "${params.extension}": "${path}" exists ` +
           `(${params.bytes} bytes) and holds a NUL byte in its first ` +
           `${NUL_SEARCH_WINDOW_BYTES.toLocaleString("en-US")} bytes (binary data or UTF-16 text). ` +
-          `Readable types: images (${[...IMAGE_EXTENSIONS].join("/")}), .canvas, .pdf, ` +
+          `Readable types: images (${getExtensionsOfKind("image").join("/")}), .canvas, .pdf, ` +
           `and UTF-8 text files`,
       )
     case "invalid-utf8":
@@ -359,13 +342,103 @@ const readPdfPages = async (
   }
 }
 
+type ReadAsset = Readonly<{ buffer: Buffer; bytes: number }>
+
+/** Images have no raw source or line range, because the fitted image block is
+ *  the only form delivered. */
+const readImageAsset = async (params: {
+  asset: ReadAsset
+  path: string
+  raw: boolean | undefined
+  isPagedRead: boolean
+  maxImageOutputBytes: number
+}): Promise<AssetReadResult> => {
+  const { asset, path } = params
+
+  if (params.raw) {
+    throw new Error(
+      `raw source is not available for images: "${path}" is ` +
+        `binary — its image block is the delivered form`,
+    )
+  }
+  if (params.isPagedRead) {
+    throw new Error(
+      `line range is not available for images: "${path}" is ` +
+        `binary — its image block is the delivered form`,
+    )
+  }
+
+  const fitted = await fitImageToByteBudget({
+    buffer: asset.buffer,
+    budgetBytes: params.maxImageOutputBytes,
+  })
+  return { kind: "image", fitted, originalBytes: asset.bytes, path }
+}
+
+/** Reads a PDF as its extracted text, or with `raw` as rendered page images,
+ *  which cannot be paged by line. */
+const readPdfAsset = async (
+  params: {
+    asset: ReadAsset
+    path: string
+    raw: boolean | undefined
+    startLine: number | undefined
+    limit: number | undefined
+    maxPdfRenderPages: number
+    maxImageOutputBytes: number
+  },
+  logger: Logger,
+): Promise<AssetReadResult> => {
+  const { asset, path, raw, startLine, limit } = params
+
+  if (raw && requestsLineWindow({ startLine, limit })) {
+    throw new Error(
+      `line range is not available for rendered PDF pages: ` +
+        `"${path}" delivers page images, not text`,
+    )
+  }
+
+  // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
+  // so byteOffset/byteLength carve out this buffer's portion.
+  const pdfData = new Uint8Array(
+    asset.buffer.buffer,
+    asset.buffer.byteOffset,
+    asset.buffer.byteLength,
+  )
+
+  if (raw) {
+    return readPdfPages(
+      {
+        pdfData,
+        path,
+        bytes: asset.bytes,
+        maxPdfRenderPages: params.maxPdfRenderPages,
+        maxImageOutputBytes: params.maxImageOutputBytes,
+      },
+      logger,
+    )
+  }
+
+  const pdfResult = await readPdfText({ pdfData, path, bytes: asset.bytes })
+
+  if (!pdfResult.text) {
+    throw new Error(
+      `PDF has no extractable text: "${path}" exists ` +
+        `(${asset.bytes} bytes, ${pdfResult.totalPages} pages) but ` +
+        `contains no text content — it may be a scanned document or ` +
+        `image-only PDF`,
+    )
+  }
+  return buildTextResult({ text: pdfResult.text, path, startLine, limit })
+}
+
 /**
  * Reads a non-markdown vault file and returns its most useful representation
  * per type.
  * - `raw` returns a canvas's exact JSON source instead of its rendition, and
  *   a PDF's rendered page images instead of its text.
  * - `startLine`/`limit` page any text rendition as a 1-based line window.
- *   They apply after the rendition is produced (passthrough source, canvas
+ *   They apply after the rendition is produced (a text file's source, canvas
  *   outline or raw JSON, PDF-extracted text), so every path that can hit the
  *   text cap can also be paged.
  * - Throws structured errors for images with `raw`, non-text reads with
@@ -387,97 +460,55 @@ const readAssetContent = async (
   logger: Logger,
 ): Promise<AssetReadResult> => {
   const { path, raw, startLine, limit } = params
-  const isPagedRead = requestsLineWindow({ startLine, limit })
   const asset = await vaultFs.readAsset(
     { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },
     logger,
   )
 
-  // readAsset reports the extension lowercased, as these lookups expect
-  const isImage = IMAGE_EXTENSIONS.has(asset.extension)
-
-  if (isImage && raw) {
-    throw new Error(
-      `raw source is not available for images: "${path}" is ` +
-        `binary — its image block is the delivered form`,
-    )
-  }
-  if (isImage && isPagedRead) {
-    throw new Error(
-      `line range is not available for images: "${path}" is ` +
-        `binary — its image block is the delivered form`,
-    )
-  }
-  if (isImage) {
-    const fitted = await fitImageToByteBudget({
-      buffer: asset.buffer,
-      budgetBytes: params.maxImageOutputBytes,
-    })
-    return { kind: "image", fitted, originalBytes: asset.bytes, path }
-  }
-  if (asset.extension === ".canvas") {
-    const canvasSource = decodeUtf8Strict({ buffer: asset.buffer, path })
-    const text = raw ? canvasSource : linearizeCanvas(canvasSource)
-    return buildTextResult({ text, path, startLine, limit })
-  }
-  if (TEXT_PASSTHROUGH_EXTENSIONS.has(asset.extension)) {
-    const text = decodeUtf8Strict({ buffer: asset.buffer, path })
-    return buildTextResult({ text, path, startLine, limit })
-  }
-  if (asset.extension === ".pdf") {
-    if (raw && isPagedRead) {
-      throw new Error(
-        `line range is not available for rendered PDF pages: ` +
-          `"${path}" delivers page images, not text`,
-      )
+  switch (getFileKind(path)) {
+    case "image":
+      return readImageAsset({
+        asset,
+        path,
+        raw,
+        isPagedRead: requestsLineWindow({ startLine, limit }),
+        maxImageOutputBytes: params.maxImageOutputBytes,
+      })
+    case "canvas": {
+      const canvasSource = decodeUtf8Strict({ buffer: asset.buffer, path })
+      const text = raw ? canvasSource : linearizeCanvas(canvasSource)
+      return buildTextResult({ text, path, startLine, limit })
     }
-
-    // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
-    // so byteOffset/byteLength carve out this buffer's portion.
-    const pdfData = new Uint8Array(
-      asset.buffer.buffer,
-      asset.buffer.byteOffset,
-      asset.buffer.byteLength,
-    )
-
-    if (raw) {
-      return readPdfPages(
+    case "pdf":
+      return readPdfAsset(
         {
-          pdfData,
+          asset,
           path,
-          bytes: asset.bytes,
+          raw,
+          startLine,
+          limit,
           maxPdfRenderPages: params.maxPdfRenderPages,
           maxImageOutputBytes: params.maxImageOutputBytes,
         },
         logger,
       )
+    case "text": {
+      // No NUL byte check here, so a NUL-padded log keeps reading
+      const text = decodeUtf8Strict({ buffer: asset.buffer, path })
+      return buildTextResult({ text, path, startLine, limit })
     }
-
-    const pdfResult = await readPdfText({ pdfData, path, bytes: asset.bytes })
-
-    if (!pdfResult.text) {
-      throw new Error(
-        `PDF has no extractable text: "${path}" exists ` +
-          `(${asset.bytes} bytes, ${pdfResult.totalPages} pages) but ` +
-          `contains no text content — it may be a scanned document or ` +
-          `image-only PDF`,
-      )
-    }
-    return buildTextResult({
-      text: pdfResult.text,
-      path,
-      startLine,
-      limit,
-    })
+    case "html":
+    case "script":
+    case "other":
+      return buildUtf8SourceResult({
+        buffer: asset.buffer,
+        bytes: asset.bytes,
+        extension: asset.extension,
+        path,
+        startLine,
+        limit,
+      })
   }
-  return buildUtf8SourceResult({
-    buffer: asset.buffer,
-    bytes: asset.bytes,
-    extension: asset.extension,
-    path,
-    startLine,
-    limit,
-  })
 }
 
 // ── Browsing ────────────────────────────────────────────────────

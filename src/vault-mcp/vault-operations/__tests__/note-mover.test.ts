@@ -1266,29 +1266,58 @@ describe("moveNote — Canvas sources", () => {
     expect(vi.mocked(logger.warn)).not.toHaveBeenCalled()
   })
 
-  it("treats only a lowercase .canvas extension as a Canvas", async () => {
-    const { writeFixture, moveNote, readNote, logger } = setupVault()
+  it("points the file card of a Canvas with an uppercase extension at the moved note's new path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Plan.md", "# Plan\n")
+    await writeFixture(
+      "Board.Canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Plan.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Plan.md",
+      newPath: "Roadmap.md",
+      backlinkSources: ["Board.Canvas"],
+    })
+
+    expect(await readNote("Board.Canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Roadmap.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Roadmap.md",
+      links_updated: 1,
+      updated_notes: ["Board.Canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("finds and rewrites a text-card link in a Canvas with an uppercase extension that the index missed", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
-    const upperCaseCanvas = obsidianCanvas([
-      '{"id":"t1","type":"text","text":"Start from [[Foo]]","x":0,"y":0,"width":250,"height":60}',
-    ])
-    await writeFixture("Board.CANVAS", upperCaseCanvas)
+    await writeFixture(
+      "Board.CANVAS",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Start from [[Foo]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
 
     const result = await moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })
 
+    expect(await readNote("Board.CANVAS")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Start from [[Bar]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
     expect(result).toEqual({
       moved_to: "Bar.md",
-      links_updated: 0,
-      updated_notes: [],
+      links_updated: 1,
+      updated_notes: ["Board.CANVAS"],
       pruned_empty_folders: 0,
     })
-    expect(await readNote("Board.CANVAS")).toBe(upperCaseCanvas)
-    // The scan skips Board.CANVAS and no other file links Foo.md, so the log
-    // must never fire, whatever its context.
-    expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
-      "backlink verification discovered sources the index missed",
-      expect.anything(),
-    )
   })
 
   it("aborts without writing when a Canvas backlink source is not valid JSON", async () => {

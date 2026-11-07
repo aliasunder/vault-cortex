@@ -7,12 +7,13 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
-import { createSearchIndex, INDEXABLE_TEXT_EXTENSIONS } from "../search-index.js"
+import { createSearchIndex, CONTENT_INDEXED_FILE_KINDS } from "../search-index.js"
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 import { statOrNull } from "../../../utils/fs.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
+import { buildPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
 import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
@@ -7038,20 +7039,9 @@ Shared datefilter content for mtime boundary tests.
 
 // ── File content indexing constants ──────────────────────────
 
-describe("INDEXABLE_TEXT_EXTENSIONS", () => {
-  it("contains the expected set of extensions for FTS indexing", () => {
-    expect([...INDEXABLE_TEXT_EXTENSIONS].sort()).toEqual([
-      ".base",
-      ".csv",
-      ".json",
-      ".log",
-      ".pdf",
-      ".svg",
-      ".txt",
-      ".xml",
-      ".yaml",
-      ".yml",
-    ])
+describe("CONTENT_INDEXED_FILE_KINDS", () => {
+  it("indexes the content of PDF and text files", () => {
+    expect([...CONTENT_INDEXED_FILE_KINDS].toSorted()).toEqual(["pdf", "text"])
   })
 })
 
@@ -7846,6 +7836,115 @@ describe("canvas file content and links", () => {
 })
 
 // ── File content vector embeddings ────────────────────────────
+
+// Each test rebuilds a vault holding two PDFs, whose text extraction can pass
+// the default 5-second limit on a loaded machine
+describe("files with an uppercase extension", { timeout: 15_000 }, () => {
+  /** A canvas holding one text card and one file card naming `cardPath`. */
+  const buildCanvasWithFileCard = (params: { cardPath: string; text: string }): string => {
+    return JSON.stringify({
+      nodes: [
+        { id: "t1", type: "text", x: 0, y: 0, width: 200, height: 100, text: params.text },
+        { id: "f1", type: "file", x: 300, y: 0, width: 200, height: 100, file: params.cardPath },
+      ],
+      edges: [],
+    })
+  }
+
+  /** Each file holds one word no other file holds, so a search for that word
+   *  finds only that file. Every uppercase file has a lowercase control. */
+  const writeMixedCaseVault = async (): Promise<string> => {
+    const vaultDir = await mkdtemp(join(tmpdir(), "uppercase-extensions-"))
+    onTestFinished(() => rm(vaultDir, { recursive: true }))
+    await mkdir(join(vaultDir, "Notes"))
+    await mkdir(join(vaultDir, "files"))
+    await writeFile(join(vaultDir, "Notes/Plan.md"), "# Plan\n", "utf8")
+    await writeFile(join(vaultDir, "Notes/Route.md"), "# Route\n", "utf8")
+    await writeFile(join(vaultDir, "Notes/Index.md"), "See [[files/Board.Canvas]].\n", "utf8")
+    await writeFile(join(vaultDir, "files/upper.TXT"), "crimson memo\n", "utf8")
+    await writeFile(join(vaultDir, "files/lower.txt"), "teal memo\n", "utf8")
+    await writeFile(join(vaultDir, "files/Prices.CSV"), "id,item\n1,saffron\n", "utf8")
+    await writeFile(join(vaultDir, "files/costs.csv"), "id,item\n1,umber\n", "utf8")
+    await writeFile(
+      join(vaultDir, "files/Report.PDF"),
+      buildPdf([{ text: "amber ledger", x: 100, y: 700, fontSize: 12 }]),
+    )
+    await writeFile(
+      join(vaultDir, "files/control.pdf"),
+      buildPdf([{ text: "violet ledger", x: 100, y: 700, fontSize: 12 }]),
+    )
+    await writeFile(
+      join(vaultDir, "files/Board.Canvas"),
+      buildCanvasWithFileCard({ cardPath: "Notes/Plan.md", text: "indigo board" }),
+      "utf8",
+    )
+    await writeFile(
+      join(vaultDir, "files/control.canvas"),
+      buildCanvasWithFileCard({ cardPath: "Notes/Route.md", text: "olive board" }),
+      "utf8",
+    )
+    return vaultDir
+  }
+
+  const rebuildMixedCaseIndex = async (): Promise<SearchIndex> => {
+    const vaultDir = await writeMixedCaseVault()
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    await fileIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    return fileIndex
+  }
+
+  it("finds every file by its content after a rebuild, reporting its extension lowercased", async () => {
+    const fileIndex = await rebuildMixedCaseIndex()
+    const queries = ["crimson", "teal", "saffron", "umber", "amber", "violet", "indigo", "olive"]
+
+    const searchFor = async (query: string) => {
+      const { results } = await fileIndex.hybridSearch({ query }, logger)
+      return results.map(({ path, extension }) => ({ path, extension }))
+    }
+
+    expect(await Promise.all(queries.map(searchFor))).toEqual([
+      [{ path: "files/upper.TXT", extension: ".txt" }],
+      [{ path: "files/lower.txt", extension: ".txt" }],
+      [{ path: "files/Prices.CSV", extension: ".csv" }],
+      [{ path: "files/costs.csv", extension: ".csv" }],
+      [{ path: "files/Report.PDF", extension: ".pdf" }],
+      [{ path: "files/control.pdf", extension: ".pdf" }],
+      [{ path: "files/Board.Canvas", extension: ".canvas" }],
+      [{ path: "files/control.canvas", extension: ".canvas" }],
+    ])
+  })
+
+  it("lists the file cards of a canvas with an uppercase extension as its outgoing links", async () => {
+    const fileIndex = await rebuildMixedCaseIndex()
+
+    const outgoingLinks = fileIndex.getOutgoingLinks({ path: "files/Board.Canvas" }, logger)
+
+    expect(outgoingLinks.map(({ path, exists }) => ({ path, exists }))).toEqual([
+      { path: "Notes/Plan.md", exists: true },
+    ])
+  })
+
+  it("lists a canvas with an uppercase extension among a note's backlinks", async () => {
+    const fileIndex = await rebuildMixedCaseIndex()
+
+    const backlinks = fileIndex.getBacklinks({ path: "Notes/Plan.md" }, logger)
+
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["files/Board.Canvas"])
+  })
+
+  it("lists the notes linking to a canvas with an uppercase extension", async () => {
+    const fileIndex = await rebuildMixedCaseIndex()
+
+    const backlinks = fileIndex.getBacklinks({ path: "files/Board.Canvas" }, logger)
+
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["Notes/Index.md"])
+  })
+})
 
 describe("committed embedding source versions", () => {
   it.each(["note", "file"] as const)(

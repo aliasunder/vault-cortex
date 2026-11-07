@@ -4,6 +4,7 @@ import type Database from "better-sqlite3"
 import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
+import { getFileKind } from "../obsidian-markdown/file-kinds.js"
 import { sanitizeFtsQuery } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { blendScores } from "./reranker.js"
@@ -46,11 +47,20 @@ const DEFAULT_FILE_LEG_WEIGHT = 0.5
  *  kind that is off-topic for the query. Overridable like the leg weight. */
 const DEFAULT_RERANK_KIND_PREFIX = false
 
-/** Kind label for the reranker prefix, from the file's extension. */
-const fileKindLabel = (extension: string | undefined): string => {
-  if (extension === ".pdf") return "PDF file"
-  if (extension === ".canvas") return "Canvas file"
-  return "File"
+/** Kind label for the reranker prefix. */
+const fileKindLabel = (filePath: string): string => {
+  switch (getFileKind(filePath)) {
+    case "pdf":
+      return "PDF file"
+    case "canvas":
+      return "Canvas file"
+    case "image":
+    case "text":
+    case "html":
+    case "script":
+    case "other":
+      return "File"
+  }
 }
 
 // ── Vector search (internal) ───────────────────────────────────
@@ -299,7 +309,7 @@ const tryRerank = async (params: {
       // Kind marker only — the chunk text already opens with the file's
       // title, so prefixing the filename again would just repeat it.
       if (params.rerankKindPrefix && result.kind === "file") {
-        return `${fileKindLabel(result.extension)}: ${documentText}`
+        return `${fileKindLabel(result.path)}: ${documentText}`
       }
       return documentText
     })

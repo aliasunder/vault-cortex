@@ -47,6 +47,7 @@ import {
   extractCanvasFileLinks,
   rewriteCanvasLinks,
 } from "../obsidian-markdown/canvas.js"
+import { isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import { withExclusiveMultiFileLock } from "../../utils/file-write-lock.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
@@ -466,10 +467,6 @@ const rewriteNoteContent = (
   const content = stringifyNote(bodyResult.body, rewrittenData)
   return { content, linksRewritten }
 }
-
-/** Case-sensitive, like the search index: only a lowercase ".canvas"
- *  extension marks a file as a Canvas. */
-const isCanvasPath = (path: string): boolean => posix.extname(path) === ".canvas"
 
 /** True when a file card's path names a note. Obsidian opens a file card by
  *  its exact path, so a card for Plan.pdf opens the PDF even though the

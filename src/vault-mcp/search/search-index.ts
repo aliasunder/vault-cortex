@@ -9,6 +9,8 @@ import type { Logger } from "../../logger.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/canvas.js"
+import { getFileKind, isCanvasPath } from "../obsidian-markdown/file-kinds.js"
+import type { FileKind } from "../obsidian-markdown/file-kinds.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -62,20 +64,10 @@ export const INDEXING_FILE_READ_CONCURRENCY = 16
  *  CPU-heavy, so fewer run together than other file reads. */
 export const PDF_EXTRACTION_CONCURRENCY = 4
 
-/** Extensions whose content is indexed into file_content_fts for vault_search.
- *  Excludes .canvas (own path with link extraction) and .md (notes_fts). */
-export const INDEXABLE_TEXT_EXTENSIONS = new Set([
-  ".pdf",
-  ".txt",
-  ".csv",
-  ".json",
-  ".xml",
-  ".svg",
-  ".log",
-  ".yaml",
-  ".yml",
-  ".base",
-])
+/** File kinds whose content is indexed into file_content_fts when file tools
+ *  are on. A canvas is left out because it is read whatever that setting is,
+ *  since its file cards are graph links. */
+export const CONTENT_INDEXED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["pdf", "text"])
 
 /** Cap on rendered content indexed into file_content_fts — prevents
  *  pathological FTS rows from large CSVs or verbose JSONs. */
@@ -1331,10 +1323,10 @@ export const createSearchIndex = (
     logger: Logger,
   ): symbol => {
     const extension = posix.extname(params.filePath)
-    const isCanvas = extension === ".canvas"
+    const isCanvas = isCanvasPath(params.filePath)
 
-    // Canvas: linearize for FTS, raw JSON for link extraction.
-    // Other types: rawContent is already the rendered text.
+    // A canvas is linearized for FTS, and its raw JSON is read for links.
+    // Every other kind arrives as its rendered text.
     const contentToIndex = isCanvas ? linearizeCanvas(params.rawContent) : params.rawContent
 
     // Truncate content exceeding the FTS cap — iterates Unicode code points
@@ -2316,17 +2308,14 @@ export const createSearchIndex = (
       mapper: readFileSize,
     })
     const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
-    const canvasFiles = allNonMdFiles.filter((file) => file.relativePath.endsWith(".canvas"))
+    const canvasFiles = allNonMdFiles.filter((file) => isCanvasPath(file.relativePath))
     // PDF and text files are only read when file content FTS is enabled —
     // without the tables, the extraction is wasted I/O.
     const pdfFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf"))
+      ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "pdf")
       : []
     const textFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => {
-          const extension = posix.extname(file.relativePath)
-          return extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
-        })
+      ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "text")
       : []
 
     const readRebuildFileContent = async (params: {

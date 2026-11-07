@@ -501,6 +501,113 @@ describe("file-watcher — file content indexing", () => {
     ])
   })
 
+  it.each([
+    {
+      label: ".TXT",
+      fileName: "upper.TXT",
+      content: "crimson memo\n",
+      query: "crimson",
+      extension: ".txt",
+    },
+    {
+      label: ".CSV",
+      fileName: "Prices.CSV",
+      content: "id,item\n1,saffron\n",
+      query: "saffron",
+      extension: ".csv",
+    },
+  ])(
+    "indexes a file with an uppercase $label extension and removes it on delete",
+    { timeout: 15000 },
+    async ({ fileName, content, query, extension }) => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+      const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
+
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: fileIndex },
+        REAL_WATCHER_OPTIONS,
+      )
+      await writeFile(join(vault, fileName), content, "utf8")
+      await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+      const indexed = await fileIndex.hybridSearch({ query }, logger)
+      expect(
+        indexed.results.map((result) => ({ path: result.path, extension: result.extension })),
+      ).toEqual([{ path: fileName, extension }])
+
+      await unlink(join(vault, fileName))
+      await waitFor(() => removeSpy.mock.calls.length > 0)
+
+      const removed = await fileIndex.hybridSearch({ query }, logger)
+      expect(removed.results).toEqual([])
+    },
+  )
+
+  it(
+    "indexes a PDF with an uppercase extension and removes it on delete",
+    { timeout: 15000 },
+    async () => {
+      const { buildMinimalPdf } = await import("../../obsidian-markdown/__tests__/pdf-fixture.js")
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+      const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
+
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: fileIndex },
+        REAL_WATCHER_OPTIONS,
+      )
+      await writeFile(join(vault, "Report.PDF"), buildMinimalPdf())
+      await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+      const indexed = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
+      expect(
+        indexed.results.map((result) => ({ path: result.path, extension: result.extension })),
+      ).toEqual([{ path: "Report.PDF", extension: ".pdf" }])
+
+      await unlink(join(vault, "Report.PDF"))
+      await waitFor(() => removeSpy.mock.calls.length > 0)
+
+      const removed = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
+      expect(removed.results).toEqual([])
+    },
+  )
+
+  it(
+    "links the file cards of a canvas with an uppercase extension and drops them on delete",
+    { timeout: 15000 },
+    async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+      const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
+      const canvasSource = JSON.stringify({
+        nodes: [{ id: "f1", type: "file", x: 0, y: 0, width: 200, height: 100, file: "Plan.md" }],
+        edges: [],
+      })
+
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: fileIndex },
+        REAL_WATCHER_OPTIONS,
+      )
+      await writeFile(join(vault, "Board.Canvas"), canvasSource, "utf8")
+      await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+      const linkedTargets = fileIndex.getOutgoingLinks({ path: "Board.Canvas" }, logger)
+      expect(linkedTargets.map((link) => link.path)).toEqual(["Plan.md"])
+
+      await unlink(join(vault, "Board.Canvas"))
+      await waitFor(() => removeSpy.mock.calls.length > 0)
+
+      expect(fileIndex.getOutgoingLinks({ path: "Board.Canvas" }, logger)).toEqual([])
+    },
+  )
+
   it("calls embedFileContent when indexing a non-md file", { timeout: 15000 }, async () => {
     const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,

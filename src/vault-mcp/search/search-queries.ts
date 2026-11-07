@@ -6,6 +6,7 @@ import { classifyIsoDate } from "../../utils/classify-iso-date.js"
 import { describeError } from "../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { sigmoid } from "./reranker.js"
@@ -1467,6 +1468,13 @@ export const searchByProperty = (
 
 // ── Link queries ───────────────────────────────────────────────
 
+/** A link query takes a note, whose ".md" must be lowercase, or a canvas in
+ *  any letter case. */
+const assertLinkQueryPath = (path: string): void => {
+  if (isCanvasPath(path)) return
+  assertPathHasExtension(path, [".md", ".canvas"])
+}
+
 /** Returns notes and files that link TO the given path (incoming links /
  *  backlinks). Canvas file-node references are included — a canvas that
  *  embeds a note via a `file`-type node appears as a backlink source. */
@@ -1475,7 +1483,7 @@ export const getBacklinks = (
   params: { path: string },
   logger: Logger,
 ): BacklinkEntry[] => {
-  assertPathHasExtension(params.path, [".md", ".canvas"])
+  assertLinkQueryPath(params.path)
   const sql = `
     SELECT l.source as path,
            COALESCE(n.title, f.basename) as title,
@@ -1516,7 +1524,7 @@ export const getOutgoingLinks = (
   params: { path: string; dailyNotesFolder?: string | null },
   logger: Logger,
 ): OutgoingLinkEntry[] => {
-  assertPathHasExtension(params.path, [".md", ".canvas"])
+  assertLinkQueryPath(params.path)
   // Left-join against both notes and non_md_files to classify each link target:
   // notes → kind "note", non_md_files → kind "file", neither → broken (defaults to "note").
   const sql = `
