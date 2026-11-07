@@ -64,7 +64,7 @@ Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) —
 
 When to use: Reading task status and order on one board (path + sort_by: "position"; add status: "all" to include done and cancelled cards). Also any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.${listTasksAlternativesLine}
 
-Behavior: A file change takes a few seconds to appear here.
+Behavior: A file change takes a few seconds to appear here. No matches returns { total: 0, tasks: [] }, not an error.
 
 Parameters:
 - status: "not_done" and "all" expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
@@ -77,7 +77,6 @@ Errors:
 - "… is not a calendar date" — a date filter's bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 ${NOTE_EXTENSION_ERROR_ENTRY}
 - "tag must not be empty …" — tag is "#" alone; pass the tag name
-- No matches returns { total: 0, tasks: [] }, not an error
 ${INDEX_ERROR_ENTRY}
 
 Returns: JSON { total, tasks }. Every task carries path, line, status, status_char (the checkbox character, such as "x" or "/"), description, folder (the task note's parent folder), depth (0 for top-level, 1+ for sub-tasks), is_kanban_task (true when the task's note has kanban-plugin in its properties), depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only: the headings of the lanes whose first line is **Complete**), and subtask_progress ({ done, total } over the task's DIRECT checklist children; done counts status "done" only, a cancelled child counts toward total, and the counts ignore the query's filters).`,
@@ -247,7 +246,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
     TOOL_NAMES.VAULT_CREATE_TASK,
     {
       title: "Create Task",
-      description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The task is always created as todo, with its created date (➕) set to today${whenToolEnabledText("vault_update_task", "; set in_progress later with vault_update_task")}. Override format only at the user's request. A retried call with no block_id (a Kanban sub-task) creates it again, ${RETRY_REREAD_CLAUSE}.
+      description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. Override format only at the user's request. A retried call with no block_id (a Kanban sub-task) creates it again, ${RETRY_REREAD_CLAUSE}.
 
 Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" }) — a card in a Kanban board's Active lane
 Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under fix-login
@@ -262,6 +261,8 @@ Parameters:
 - block_id / subtasks: block_id is required, except on a Kanban sub-task, where it is refused, as is a subtasks item ending in a ^block-id on a board.
 - position: ignored without a heading, and under a parent, where the sub-task goes after the parent's last sub-item.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day; a task with no dates recurs as a dateless copy.
+
+Behavior: The task is always created as todo, with its created date (➕) set to today${whenToolEnabledText("vault_update_task", "; set in_progress later with vault_update_task")}.
 
 Errors: (messages use camelCase names, e.g. blockId for block_id)
 ${noteNotFoundErrorEntry}
@@ -505,13 +506,14 @@ When to use: Any change to an existing task.${whenToolEnabledText("vault_list_ta
 Parameters:
 - Exactly one of block_id or line is required to identify the task. A Kanban sub-task this server created has no block_id, so re-read its line${whenToolEnabledText("vault_list_tasks", " with vault_list_tasks")} just before an update by line.${whenToolEnabledText("vault_list_tasks", " After a write, wait a few seconds for the listing to catch up.")}
 - At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
-- status side effects:
-  Kanban: "done" moves the card and everything nested under it to the done lane (the lane whose first line is **Complete**, else the heading "Done", exact case), leaving nested checkboxes as they are; a sub-task stays under its parent.
-  Recurring (🔁), on "done" only: spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes on the line directly below the task instead, so the task's nested lines then sit under the spawn. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line, except on an indented line of a Kanban board. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
-  Delete (🏁 delete / [onCompletion:: delete]), on "done": removes the task line and its children instead of moving to done. With 🔁 + 🏁, the next occurrence is still created, and the completed task is removed.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the next occurrence. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
 - position: applies to a heading move or an auto-done-lane move; otherwise it reorders the task within its current lane. Ignored when the task is deleted on completion.
+
+Behavior: status "done" has side effects by task kind:
+- Kanban: moves the card and everything nested under it to the done lane (the lane whose first line is **Complete**, else the heading "Done", exact case), leaving nested checkboxes as they are; a sub-task stays under its parent.
+- Recurring (🔁): spawns the next occurrence, dates advanced per the rule, directly above the completed task, which keeps its nested lines. When the Tasks plugin's settings put the next recurrence on the line below, the spawn goes on the line directly below the task instead, so the task's nested lines then sit under the spawn. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line, except on an indented line of a Kanban board. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
+- Delete on completion (🏁 delete / [onCompletion:: delete]): removes the task line and its children instead of moving to done. With 🔁 + 🏁, the next occurrence is still created, and the completed task is removed.
 
 Errors: (messages use camelCase names, e.g. assignBlockId for assign_block_id)
 ${noteNotFoundErrorEntry}
