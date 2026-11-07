@@ -3,7 +3,7 @@
 import { escapeHtml } from "../../utils/escape-html.js"
 
 type ConsentPageParams = {
-  /** The client's registered name; the page shows its ID when it has none. */
+  /** The client's registered name; the page shows its ID when the name is missing or empty. */
   clientName: string | undefined
   clientId: string
   redirectUri: string
