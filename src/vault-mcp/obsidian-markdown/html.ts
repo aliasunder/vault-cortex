@@ -15,6 +15,10 @@ const HIDDEN_ELEMENTS: ReadonlySet<string> = new Set([
   "noframes",
 ])
 
+/** Inside an inline <svg>, the tooltip and the description a browser never
+ *  shows on the page. Outside one, <title> is the page's own title. */
+const SVG_TOOLTIP_ELEMENTS: ReadonlySet<string> = new Set(["title", "desc"])
+
 /** Elements that start and end on a line of their own when a page renders. */
 const LINE_BREAKING_ELEMENTS: ReadonlySet<string> = new Set([
   "address",
@@ -89,6 +93,10 @@ export const extractHtmlVisibleText = (params: { html: string; maxBytes: number 
   let atLineStart = true
   let spaceOwed = false
   let textBytes = 0
+  // Also threaded in document order: how many inline <svg> elements are open,
+  // and what opening the last tag did, so a self-closing slash can undo it
+  let openSvgCount = 0
+  let lastOpenEffect: "pushed-svg-tooltip" | "counted-svg" | "none" = "none"
 
   const emit = (text: string): void => {
     textParts.push(text)
@@ -143,12 +151,23 @@ export const extractHtmlVisibleText = (params: { html: string; maxBytes: number 
       // slash on an element that is not void, so the name alone decides.
       onopentagname: (start, end) => {
         const tagName = readTagName(start, end)
+        const isSvgTooltip = openSvgCount > 0 && SVG_TOOLTIP_ELEMENTS.has(tagName)
+        const opensHiddenElement = HIDDEN_ELEMENTS.has(tagName) || isSvgTooltip
 
-        if (HIDDEN_ELEMENTS.has(tagName)) {
+        if (opensHiddenElement) {
           hiddenElementStack.push(tagName)
+          lastOpenEffect = isSvgTooltip ? "pushed-svg-tooltip" : "none"
           return
         }
-        if (hiddenElementStack.length === 0) handleTagBoundary(tagName)
+
+        lastOpenEffect = "none"
+        if (hiddenElementStack.length > 0) return
+
+        if (tagName === "svg") {
+          openSvgCount += 1
+          lastOpenEffect = "counted-svg"
+        }
+        handleTagBoundary(tagName)
       },
       onclosetag: (start, end) => {
         const tagName = readTagName(start, end)
@@ -157,7 +176,30 @@ export const extractHtmlVisibleText = (params: { html: string; maxBytes: number 
           if (hiddenElementStack.at(-1) === tagName) hiddenElementStack.pop()
           return
         }
+        // A stray </svg> leaves the count at zero
+        if (tagName === "svg") openSvgCount = Math.max(0, openSvgCount - 1)
         handleTagBoundary(tagName)
+      },
+      // SVG honours a self-closing slash, so <svg/>, and a <desc/> or <title/>
+      // inside one, hold nothing; a tooltip left open would hide the rest of the
+      // page. The tokenizer still reads text after a <title/> raw until
+      // </title>, as it does after a self-closing <script/>, which stays open.
+      // The callback fires right after its tag opens, so it undoes that tag alone.
+      onselfclosingtag: () => {
+        const insideSvg = openSvgCount > 0
+
+        if (!insideSvg) return
+        switch (lastOpenEffect) {
+          case "pushed-svg-tooltip":
+            hiddenElementStack.pop()
+            break
+          case "counted-svg":
+            openSvgCount -= 1
+            break
+          case "none":
+            break
+        }
+        lastOpenEffect = "none"
       },
       onattribdata: ignoreToken,
       onattribentity: ignoreToken,
@@ -169,7 +211,6 @@ export const extractHtmlVisibleText = (params: { html: string; maxBytes: number 
       onend: ignoreToken,
       onopentagend: ignoreToken,
       onprocessinginstruction: ignoreToken,
-      onselfclosingtag: ignoreToken,
     },
   )
 

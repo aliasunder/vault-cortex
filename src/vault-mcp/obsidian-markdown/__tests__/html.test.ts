@@ -56,6 +56,30 @@ describe("extractHtmlVisibleText", () => {
     )
   })
 
+  it("drops an inline SVG's title and desc but keeps its visible text", () => {
+    const page =
+      "<p>Download</p><svg><title>download icon</title><desc>an arrow</desc>" +
+      "<text>Q3 total</text></svg><p>After</p>"
+
+    expect(extractAll(page)).toBe("Download\nQ3 total\nAfter")
+  })
+
+  it("shows a title after the SVG holding another title closes", () => {
+    expect(extractAll("<svg><title>icon</title></svg><title>Page title</title>")).toBe("Page title")
+  })
+
+  it("keeps an SVG title hidden after a nested svg closes", () => {
+    expect(extractAll("<svg><svg></svg><title>tooltip</title></svg><p>shown</p>")).toBe("shown")
+  })
+
+  it("shows the rest of the page after a self-closing desc inside an SVG", () => {
+    expect(extractAll("<svg><desc/></svg><p>shown</p>")).toBe("shown")
+  })
+
+  it("shows a title after a self-closing svg", () => {
+    expect(extractAll("<svg/><title>Page title</title>")).toBe("Page title")
+  })
+
   it("breaks no line for a block element inside a hidden element", () => {
     expect(extractAll("<p>one <template><div>inert</div></template>two</p>")).toBe("one two")
   })
