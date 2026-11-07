@@ -2229,6 +2229,48 @@ describe("malformed canvas", () => {
   })
 })
 
+// ── Binary file ──────────────────────────────────────────────
+
+describe("binary file", () => {
+  it("vault_read_file on a file holding a NUL byte", async () => {
+    const filePath = "Archive.zip"
+    const fileFullPath = join(serverVaultPath, filePath)
+    // A ZIP local file header, whose version and flag fields hold NUL bytes
+    await writeFile(fileFullPath, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00]))
+    onTestFinished(() => rm(fileFullPath))
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: filePath } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: unsupported file type ".zip": "Archive.zip" exists (8 bytes) and holds a NUL byte in its first 8,000 bytes (binary data or UTF-16 text). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and UTF-8 text files',
+        },
+      ],
+      isError: true,
+    })
+  })
+
+  it("vault_read_file on a file whose bytes are not UTF-8", async () => {
+    const filePath = "Latin1.html"
+    const fileFullPath = join(serverVaultPath, filePath)
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    await writeFile(fileFullPath, Buffer.from([0x3c, 0x70, 0x3e, 0xe9]))
+    onTestFinished(() => rm(fileFullPath))
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: filePath } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: not valid UTF-8: "Latin1.html" cannot be returned as text',
+        },
+      ],
+      isError: true,
+    })
+  })
+})
+
 // ── Whitespace-only task text ────────────────────────────────
 
 describe("whitespace-only task text", () => {

@@ -7,10 +7,11 @@ import { watch } from "chokidar"
 import { DateTime } from "luxon"
 import { readFile, readdir, stat } from "node:fs/promises"
 import type { Stats } from "node:fs"
-import { extname, join, relative, resolve as resolvePath, sep } from "node:path"
+import { join, relative, resolve as resolvePath, sep } from "node:path"
 import {
-  INDEXABLE_TEXT_EXTENSIONS,
+  CONTENT_INDEXED_FILE_KINDS,
   INDEXING_FILE_READ_CONCURRENCY,
+  isHtmlPageIndexedByNameOnly,
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
 import type { RebuildResult, SearchIndex } from "./search-index.js"
@@ -21,7 +22,9 @@ import {
 } from "./body-tag-parser.js"
 import { splitPropertiesBlock } from "../obsidian-markdown/frontmatter.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
+import { getFileKind, isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import type { Logger } from "../../logger.js"
+import { decodeTextBuffer } from "../../utils/decode-text-buffer.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { isMissingPathError, readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js"
@@ -32,13 +35,13 @@ import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
  *  100ms, which stat()s the whole tree 10×/sec; 300ms meaningfully cuts CPU, and
  *  re-index latency is already governed by the 2000ms awaitWriteFinish window, so
  *  the perceived cost is negligible. */
-const POLLING_INTERVAL_MS = 300
+const FILESYSTEM_POLLING_INTERVAL_MS = 300
 
 /** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
 const DEFAULT_STABILITY_THRESHOLD_MS = 2000
 
 /** Default for FileWatcherOptions.pollInterval. */
-const DEFAULT_POLL_INTERVAL_MS = 100
+const DEFAULT_WRITE_FINISH_POLL_INTERVAL_MS = 100
 
 /**
  * Default for FileWatcherOptions.heldChangesDeadline. The server starts
@@ -180,7 +183,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   let watcherState: WatcherState = { mode: "holding", heldPaths: new Map() }
 
   /** Indexes an added or modified non-md file: its asset-table row, plus its
-   *  content when it is a canvas or an indexable text or PDF file. */
+   *  content when it is a canvas or, with file content indexing on, a PDF,
+   *  text file, HTML page or script. */
   const indexChangedNonMdFile = async (params: {
     filePath: string
     relativePath: string
@@ -225,28 +229,64 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
 
     // Canvas files are always read — link extraction is unconditional.
-    // PDF and text files (INDEXABLE_TEXT_EXTENSIONS, which includes .pdf) are
-    // only read when file content FTS is enabled.
-    const extension = extname(filePath)
-    const isCanvas = extension === ".canvas"
+    // PDF, text, HTML and script files are only read when file content FTS is enabled.
+    const fileKind = getFileKind(filePath)
+    const isCanvas = fileKind === "canvas"
     const isIndexableNonCanvas =
-      search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+      search.fileContentIndexingEnabled && CONTENT_INDEXED_FILE_KINDS.has(fileKind)
 
     if (isCanvas || isIndexableNonCanvas) {
       try {
-        const readContentToIndex = async (): Promise<string> => {
-          if (extension !== ".pdf") return await readFile(filePath, "utf8")
+        /** The text to index for the file:
+         *  - empty for an HTML page too large to extract, which is never read, so
+         *    its file_content row still lets search find it by name;
+         *  - null for an HTML page or script that is not UTF-8 or holds a NUL byte
+         *    early on, which vault_read_file refuses too;
+         *  - the file's text otherwise. */
+        const readContentToIndex = async (): Promise<string | null> => {
+          switch (fileKind) {
+            case "pdf": {
+              const buffer = await readFile(filePath)
+              // pdfjs throws on a Node Buffer, so it gets a plain Uint8Array view
+              // over the same bytes.
+              const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+              const pdfResult = await extractPdfText(pdfData)
+              return pdfResult.text
+            }
+            case "html":
+            case "script": {
+              const indexedByNameOnly = isHtmlPageIndexedByNameOnly({
+                filePath: relativePath,
+                fileBytes: fileStat.size,
+              })
 
-          const buffer = await readFile(filePath)
-          // pdfjs throws on a Node Buffer, so it gets a plain Uint8Array view
-          // over the same bytes.
-          const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-          const pdfResult = await extractPdfText(pdfData)
-          return pdfResult.text
+              if (indexedByNameOnly) return ""
+              const decodedSource = decodeTextBuffer(await readFile(filePath))
+
+              if (decodedSource.status !== "text") return null
+              return decodedSource.text
+            }
+            // Canvases and text formats decode leniently, so a stray invalid byte
+            // or NUL padding keeps them in search. Images and other files never
+            // reach this switch: the guard above reads only the kinds search indexes.
+            case "canvas":
+            case "text":
+            case "image":
+            case "other":
+              return await readFile(filePath, "utf8")
+          }
         }
         const contentToIndex = await readContentToIndex()
 
         if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+
+        // A file that stopped reading as text loses what search held for it,
+        // while its file row above stays
+        if (contentToIndex === null) {
+          search.removeFileContent({ filePath: relativePath }, logger)
+          logger.debug("indexed non-md file without its content", { path: relativePath })
+          return { status: "file-indexed" }
+        }
 
         const sourceVersion = search.upsertFileContent(
           {
@@ -362,8 +402,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
       // Parsed before the second token check, with no await between that check
       // and the write, so a delete or newer event that lands during a slow parse wins.
-      // An aborted parse resolves "dropped", but every abort comes with such an
-      // event, so that check discards it
+      // An aborted parse resolves with outcome "dropped", but every abort comes
+      // with such an event, so that check discards it
       const parseResult = await parseNoteBodyTags(content)
 
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
@@ -518,10 +558,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
       // The content rows live in their own tables, so they are removed even
       // when the asset-table removal above failed.
-      const deletedExtension = extname(filePath)
-      const isDeletedCanvas = deletedExtension === ".canvas"
+      const isDeletedCanvas = isCanvasPath(filePath)
       const isDeletedIndexable =
-        search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
+        search.fileContentIndexingEnabled && CONTENT_INDEXED_FILE_KINDS.has(getFileKind(filePath))
 
       if (isDeletedCanvas || isDeletedIndexable) {
         try {
@@ -593,12 +632,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // interval only drives chokidar's polling backend. Pass it only when
     // polling, so we never depend on how chokidar treats an interval set
     // without usePolling (today it's ignored — a future release needn't be).
-    ...(watcherOptions?.usePolling ? { interval: POLLING_INTERVAL_MS } : {}),
+    ...(watcherOptions?.usePolling ? { interval: FILESYSTEM_POLLING_INTERVAL_MS } : {}),
     // Obsidian Sync writes files in chunks — wait for write stability before
     // indexing to avoid reading partial content
     awaitWriteFinish: {
       stabilityThreshold,
-      pollInterval: watcherOptions?.pollInterval ?? DEFAULT_POLL_INTERVAL_MS,
+      pollInterval: watcherOptions?.pollInterval ?? DEFAULT_WRITE_FINISH_POLL_INTERVAL_MS,
     },
   })
 
@@ -914,7 +953,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // indexChangedNonMdFile extracts a PDF's text only when file content
     // indexing is on; otherwise a PDF is only statted and keeps the general bound.
     const needsPdfExtraction = ({ filePath }: ReservedPath): boolean => {
-      return search.fileContentIndexingEnabled && extname(filePath) === ".pdf"
+      return search.fileContentIndexingEnabled && getFileKind(filePath) === "pdf"
     }
     const pdfReads = reservedPaths.filter(needsPdfExtraction)
     const otherReads = reservedPaths.filter((reservedPath) => !needsPdfExtraction(reservedPath))

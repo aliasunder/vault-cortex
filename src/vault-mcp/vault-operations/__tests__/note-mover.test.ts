@@ -1126,6 +1126,38 @@ describe("moveNote — Canvas sources", () => {
     )
   })
 
+  it("finds a Canvas that escapes a double quote in the note's name but keeps its accented letters", async () => {
+    const { writeFixture, moveNote, readNote, logger } = setupVault()
+    await writeFixture('Café "Menu".md', "# Menu\n")
+    // The file holds Café \"Menu\", as Obsidian writes it, so of the scan's
+    // substring checks only the JSON-escaped one can match it: the plain stem
+    // lacks the backslashes, and the fully escaped one writes é as é.
+    await writeFixture(
+      "Board.canvas",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"See [[Café \\"Menu\\"]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+
+    const result = await moveNote({ oldPath: 'Café "Menu".md', newPath: "Menu.md" })
+
+    expect(await readNote("Board.canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"See [[Menu]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Menu.md",
+      links_updated: 1,
+      updated_notes: ["Board.canvas"],
+      pruned_empty_folders: 0,
+    })
+    expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
+      "backlink verification discovered sources the index missed",
+      { from: 'Café "Menu".md', to: "Menu.md", additionalSources: ["Board.canvas"], attempt: 0 },
+    )
+  })
+
   it("finds a Canvas whose JSON escapes the accented letters in the note's name", async () => {
     const { writeFixture, moveNote, readNote, logger } = setupVault()
     await writeFixture("École.md", "# École\n")
@@ -1266,29 +1298,58 @@ describe("moveNote — Canvas sources", () => {
     expect(vi.mocked(logger.warn)).not.toHaveBeenCalled()
   })
 
-  it("treats only a lowercase .canvas extension as a Canvas", async () => {
-    const { writeFixture, moveNote, readNote, logger } = setupVault()
+  it("points the file card of a Canvas with an uppercase extension at the moved note's new path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Plan.md", "# Plan\n")
+    await writeFixture(
+      "Board.Canvas",
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Plan.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+
+    const result = await moveNote({
+      oldPath: "Plan.md",
+      newPath: "Roadmap.md",
+      backlinkSources: ["Board.Canvas"],
+    })
+
+    expect(await readNote("Board.Canvas")).toBe(
+      obsidianCanvas([
+        '{"id":"f1","type":"file","file":"Roadmap.md","x":0,"y":0,"width":400,"height":400}',
+      ]),
+    )
+    expect(result).toEqual({
+      moved_to: "Roadmap.md",
+      links_updated: 1,
+      updated_notes: ["Board.Canvas"],
+      pruned_empty_folders: 0,
+    })
+  })
+
+  it("finds and rewrites a text-card link in a Canvas with an uppercase extension that the index missed", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
-    const upperCaseCanvas = obsidianCanvas([
-      '{"id":"t1","type":"text","text":"Start from [[Foo]]","x":0,"y":0,"width":250,"height":60}',
-    ])
-    await writeFixture("Board.CANVAS", upperCaseCanvas)
+    await writeFixture(
+      "Board.CANVAS",
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Start from [[Foo]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
 
     const result = await moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })
 
+    expect(await readNote("Board.CANVAS")).toBe(
+      obsidianCanvas([
+        '{"id":"t1","type":"text","text":"Start from [[Bar]]","x":0,"y":0,"width":250,"height":60}',
+      ]),
+    )
     expect(result).toEqual({
       moved_to: "Bar.md",
-      links_updated: 0,
-      updated_notes: [],
+      links_updated: 1,
+      updated_notes: ["Board.CANVAS"],
       pruned_empty_folders: 0,
     })
-    expect(await readNote("Board.CANVAS")).toBe(upperCaseCanvas)
-    // The scan skips Board.CANVAS and no other file links Foo.md, so the log
-    // must never fire, whatever its context.
-    expect(vi.mocked(logger.info)).not.toHaveBeenCalledWith(
-      "backlink verification discovered sources the index missed",
-      expect.anything(),
-    )
   })
 
   it("aborts without writing when a Canvas backlink source is not valid JSON", async () => {
@@ -3019,5 +3080,27 @@ describe("moveNote — filesystem backlink verification", () => {
       pruned_empty_folders: 0,
     })
     expect(await readNote("Hub.md")).toBe("See [x](Finished.md).\n")
+  })
+
+  it("discovers a wikilink backlink to a note whose name holds a double quote", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture('Say "Hi".md', "# Hi\n")
+    // A note's text holds the quote unescaped, so only the pre-filter's plain
+    // stem check matches it
+    await writeFixture("Linker.md", 'See [[Say "Hi"]].\n')
+
+    const result = await moveNote({
+      oldPath: 'Say "Hi".md',
+      newPath: "Greeting.md",
+      backlinkSources: [],
+    })
+
+    expect(result).toEqual({
+      moved_to: "Greeting.md",
+      links_updated: 1,
+      updated_notes: ["Linker.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("Linker.md")).toBe("See [[Greeting]].\n")
   })
 })

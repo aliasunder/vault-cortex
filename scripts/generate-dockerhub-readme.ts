@@ -48,6 +48,7 @@ const EXCLUDED_H2 = new Set([
   "Hybrid Search",
   "Memory",
   "Tasks",
+  "Files",
   "Data Integrity",
   "Authentication",
   "Development",
@@ -59,6 +60,13 @@ const EXCLUDED_H2 = new Set([
 ])
 
 const REPLACED_H2 = new Set(["License"])
+
+/** Docker Hub truncates a repository description past this many bytes. */
+const DOCKER_HUB_CAP_BYTES = 25_000
+
+/** The run warns 1,000 bytes before the cap, so a README edit that brings the
+ *  output close to it is flagged while there is still room to trim. */
+const SIZE_WARNING_BYTES = DOCKER_HUB_CAP_BYTES - 1_000
 
 // Sections where we keep only the heading, intro sentence, and tables — strip
 // verbose paragraphs that add bulk without adding Docker Hub value
@@ -81,10 +89,7 @@ const rewriteUrls = (line: string): string => {
   result = result.replace(/\]\(\.\/assets\//g, `](${GITHUB_RAW}/assets/`)
 
   for (const dir of DIRECTORY_PATHS) {
-    result = result.replace(
-      new RegExp(`\\]\\(\\./${dir.replace("/", "\\/")}`, "g"),
-      `](${GITHUB_REPO}/tree/main/${dir}`,
-    )
+    result = result.replaceAll(`](./${dir}`, `](${GITHUB_REPO}/tree/main/${dir}`)
   }
 
   result = result.replace(/\]\(\.\//g, `](${GITHUB_REPO}/blob/main/`)
@@ -104,8 +109,7 @@ const compressTableRow = (line: string): string => {
   return cells.join(" | ").trim()
 }
 
-const isContentsLine = (line: string): boolean =>
-  line.startsWith("**Contents**") || line.startsWith("**Contents** —")
+const isContentsLine = (line: string): boolean => line.startsWith("**Contents**")
 
 /** DeepWiki documents the source repo, not the image, and the badge's raw
  *  GitHub URL would push DOCKERHUB.md past Docker Hub's 25000-byte cap. */
@@ -126,10 +130,9 @@ const generate = (): void => {
   let insideFence = false
   let insideDetails = false
   let skipSection = false
-  let skipLevel = 0
   let insertedNotice = false
   let compactSection = false
-  let compactTableDone = false
+  let droppingPostTableProse = false
 
   for (const line of lines) {
     if (line.startsWith("```")) {
@@ -158,62 +161,53 @@ const generate = (): void => {
 
     const heading = parseHeading(line)
 
-    if (heading) {
-      if (heading.level === 2) {
-        if (EXCLUDED_H2.has(heading.text)) {
-          skipSection = true
-          skipLevel = 2
-          if (heading.text === "Quick Start") {
-            output.push(...QUICKSTART_REDIRECT)
-          }
-          continue
+    // An H2 decides whether its whole section, H3 subsections included, is
+    // skipped, and only the next H2 ends a skip
+    if (heading?.level === 2) {
+      if (EXCLUDED_H2.has(heading.text)) {
+        skipSection = true
+        if (heading.text === "Quick Start") {
+          output.push(...QUICKSTART_REDIRECT)
         }
-
-        if (REPLACED_H2.has(heading.text)) {
-          skipSection = true
-          skipLevel = 2
-          output.push(...LICENSE_REPLACEMENT)
-          continue
-        }
-
-        skipSection = false
-        skipLevel = 0
-        compactSection = COMPACT_H2.has(heading.text)
-        compactTableDone = false
-      } else if (heading.level === 3) {
-        if (skipSection && skipLevel === 2) continue
-        // Compact sections keep only the heading, intro, and tables — an H3
-        // subsection's prose is already dropped below, so dropping the
-        // heading too avoids publishing an empty section title.
-        if (compactSection) continue
-      }
-    }
-
-    if (skipSection) {
-      if (heading && heading.level <= skipLevel) {
-        skipSection = false
-        skipLevel = 0
-      } else {
         continue
       }
+
+      if (REPLACED_H2.has(heading.text)) {
+        skipSection = true
+        output.push(...LICENSE_REPLACEMENT)
+        continue
+      }
+
+      skipSection = false
+      compactSection = COMPACT_H2.has(heading.text)
+      droppingPostTableProse = false
     }
 
-    // In compact sections, keep heading + intro + tables, drop post-table prose
+    if (skipSection) continue
+
+    // Compact sections keep only the heading, intro, and tables — an H3
+    // subsection's prose is already dropped below, so dropping the
+    // heading too avoids publishing an empty section title.
+    if (heading?.level === 3 && compactSection) continue
+
+    // In compact sections, keep heading + intro + tables. The first non-blank
+    // line after a table starts dropping prose, until the next table row.
     if (compactSection && !heading) {
       const isTableRow = line.startsWith("|")
 
       if (isTableRow) {
-        compactTableDone = false
-      } else if (compactTableDone) {
+        droppingPostTableProse = false
+      } else if (droppingPostTableProse) {
         continue
       } else if (line.trim() !== "") {
-        const lastTableIdx = output.findLastIndex((outputLine) => outputLine.startsWith("|"))
-        const lastHeadingIdx = output.findLastIndex(
+        const lastTableIndex = output.findLastIndex((outputLine) => outputLine.startsWith("|"))
+        const lastHeadingIndex = output.findLastIndex(
           (outputLine) => parseHeading(outputLine) !== undefined,
         )
+        const followsSectionTable = lastTableIndex > lastHeadingIndex
 
-        if (lastTableIdx > lastHeadingIdx) {
-          compactTableDone = true
+        if (followsSectionTable) {
+          droppingPostTableProse = true
           continue
         }
       }
@@ -254,8 +248,10 @@ const generate = (): void => {
   writeFileSync(resolvePath("DOCKERHUB.md"), content, "utf-8")
 
   console.log(`generated DOCKERHUB.md (${byteCount} bytes)`)
-  if (byteCount > 24_000) {
-    console.warn(`warning: output is ${byteCount} bytes — Docker Hub truncates at 25000`)
+  if (byteCount > SIZE_WARNING_BYTES) {
+    console.warn(
+      `warning: output is ${byteCount} bytes — Docker Hub truncates at ${DOCKER_HUB_CAP_BYTES}`,
+    )
   }
 }
 

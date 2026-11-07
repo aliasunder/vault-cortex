@@ -40,7 +40,7 @@
     },
     {
       "title": "Obsidian Markdown Parsing",
-      "purpose": "The pure parser layer in obsidian-markdown/ — no filesystem I/O: links.ts, lines.ts, frontmatter.ts, tags.ts, body-tags.ts with obsidian-remark-parser.ts and remark-ports/ (body tags on remark-parse 8, the parser Obsidian forked), callouts.ts, headings.ts, tasks.ts, recurrence.ts, memory-entries.ts, canvas.ts, plaintext.ts, pdf.ts, pdf-engine.ts, moment-format.ts. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
+      "purpose": "The pure parser layer in obsidian-markdown/: links.ts, lines.ts, frontmatter.ts, tags.ts, body-tags.ts with obsidian-remark-parser.ts and remark-ports/ (body tags on remark-parse 8, the parser Obsidian forked), callouts.ts, headings.ts, tasks.ts, recurrence.ts, memory-entries.ts, canvas.ts, file-kinds.ts, html.ts, plaintext.ts, pdf.ts, pdf-engine.ts, moment-format.ts. None does filesystem I/O except pdf-engine.ts, which resolves pdfjs package paths from disk. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
       "parent": "Architecture"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "title": "Non-Markdown Files",
-      "purpose": "How non-markdown vault files (images, PDFs, canvases, text and data files) are read, browsed, and searched. Modules: asset-operations.ts (the use-case layer behind the file tools); canvas.ts (JSON Canvas to readable markdown); fit-image-to-byte-budget.ts (image byte-budget fitting); obsidian-markdown/pdf-engine.ts (the pdfjs bootstrap); obsidian-markdown/pdf.ts (PDF text extraction); the file_content and file_content_fts tables in the search index. Derive supported formats and size limits from the source at index time.",
+      "purpose": "How non-markdown vault files (images, PDFs, canvases, text and data files, HTML pages, scripts) are read, browsed, and searched. Modules: asset-operations.ts (the use-case layer behind the file tools); obsidian-markdown/file-kinds.ts (extension to file kind); utils/decode-text-buffer.ts (the UTF-8 text check reads and indexing share); obsidian-markdown/html.ts (HTML visible text); canvas.ts (JSON Canvas to readable markdown); fit-image-to-byte-budget.ts (image byte-budget fitting); obsidian-markdown/pdf-engine.ts (the pdfjs bootstrap); obsidian-markdown/pdf.ts (PDF text extraction); the file_content and file_content_fts tables in the search index. Derive supported formats and size limits from the source at index time.",
       "parent": "Architecture"
     },
     {

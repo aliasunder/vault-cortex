@@ -9,6 +9,10 @@ import type { Logger } from "../../logger.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/canvas.js"
+import { getFileKind, isCanvasPath } from "../obsidian-markdown/file-kinds.js"
+import type { FileKind } from "../obsidian-markdown/file-kinds.js"
+import { extractHtmlVisibleText } from "../obsidian-markdown/html.js"
+import { decodeTextBuffer } from "../../utils/decode-text-buffer.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -62,24 +66,66 @@ export const INDEXING_FILE_READ_CONCURRENCY = 16
  *  CPU-heavy, so fewer run together than other file reads. */
 export const PDF_EXTRACTION_CONCURRENCY = 4
 
-/** Extensions whose content is indexed into file_content_fts for vault_search.
- *  Excludes .canvas (own path with link extraction) and .md (notes_fts). */
-export const INDEXABLE_TEXT_EXTENSIONS = new Set([
-  ".pdf",
-  ".txt",
-  ".csv",
-  ".json",
-  ".xml",
-  ".svg",
-  ".log",
-  ".yaml",
-  ".yml",
-  ".base",
+/** File kinds whose content is indexed into file_content_fts when file tools
+ *  are on. A canvas is left out because it is read whatever that setting is,
+ *  since its file cards are graph links. */
+export const CONTENT_INDEXED_FILE_KINDS: ReadonlySet<FileKind> = new Set([
+  "pdf",
+  "text",
+  "html",
+  "script",
 ])
+
+/** File kinds whose indexed text is also embedded for semantic search. A
+ *  script is found by keyword only, because the markdown chunker reads its
+ *  "# comment" lines as headings and turns snake_case names into one word. */
+const EMBEDDED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["canvas", "pdf", "text", "html"])
 
 /** Cap on rendered content indexed into file_content_fts — prevents
  *  pathological FTS rows from large CSVs or verbose JSONs. */
-const MAX_INDEXED_CONTENT_BYTES = 102_400
+export const MAX_INDEXED_CONTENT_BYTES = 102_400
+
+/** An HTML page larger than this is indexed by its name only, like a scanned
+ *  PDF. Extracting its text runs on the main thread, which answers no request
+ *  meanwhile, and attribute-heavy pages at 16 MiB already took up to 1.7 s. */
+const MAX_INDEXED_HTML_PAGE_BYTES = 16 * 1024 * 1024
+
+/** True for an HTML page too large to extract. Search finds such a page by its
+ *  name only, so indexing never reads it. */
+export const isHtmlPageIndexedByNameOnly = (params: {
+  filePath: string
+  fileBytes: number
+}): boolean => {
+  return getFileKind(params.filePath) === "html" && params.fileBytes > MAX_INDEXED_HTML_PAGE_BYTES
+}
+
+/** The text file_content_fts holds for a file, built from the text its reader
+ *  supplies:
+ *  - a canvas's JSON becomes its outline;
+ *  - an HTML page's source becomes its visible text;
+ *  - every other kind, a PDF's extracted text included, is indexed as supplied. */
+const fileTextToIndexedText = (params: {
+  filePath: string
+  fileText: string
+  fileBytes: number
+}): string => {
+  switch (getFileKind(params.filePath)) {
+    case "canvas":
+      return linearizeCanvas(params.fileText)
+    case "html":
+      if (isHtmlPageIndexedByNameOnly(params)) return ""
+      return extractHtmlVisibleText({
+        html: params.fileText,
+        maxBytes: MAX_INDEXED_CONTENT_BYTES,
+      })
+    case "image":
+    case "pdf":
+    case "text":
+    case "script":
+    case "other":
+      return params.fileText
+  }
+}
 
 /** Truncates a string to fit within a UTF-8 byte limit without splitting
  *  multi-byte characters — iterates Unicode code points and accumulates
@@ -467,6 +513,8 @@ export const createSearchIndex = (
       body_tags   TEXT NOT NULL DEFAULT '[]'
     );
 
+    -- A search match joins back to its notes row by path. UNINDEXED keeps
+    -- path out of keyword matching and saves index space.
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
       path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
     );
@@ -533,7 +581,6 @@ export const createSearchIndex = (
       file_identity  TEXT
     );
   `)
-  // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
   // ── Vector tables (embedding pipeline) ────────────────────────
   // Created only when an embedder is provided — otherwise the search index
@@ -705,15 +752,34 @@ export const createSearchIndex = (
   // Prepared statements are compiled once here and reused across all calls.
   // Each returned statement retains its compiled SQL; preparing inside an
   // operation would compile it again on every invocation.
-  const upsertNotesStmt = db.prepare(`
-    INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes, body_tags)
+
+  // Each notes_fts row has its notes row's rowid, so a write finds the FTS row
+  // by rowid. The file_content tables below are paired the same way.
+  // - FTS5 cannot index path. Finding the row by path scans the whole table, so
+  //   a rebuild over thousands of notes or files would take time quadratic in
+  //   their count.
+  // - The rowids stay paired because the rebuild empties each pair of tables
+  //   together and every other write goes through these statements.
+  // - The upsert updates a row in place. INSERT OR REPLACE would give it a new
+  //   rowid.
+  const upsertNotesStmt = db.prepare<unknown[], { rowid: number }>(`
+    INSERT INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes, body_tags)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (path) DO UPDATE SET
+      title = excluded.title, content = excluded.content, tags = excluded.tags,
+      related = excluded.related, folder = excluded.folder, type = excluded.type,
+      created = excluded.created, mtime = excluded.mtime, properties = excluded.properties,
+      leading_callout = excluded.leading_callout, bytes = excluded.bytes,
+      kanban_done_lanes = excluded.kanban_done_lanes, body_tags = excluded.body_tags
+    RETURNING rowid
   `)
-  const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
-  const insertFtsStmt = db.prepare(
-    `INSERT INTO notes_fts (path, title, content, metadata) VALUES (?, ?, ?, ?)`,
+  const deleteFtsStmt = db.prepare<[number]>(`DELETE FROM notes_fts WHERE rowid = ?`)
+  const insertFtsStmt = db.prepare<[number, string, string, string, string]>(
+    `INSERT INTO notes_fts (rowid, path, title, content, metadata) VALUES (?, ?, ?, ?, ?)`,
   )
-  const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`)
+  const removeNotesStmt = db.prepare<[string], { rowid: number }>(
+    `DELETE FROM notes WHERE path = ? RETURNING rowid`,
+  )
   const deleteTasksStmt = db.prepare(`DELETE FROM tasks WHERE note_path = ?`)
   const insertTaskStmt = db.prepare(`
     INSERT INTO tasks (note_path, line, status_char, status, description,
@@ -798,20 +864,30 @@ export const createSearchIndex = (
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
+  // Each file_content_fts row has its file_content row's rowid, as the notes
+  // statements above explain.
   const upsertFileContentStmt = fileToolsEnabled
-    ? db.prepare(
-        `INSERT OR REPLACE INTO file_content (path, title, content, folder, mtime, bytes)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+    ? db.prepare<[string, string, string, string, number, number], { rowid: number }>(
+        `INSERT INTO file_content (path, title, content, folder, mtime, bytes)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (path) DO UPDATE SET
+           title = excluded.title, content = excluded.content, folder = excluded.folder,
+           mtime = excluded.mtime, bytes = excluded.bytes
+         RETURNING rowid`,
       )
     : null
   const deleteFileContentStmt = fileToolsEnabled
-    ? db.prepare(`DELETE FROM file_content WHERE path = ?`)
+    ? db.prepare<[string], { rowid: number }>(
+        `DELETE FROM file_content WHERE path = ? RETURNING rowid`,
+      )
     : null
   const deleteFileContentFtsStmt = fileToolsEnabled
-    ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`)
+    ? db.prepare<[number]>(`DELETE FROM file_content_fts WHERE rowid = ?`)
     : null
   const insertFileContentFtsStmt = fileToolsEnabled
-    ? db.prepare(`INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`)
+    ? db.prepare<[number, string, string, string]>(
+        `INSERT INTO file_content_fts (rowid, path, title, content) VALUES (?, ?, ?, ?)`,
+      )
     : null
   // The folder predicate runs before ORDER BY/LIMIT so a folder-scoped search
   // sees every in-folder match, not just those that rank inside the candidate
@@ -1034,11 +1110,6 @@ export const createSearchIndex = (
   const selectAllNoteChunkPathsStmt = embedder
     ? db.prepare<[], { note_path: string }>("SELECT DISTINCT note_path FROM note_chunks")
     : null
-  const selectAllFileContentForEmbeddingStmt = fileContentVectorEnabled
-    ? db.prepare<[], { path: string; title: string; content: string }>(
-        "SELECT path, title, content FROM file_content",
-      )
-    : null
   const selectAllFileContentPathsStmt = fileContentVectorEnabled
     ? db.prepare<[], { path: string }>("SELECT path FROM file_content")
     : null
@@ -1177,20 +1248,21 @@ export const createSearchIndex = (
    *  links.resolve's three-tier strategy but checks against non_md_files
    *  instead of the notes table.
    *
-   *  Resolution tiers are grouped into two families by what they match
-   *  against: the full-filename family queries the path column as-is, and
-   *  the stem family queries the extension-stripped base_path/basename
-   *  columns. The full-filename family runs first. The families are
-   *  NOT disjoint: a multi-dot filename's stem retains its inner dots
-   *  ("photo.png.canvas" → base_path "photo.png"), so a with-extension target
-   *  can stem-match a different file. Family ordering makes the full-filename
-   *  match win ("photo.png" prefers a/photo.png), while the stem tiers remain
-   *  the fallback so [[photo.png]] with only photo.png.canvas in the vault
-   *  still resolves — mirroring Obsidian's [[Trip Route]] → Trip Route.canvas
-   *  stem matching. An extensionless target can match in both families: the
-   *  full-filename tiers hit an extensionless file (LICENSE, Dockerfile) by
-   *  exact path or path suffix, and the stem tiers hit any file whose
-   *  extension-stripped name matches. */
+   *  Resolution tiers fall into two families by what they match against, and
+   *  the full-filename family runs first:
+   *  - The full-filename family queries the path column as-is.
+   *  - The stem family queries the extension-stripped base_path/basename
+   *    columns.
+   *  - One target can match in both families. A multi-dot filename's stem
+   *    keeps its inner dots ("photo.png.canvas" → base_path "photo.png"), so
+   *    [[photo.png]] can stem-match a different file. Running full-filename
+   *    first makes it prefer a/photo.png, and the stem tiers still resolve it
+   *    when only photo.png.canvas exists, as Obsidian's
+   *    [[Trip Route]] → Trip Route.canvas stem matching does.
+   *  - An extensionless target can match in both too: the full-filename tiers
+   *    hit an extensionless file (LICENSE, Dockerfile) by exact path or path
+   *    suffix, and the stem tiers hit any file whose extension-stripped name
+   *    matches. */
   const resolveNonMarkdownFile = (params: {
     target: string
     sourcePath?: string
@@ -1279,8 +1351,9 @@ export const createSearchIndex = (
       const relativeTarget = posix.join(posix.dirname(link.source), link.target)
       const targetSuffix = `/${link.target.toLowerCase()}`
 
-      // This broad suffix check includes SQLite LIKE's ASCII case folding;
-      // the resolver remains authoritative for match ordering and exact case.
+      // toLowerCase folds every letter, while SQLite's LIKE folds only ASCII
+      // letters, so this suffix check keeps every link the resolver's LIKE
+      // queries could match. The resolver then decides the match and its case.
       const matchesFullFilename =
         filePath === link.target ||
         filePath === relativeTarget ||
@@ -1321,25 +1394,25 @@ export const createSearchIndex = (
 
   /** Pass the returned source version to embedFileContent for this upsert.
    *  - Canvas JSON is linearized for FTS and parsed for graph links regardless of fileToolsEnabled.
+   *  - An HTML page arrives as its source and is indexed as its visible text.
    *  - Other files supply rendered text; FTS storage requires fileToolsEnabled and caps UTF-8 bytes. */
   const upsertFileContent = (
     params: {
       filePath: string
+      /** The file's own text, or a PDF's extracted text. */
       rawContent: string
       fileStat: { mtimeMs: number; size: number }
     },
     logger: Logger,
   ): symbol => {
     const extension = posix.extname(params.filePath)
-    const isCanvas = extension === ".canvas"
+    const isCanvas = isCanvasPath(params.filePath)
+    const contentToIndex = fileTextToIndexedText({
+      filePath: params.filePath,
+      fileText: params.rawContent,
+      fileBytes: params.fileStat.size,
+    })
 
-    // Canvas: linearize for FTS, raw JSON for link extraction.
-    // Other types: rawContent is already the rendered text.
-    const contentToIndex = isCanvas ? linearizeCanvas(params.rawContent) : params.rawContent
-
-    // Truncate content exceeding the FTS cap — iterates Unicode code points
-    // and accumulates UTF-8 byte length so the cap is enforced in bytes
-    // without splitting multi-byte characters at the boundary.
     const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
     const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
     const truncatedContent = needsTruncation
@@ -1361,7 +1434,7 @@ export const createSearchIndex = (
       if (upsertFileContentStmt && deleteFileContentFtsStmt && insertFileContentFtsStmt) {
         const title = basename(params.filePath, extension)
         const folder = posix.dirname(params.filePath)
-        upsertFileContentStmt.run(
+        const upsertedRow = upsertFileContentStmt.get(
           params.filePath,
           title,
           truncatedContent,
@@ -1369,8 +1442,11 @@ export const createSearchIndex = (
           Math.round(params.fileStat.mtimeMs),
           params.fileStat.size,
         )
-        deleteFileContentFtsStmt.run(params.filePath)
-        insertFileContentFtsStmt.run(params.filePath, title, truncatedContent)
+
+        // RETURNING yields the inserted or updated row on every upsert.
+        if (!upsertedRow) throw new Error(`file content upsert returned no row: ${params.filePath}`)
+        deleteFileContentFtsStmt.run(upsertedRow.rowid)
+        insertFileContentFtsStmt.run(upsertedRow.rowid, params.filePath, title, truncatedContent)
       }
 
       // Link extraction — canvas only, unconditional (graph integrity)
@@ -1406,10 +1482,10 @@ export const createSearchIndex = (
   /** Removes a file's FTS content, graph links, chunks and vectors, invalidating pending embeds. */
   const removeFileContent = (params: { filePath: string }, logger: Logger): void => {
     db.transaction(() => {
-      if (deleteFileContentStmt && deleteFileContentFtsStmt) {
-        deleteFileContentFtsStmt.run(params.filePath)
-        deleteFileContentStmt.run(params.filePath)
-      }
+      const deletedRow = deleteFileContentStmt?.get(params.filePath)
+
+      if (deletedRow) deleteFileContentFtsStmt?.run(deletedRow.rowid)
+
       if (deleteFileVectorsForPathStmt && deleteFileChunksForPathStmt) {
         deleteFileVectorsForPathStmt.run(params.filePath)
         deleteFileChunksForPathStmt.run(params.filePath)
@@ -1642,8 +1718,7 @@ export const createSearchIndex = (
     // throw rolls back), so code after the wrap's `)()` runs on both paths
     // — no link-phase work may live there.
     db.transaction(() => {
-      deleteFtsStmt.run(note.path)
-      upsertNotesStmt.run(
+      const upsertedNoteRow = upsertNotesStmt.get(
         note.path,
         note.title,
         note.content,
@@ -1659,7 +1734,11 @@ export const createSearchIndex = (
         note.kanban_done_lanes,
         note.body_tags,
       )
-      insertFtsStmt.run(note.path, note.title, note.content, metadataText)
+
+      // RETURNING yields the inserted or updated row on every upsert.
+      if (!upsertedNoteRow) throw new Error(`note upsert returned no row: ${note.path}`)
+      deleteFtsStmt.run(upsertedNoteRow.rowid)
+      insertFtsStmt.run(upsertedNoteRow.rowid, note.path, note.title, note.content, metadataText)
 
       deleteTasksStmt.run(note.path)
       // Line→blockId lookup so each child can resolve its parent's
@@ -2007,14 +2086,16 @@ export const createSearchIndex = (
     }
   }
 
-  /** The return counts changed chunks committed before completion or obsolescence.
-   *  Zero covers disabled, cached and obsolete calls. */
+  /** Embeds a file's indexed text from file_content. The return counts changed
+   *  chunks committed before completion or obsolescence. Zero covers disabled,
+   *  unembedded-kind, cached and obsolete calls. */
   const embedAndStoreFileChunks = async (
-    params: { filePath: string; title: string; content: string; sourceVersion: symbol },
+    params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<number> => {
     if (
       !embedder ||
+      !selectFileContentForEmbeddingStmt ||
       !upsertFileChunkStmt ||
       !selectFileChunkHashesStmt ||
       !selectFileChunkIdStmt ||
@@ -2025,6 +2106,8 @@ export const createSearchIndex = (
       return 0
     }
 
+    // Checked before the content loads, so a script's text is never read for embedding
+    if (!EMBEDDED_FILE_KINDS.has(getFileKind(params.filePath))) return 0
     if (
       !isCurrentSourceVersion(
         { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
@@ -2033,11 +2116,15 @@ export const createSearchIndex = (
     )
       return 0
 
+    const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
+
+    if (!fileContentRow) return 0
+
     // chunkContent handles file content too — sourcePath extracts folder
     // segments for the TOC chunk's disambiguation line.
     const chunks = chunkContent({
-      noteTitle: params.title,
-      bodyContent: params.content,
+      noteTitle: fileContentRow.title,
+      bodyContent: fileContentRow.content,
       sourcePath: params.filePath,
     })
 
@@ -2125,35 +2212,16 @@ export const createSearchIndex = (
     return embeddedCount
   }
 
-  /** Embed a file's rendered content into vector storage. Reads the processed
-   *  content from the file_content table (already linearized/truncated by
-   *  upsertFileContent). No-op when the embedding pipeline or file tools are
-   *  disabled, or the file is not in the FTS index. Safe to call unconditionally. */
+  /** The watcher's entry point for embedding a file. It drops
+   *  embedAndStoreFileChunks' chunk count, so the watcher's queue of pending
+   *  embeds holds one promise type for notes and files. Safe to call for any
+   *  file: it does nothing when embedding or file tools are off, for a kind
+   *  search does not embed, or for a file not in the index. */
   const embedFileContent = async (
     params: { filePath: string; sourceVersion: symbol },
     logger: Logger,
   ): Promise<void> => {
-    if (!embedder || !selectFileContentForEmbeddingStmt) return
-    if (
-      !isCurrentSourceVersion(
-        { sourcePath: params.filePath, sourceVersion: params.sourceVersion },
-        logger,
-      )
-    )
-      return
-
-    const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
-
-    if (!fileContentRow) return
-    await embedAndStoreFileChunks(
-      {
-        filePath: params.filePath,
-        sourceVersion: params.sourceVersion,
-        title: fileContentRow.title,
-        content: fileContentRow.content,
-      },
-      logger,
-    )
+    await embedAndStoreFileChunks(params, logger)
   }
 
   /** Removes a note from the notes table, FTS index, links, tasks, vectors,
@@ -2166,8 +2234,9 @@ export const createSearchIndex = (
     // All deletes commit or roll back together — a mid-sequence throw must
     // not leave the note half-removed across notes/FTS/tasks/links.
     db.transaction(() => {
-      deleteFtsStmt.run(filePath)
-      removeNotesStmt.run(filePath)
+      const removedNoteRow = removeNotesStmt.get(filePath)
+
+      if (removedNoteRow) deleteFtsStmt.run(removedNoteRow.rowid)
       deleteLinksStmt.run(filePath)
       deleteTasksStmt.run(filePath)
       if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
@@ -2316,18 +2385,33 @@ export const createSearchIndex = (
       mapper: readFileSize,
     })
     const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
-    const canvasFiles = allNonMdFiles.filter((file) => file.relativePath.endsWith(".canvas"))
-    // PDF and text files are only read when file content FTS is enabled —
-    // without the tables, the extraction is wasted I/O.
-    const pdfFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf"))
-      : []
-    const textFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => {
-          const extension = posix.extname(file.relativePath)
-          return extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
-        })
-      : []
+    // A canvas is read for its links whether or not file tools are on. PDF,
+    // text, HTML and script content is read only when the file content tables
+    // exist, because without them the extraction is wasted I/O. The switch
+    // names every kind, so a new kind does not compile until it has a reader.
+    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "pdf" | "text" | "decoded" | null => {
+      switch (fileKind) {
+        case "canvas":
+          return "canvas"
+        case "pdf":
+          return fileToolsEnabled ? "pdf" : null
+        case "text":
+          return fileToolsEnabled ? "text" : null
+        case "html":
+        case "script":
+          return fileToolsEnabled ? "decoded" : null
+        case "image":
+        case "other":
+          return null
+      }
+    }
+    const nonMdFilesByReader = Map.groupBy(allNonMdFiles, (file) => {
+      return rebuildReaderFor(getFileKind(file.relativePath))
+    })
+    const canvasFiles = nonMdFilesByReader.get("canvas") ?? []
+    const pdfFiles = nonMdFilesByReader.get("pdf") ?? []
+    const textFiles = nonMdFilesByReader.get("text") ?? []
+    const htmlAndScriptFiles = nonMdFilesByReader.get("decoded") ?? []
 
     const readRebuildFileContent = async (params: {
       file: RebuildFilePaths
@@ -2395,13 +2479,74 @@ export const createSearchIndex = (
     })
     const pdfContents = pdfResults.filter((entry) => entry !== null)
 
-    // Read text files for content indexing (raw UTF-8).
+    // Text formats decode leniently, so a text file with a stray invalid byte
+    // or NUL padding still indexes; HTML pages and scripts get the strict check below.
     const textFileContentResults = await mapWithConcurrency({
       items: textFiles,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "text file" }),
     })
     const textFileContents = textFileContentResults.filter((entry) => entry !== null)
+
+    /** Reads an HTML page or script for indexing:
+     *  - a page too large to extract is never read and keeps empty text, so its
+     *    file_content row still lets search find it by name;
+     *  - any other file keeps its text only when its bytes are UTF-8 with no NUL
+     *    byte early on, the test vault_read_file applies, so search never holds
+     *    text that a read refuses. */
+    const readHtmlOrScriptFile = async (
+      file: RebuildFilePaths,
+    ): Promise<RebuildFileContent | null> => {
+      // Decoding throws on text longer than V8's string limit, so it shares the
+      // read's try, and one such file is skipped rather than failing the rebuild.
+      const readDecodedFile = async () => {
+        try {
+          const fileStat = await stat(file.absolutePath)
+          const indexedByNameOnly = isHtmlPageIndexedByNameOnly({
+            filePath: file.relativePath,
+            fileBytes: fileStat.size,
+          })
+
+          if (indexedByNameOnly)
+            return { decodedText: { status: "text", text: "" } as const, fileStat }
+          return { decodedText: decodeTextBuffer(await readFile(file.absolutePath)), fileStat }
+        } catch (error) {
+          logger.warn("skipped unreadable file during rebuild", {
+            path: file.relativePath,
+            error: describeError(error),
+          })
+          return null
+        }
+      }
+      const decodedFile = await readDecodedFile()
+
+      if (!decodedFile) return null
+
+      const { decodedText, fileStat } = decodedFile
+
+      switch (decodedText.status) {
+        case "text":
+          return {
+            relativePath: file.relativePath,
+            content: decodedText.text,
+            modifiedAtMs: fileStat.mtimeMs,
+            sizeBytes: fileStat.size,
+          }
+        case "binary":
+        case "invalid-utf8":
+          logger.debug("left a file that is not UTF-8 text out of the index", {
+            path: file.relativePath,
+            decodeStatus: decodedText.status,
+          })
+          return null
+      }
+    }
+    const htmlAndScriptContentResults = await mapWithConcurrency({
+      items: htmlAndScriptFiles,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
+      mapper: readHtmlOrScriptFile,
+    })
+    const htmlAndScriptContents = htmlAndScriptContentResults.filter((entry) => entry !== null)
 
     const noteContentResults = await mapWithConcurrency({
       items: markdownFiles,
@@ -2540,10 +2685,15 @@ export const createSearchIndex = (
           }
         }
 
-        // File content indexing: canvas (FTS + link extraction), PDF and text
-        // (FTS only). upsertFileContent deletes old canvas links before
-        // inserting, so canvas links append cleanly after the note link pass.
-        const allFileContents = [...canvasContents, ...pdfContents, ...textFileContents]
+        // Canvas content is indexed with its links, and PDF, text, HTML and
+        // script content for search only. upsertFileContent deletes old canvas
+        // links before inserting, so canvas links append cleanly after the note link pass.
+        const allFileContents = [
+          ...canvasContents,
+          ...pdfContents,
+          ...textFileContents,
+          ...htmlAndScriptContents,
+        ]
         for (const fileEntry of allFileContents) {
           try {
             const sourceVersion = upsertFileContent(
@@ -2584,15 +2734,14 @@ export const createSearchIndex = (
       ...(skippedNotePaths.size > 0 ? { skipped: skippedNotePaths.size } : {}),
     })
 
-    // File content for embedding — read the processed text from file_content
-    // (already linearized/extracted/truncated by upsertFileContent above).
-    const withFileSourceVersion = (file: { path: string; title: string; content: string }) => {
-      const sourceVersion = fileVersionsForEmbedding.get(file.path)
-
-      return sourceVersion ? [{ ...file, sourceVersion }] : []
-    }
-    const filesForEmbedding =
-      selectAllFileContentForEmbeddingStmt?.all().flatMap(withFileSourceVersion) ?? []
+    // Files of an embedded kind whose text this rebuild indexed. Each file's
+    // text loads from file_content only when the embedding pass reaches it,
+    // so the pass holds one file's text at a time.
+    const filesForEmbedding = fileContentVectorEnabled
+      ? [...fileVersionsForEmbedding]
+          .map(([path, sourceVersion]) => ({ path, sourceVersion }))
+          .filter((file) => EMBEDDED_FILE_KINDS.has(getFileKind(file.path)))
+      : []
     // Every note read from disk, including notes that failed to index, unlike indexedNotes
     const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
 
@@ -2720,12 +2869,7 @@ export const createSearchIndex = (
 
                 try {
                   fileChunksEmbedded += await embedAndStoreFileChunks(
-                    {
-                      filePath: file.path,
-                      sourceVersion: file.sourceVersion,
-                      title: file.title,
-                      content: file.content,
-                    },
+                    { filePath: file.path, sourceVersion: file.sourceVersion },
                     logger,
                   )
                 } catch (err) {
