@@ -25,9 +25,10 @@ notes below describe what the maintainer uses.
   write. Protected paths prevent deletion of sensitive folders, and
   `READONLY_MODE=true` removes every vault-writing tool from the server
   entirely
-- **Docker image** — two targets from one Dockerfile: `:local` (tini + MCP
-  server) and `:remote` (s6-overlay supervising obsidian-sync + MCP server in
-  a single container, sharing a `/vault` volume at UID 1000)
+- **Docker image** — two targets from one Dockerfile: `local` (`:latest`,
+  tini + MCP server) and `remote` (`:remote`, s6-overlay supervising
+  obsidian-sync + MCP server in a single container, sharing a `/vault`
+  volume at UID 1000)
 
 ### Reference deployment (maintainer's IaC — not required by adopters)
 
@@ -228,8 +229,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 ### Container hardening
 
-- Non-root user (UID 1000 — `node` on `:local`, `obsidian` on `:remote`)
-- PID 1 init — `:local` uses `tini`, `:remote` uses s6-overlay's `/init`;
+- Non-root user (UID 1000 — `node` on `:latest`, `obsidian` on `:remote`)
+- PID 1 init — `:latest` uses `tini`, `:remote` uses s6-overlay's `/init`;
   both forward SIGTERM for clean SQLite WAL closure
 - Package-manager removal (`npm`/`npx`/`corepack`/`yarn` stripped from
   runtime in both targets)

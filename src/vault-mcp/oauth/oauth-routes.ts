@@ -82,10 +82,10 @@ export const createOAuthRoutes = ({
 
   // The same derivation the provider mints tokens from, so metadata and
   // tokens can't disagree.
-  const { issuer, audience } = tokenBindingForServer(serverUrl)
+  const { issuer: serverRootUrl, audience: mcpEndpointUrl } = tokenBindingForServer(serverUrl)
   const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
-    resource: audience,
-    authorization_servers: [issuer],
+    resource: mcpEndpointUrl,
+    authorization_servers: [serverRootUrl],
     scopes_supported: scopesSupported,
     resource_documentation: new URL(serviceDocumentationUrl).href,
   }
@@ -143,9 +143,10 @@ export const createOAuthRoutes = ({
     next()
   })
 
-  // Bounds MCP_AUTH_TOKEN guesses on the consent form. Mounted ahead of the
-  // form parser, so an over-limit submission is refused unparsed. The header
-  // flags match the ones the SDK sets on its own limiters.
+  /**
+   * - Token guesses are limited before the form parser, so rejected submissions need no parsing.
+   * - The header options match the SDK's OAuth limiters.
+   */
   const consentDecisionLimiter = rateLimit({
     ...oauthRateLimitOptions,
     standardHeaders: "draft-6",
@@ -158,34 +159,37 @@ export const createOAuthRoutes = ({
     consentDecisionLimiter,
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
-      const body: Record<string, unknown> = req.body
-      const { request_id, token, action } = body
+      const formFields: Record<string, unknown> = req.body
+      const { request_id: requestId, token, action } = formFields
+
+      /** The form submits all three fields for either action; only approval checks the token. */
       const hasStringFields =
-        typeof request_id === "string" && typeof token === "string" && typeof action === "string"
+        typeof requestId === "string" && typeof token === "string" && typeof action === "string"
 
       if (!hasStringFields) {
         res.status(400).send("Invalid form submission.")
         return
       }
+
       const clientIp = extractClientIp(req, trustForwardedHops)
-      const pending = getPendingRequest(
-        request_id,
-        routeLogger.child({ clientIp, requestId: request_id }),
+      const pendingRequest = getPendingRequest(
+        requestId,
+        routeLogger.child({ clientIp, requestId }),
       )
 
-      if (!pending) {
+      if (!pendingRequest) {
         routeLogger.warn("oauth_consent_expired", {
           clientIp,
-          requestId: request_id,
+          requestId,
         })
         res.status(400).send("Authorization request expired or invalid.")
         return
       }
 
-      const clientId = pending.client.client_id
+      const clientId = pendingRequest.client.client_id
       const consentLogger = routeLogger.child({
         clientIp,
-        requestId: request_id,
+        requestId,
         clientId,
       })
 
@@ -193,10 +197,12 @@ export const createOAuthRoutes = ({
       // value can never grant access.
       if (action !== "approve") {
         consentLogger.info("oauth_consent_denied_by_user")
-        deletePendingRequest(request_id)
-        const redirectUrl = new URL(pending.params.redirectUri)
+        deletePendingRequest(requestId)
+        const redirectUrl = new URL(pendingRequest.params.redirectUri)
         redirectUrl.searchParams.set("error", "access_denied")
-        if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state)
+        if (pendingRequest.params.state) {
+          redirectUrl.searchParams.set("state", pendingRequest.params.state)
+        }
         res.redirect(redirectUrl.toString())
         return
       }
@@ -209,26 +215,29 @@ export const createOAuthRoutes = ({
       // safe and keeps the consent flow forgiving. parseBearer() trims only
       // the ends of a bearer header, which carries no line wrap.
       const submittedToken = token.replace(/\s+/g, "")
+      const hasValidToken = Boolean(submittedToken) && safeEqual(submittedToken, authToken)
 
-      if (!submittedToken || !safeEqual(submittedToken, authToken)) {
+      if (!hasValidToken) {
         consentLogger.warn("oauth_consent_bad_token")
         res.type("html").send(
           renderConsentPage({
-            clientName: pending.client.client_name,
+            clientName: pendingRequest.client.client_name,
             clientId,
-            redirectUri: pending.params.redirectUri,
-            requestId: request_id,
+            redirectUri: pendingRequest.params.redirectUri,
+            requestId,
             error: "Invalid token. Please try again.",
           }),
         )
         return
       }
 
-      const code = approveRequest(request_id, consentLogger)
+      const code = approveRequest(requestId, consentLogger)
       consentLogger.info("oauth_consent_completed")
-      const redirectUrl = new URL(pending.params.redirectUri)
+      const redirectUrl = new URL(pendingRequest.params.redirectUri)
       redirectUrl.searchParams.set("code", code)
-      if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state)
+      if (pendingRequest.params.state) {
+        redirectUrl.searchParams.set("state", pendingRequest.params.state)
+      }
       res.redirect(redirectUrl.toString())
     },
   )
