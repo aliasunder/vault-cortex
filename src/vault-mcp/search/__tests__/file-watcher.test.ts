@@ -1615,12 +1615,17 @@ describe("file watcher — obsolete events and embedding queues", () => {
       Buffer.from(" latinword</p>"),
     ])
     await writeFile(join(testVault, "latin1.html"), latin1Page)
+    await writeFile(join(testVault, "plain.html"), "<p>plainword</p>", "utf8")
 
     await fire("add", "latin1.html")
+    await fire("add", "plain.html")
 
-    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
-    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([
+      { path: "plain.html" },
+    ])
+    expect(database.prepare("SELECT path FROM non_md_files ORDER BY path").all()).toEqual([
       { path: "latin1.html" },
+      { path: "plain.html" },
     ])
   })
 
