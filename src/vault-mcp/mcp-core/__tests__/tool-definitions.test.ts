@@ -1375,7 +1375,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({}))
     const openingSentence = description.slice(0, description.indexOf(". ") + 1)
     expect(openingSentence).toBe(
-      "Hybrid search across vault notes and file content (canvas, PDF, text files, HTML pages, and scripts; scripts match by keyword only), ranked by combined keyword and semantic relevance.",
+      "Hybrid search across vault notes and file content (canvas, PDF, text files, HTML pages, and .py/.sh/.ps1 scripts; scripts match by keyword only), ranked by combined keyword and semantic relevance.",
     )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1403,7 +1403,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   // only the hybrid variant says scripts match by keyword alone.
   const FILE_RESULT_WORDING = {
     searchedScope:
-      "search across vault notes and file content (canvas, PDF, text files, HTML pages, and scripts; scripts match by keyword only)",
+      "search across vault notes and file content (canvas, PDF, text files, HTML pages, and .py/.sh/.ps1 scripts; scripts match by keyword only)",
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
@@ -1419,7 +1419,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   const KEYWORD_ONLY_FILE_RESULT_WORDING = {
     ...FILE_RESULT_WORDING,
     searchedScope:
-      "search across vault notes and file content (canvas, PDF, text files, HTML pages, and scripts)",
+      "search across vault notes and file content (canvas, PDF, text files, HTML pages, and .py/.sh/.ps1 scripts)",
   }
 
   it.each([

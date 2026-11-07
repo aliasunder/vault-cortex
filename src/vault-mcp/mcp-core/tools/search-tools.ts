@@ -5,6 +5,7 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
+import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
 import {
   createStrictInputObject,
   describeNoteMetadataResult,
@@ -85,8 +86,9 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   // that mentions file results follows that setting, not any one tool. Scripts
   // are never embedded, which matters to a caller only while semantic matching runs.
   const scriptMatchClause = config.embeddingEnabled ? "; scripts match by keyword only" : ""
+  const scriptExtensions = getExtensionsOfKind("script").join("/")
   const searchedContentText = config.fileToolsEnabled
-    ? `vault notes and file content (canvas, PDF, text files, HTML pages, and scripts${scriptMatchClause})`
+    ? `vault notes and file content (canvas, PDF, text files, HTML pages, and ${scriptExtensions} scripts${scriptMatchClause})`
     : "vault notes"
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`
