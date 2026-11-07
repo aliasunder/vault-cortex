@@ -7,7 +7,11 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
-import { createSearchIndex, CONTENT_INDEXED_FILE_KINDS } from "../search-index.js"
+import {
+  createSearchIndex,
+  CONTENT_INDEXED_FILE_KINDS,
+  isHtmlOrScriptTooLargeToRead,
+} from "../search-index.js"
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
@@ -8230,7 +8234,7 @@ describe("HTML pages", () => {
   const rebuildVaultOf = async (
     files: ReadonlyArray<{ path: string; content: string | Buffer }>,
     embedder?: Parameters<typeof createSearchIndex>[1],
-  ): Promise<SearchIndex> => {
+  ): Promise<{ fileIndex: SearchIndex; vaultDir: string }> => {
     const vaultDir = await mkdtemp(join(tmpdir(), "html-pages-"))
     onTestFinished(() => rm(vaultDir, { recursive: true }))
     for (const file of files) {
@@ -8245,7 +8249,7 @@ describe("HTML pages", () => {
       logger,
     )
     await rebuilt.embedding
-    return fileIndex
+    return { fileIndex, vaultDir }
   }
 
   /** The paths each query finds, in query order. */
@@ -8261,7 +8265,7 @@ describe("HTML pages", () => {
   }
 
   it("finds an .html or .htm page by its visible text, never by its script", async () => {
-    const fileIndex = await rebuildVaultOf([
+    const { fileIndex } = await rebuildVaultOf([
       { path: "runbook.html", content: "<p>visiblequartz</p><script>scriptquartz()</script>" },
       { path: "report.htm", content: "<p>visibleopal</p><script>scriptopal()</script>" },
     ])
@@ -8290,7 +8294,7 @@ describe("HTML pages", () => {
     const styledWords = '<span style="color: red; font-weight: bold; padding: 2px">a</span>'.repeat(
       2_000,
     )
-    const fileIndex = await rebuildVaultOf([
+    const { fileIndex } = await rebuildVaultOf([
       { path: "styled.html", content: `<p>${styledWords}</p><p>closingamber</p>` },
     ])
 
@@ -8299,26 +8303,22 @@ describe("HTML pages", () => {
 
   it("finds a page over 16 MiB by its name without reading it", async () => {
     const filler = "<p>filler</p>".repeat(Math.ceil((16 * 1024 * 1024) / 13) + 1)
-    const fileIndex = await rebuildVaultOf([
+    const { fileIndex, vaultDir } = await rebuildVaultOf([
       { path: "giganticpage.html", content: `<p>buriedcobalt</p>${filler}` },
     ])
+    const pagePath = join(vaultDir, "giganticpage.html")
 
     expect(await searchEach(fileIndex, ["giganticpage", "buriedcobalt"])).toEqual([
       ["giganticpage.html"],
       [],
     ])
-    // readFile takes at most two arguments, so these two cover every read of the page
-    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
-      expect.stringMatching(/giganticpage\.html$/),
-    )
-    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
-      expect.stringMatching(/giganticpage\.html$/),
-      expect.anything(),
-    )
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath, expect.anything())
   })
 
   it("leaves out a page that is not UTF-8 or holds a NUL byte, and keeps the rest", async () => {
-    const fileIndex = await rebuildVaultOf([
+    const { fileIndex } = await rebuildVaultOf([
       {
         path: "latin1.html",
         // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
@@ -8378,7 +8378,7 @@ describe("scripts", () => {
     onTestFinished(() => {
       database.close()
     })
-    return { fileIndex, database }
+    return { fileIndex, database, vaultPath }
   }
 
   /** The paths whose indexed text matches the phrase, by keyword alone. */
@@ -8452,9 +8452,10 @@ describe("scripts", () => {
 
   it("finds a script over 16 MiB by its name without reading it", async () => {
     const filler = "# filler\n".repeat(Math.ceil((16 * 1024 * 1024) / 9) + 1)
-    const { fileIndex } = await rebuildVaultOf({
+    const { fileIndex, vaultPath } = await rebuildVaultOf({
       files: [{ path: "giganticscript.py", content: `buriedjasper = 1\n${filler}` }],
     })
+    const scriptPath = join(vaultPath, "giganticscript.py")
     const searchPaths = async (query: string) => {
       const { results } = await fileIndex.hybridSearch({ query }, logger)
       return results.map((result) => result.path)
@@ -8462,14 +8463,9 @@ describe("scripts", () => {
 
     expect(await searchPaths("giganticscript")).toEqual(["giganticscript.py"])
     expect(await searchPaths("buriedjasper")).toEqual([])
-    // readFile takes at most two arguments, so these two cover every read of the script
-    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
-      expect.stringMatching(/giganticscript\.py$/),
-    )
-    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
-      expect.stringMatching(/giganticscript\.py$/),
-      expect.anything(),
-    )
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath, expect.anything())
   })
 
   it("leaves a script holding a NUL byte out of search", async () => {
@@ -8493,11 +8489,9 @@ describe("text formats in a rebuild", () => {
   it("reads only the first 100 KiB of a text file, all the text search keeps", async () => {
     const vaultDir = await mkdtemp(join(tmpdir(), "text-formats-"))
     onTestFinished(() => rm(vaultDir, { recursive: true }))
+    const logPath = join(vaultDir, "prefixread.log")
     // The opening word sits inside the first 100 KiB and the closing word past it
-    await writeFile(
-      join(vaultDir, "prefixread.log"),
-      `openingtopaz\n${"x ".repeat(60_000)}\nclosingtopaz\n`,
-    )
+    await writeFile(logPath, `openingtopaz\n${"x ".repeat(60_000)}\nclosingtopaz\n`)
     const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,
     })
@@ -8513,15 +8507,51 @@ describe("text formats in a rebuild", () => {
     expect(await searchPaths("openingtopaz")).toEqual(["prefixread.log"])
     expect(await searchPaths("closingtopaz")).toEqual([])
     expect(vi.mocked(readFileTextPrefix)).toHaveBeenCalledWith({
-      path: expect.stringMatching(/prefixread\.log$/),
+      path: logPath,
       maxBytes: 102_400,
     })
-    // readFile takes at most two arguments, so these two cover every whole-file read
-    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(expect.stringMatching(/prefixread\.log$/))
-    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
-      expect.stringMatching(/prefixread\.log$/),
-      expect.anything(),
-    )
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath, expect.anything())
+  })
+})
+
+describe("isHtmlOrScriptTooLargeToRead", () => {
+  const limitBytes = 16 * 1024 * 1024
+
+  it.each([
+    {
+      label: "reads a script of exactly 16 MiB",
+      filePath: "big.py",
+      fileBytes: limitBytes,
+      expected: false,
+    },
+    {
+      label: "skips a script one byte over 16 MiB",
+      filePath: "big.py",
+      fileBytes: limitBytes + 1,
+      expected: true,
+    },
+    {
+      label: "reads a page of exactly 16 MiB",
+      filePath: "big.html",
+      fileBytes: limitBytes,
+      expected: false,
+    },
+    {
+      label: "skips a page one byte over 16 MiB",
+      filePath: "big.html",
+      fileBytes: limitBytes + 1,
+      expected: true,
+    },
+    {
+      label: "never skips a text file, which is read by its first bytes",
+      filePath: "big.log",
+      fileBytes: limitBytes + 1,
+      expected: false,
+    },
+  ])("$label", ({ filePath, fileBytes, expected }) => {
+    expect(isHtmlOrScriptTooLargeToRead({ filePath, fileBytes })).toBe(expected)
   })
 })
 

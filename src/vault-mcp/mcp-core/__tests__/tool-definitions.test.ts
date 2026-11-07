@@ -1465,7 +1465,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({}))
     const openingSentence = description.slice(0, description.indexOf(". ") + 1)
     expect(openingSentence).toBe(
-      "Hybrid search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts; a page or script over 16 MiB is found by its name only; each file's first 100 KiB of text is searched; scripts match by keyword only), ranked by combined keyword and semantic relevance.",
+      "Hybrid search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts), ranked by combined keyword and semantic relevance.",
     )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1493,7 +1493,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   // only the hybrid variant says scripts match by keyword alone.
   const FILE_RESULT_WORDING = {
     searchedScope:
-      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts; a page or script over 16 MiB is found by its name only; each file's first 100 KiB of text is searched; scripts match by keyword only)",
+      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts)",
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
@@ -1509,7 +1509,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   const KEYWORD_ONLY_FILE_RESULT_WORDING = {
     ...FILE_RESULT_WORDING,
     searchedScope:
-      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts; a page or script over 16 MiB is found by its name only; each file's first 100 KiB of text is searched)",
+      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts)",
   }
 
   it.each([
@@ -1555,15 +1555,18 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   })
 })
 
-describe("vault_search result cap", () => {
+describe("vault_search Behavior line: result cap and file content limits", () => {
   const BEHAVIOR_LEAD =
     "Behavior: Results can lag a file change by a few seconds. No matches returns an empty results array with total 0, not an error."
+  // Stated only while file content is searched (FILE_TOOLS_ENABLED on)
+  const FILE_CONTENT_LIMITS =
+    "Each file's first 100 KiB of text is searched; a page or script over 16 MiB is found by its name only"
 
   it.each([
     {
-      label: "bounds both modes for notes and files by default",
+      label: "bounds both modes for notes and files and states the file limits by default",
       env: {},
-      expectedLine: `${BEHAVIOR_LEAD} With search_mode "fts", at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files.`,
+      expectedLine: `${BEHAVIOR_LEAD} With search_mode "fts", at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files. ${FILE_CONTENT_LIMITS}; scripts match by keyword only.`,
     },
     {
       label: "bounds both modes for notes only when file tools are off",
@@ -1571,9 +1574,10 @@ describe("vault_search result cap", () => {
       expectedLine: `${BEHAVIOR_LEAD} With search_mode "fts", at most 100 notes come back; with "hybrid", at most 200 notes.`,
     },
     {
-      label: "states only the keyword bound for notes and files when embeddings are off",
+      label:
+        "states only the keyword bound for notes and files, and the file limits, when embeddings are off",
       env: { EMBEDDING_ENABLED: "false" },
-      expectedLine: `${BEHAVIOR_LEAD} At most 100 notes and 100 files come back.`,
+      expectedLine: `${BEHAVIOR_LEAD} At most 100 notes and 100 files come back. ${FILE_CONTENT_LIMITS}.`,
     },
     {
       label: "states only the keyword bound for notes when embeddings and file tools are off",

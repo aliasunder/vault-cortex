@@ -11,7 +11,7 @@ import { join, relative, resolve as resolvePath, sep } from "node:path"
 import {
   CONTENT_INDEXED_FILE_KINDS,
   INDEXING_FILE_READ_CONCURRENCY,
-  isIndexedByNameOnly,
+  isHtmlOrScriptTooLargeToRead,
   MAX_INDEXED_CONTENT_BYTES,
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
@@ -262,28 +262,28 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
             }
             case "html":
             case "script": {
-              const indexedByNameOnly = isIndexedByNameOnly({
+              const tooLargeToRead = isHtmlOrScriptTooLargeToRead({
                 filePath: relativePath,
                 fileBytes: fileStat.size,
               })
 
-              if (indexedByNameOnly) return ""
+              if (tooLargeToRead) return ""
               const decodedSource = decodeTextBuffer(await readFile(filePath))
 
               if (decodedSource.status !== "text") return null
               return decodedSource.text
             }
-            // Text formats and canvases decode leniently, so a stray invalid byte
-            // or NUL padding keeps them in search. Search keeps a text file's
-            // first MAX_INDEXED_CONTENT_BYTES only, so no more is read.
+            // Search keeps a text file's first MAX_INDEXED_CONTENT_BYTES only, so
+            // no more is read. The read decodes leniently, so a stray invalid byte
+            // or NUL padding keeps the file in search.
             case "text":
               return await readFileTextPrefix({
                 path: filePath,
                 maxBytes: MAX_INDEXED_CONTENT_BYTES,
               })
-            // A canvas is read whole, because its links need the whole JSON.
-            // Images and other files never reach this switch: the guard above
-            // reads only the kinds search indexes.
+            // A canvas is read whole, because its links need the whole JSON, and
+            // it decodes leniently like a text file. Images and other files never
+            // reach this switch: the guard above reads only the kinds search indexes.
             case "canvas":
             case "image":
             case "other":

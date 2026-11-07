@@ -93,9 +93,14 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const scriptMatchClause = config.embeddingEnabled ? "; scripts match by keyword only" : ""
   const scriptExtensions = getExtensionsOfKind("script").join("/")
   const textExtensions = getExtensionsOfKind("text").join("/")
+  const nameOnlyLimitMiB = MAX_INDEXED_HTML_OR_SCRIPT_BYTES / (1024 * 1024)
+  const indexedPrefixKiB = MAX_INDEXED_CONTENT_BYTES / 1024
   const searchedContentText = config.fileToolsEnabled
-    ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages, and ${scriptExtensions} scripts; a page or script over ${MAX_INDEXED_HTML_OR_SCRIPT_BYTES / (1024 * 1024)} MiB is found by its name only; each file's first ${MAX_INDEXED_CONTENT_BYTES / 1024} KiB of text is searched${scriptMatchClause})`
+    ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages, and ${scriptExtensions} scripts)`
     : "vault notes"
+  const fileContentLimitsSentence = config.fileToolsEnabled
+    ? ` Each file's first ${indexedPrefixKiB} KiB of text is searched; a page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
+    : ""
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`
     : `path, title, snippet, score, ${tagsFieldsText}, folder (top-level folder), type, kind, created, modified, bytes`
@@ -128,7 +133,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const resultCapSentence = config.embeddingEnabled
     ? `With search_mode "fts", at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
-  const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}
+  const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}${fileContentLimitsSentence}
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}.`
   const searchErrorsSection = `Errors:
 - "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form

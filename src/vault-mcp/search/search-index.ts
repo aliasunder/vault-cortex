@@ -86,16 +86,19 @@ const EMBEDDED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["canvas", "pdf", "te
 export const MAX_INDEXED_CONTENT_BYTES = 102_400
 
 /** An HTML page or script larger than this is indexed by its name only, like a
- *  scanned PDF. Each kind has its own reason for the same limit:
- *  - a page's text is extracted on the main thread, which answers no request
- *    meanwhile, and attribute-heavy pages at 16 MiB already took up to 1.7 s;
- *  - a script is read whole, because indexing keeps its text only when every
- *    byte is UTF-8, so the limit bounds the memory one read takes. */
+ *  scanned PDF. The limit bounds two costs:
+ *  - indexing reads a page or script whole, because it keeps the text only
+ *    when every byte is UTF-8, so the limit keeps one read's memory near it;
+ *  - a page's text is also extracted on the main thread, which answers no
+ *    request meanwhile, and attribute-heavy pages at 16 MiB took up to 1.7 s. */
 export const MAX_INDEXED_HTML_OR_SCRIPT_BYTES = 16 * 1024 * 1024
 
-/** True for an HTML page or script over the size limit. Search finds such a
- *  file by its name only, so indexing never reads it. */
-export const isIndexedByNameOnly = (params: { filePath: string; fileBytes: number }): boolean => {
+/** True for an HTML page or script over MAX_INDEXED_HTML_OR_SCRIPT_BYTES.
+ *  Indexing never reads such a file, so search finds it by its name only. */
+export const isHtmlOrScriptTooLargeToRead = (params: {
+  filePath: string
+  fileBytes: number
+}): boolean => {
   const fileKind = getFileKind(params.filePath)
   const isHtmlOrScript = fileKind === "html" || fileKind === "script"
 
@@ -116,7 +119,9 @@ const fileTextToIndexedText = (params: {
     case "canvas":
       return linearizeCanvas(params.fileText)
     case "html":
-      if (isIndexedByNameOnly(params)) return ""
+      // Extraction blocks the main thread, so a page over the limit is never
+      // extracted, even when a caller passes its source in directly
+      if (isHtmlOrScriptTooLargeToRead(params)) return ""
       return extractHtmlVisibleText({
         html: params.fileText,
         maxBytes: MAX_INDEXED_CONTENT_BYTES,
@@ -2453,6 +2458,7 @@ export const createSearchIndex = (
         return null
       }
     }
+
     // Read canvas files for content indexing + link extraction.
     const canvasContentResults = await mapWithConcurrency({
       items: canvasFiles,
@@ -2517,13 +2523,14 @@ export const createSearchIndex = (
       const readDecodedFile = async () => {
         try {
           const fileStat = await stat(file.absolutePath)
-          const indexedByNameOnly = isIndexedByNameOnly({
+          const tooLargeToRead = isHtmlOrScriptTooLargeToRead({
             filePath: file.relativePath,
             fileBytes: fileStat.size,
           })
 
-          if (indexedByNameOnly)
+          if (tooLargeToRead) {
             return { decodedText: { status: "text", text: "" } as const, fileStat }
+          }
           return { decodedText: decodeTextBuffer(await readFile(file.absolutePath)), fileStat }
         } catch (error) {
           logger.warn("skipped unreadable file during rebuild", {

@@ -1618,7 +1618,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
 
     expect(await searchPaths("giganticpage")).toEqual(["giganticpage.html"])
     expect(await searchPaths("buriedcobalt")).toEqual([])
-    // readFile takes at most two arguments, so these two cover every read of the page
+    // These two cover a read as a buffer and a read given an encoding or options
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath)
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath, expect.anything())
   })
@@ -1637,7 +1637,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
 
     expect(await searchPaths("giganticscript")).toEqual(["giganticscript.py"])
     expect(await searchPaths("buriedjasper")).toEqual([])
-    // readFile takes at most two arguments, so these two cover every read of the script
+    // These two cover a read as a buffer and a read given an encoding or options
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath)
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath, expect.anything())
   })
@@ -1660,7 +1660,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       path: logPath,
       maxBytes: 102_400,
     })
-    // readFile takes at most two arguments, so these two cover every whole-file read
+    // These two cover a read as a buffer and a read given an encoding or options
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath)
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath, expect.anything())
   })
