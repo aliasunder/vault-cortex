@@ -7,8 +7,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
-import { signJwt } from "../../jwt.js"
-import { startServer, freePort } from "./test-harness.js"
+import { signJwt, verifyJwt } from "../../jwt.js"
+import {
+  startServer,
+  freePort,
+  readSecurityHeaders,
+  EXPECTED_SECURITY_HEADERS,
+} from "./test-harness.js"
 
 const REDIRECT_URI = "http://127.0.0.1/callback"
 const TOKEN_A = "integration-token-before-rotation"
@@ -18,13 +23,17 @@ const base64Url = (buffer: Buffer): string =>
   buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 type RegisteredClient = { client_id: string; client_secret: string }
-type IssuedTokens = { access_token: string; refresh_token: string }
+type IssuedTokens = { access_token: string; refresh_token: string; scope: string }
 
 const isRegisteredClient = (value: unknown): value is RegisteredClient =>
   typeof value === "object" && value !== null && "client_id" in value && "client_secret" in value
 
 const isIssuedTokens = (value: unknown): value is IssuedTokens =>
-  typeof value === "object" && value !== null && "access_token" in value && "refresh_token" in value
+  typeof value === "object" &&
+  value !== null &&
+  "access_token" in value &&
+  "refresh_token" in value &&
+  "scope" in value
 
 /** Initialize over /mcp with the transport's required Accept header, so
  *  a valid bearer is distinguishable (200) from a rejected one (401). */
@@ -74,18 +83,17 @@ const registerClient = async (port: number): Promise<RegisteredClient> => {
   return registered
 }
 
-/** Consent page → approve with the auth token → PKCE code exchange. */
-const authorize = async ({
+const buildAuthorizeUrl = ({
   port,
   client,
-  authToken,
+  challenge,
+  scope,
 }: {
   port: number
   client: RegisteredClient
-  authToken: string
-}): Promise<IssuedTokens> => {
-  const verifier = base64Url(randomBytes(32))
-  const challenge = base64Url(createHash("sha256").update(verifier).digest())
+  challenge: string
+  scope: string
+}): URL => {
   const authorizeUrl = new URL(`http://127.0.0.1:${port}/authorize`)
   authorizeUrl.search = new URLSearchParams({
     response_type: "code",
@@ -93,8 +101,26 @@ const authorize = async ({
     redirect_uri: REDIRECT_URI,
     code_challenge: challenge,
     code_challenge_method: "S256",
-    scope: "vault",
+    scope,
   }).toString()
+  return authorizeUrl
+}
+
+/** Consent page → approve with the auth token → PKCE code exchange. */
+const authorize = async ({
+  port,
+  client,
+  authToken,
+  scope = "vault",
+}: {
+  port: number
+  client: RegisteredClient
+  authToken: string
+  scope?: string
+}): Promise<IssuedTokens> => {
+  const verifier = base64Url(randomBytes(32))
+  const challenge = base64Url(createHash("sha256").update(verifier).digest())
+  const authorizeUrl = buildAuthorizeUrl({ port, client, challenge, scope })
   const consentHtml = await (await fetch(authorizeUrl)).text()
   const requestId = /name="request_id"\s+value="([^"]+)"/.exec(consentHtml)?.[1]
 
@@ -164,6 +190,49 @@ const refresh = ({
     body: params,
   })
 }
+
+// ── Consent page response headers ──────────────────────────────
+
+describe("consent page response headers", () => {
+  it("serves the consent page with the security headers, not cacheable and without X-Powered-By", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(() => server.cleanup())
+    const client = await registerClient(port)
+    const challenge = base64Url(createHash("sha256").update("header-check").digest())
+
+    const response = await fetch(buildAuthorizeUrl({ port, client, challenge, scope: "vault" }))
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("<h1>Authorize access</h1>")
+    expect(readSecurityHeaders(response)).toEqual(EXPECTED_SECURITY_HEADERS)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it("answers an oversized consent form with a 500 that is not cacheable", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(() => server.cleanup())
+
+    // The body exceeds express.urlencoded's default 100 KB limit, and the
+    // server's error middleware answers the parser's error.
+    const response = await fetch(`http://127.0.0.1:${port}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `request_id=a&token=${"t".repeat(200 * 1024)}&action=approve`,
+    })
+
+    expect({
+      status: response.status,
+      cacheControl: response.headers.get("cache-control"),
+      body: await response.json(),
+    }).toEqual({
+      status: 500,
+      cacheControl: "no-store",
+      body: { error: "internal server error" },
+    })
+  })
+})
 
 // ── Expired access token challenge ─────────────────────────────
 
@@ -414,6 +483,33 @@ describe("refresh-token reuse detection", () => {
     expect(registeredClientIds).toEqual([client.client_id])
     const reissued = await authorize({ port: rebootedPort, client, authToken: TOKEN_A })
     expect(await mcpStatusWithBearer(rebootedPort, reissued.access_token)).toBe(200)
+  }, 60_000)
+})
+
+// ── Granted scope ─────────────────────────────────────────────
+
+describe("granted scope", () => {
+  it("grants vault to a sign-in that asks for another scope, and keeps it on refresh", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(() => server.cleanup())
+    const client = await registerClient(port)
+
+    const issued = await authorize({ port, client, authToken: TOKEN_A, scope: "admin-zq9" })
+    const accessTokenPayload = verifyJwt({
+      token: issued.access_token,
+      secret: TOKEN_A,
+      expectedIssuer: `http://127.0.0.1:${port}/`,
+      expectedAudience: `http://127.0.0.1:${port}/mcp`,
+    })
+    const refreshed = await refresh({ port, client, refreshToken: issued.refresh_token })
+    const refreshedTokens: unknown = await refreshed.json()
+
+    if (!isIssuedTokens(refreshedTokens)) throw new Error("malformed refresh")
+    expect(issued.scope).toBe("vault")
+    expect(accessTokenPayload?.scope).toBe("vault")
+    expect(refreshed.status).toBe(200)
+    expect(refreshedTokens.scope).toBe("vault")
   }, 60_000)
 })
 

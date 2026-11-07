@@ -46,6 +46,9 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 const AUTH_TOKEN = "local-dev-token"
 const TEST_URLS = { serverUrl: new URL("http://localhost:8000") }
 const REDIRECT_URI = "http://localhost:9999/callback"
+// What the consent page shows for REDIRECT_URI and for the grant
+const REDIRECT_DESTINATION = "http://localhost:9999"
+const GRANT_TEXT = "Everything this server's tools can do in your vault"
 // A test request's peer address is loopback, in a form that varies by
 // platform (127.0.0.1, ::1, or IPv4-mapped).
 const LOOPBACK_ADDRESSES = ["127.0.0.1", "::1", "::ffff:127.0.0.1"]
@@ -196,7 +199,6 @@ describe("OAuth consent token submission", () => {
     return {
       error: /<div class="error">([^<]*)<\/div>/.exec(html)?.[1],
       values: [...html.matchAll(/<div class="value">([^<]*)<\/div>/g)].map((match) => match[1]),
-      scopes: [...html.matchAll(/<li>([^<]*)<\/li>/g)].map((match) => match[1]),
       requestId: REQUEST_ID_PATTERN.exec(html)?.[1],
     }
   }
@@ -210,24 +212,36 @@ describe("OAuth consent token submission", () => {
       expect(response.headers.get("location")).toBeNull()
       expect(readConsentPage(await response.text())).toEqual({
         error: "Invalid token. Please try again.",
-        values: ["Test Client", clientId],
-        scopes: ["vault"],
+        values: ["Test Client", clientId, REDIRECT_DESTINATION, GRANT_TEXT],
         requestId,
       })
     },
   )
 
-  it("re-renders the consent page with the default scope after a wrong token when the request named none", async () => {
-    const { requestId, clientId } = await startPendingRequest([])
+  it("re-renders the consent page without the scope the request named after a wrong token", async () => {
+    const { requestId, clientId } = await startPendingRequest(["admin-zq9"])
 
     const response = await submitToken(requestId, "not-the-token")
+    const html = await response.text()
 
-    expect(readConsentPage(await response.text())).toEqual({
+    expect(readConsentPage(html)).toEqual({
       error: "Invalid token. Please try again.",
-      values: ["Test Client", clientId],
-      scopes: ["vault"],
+      values: ["Test Client", clientId, REDIRECT_DESTINATION, GRANT_TEXT],
       requestId,
     })
+    expect(html).not.toContain("admin-zq9")
+  })
+
+  it.each([
+    { label: "approval redirect", token: AUTH_TOKEN, expectedStatus: 302 },
+    { label: "wrong-token re-render", token: "not-the-token", expectedStatus: 200 },
+  ])("marks the $label as not cacheable", async ({ token, expectedStatus }) => {
+    const { requestId } = await startPendingRequest()
+
+    const response = await submitToken(requestId, token)
+
+    expect(response.status).toBe(expectedStatus)
+    expect(response.headers.get("cache-control")).toBe("no-store")
   })
 })
 
@@ -285,6 +299,48 @@ describe("OAuth consent body validation", () => {
     expect(response.status).toBe(400)
     const text = await response.text()
     expect(text).toBe("Invalid form submission.")
+  })
+
+  it("returns 400 for a request ID with no pending request", async () => {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "request_id=nonexistent-id&token=t&action=approve",
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.text()).resolves.toBe("Authorization request expired or invalid.")
+  })
+
+  it.each([
+    {
+      label: "400 for duplicate form fields",
+      body: "request_id=a&request_id=b&token=t&action=approve",
+      expectedStatus: 400,
+    },
+    { label: "400 for missing fields", body: "request_id=a", expectedStatus: 400 },
+    {
+      label: "400 for a request ID with no pending request",
+      body: "request_id=nonexistent-id&token=t&action=approve",
+      expectedStatus: 400,
+    },
+    {
+      // The body exceeds express.urlencoded's default 100 KB limit. This router
+      // alone answers the parser's 413; the full server's error middleware
+      // turns the same error into a 500, and no-store holds either way.
+      label: "form parser's 413 for an oversized form",
+      body: `request_id=a&token=${"t".repeat(200 * 1024)}&action=approve`,
+      expectedStatus: 413,
+    },
+  ])("marks the $label as not cacheable", async ({ body, expectedStatus }) => {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+    })
+
+    expect(response.status).toBe(expectedStatus)
+    expect(response.headers.get("cache-control")).toBe("no-store")
   })
 })
 

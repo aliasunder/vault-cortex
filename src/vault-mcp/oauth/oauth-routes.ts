@@ -8,7 +8,7 @@ import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { extractClientIp, safeEqual, tokenBindingForServer } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
-import { DEFAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
+import { VAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
 
 type OAuthRoutesOptions = {
@@ -77,7 +77,7 @@ export const createOAuthRoutes = ({
     },
   }
 
-  const scopesSupported = [DEFAULT_SCOPE]
+  const scopesSupported = [VAULT_SCOPE]
 
   // The same derivation the provider mints tokens from, so metadata and
   // tokens can't disagree.
@@ -133,6 +133,15 @@ export const createOAuthRoutes = ({
     }),
   )
 
+  // No consent decision response may be cached: the re-rendered page holds the
+  // request ID, and the redirect holds the authorization code. Mounted ahead of
+  // the form parser so the response to a parser error, such as an oversized
+  // form, carries it too.
+  router.use("/oauth/decide", (_req: Request, res: Response, next: NextFunction) => {
+    res.set("Cache-Control", "no-store")
+    next()
+  })
+
   // Consent form submission (unauthenticated — part of authorize flow)
   router.post(
     "/oauth/decide",
@@ -169,6 +178,8 @@ export const createOAuthRoutes = ({
         clientId,
       })
 
+      // Any action but an explicit Approve denies, so an unexpected form
+      // value can never grant access.
       if (action !== "approve") {
         consentLogger.info("oauth_consent_denied_by_user")
         deletePendingRequest(request_id)
@@ -192,9 +203,9 @@ export const createOAuthRoutes = ({
         consentLogger.warn("oauth_consent_bad_token")
         res.type("html").send(
           renderConsentPage({
-            clientName: pending.client.client_name ?? pending.client.client_id,
+            clientName: pending.client.client_name,
             clientId,
-            scopes: pending.params.scopes,
+            redirectUri: pending.params.redirectUri,
             requestId: request_id,
             error: "Invalid token. Please try again.",
           }),

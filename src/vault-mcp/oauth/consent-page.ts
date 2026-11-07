@@ -3,24 +3,40 @@
 import { escapeHtml } from "../../utils/escape-html.js"
 
 type ConsentPageParams = {
-  clientName: string
+  /** The client's registered name; the page shows its ID when the name is missing or empty. */
+  clientName: string | undefined
   clientId: string
-  scopes: string[]
+  redirectUri: string
   requestId: string
   error?: string
+}
+
+// A new sign-in always gets the vault scope, and no tool checks a scope, so
+// approval grants whatever the tools allow.
+const GRANT_DESCRIPTION = "Everything this server's tools can do in your vault"
+
+/** Where Approve sends access, as the page shows it:
+ *  - an address with a host: its scheme and host, port included. The scheme
+ *    always shows, so an app link never reads as a website.
+ *  - an address with no host, such as the app link `claude.ai:callback`: the
+ *    address as written.
+ *  The SDK passes only addresses URL.parse can read; one it cannot would also
+ *  show as written. */
+const redirectUriToDestination = (redirectUri: string): string => {
+  const redirectUrl = URL.parse(redirectUri)
+
+  if (!redirectUrl?.host) return redirectUri
+  // Not URL.origin, which is "null" for an app scheme such as claude://.
+  return `${redirectUrl.protocol}//${redirectUrl.host}`
 }
 
 export const renderConsentPage = ({
   clientName,
   clientId,
-  scopes,
+  redirectUri,
   requestId,
   error,
 }: ConsentPageParams): string => {
-  const scopeList = scopes.length
-    ? scopes.map((scope) => `<li>${escapeHtml(scope)}</li>`).join("")
-    : "<li><em>No specific scopes requested</em></li>"
-
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -35,9 +51,6 @@ export const renderConsentPage = ({
   .field{margin-bottom:1rem}
   .label{font-size:.75rem;color:#a1a1aa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.25rem}
   .value{font-size:.9rem;color:#e4e4e7;word-break:break-all}
-  ul{list-style:none;padding:0}
-  ul li{padding:.25rem 0;font-size:.9rem}
-  ul li::before{content:"\\2022";color:#6366f1;margin-right:.5rem}
   .token-input{display:flex;gap:.5rem;margin-top:.25rem}
   .token-input input{flex:1;min-width:0;padding:.6rem .75rem;background:#0f1117;border:1px solid #2e2e38;border-radius:6px;color:#fafafa;font-size:.9rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   .token-input input:focus{outline:none;border-color:#6366f1}
@@ -58,15 +71,19 @@ export const renderConsentPage = ({
   ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
   <div class="field">
     <div class="label">Application</div>
-    <div class="value">${escapeHtml(clientName)}</div>
+    <div class="value">${escapeHtml(clientName || clientId)}</div>
   </div>
   <div class="field">
     <div class="label">Client ID</div>
     <div class="value">${escapeHtml(clientId)}</div>
   </div>
   <div class="field">
-    <div class="label">Requested scopes</div>
-    <ul>${scopeList}</ul>
+    <div class="label">Sends access to</div>
+    <div class="value">${escapeHtml(redirectUriToDestination(redirectUri))}</div>
+  </div>
+  <div class="field">
+    <div class="label">Access</div>
+    <div class="value">${escapeHtml(GRANT_DESCRIPTION)}</div>
   </div>
   <form method="POST" action="/oauth/decide">
     <input type="hidden" name="request_id" value="${escapeHtml(requestId)}">
@@ -74,7 +91,7 @@ export const renderConsentPage = ({
       <div class="label">Server token</div>
       <div class="token-input">
         <input type="password" id="token" name="token" placeholder="Enter your MCP_AUTH_TOKEN" required autocomplete="off">
-        <button type="button" class="reveal" aria-label="Show or hide token" onclick="var t=document.getElementById('token');var s=t.type==='password';t.type=s?'text':'password';this.textContent=s?'Hide':'Show'">Show</button>
+        <button type="button" class="reveal" aria-label="Show or hide token" onclick="var tokenInput=document.getElementById('token');var hidden=tokenInput.type==='password';tokenInput.type=hidden?'text':'password';this.textContent=hidden?'Hide':'Show'">Show</button>
       </div>
     </div>
     <div class="actions">

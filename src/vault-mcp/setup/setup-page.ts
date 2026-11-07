@@ -114,7 +114,7 @@ const tokenField = (settingsLocationPhrase: string): string => `<div class="fiel
     <label class="label" for="token">MCP token</label>
     <div class="token-input">
       <input type="password" id="token" name="token" placeholder="MCP_AUTH_TOKEN" required autocomplete="off">
-      <button type="button" class="reveal" aria-label="Show or hide token" onclick="var t=document.getElementById('token');var s=t.type==='password';t.type=s?'text':'password';this.textContent=s?'Hide':'Show'">Show</button>
+      <button type="button" class="reveal" aria-label="Show or hide token" onclick="var tokenInput=document.getElementById('token');var hidden=tokenInput.type==='password';tokenInput.type=hidden?'text':'password';this.textContent=hidden?'Hide':'Show'">Show</button>
     </div>
     <div class="hint">The <code>MCP_AUTH_TOKEN</code> value from ${settingsLocationPhrase} — it proves this is your server.</div>
   </div>`

@@ -7,6 +7,9 @@ const SIGN_IN = {
   insecureTransport: false,
 }
 
+/** Matches the reveal button, capturing its onclick handler. */
+const REVEAL_ONCLICK_PATTERN = /class="reveal"[^>]*onclick="([^"]+)"/
+
 describe("renderSetupPage — sign-in", () => {
   it("asks for the MCP token (masked) and the Obsidian email and password", () => {
     const html = renderSetupPage(SIGN_IN)
@@ -17,6 +20,14 @@ describe("renderSetupPage — sign-in", () => {
     expect(html).toContain('<input type="password" id="password" name="password"')
     expect(html).not.toContain("saved Obsidian login stopped working")
     expect(html).not.toContain("not using HTTPS")
+  })
+
+  it("wires the reveal button to show and hide the token input", () => {
+    const html = renderSetupPage(SIGN_IN)
+
+    expect(REVEAL_ONCLICK_PATTERN.exec(html)?.[1]).toBe(
+      "var tokenInput=document.getElementById('token');var hidden=tokenInput.type==='password';tokenInput.type=hidden?'text':'password';this.textContent=hidden?'Hide':'Show'",
+    )
   })
 
   it("explains a rejected saved login above the form", () => {

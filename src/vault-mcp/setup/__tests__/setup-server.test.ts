@@ -5,7 +5,12 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
-import { freePort, stopChild } from "../../../__tests__/integration/test-harness.js"
+import {
+  EXPECTED_SECURITY_HEADERS,
+  freePort,
+  readSecurityHeaders,
+  stopChild,
+} from "../../../__tests__/integration/test-harness.js"
 import { startFakeObsidianApi } from "./fake-obsidian-api.js"
 
 // The entry point starts through tsx; the 15 s start timeout inside the tests
@@ -288,6 +293,46 @@ describe("setup-server entry point", () => {
       error: "setup required",
       setup_url: "https://vault.example.com/setup",
     })
+  })
+
+  it("sets the security headers on the sign-in page and the browser redirect, without X-Powered-By", async () => {
+    const server = await spawnSetupServer({
+      HOME: tmpdir(),
+      MCP_AUTH_TOKEN: AUTH_TOKEN,
+      PUBLIC_URL: "https://vault.example.com",
+    })
+    await waitForStart(server)
+
+    const signInPage = await fetch(`http://127.0.0.1:${server.port}/setup`)
+    const browserRedirect = await fetch(`http://127.0.0.1:${server.port}/anything`, {
+      headers: { Accept: "text/html" },
+      redirect: "manual",
+    })
+
+    expect(signInPage.status).toBe(200)
+    expect(readSecurityHeaders(signInPage)).toEqual(EXPECTED_SECURITY_HEADERS)
+    expect(browserRedirect.status).toBe(302)
+    expect(readSecurityHeaders(browserRedirect)).toEqual(EXPECTED_SECURITY_HEADERS)
+  })
+
+  it("marks the sign-in page and the browser redirect as not cacheable", async () => {
+    const server = await spawnSetupServer({
+      HOME: tmpdir(),
+      MCP_AUTH_TOKEN: AUTH_TOKEN,
+      PUBLIC_URL: "https://vault.example.com",
+    })
+    await waitForStart(server)
+
+    const signInPage = await fetch(`http://127.0.0.1:${server.port}/setup`)
+    const browserRedirect = await fetch(`http://127.0.0.1:${server.port}/anything`, {
+      headers: { Accept: "text/html" },
+      redirect: "manual",
+    })
+
+    expect(signInPage.status).toBe(200)
+    expect(signInPage.headers.get("cache-control")).toBe("no-store")
+    expect(browserRedirect.status).toBe(302)
+    expect(browserRedirect.headers.get("cache-control")).toBe("no-store")
   })
 
   it("shows the saved-login notice when SETUP_REASON is login-failed", async () => {

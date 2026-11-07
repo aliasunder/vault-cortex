@@ -23,6 +23,7 @@ import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
+import { securityHeaders } from "../utils/security-headers.js"
 import env from "env-var"
 
 /** Error middleware — logs the failure with request context, answers 500.
@@ -219,6 +220,10 @@ const startServer = async (): Promise<void> => {
   })
 
   const app = express()
+  // First, so a response that later middleware ends early, such as an error
+  // or a redirect, carries the headers too.
+  app.use(securityHeaders)
+  app.disable("x-powered-by")
   // Proxy trust is deployment-explicit: TRUST_PROXY_HOPS grants one
   // X-Forwarded-For hop per proxy the deployment controls. With the
   // default 0, req.ip — the OAuth rate limiter's fallback bucket key —
@@ -236,7 +241,12 @@ const startServer = async (): Promise<void> => {
   // token (setup/setup-server.ts); once configured, the same address says so
   // instead of 404ing on a link from that flow or a guide.
   app.get("/setup", (_req: Request, res: Response) => {
-    res.type("html").send(renderSetupPage({ kind: "configured" }))
+    // Not cached, so the address shows setup mode's page again if the
+    // container returns to setup mode.
+    res
+      .set("Cache-Control", "no-store")
+      .type("html")
+      .send(renderSetupPage({ kind: "configured" }))
   })
 
   app.use(
