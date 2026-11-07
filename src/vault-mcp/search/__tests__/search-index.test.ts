@@ -7946,6 +7946,99 @@ describe("files with an uppercase extension", { timeout: 15_000 }, () => {
   })
 })
 
+describe("HTML pages", () => {
+  /** Rebuilds an index over a vault holding the given files. */
+  const rebuildVaultOf = async (
+    files: ReadonlyArray<{ path: string; content: string | Buffer }>,
+  ): Promise<SearchIndex> => {
+    const vaultDir = await mkdtemp(join(tmpdir(), "html-pages-"))
+    onTestFinished(() => rm(vaultDir, { recursive: true }))
+    for (const file of files) {
+      await writeFile(join(vaultDir, file.path), file.content)
+    }
+
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    await fileIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    return fileIndex
+  }
+
+  /** The paths each query finds, in query order. */
+  const searchEach = async (
+    search: SearchIndex,
+    queries: readonly string[],
+  ): Promise<string[][]> => {
+    const findPaths = async (query: string): Promise<string[]> => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+    return Promise.all(queries.map(findPaths))
+  }
+
+  it("finds an .html or .htm page by its visible text, never by its script", async () => {
+    const fileIndex = await rebuildVaultOf([
+      { path: "runbook.html", content: "<p>visiblequartz</p><script>scriptquartz()</script>" },
+      { path: "report.htm", content: "<p>visibleopal</p><script>scriptopal()</script>" },
+    ])
+
+    const queries = ["visiblequartz", "scriptquartz", "visibleopal", "scriptopal"]
+    expect(await searchEach(fileIndex, queries)).toEqual([["runbook.html"], [], ["report.htm"], []])
+  })
+
+  it("indexes a page's last paragraph when its markup passes the 100 KiB cap but its text does not", async () => {
+    // About 140 KB of markup around about 2 KB of text
+    const styledWords = '<span style="color: red; font-weight: bold; padding: 2px">a</span>'.repeat(
+      2_000,
+    )
+    const fileIndex = await rebuildVaultOf([
+      { path: "styled.html", content: `<p>${styledWords}</p><p>closingamber</p>` },
+    ])
+
+    expect(await searchEach(fileIndex, ["closingamber"])).toEqual([["styled.html"]])
+  })
+
+  it("finds a page over 16 MiB by its name and not by its text", async () => {
+    const filler = "<p>filler</p>".repeat(Math.ceil((16 * 1024 * 1024) / 13) + 1)
+    const fileIndex = await rebuildVaultOf([
+      { path: "giganticpage.html", content: `<p>buriedcobalt</p>${filler}` },
+    ])
+
+    expect(await searchEach(fileIndex, ["giganticpage", "buriedcobalt"])).toEqual([
+      ["giganticpage.html"],
+      [],
+    ])
+  })
+
+  it("leaves out a page that is not UTF-8 or holds a NUL byte, and keeps the rest", async () => {
+    const fileIndex = await rebuildVaultOf([
+      {
+        path: "latin1.html",
+        // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+        content: Buffer.concat([
+          Buffer.from("<p>latinword caf"),
+          Buffer.from([0xe9]),
+          Buffer.from("</p>"),
+        ]),
+      },
+      {
+        path: "nul.html",
+        content: Buffer.concat([Buffer.from("<p>nulword"), Buffer.from([0]), Buffer.from("</p>")]),
+      },
+      { path: "plain.html", content: "<p>plainword</p>" },
+    ])
+
+    expect(await searchEach(fileIndex, ["latinword", "nulword", "plainword"])).toEqual([
+      [],
+      [],
+      ["plain.html"],
+    ])
+  })
+})
+
 describe("committed embedding source versions", () => {
   it.each(["note", "file"] as const)(
     "rejects a %s model result after source deletion",

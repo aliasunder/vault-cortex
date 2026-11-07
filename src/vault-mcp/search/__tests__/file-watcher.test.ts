@@ -1553,6 +1553,95 @@ describe("file watcher — obsolete events and embedding queues", () => {
     },
   )
 
+  it.each([{ fileName: "page.html" }, { fileName: "page.htm" }])(
+    "indexes the visible text of $fileName and replaces it when the page changes",
+    async ({ fileName }) => {
+      const { testVault, search, fire } = await createControlledWatcher()
+      const searchPaths = async (query: string) => {
+        const { results } = await search.hybridSearch({ query }, logger)
+        return results.map((result) => result.path)
+      }
+
+      await writeFile(
+        join(testVault, fileName),
+        "<p>oldquartz</p><script>scriptonlyword()</script>",
+        "utf8",
+      )
+      await fire("add", fileName)
+
+      expect(await searchPaths("oldquartz")).toEqual([fileName])
+      expect(await searchPaths("scriptonlyword")).toEqual([])
+
+      await writeFile(join(testVault, fileName), "<p>newopal</p>", "utf8")
+      await fire("change", fileName)
+
+      expect(await searchPaths("newopal")).toEqual([fileName])
+      expect(await searchPaths("oldquartz")).toEqual([])
+    },
+  )
+
+  it("leaves a page that is not UTF-8 out of search", async () => {
+    const { testVault, database, fire } = await createControlledWatcher()
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    const latin1Page = Buffer.concat([
+      Buffer.from("<p>caf"),
+      Buffer.from([0xe9]),
+      Buffer.from(" latinword</p>"),
+    ])
+    await writeFile(join(testVault, "latin1.html"), latin1Page)
+
+    await fire("add", "latin1.html")
+
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([])
+    expect(database.prepare("SELECT path FROM non_md_files").all()).toEqual([
+      { path: "latin1.html" },
+    ])
+  })
+
+  it("drops a page from search while it holds a NUL byte, and a held embedding cannot restore it", async () => {
+    const firstEntered = Promise.withResolvers<undefined>()
+    const releaseFirst = Promise.withResolvers<Float32Array>()
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn(async (text: string) => {
+        if (text === "page\n\nfirstgarnet") {
+          firstEntered.resolve(undefined)
+          return releaseFirst.promise
+        }
+        return vector
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, database, search, fire } = await createControlledWatcher(embedder)
+    const pagePath = join(testVault, "page.html")
+    const storedContent = () => database.prepare("SELECT path, content FROM file_content").all()
+    const storedChunks = () => database.prepare("SELECT file_path FROM file_content_chunks").all()
+
+    await writeFile(pagePath, "<p>firstgarnet</p>", "utf8")
+    const firstChange = fire("change", "page.html")
+    await firstEntered.promise
+    expect(storedContent()).toEqual([{ path: "page.html", content: "firstgarnet" }])
+
+    const withNulByte = Buffer.concat([
+      Buffer.from("<p>nulgarnet"),
+      Buffer.from([0]),
+      Buffer.from("</p>"),
+    ])
+    await writeFile(pagePath, withNulByte)
+    await fire("change", "page.html")
+    expect(storedContent()).toEqual([])
+
+    releaseFirst.resolve(vector)
+    await firstChange
+    await vi.waitFor(() => expect(embedder.embedText).toHaveBeenCalledTimes(1))
+    expect(storedChunks()).toEqual([])
+    expect(search.fullTextSearch({ query: "firstgarnet" }, logger)).toEqual([])
+
+    await writeFile(pagePath, "<p>secondgarnet</p>", "utf8")
+    await fire("change", "page.html")
+    expect(storedContent()).toEqual([{ path: "page.html", content: "secondgarnet" }])
+  })
+
   it("reports a detached file embedding failure and runs its queued replacement", async () => {
     const failingEntered = Promise.withResolvers<undefined>()
     const releaseFailure = Promise.withResolvers<Float32Array>()
