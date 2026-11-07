@@ -99,6 +99,15 @@ describe("consent page rows", () => {
     expect(longHost).toHaveLength(300)
     expect(readFieldRows(html)).toEqual(expectedRows(`https://${longHost}`))
   })
+
+  it("shows the client ID as the application when the client has no name", () => {
+    const html = renderConsentPage({ ...baseParams, clientName: undefined })
+
+    expect(readFieldRows(html)).toEqual([
+      { label: "Application", value: "client-123" },
+      ...expectedRows("https://claude.ai").slice(1),
+    ])
+  })
 })
 
 describe("consent page reveal toggle", () => {
@@ -120,7 +129,7 @@ describe("consent page reveal toggle", () => {
     // The toggle must target the input by its id and flip it to a visible
     // type — otherwise "Show" silently does nothing.
     expect(onclick).toBe(
-      "var t=document.getElementById('token');var s=t.type==='password';t.type=s?'text':'password';this.textContent=s?'Hide':'Show'",
+      "var tokenInput=document.getElementById('token');var hidden=tokenInput.type==='password';tokenInput.type=hidden?'text':'password';this.textContent=hidden?'Hide':'Show'",
     )
   })
 })

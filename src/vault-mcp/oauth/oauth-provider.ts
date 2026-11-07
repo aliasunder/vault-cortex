@@ -631,7 +631,7 @@ export const createOAuthProvider = ({
       })
       res.type("html").send(
         renderConsentPage({
-          clientName: client.client_name ?? client.client_id,
+          clientName: client.client_name,
           clientId: client.client_id,
           redirectUri: params.redirectUri,
           requestId,

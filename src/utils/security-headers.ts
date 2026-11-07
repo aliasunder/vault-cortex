@@ -7,8 +7,8 @@ const SECURITY_HEADERS = {
   // consent and setup pages' inline script and styles.
   "Content-Security-Policy": "frame-ancestors 'none'",
   "X-Content-Type-Options": "nosniff",
-  // Sends no referrer to other sites. no-referrer would also turn a page's own
-  // form posts into `Origin: null`.
+  // Sends no referrer to other sites. no-referrer would also make the consent
+  // form's post arrive with `Origin: null`, hiding which site sent it.
   "Referrer-Policy": "same-origin",
 }
 

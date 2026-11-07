@@ -203,7 +203,7 @@ export const createOAuthRoutes = ({
         consentLogger.warn("oauth_consent_bad_token")
         res.type("html").send(
           renderConsentPage({
-            clientName: pending.client.client_name ?? pending.client.client_id,
+            clientName: pending.client.client_name,
             clientId,
             redirectUri: pending.params.redirectUri,
             requestId: request_id,

@@ -3,7 +3,8 @@
 import { escapeHtml } from "../../utils/escape-html.js"
 
 type ConsentPageParams = {
-  clientName: string
+  /** The client's registered name; the page shows its ID when it has none. */
+  clientName: string | undefined
   clientId: string
   redirectUri: string
   requestId: string
@@ -70,7 +71,7 @@ export const renderConsentPage = ({
   ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
   <div class="field">
     <div class="label">Application</div>
-    <div class="value">${escapeHtml(clientName)}</div>
+    <div class="value">${escapeHtml(clientName ?? clientId)}</div>
   </div>
   <div class="field">
     <div class="label">Client ID</div>
@@ -90,7 +91,7 @@ export const renderConsentPage = ({
       <div class="label">Server token</div>
       <div class="token-input">
         <input type="password" id="token" name="token" placeholder="Enter your MCP_AUTH_TOKEN" required autocomplete="off">
-        <button type="button" class="reveal" aria-label="Show or hide token" onclick="var t=document.getElementById('token');var s=t.type==='password';t.type=s?'text':'password';this.textContent=s?'Hide':'Show'">Show</button>
+        <button type="button" class="reveal" aria-label="Show or hide token" onclick="var tokenInput=document.getElementById('token');var hidden=tokenInput.type==='password';tokenInput.type=hidden?'text':'password';this.textContent=hidden?'Hide':'Show'">Show</button>
       </div>
     </div>
     <div class="actions">
