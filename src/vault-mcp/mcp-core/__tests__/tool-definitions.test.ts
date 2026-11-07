@@ -673,6 +673,23 @@ describe("sentences shared across sibling tools", () => {
     expect(requireDescription(config, toolName)).toContain(sentence)
   })
 
+  it("no tool lists its empty-result contract under Errors", () => {
+    // AGENTS.md puts "returns an empty …, not an error" under Behavior; an
+    // Errors entry for it reads as a failure to the calling agent.
+    const toolsWithEmptyResultErrors = calls
+      .filter(([toolName, config]) => {
+        const [, errorsAndAfter] = requireDescription(config, toolName).split("\nErrors:")
+
+        // A tool with no Errors section has nothing to misfile
+        if (!errorsAndAfter) return false
+
+        const [errorsSection] = errorsAndAfter.split("\n\n")
+        return Boolean(errorsSection?.includes(", not an error"))
+      })
+      .map(([toolName]) => toolName)
+    expect(toolsWithEmptyResultErrors).toEqual([])
+  })
+
   it("no tool restates Obsidian's properties as frontmatter", () => {
     // The schema's .describe() texts reach the client too, so they are scanned
     // as JSON Schema alongside the description.

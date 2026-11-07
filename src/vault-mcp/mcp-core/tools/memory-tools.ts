@@ -251,11 +251,9 @@ Example: vault_memory_recall({ query: "testing philosophy", file: "Opinions" })
 
 When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files.${recallAlternativesSentence}
 
-Behavior: A memory file change takes a few seconds to appear here.
+Behavior: A memory file change takes a few seconds to appear here. No matching entries returns entries: [] and total: 0, not an error; so does an unknown file — ${memoryFileNotFoundRemedy}.
 
 Errors:
-- No matching entries returns entries: [] and total: 0, not an error
-- An unknown file returns empty results — ${memoryFileNotFoundRemedy}
 ${INDEX_ENGINE_ERROR_ENTRY}`
   const recallReturnsLead = `Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. The total counts every matched entry; truncated=true means limit dropped the least-relevant matches, whatever their dates, so raise limit or narrow the query for the complete set. With file, limit keeps the most relevant matches from that file.`
 

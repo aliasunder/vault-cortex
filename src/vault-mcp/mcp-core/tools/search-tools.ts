@@ -5,6 +5,7 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
+import { SEARCH_LEG_ROW_CAP } from "../../search/hybrid-search.js"
 import {
   createStrictInputObject,
   describeNoteMetadataResult,
@@ -108,15 +109,17 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
         outcome: "a query left with no terms returns no results",
       }
 
-  // Every search leg keeps at most 100 rows (candidateLimit in hybridSearch). Each kind has a
-  // keyword leg, and with embeddings a semantic leg too, so a fused result holds at most 200 of
-  // each kind
-  const keywordCapExtent = config.fileToolsEnabled ? "100 notes and 100 files" : "100 notes"
-  const hybridCapExtent = config.fileToolsEnabled ? "200 notes and 200 files" : "200 notes"
+  // Each kind has a keyword leg, and with embeddings a semantic leg too, so a
+  // fused result holds at most twice the per-leg cap of each kind
+  const describeCapExtent = (perKind: number): string => {
+    return config.fileToolsEnabled ? `${perKind} notes and ${perKind} files` : `${perKind} notes`
+  }
+  const keywordCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP)
+  const hybridCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP * 2)
   const resultCapSentence = config.embeddingEnabled
     ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
-  const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}`
+  const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}`
   const searchErrorsSection = `Errors:
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}
 - "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form
@@ -137,7 +140,7 @@ ${searchSharedExamples}
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.${searchAlternativesLine}
 
-${searchLagLine}
+${searchBehaviorLine}
 
 ${searchErrorsSection}
 
@@ -151,7 +154,7 @@ Example: vault_search({ query: "deployment", filters: { properties: { status: "a
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.${searchAlternativesLine}
 
-${searchLagLine}
+${searchBehaviorLine}
 
 ${searchErrorsSection}
 

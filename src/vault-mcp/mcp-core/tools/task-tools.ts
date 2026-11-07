@@ -64,7 +64,7 @@ Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) —
 
 When to use: Reading task status and order on one board (path + sort_by: "position"; add status: "all" to include done and cancelled cards). Also any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.${listTasksAlternativesLine}
 
-Behavior: A file change takes a few seconds to appear here.
+Behavior: A file change takes a few seconds to appear here. No matches returns { total: 0, tasks: [] }, not an error.
 
 Parameters:
 - status: "not_done" and "all" expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
@@ -77,7 +77,6 @@ Errors:
 - "… is not a calendar date" — a date filter's bound has the YYYY-MM-DD form but names a day that doesn't exist, such as 2026-02-30; pass a real date
 ${NOTE_EXTENSION_ERROR_ENTRY}
 - "tag must not be empty …" — tag is "#" alone; pass the tag name
-- No matches returns { total: 0, tasks: [] }, not an error
 ${INDEX_ERROR_ENTRY}
 
 Returns: JSON { total, tasks }. Every task carries path, line, status, status_char (the checkbox character, such as "x" or "/"), description, folder (the task note's parent folder), depth (0 for top-level, 1+ for sub-tasks), is_kanban_task (true when the task's note has kanban-plugin in its properties), depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only: the headings of the lanes whose first line is **Complete**), and subtask_progress ({ done, total } over the task's DIRECT checklist children; done counts status "done" only, a cancelled child counts toward total, and the counts ignore the query's filters).`,
