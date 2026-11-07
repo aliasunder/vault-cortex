@@ -1503,7 +1503,8 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
 })
 
 describe("vault_search result cap", () => {
-  const LAG_SENTENCE = "Behavior: Results can lag a file change by a few seconds."
+  const LAG_SENTENCE =
+    "Behavior: Results can lag a file change by a few seconds. No matches returns an empty results array with total 0, not an error."
 
   it.each([
     {

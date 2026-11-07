@@ -116,9 +116,8 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const resultCapSentence = config.embeddingEnabled
     ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
-  const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}. ${resultCapSentence}`
+  const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}`
   const searchErrorsSection = `Errors:
-- No matches returns an empty results array with total 0, not an error
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}
 - "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name
@@ -254,10 +253,9 @@ Parameters:
 - tag: a trailing slash matches nothing ("project/" matches neither "project" nor "project/a"), so pass the tag name without it.
 - limit keeps the most recently modified notes; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An unknown tag or no matches returns an empty array, not an error.
 
 Errors:
-- An unknown tag or no matches returns an empty array, not an error.
 - "tag must not be empty …" — tag is "#" alone; pass the tag name.
 ${INDEX_ERROR_ENTRY}
 
@@ -313,13 +311,12 @@ Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "p
 
 When to use: Discovering what tags exist before searching by tag. Good first step for vault orientation.${listTagsAlternativesLine}
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. A vault with no tagged notes returns an empty array, not an error.
 - Tags in the tags property and #tags written in note bodies both count, and count is unique notes, not occurrences.
 - Spellings that differ only in letter case are one tag, shown as the spelling written most often.
 - Each hierarchical tag appears as one full entry, not split into segments.
 
 Errors:
-- A vault with no tagged notes returns an empty array, not an error.
 ${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { tag, count } holding every tag in the vault; tag omits the "#" prefix.`,
@@ -368,10 +365,9 @@ Parameters:
 - sort_by "modified" uses filesystem mtime. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
 - sort_by "created" uses the created property; notes where it is missing or not an ISO date sort after every dated note, so a small limit can leave them out — use "modified" to see them.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An empty vault returns an empty array, not an error.
 
 Errors:
-- An empty vault returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Newest first by the sort_by timestamp.`,
@@ -428,10 +424,9 @@ Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored. With recursive: false, only the folder's own notes are kept.
 - limit keeps the most recently modified notes. There is no offset, and ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}. Notes in hidden (dot-prefixed) folders never appear.
+Behavior: ${INDEX_LAG_LEAD}. An empty or nonexistent folder returns an empty array, not an error. Notes in hidden (dot-prefixed) folders never appear.
 
 Errors:
-- An empty or nonexistent folder returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently modified, then by path.`,
@@ -492,13 +487,12 @@ When to use: Discovering what properties exist before searching by property. Goo
 Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; omit it to scan the entire vault.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An empty vault or folder returns an empty array, not an error.
 - Only properties count; inline Dataview fields (key:: value) are not listed.
 - count is the number of notes that have the key, including notes where its value is empty (null).
 - sample_values are the key's 3 most frequent values as text (a number as JavaScript prints it, so 1.0 lists as "1"; a checkbox as "1" or "0"), counting each array element separately; null values are skipped.
 
 Errors:
-- An empty vault or folder returns an empty array, not an error.
 ${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending, then by key.`,
@@ -539,14 +533,13 @@ Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}.
 - limit keeps the most-used values; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An unknown key or empty folder returns an empty array, not an error.
 - Array elements (tags: ["a", "b"]) are counted individually, so the sum of counts may exceed the note count.
 - Each value is listed as text, and values with the same text share one row with combined occurrence counts: number 1 and text "1" count together, while text "1.0" stays separate.
 - Checkbox true and false come back as "1" and "0", counted with the numbers 1 and 0.
 - null values are skipped.
 
 Errors:
-- An unknown key or empty folder returns an empty array, not an error.
 ${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { value, count } sorted by count descending, then by value in binary text order ("10" before "2").`,
@@ -626,10 +619,9 @@ Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; omit it to search the entire vault.
 - limit keeps the most recently modified matches; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An unknown key or unmatched value returns an empty array, not an error.
 
 Errors:
-- An unknown key or unmatched value returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently modified (any file write, so a recently-synced note can sort ahead of an older edit), then by path.`,
@@ -835,10 +827,9 @@ Parameters:
 - exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.${orphanDefaultsText.dailyFolderLine}
 - limit applies after exclusions and sorting; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An empty array means no orphans were found (after exclusions), not an error.
 
 Errors:
-- An empty array means no orphans were found (after exclusions), not an error.
 - "too many excluded folders" — pass at most 994 exclude_folders entries, then retry.
 ${INDEX_ERROR_ENTRY}
 

@@ -205,10 +205,9 @@ Example: vault_list_memory_files()
 
 When to use: ${discoveryPurpose}${whenToolEnabledText("vault_delete_memory", ", and each file's entry_policy to check before pruning entries")}.${whenToolEnabledText("vault_memory_recall", " To find entries by topic instead, use vault_memory_recall.")}
 
-Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name. Subfolders are not read, and hidden (dot-prefixed) files are skipped.
+Behavior: An empty or nonexistent memory folder returns an empty array, not an error. Lists every .md file directly inside ${config.memoryDir}/, sorted by file name. Subfolders are not read, and hidden (dot-prefixed) files are skipped.
 
 Errors:
-- An empty or nonexistent memory folder returns an empty array, not an error.
 - "cannot list memory folder …" — a file stands at the memory folder's path, or its permissions block the server; ask the vault's owner to fix it
 - "cannot read memory file …" — one listed file can't be read, which fails the whole listing; retry once, then ask the vault's owner to check that file
 
