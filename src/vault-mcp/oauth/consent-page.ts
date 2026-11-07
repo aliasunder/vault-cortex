@@ -71,7 +71,7 @@ export const renderConsentPage = ({
   ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
   <div class="field">
     <div class="label">Application</div>
-    <div class="value">${escapeHtml(clientName ?? clientId)}</div>
+    <div class="value">${escapeHtml(clientName || clientId)}</div>
   </div>
   <div class="field">
     <div class="label">Client ID</div>

@@ -106,8 +106,11 @@ describe("consent page rows", () => {
     expect(readFieldRows(html)).toEqual(expectedRows(`https://${longHost}`))
   })
 
-  it("shows the client ID as the application when the client has no name", () => {
-    const html = renderConsentPage({ ...baseParams, clientName: undefined })
+  it.each([
+    { label: "no name", clientName: undefined },
+    { label: "an empty name", clientName: "" },
+  ])("shows the client ID as the application when the client has $label", ({ clientName }) => {
+    const html = renderConsentPage({ ...baseParams, clientName })
 
     expect(readFieldRows(html)).toEqual([
       { label: "Application", value: "client-123" },
