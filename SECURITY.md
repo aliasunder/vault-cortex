@@ -136,8 +136,14 @@ mechanism-level detail.
   untrusted content could reach an LLM context
 - **XSS:** `escapeHtml()` on the OAuth consent page and the setup pages
   escapes `&`, `<`, `>`, `"` in every interpolated value (client name,
-  client ID, scopes, error messages, request IDs, the Obsidian account
-  name, vault names, API error text)
+  client ID, the address approval sends access to, error messages, request
+  IDs, the Obsidian account name, vault names, API error text)
+- **Framing and response headers:** every response from both servers carries
+  `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`
+  (Express's own 404 page replaces the latter), so no other site can frame the
+  consent or setup pages. Responses also carry `X-Content-Type-Options: nosniff`
+  and `Referrer-Policy: same-origin`, never `X-Powered-By`. Consent decisions
+  and setup-mode responses send `Cache-Control: no-store`
 
 ### Data corruption prevention
 
