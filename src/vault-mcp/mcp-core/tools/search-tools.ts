@@ -87,8 +87,9 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   // are never embedded, which matters to a caller only while semantic matching runs.
   const scriptMatchClause = config.embeddingEnabled ? "; scripts match by keyword only" : ""
   const scriptExtensions = getExtensionsOfKind("script").join("/")
+  const textExtensions = getExtensionsOfKind("text").join("/")
   const searchedContentText = config.fileToolsEnabled
-    ? `vault notes and file content (canvas, PDF, text files, HTML pages, and ${scriptExtensions} scripts${scriptMatchClause})`
+    ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, HTML pages, and ${scriptExtensions} scripts${scriptMatchClause})`
     : "vault notes"
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`
