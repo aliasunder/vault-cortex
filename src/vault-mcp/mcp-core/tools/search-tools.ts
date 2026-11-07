@@ -107,13 +107,13 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
         stage: "matching",
         outcome: "a query left with no terms returns no results",
       }
-  // Each keyword leg fetches at most 100 rows, so a keyword-only result is
-  // capped there whatever limit says; a hybrid result is not
+  // Every search leg fetches at most 100 rows (candidateLimit in hybridSearch),
+  // so a keyword-only result holds at most 100 per kind and a fused one 200
   const keywordCapExtent = config.fileToolsEnabled ? "100 notes and 100 files" : "100 notes"
-  const keywordCapSentence = config.embeddingEnabled
-    ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back whatever limit says.`
-    : `At most ${keywordCapExtent} come back whatever limit says.`
-  const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}. ${keywordCapSentence}`
+  const resultCapSentence = config.embeddingEnabled
+    ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most twice that.`
+    : `At most ${keywordCapExtent} come back.`
+  const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}. ${resultCapSentence}`
   const searchErrorsSection = `Errors:
 - No matches returns an empty results array with total 0, not an error
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}

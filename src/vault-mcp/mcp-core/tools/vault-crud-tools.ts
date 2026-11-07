@@ -1052,7 +1052,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. ${EDIT_SAVE_RULES_SENTENCE} A repeated call inserts the content again, or fails as ambiguous when the content holds the anchor, ${RETRY_REREAD_CLAUSE}.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. ${EDIT_SAVE_RULES_SENTENCE} A repeated call inserts the content again, or fails as ambiguous when the content holds the anchor and first_match is false, ${RETRY_REREAD_CLAUSE}.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
@@ -1063,9 +1063,7 @@ Parameters:
 - ${anchorMatchingText}
 - content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
 
-Behavior:
-- A failed save leaves the note unchanged.
-- With first_match: true, a repeated call inserts again even when the content holds the anchor.
+Behavior: A failed save leaves the note unchanged.
 
 Errors:
 ${noteNotFoundVerifyErrorEntry}
@@ -1329,7 +1327,7 @@ ${NOTE_EXTENSION_ERROR_ENTRY}.
 - "move aborted: could not read …" — names the note, or a note linking to it, that could not be read; nothing was written. Fix that note, then retry.
 - "move aborted: could not rewrite …" — says why a note could not be saved with its links rewritten, and how to fix it; nothing was written.
 - "move aborted: could not write to …" / "move aborted: could not rename to …" (a case-only rename) — new_path could not be created, and new parent folders it needed may remain; retry once, then ask the vault's owner to fix the folder or disk.
-- "move incomplete: …" — the move failed partway; no data is lost, and the message names what failed, the state it left, and the step that finishes the move. After an ordinary move, re-running the same call fails because new_path already exists.
+- "move incomplete: …" — the move failed partway; no data is lost, and the message names what failed, the state it left, and the step that finishes the move.
 ${FILESYSTEM_ERROR_ENTRY}; nothing was written.
 - "[SqliteError]: …" — the search index failed and nothing was written; the message says what to do.
 
