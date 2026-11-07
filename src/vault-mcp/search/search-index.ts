@@ -835,20 +835,36 @@ export const createSearchIndex = (
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
+  // Each file_content_fts row has its file_content row's rowid, so a write finds
+  // the FTS row by rowid.
+  // - FTS5 cannot index path. Finding the row by path scans the whole table, so
+  //   a rebuild over thousands of files would take time quadratic in their count.
+  // - The rowids stay paired because the rebuild empties both tables together
+  //   and every other write goes through these statements.
+  // - The upsert updates a row in place. INSERT OR REPLACE would give it a new
+  //   rowid.
   const upsertFileContentStmt = fileToolsEnabled
-    ? db.prepare(
-        `INSERT OR REPLACE INTO file_content (path, title, content, folder, mtime, bytes)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+    ? db.prepare<[string, string, string, string, number, number], { rowid: number }>(
+        `INSERT INTO file_content (path, title, content, folder, mtime, bytes)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (path) DO UPDATE SET
+           title = excluded.title, content = excluded.content, folder = excluded.folder,
+           mtime = excluded.mtime, bytes = excluded.bytes
+         RETURNING rowid`,
       )
     : null
   const deleteFileContentStmt = fileToolsEnabled
-    ? db.prepare(`DELETE FROM file_content WHERE path = ?`)
+    ? db.prepare<[string], { rowid: number }>(
+        `DELETE FROM file_content WHERE path = ? RETURNING rowid`,
+      )
     : null
   const deleteFileContentFtsStmt = fileToolsEnabled
-    ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`)
+    ? db.prepare<[number]>(`DELETE FROM file_content_fts WHERE rowid = ?`)
     : null
   const insertFileContentFtsStmt = fileToolsEnabled
-    ? db.prepare(`INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`)
+    ? db.prepare<[number, string, string, string]>(
+        `INSERT INTO file_content_fts (rowid, path, title, content) VALUES (?, ?, ?, ?)`,
+      )
     : null
   // The folder predicate runs before ORDER BY/LIMIT so a folder-scoped search
   // sees every in-folder match, not just those that rank inside the candidate
@@ -1394,7 +1410,7 @@ export const createSearchIndex = (
       if (upsertFileContentStmt && deleteFileContentFtsStmt && insertFileContentFtsStmt) {
         const title = basename(params.filePath, extension)
         const folder = posix.dirname(params.filePath)
-        upsertFileContentStmt.run(
+        const upsertedRow = upsertFileContentStmt.get(
           params.filePath,
           title,
           truncatedContent,
@@ -1402,8 +1418,11 @@ export const createSearchIndex = (
           Math.round(params.fileStat.mtimeMs),
           params.fileStat.size,
         )
-        deleteFileContentFtsStmt.run(params.filePath)
-        insertFileContentFtsStmt.run(params.filePath, title, truncatedContent)
+
+        // RETURNING yields the inserted or updated row on every upsert.
+        if (!upsertedRow) throw new Error(`file content upsert returned no row: ${params.filePath}`)
+        deleteFileContentFtsStmt.run(upsertedRow.rowid)
+        insertFileContentFtsStmt.run(upsertedRow.rowid, params.filePath, title, truncatedContent)
       }
 
       // Link extraction — canvas only, unconditional (graph integrity)
@@ -1439,10 +1458,10 @@ export const createSearchIndex = (
   /** Removes a file's FTS content, graph links, chunks and vectors, invalidating pending embeds. */
   const removeFileContent = (params: { filePath: string }, logger: Logger): void => {
     db.transaction(() => {
-      if (deleteFileContentStmt && deleteFileContentFtsStmt) {
-        deleteFileContentFtsStmt.run(params.filePath)
-        deleteFileContentStmt.run(params.filePath)
-      }
+      const deletedRow = deleteFileContentStmt?.get(params.filePath)
+
+      if (deletedRow) deleteFileContentFtsStmt?.run(deletedRow.rowid)
+
       if (deleteFileVectorsForPathStmt && deleteFileChunksForPathStmt) {
         deleteFileVectorsForPathStmt.run(params.filePath)
         deleteFileChunksForPathStmt.run(params.filePath)

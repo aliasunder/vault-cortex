@@ -201,8 +201,9 @@ const isoFromMillis = (mtimeMs: number): string => {
 }
 
 /** Poisons one factory-prepared statement, identified by an SQL fragment: a
- *  prototype-level prepare spy patches the matching statement's .run to throw
- *  while armed. Must be installed BEFORE createSearchIndex — every write
+ *  prototype-level prepare spy patches the matching statement's .run and .get
+ *  (a write with RETURNING runs through .get) to throw while armed. Must be
+ *  installed BEFORE createSearchIndex — every write
  *  statement is prepared at factory scope — and stays disarmed so factory
  *  setup and seeding writes succeed until a test arms it. */
 const installStatementPoison = (sqlFragment: string) => {
@@ -211,7 +212,7 @@ const installStatementPoison = (sqlFragment: string) => {
   // so a concrete function type pins the default instantiation explicitly.
   const realPrepare: (this: Database.Database, source: string) => Database.Statement =
     Database.prototype.prepare
-  // The patched .run closes over this mutable flag so tests can trigger the
+  // The patched methods close over this mutable flag so tests can trigger the
   // failure long after the statement was prepared.
   const poisonState = { armed: false }
   const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementation(function (
@@ -222,9 +223,14 @@ const installStatementPoison = (sqlFragment: string) => {
 
     if (source.includes(sqlFragment)) {
       const realRun = statement.run.bind(statement)
+      const realGet = statement.get.bind(statement)
       statement.run = (...runParams: unknown[]) => {
         if (poisonState.armed) throw new Error(message)
         return realRun(...runParams)
+      }
+      statement.get = (...getParams: unknown[]) => {
+        if (poisonState.armed) throw new Error(message)
+        return realGet(...getParams)
       }
     }
     return statement
@@ -7766,6 +7772,61 @@ describe("canvas file content and links", () => {
         logger,
       )
       expect(afterResults).toHaveLength(0)
+    })
+
+    it("keeps only a file's latest text searchable across repeated updates", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertText = (filePath: string, rawContent: string): void => {
+        fileIndex.upsertNonMdFile(filePath, rawContent.length)
+        fileIndex.upsertFileContent(
+          { filePath, rawContent, fileStat: testStat(1000, rawContent.length) },
+          logger,
+        )
+      }
+      const searchPaths = async (query: string): Promise<string[]> => {
+        const { results } = await fileIndex.hybridSearch({ query }, logger)
+        return results.map((result) => result.path)
+      }
+
+      // The third version catches an FTS row left behind by the second, which
+      // a single update cannot show.
+      upsertText("logs/a.log", "amberwick lantern")
+      upsertText("logs/b.log", "copperfen meadow")
+      upsertText("logs/a.log", "slatebrook harbor")
+      upsertText("logs/a.log", "thistledown quarry")
+
+      expect(await searchPaths("amberwick")).toEqual([])
+      expect(await searchPaths("slatebrook")).toEqual([])
+      expect(await searchPaths("thistledown")).toEqual(["logs/a.log"])
+      expect(await searchPaths("copperfen")).toEqual(["logs/b.log"])
+    })
+
+    it("removeFileContent leaves other files' text searchable", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      for (const [filePath, rawContent] of [
+        ["logs/a.log", "amberwick lantern"],
+        ["logs/b.log", "copperfen meadow"],
+      ] as const) {
+        fileIndex.upsertNonMdFile(filePath, rawContent.length)
+        fileIndex.upsertFileContent(
+          { filePath, rawContent, fileStat: testStat(1000, rawContent.length) },
+          logger,
+        )
+      }
+
+      fileIndex.removeFileContent({ filePath: "logs/a.log" }, logger)
+
+      const { results: removedResults } = await fileIndex.hybridSearch(
+        { query: "amberwick" },
+        logger,
+      )
+      const { results: keptResults } = await fileIndex.hybridSearch({ query: "copperfen" }, logger)
+      expect(removedResults.map((result) => result.path)).toEqual([])
+      expect(keptResults.map((result) => result.path)).toEqual(["logs/b.log"])
     })
   })
 
