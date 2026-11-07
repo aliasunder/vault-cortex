@@ -318,7 +318,15 @@ describe("registerTools", () => {
       linePrefix: "Append a dated entry",
     })
     expect(opener).toBe(
-      "Append a dated entry to a section of a memory file in About Me/. An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in its properties (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries with vault_delete_memory is expected maintenance.",
+      "Append a dated entry to a section of a memory file in About Me/. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in its properties (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries with vault_delete_memory is expected maintenance.",
+    )
+    const duplicateRule = findDescriptionLine({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
+      linePrefix: "- An exact duplicate",
+    })
+    expect(duplicateRule).toBe(
+      "- An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe.",
     )
   })
 
@@ -408,9 +416,8 @@ describe("registerTools", () => {
   it("vault_list_tags description says property and body tags both count", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_TAGS)
     expect(config.description).toContain(
-      "Tags in the tags property and #tags written in note bodies both count.",
+      "- Tags in the tags property and #tags written in note bodies both count, and count is unique notes, not occurrences.",
     )
-    expect(config.description).toContain("unique notes")
   })
 
   it("vault_get_daily_note description documents future date support", () => {
@@ -2247,7 +2254,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. To keep the daily notes folder excluded, list the folder vault_get_daily_note\'s path starts with.',
+      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. To keep the daily notes folder excluded, list it yourself: the folder named in Obsidian\'s Daily Notes settings, which vault_get_daily_note\'s path starts with.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -3193,7 +3200,7 @@ describe("DISABLED_TOOLS", () => {
       '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_LEAD} To keep the daily notes folder excluded, list the folder vault_get_daily_note's path starts with.`,
+      `${ENTRY_LEAD} To keep the daily notes folder excluded, list it yourself: the folder named in Obsidian's Daily Notes settings, which vault_get_daily_note's path starts with.`,
     )
     expect(excludeFoldersEntry("vault_get_daily_note")).toBe(ENTRY_LEAD)
   })
@@ -3557,7 +3564,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FENCED_BLOCK_WARNING =
-    "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
+    "A span that includes a code block's opening fence can't end at a plain closing fence (```): that end anchor also matches the opening fence, so it is ambiguous, and first_match: true would end the span there"
 
   it.each([
     {
@@ -3705,7 +3712,7 @@ describe("DISABLED_TOOLS", () => {
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_WRITE_NOTE,
       startMarker: "When to use:",
-      endMarker: "\n\nErrors:",
+      endMarker: "\n\nBehavior:",
     })
     expect(whenToUse).toBe(
       [
@@ -3722,26 +3729,26 @@ describe("DISABLED_TOOLS", () => {
       label: "names vault_write_note and vault_read_note while they are served",
       disabledTools: "",
       expectedLine:
-        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused. Arrays are replaced entirely, not appended to.",
+        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused.",
     },
     {
       label: "drops the vault_write_note sentence when that tool is disabled",
       disabledTools: "vault_write_note",
       expectedLine:
-        "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused. Arrays are replaced entirely, not appended to.",
+        "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused.",
     },
     {
       label: "drops the vault_read_note sentence when that tool is disabled",
       disabledTools: "vault_read_note",
       expectedLine:
-        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Arrays are replaced entirely, not appended to.",
+        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true).",
     },
   ])("vault_update_properties's routing line $label", ({ disabledTools, expectedLine }) => {
     const routingLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
       startMarker: "the full note body.\n",
-      endMarker: "\n\nErrors:",
+      endMarker: "\n\nBehavior:",
     })
     expect(routingLine).toBe(`the full note body.\n${expectedLine}`)
   })
@@ -3777,7 +3784,7 @@ describe("DISABLED_TOOLS", () => {
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_WRITE_NOTE,
       startMarker: "When to use:",
-      endMarker: "\n\nErrors:",
+      endMarker: "\n\nBehavior:",
     })
     expect(whenToUse).toBe(expectedLines.join("\n"))
   })

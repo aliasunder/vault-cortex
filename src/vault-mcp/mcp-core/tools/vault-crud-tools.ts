@@ -477,12 +477,16 @@ Returns: JSON array of every matching vault-relative path (e.g. ["Notes/idea.md"
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create a markdown note, or with overwrite: true replace an existing note's body. Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values. A new note leaves out keys set to null.
+      description: `Create a markdown note, or with overwrite: true replace an existing note's body.
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
 
 When to use: Creating a new note, or replacing a whole note's body.${writeNoteAlternativeLines}
+
+Behavior:
+- Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values.
+- A new note leaves out keys set to null.
 
 Errors:
 - "note already exists" — set overwrite: true to replace it
@@ -815,7 +819,7 @@ Returns: "Replaced <N> occurrence(s) in <path>".`,
       "vault_replace_in_note",
       `; to ${editVerb} such a block, use vault_replace_in_note${newTextArgument}`,
     )
-    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): the end anchor is ambiguous, and first_match: true would end the span at the opening fence${fallbackAdvice}.`
+    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): that end anchor also matches the opening fence, so it is ambiguous, and first_match: true would end the span there${fallbackAdvice}.`
   }
 
   /** The anchor rule the three anchor tools share. "Body line" is defined here
@@ -1416,18 +1420,31 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
   const updatePropertiesNoteNotFoundRemedy = isToolEnabled("vault_write_note")
     ? "create the note first with vault_write_note"
     : noteNotFoundCheckRemedy
+  const updatePropertiesAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_write_note",
+      "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true).",
+    ),
+    whenToolEnabledText(
+      "vault_read_note",
+      "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused.",
+    ),
+  ])
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update a note's properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block: here null writes a property with no value, and {} removes the whole block. The body is kept.
+      description: `Update a note's properties, merging into the existing ones by default or replacing the whole properties block with replace: true. The body is kept.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })
 
-When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.
-${whenToolEnabledText("vault_write_note", "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). ")}${whenToolEnabledText("vault_read_note", "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused. ")}Arrays are replaced entirely, not appended to.
+When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.${updatePropertiesAlternativesLine}
+
+Behavior:
+- By default properties merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Arrays are replaced entirely, not appended to.
+- With replace: true the whole properties block is replaced: here null writes a property with no value, and {} removes the whole block.
 
 Errors:
 - "note not found" — path does not exist; ${updatePropertiesNoteNotFoundRemedy}

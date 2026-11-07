@@ -307,11 +307,17 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Tags keep the note's lett
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Tags in the tags property and #tags written in note bodies both count. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
+      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
 When to use: Discovering what tags exist before searching by tag. Good first step for vault orientation.${listTagsAlternativesLine}
+
+Behavior:
+- Tags in the tags property and #tags written in note bodies both count, and count is unique notes, not occurrences.
+- Spellings that differ only in letter case are one tag, shown as the spelling written most often.
+- Each hierarchical tag appears as one full entry, not split into segments.
+- ${INDEX_LAG_LEAD}.
 
 Errors:
 - A vault with no tagged notes returns an empty array, not an error.
@@ -420,7 +426,7 @@ Example: vault_search_by_folder({ folder: "${config.memoryEnabled ? config.memor
 When to use: Exploring a folder's contents with full context for vault orientation.${searchByFolderAlternativesLine}
 
 Parameters:
-- folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored, and recursive: false keeps only the folder's own notes.
+- folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored. With recursive: false, only the folder's own notes are kept.
 - limit keeps the most recently modified notes. There is no offset, and ${LIMIT_TRUNCATION_CLAUSE}.
 
 Behavior: ${INDEX_LAG_LEAD}. Notes in hidden (dot-prefixed) folders never appear.
@@ -615,7 +621,7 @@ When to use: Finding notes by metadata when you don't have a text query.${search
 
 Parameters:
 - key and value both match exactly and case-sensitively, with no partial matching or globbing; value matches a stored text value as written.
-- A value written as a complete, finite YAML number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary) matches only as text.
+- A value written as a complete, finite YAML 1.2 core number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary) matches only as text.
 - A checkbox matches only as text: pass "1" (checked) or "0" (unchecked); "1.0" and "true" do not match.
 - A list property matches when an element equals value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; omit it to search the entire vault.
@@ -804,7 +810,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     : {
         folders: `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`,
         dailyFolderLine: isToolEnabled("vault_get_daily_note")
-          ? " To keep the daily notes folder excluded, list the folder vault_get_daily_note's path starts with."
+          ? " To keep the daily notes folder excluded, list it yourself: the folder named in Obsidian's Daily Notes settings, which vault_get_daily_note's path starts with."
           : "",
       }
 
