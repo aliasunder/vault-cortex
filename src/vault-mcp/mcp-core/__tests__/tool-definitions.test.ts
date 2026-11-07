@@ -3145,11 +3145,11 @@ describe("DISABLED_TOOLS", () => {
       return findDescriptionLine({
         registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName: TOOL_NAMES.VAULT_GET_BACKLINKS,
-        linePrefix: "- A path nothing links to",
+        linePrefix: "Behavior: ",
       })
     }
     const ENTRY_START =
-      "- A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links,"
+      "Behavior: Results can lag a file change by a few seconds. A path nothing links to returns an empty result (count 0), not an error; if you expected links,"
 
     expect(emptyResultEntry("")).toBe(
       `${ENTRY_START} find valid paths with vault_search, vault_list_notes, or vault_list_files.`,

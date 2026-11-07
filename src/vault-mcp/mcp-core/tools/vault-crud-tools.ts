@@ -184,7 +184,6 @@ export const registerVaultCrudTools = ({
 Example: vault_read_note({ path: "Projects/vault-cortex.md" })
 Example: vault_read_note({ path: "TASKS.md", outline: true })
 Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
-Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 })
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 })
 
 When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. For a note or section too long for one response, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.${readNoteAlternativesLine}
@@ -1061,7 +1060,7 @@ Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", p
 When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.${insertAtAnchorAlternativesLine}
 
 Parameters:
-- ${anchorMatchingText}
+- ${anchorMatchingText} With first_match: true, the topmost matching line is the anchor.
 - content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
 
 Errors:
@@ -1329,7 +1328,7 @@ ${NOTE_EXTENSION_ERROR_ENTRY}.
 - "move aborted: could not read …" — names the note, or a note linking to it, that could not be read; nothing was written. Fix that note, then retry.
 - "move aborted: could not rewrite …" — says why a note could not be saved with its links rewritten, and how to fix it; nothing was written.
 - "move aborted: could not write to …" / "move aborted: could not rename to …" (a case-only rename) — new_path could not be created, and new parent folders it needed may remain; retry once, then ask the vault's owner to fix the folder or disk.
-- "move incomplete: …" — the move failed partway; no data is lost, and the message names what failed, the state it left, and the step that finishes the move.
+- "move incomplete: …" — the move failed partway; no data is lost, and the message names what failed, the state it left, and the step that finishes the move. Re-running the same call fails instead: new_path already exists, or after a case-only rename old_path is gone.
 ${FILESYSTEM_ERROR_ENTRY}; nothing was written.
 - "[SqliteError]: …" — the search index failed and nothing was written; the message says what to do.
 
