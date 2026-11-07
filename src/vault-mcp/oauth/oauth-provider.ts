@@ -544,7 +544,7 @@ export const createOAuthProvider = ({
     return { status: "not_found" }
   }
 
-  const isRevoked = (token: string): boolean => !!selectRevokedTokenStmt.get(token)
+  const isRevoked = (token: string): boolean => Boolean(selectRevokedTokenStmt.get(token))
 
   // Methods below implement OAuthServerProvider from the MCP SDK.
   // They appear unused locally but are called by mcpAuthRouter() in
