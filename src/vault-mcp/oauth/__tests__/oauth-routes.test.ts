@@ -1,12 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, onTestFinished } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest"
 import { createHash, randomBytes } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import type { Server } from "node:http"
-import type { Response } from "express"
 import express from "express"
-import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import {
   OAuthProtectedResourceMetadataSchema,
   OAuthMetadataSchema,
@@ -70,6 +68,45 @@ const getListeningPort = (server: Server): number => {
   return serverAddress.port
 }
 
+const startAuthorization = async ({
+  oauth,
+  baseUrl,
+  clientName,
+  scopes = ["vault"],
+}: {
+  oauth: OAuthProvider
+  baseUrl: string
+  clientName: string
+  scopes?: string[]
+}): Promise<{ requestId: string; clientId: string }> => {
+  const clientsStore = oauth.provider.clientsStore
+
+  if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
+  const client = await clientsStore.registerClient({
+    client_name: clientName,
+    redirect_uris: [REDIRECT_URI],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  })
+  const authorizeUrl = new URL(`${baseUrl}/authorize`)
+  authorizeUrl.search = new URLSearchParams({
+    client_id: client.client_id,
+    response_type: "code",
+    code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+    code_challenge_method: "S256",
+    redirect_uri: REDIRECT_URI,
+    scope: scopes.join(" "),
+    state: "test-state",
+  }).toString()
+  const response = await fetch(authorizeUrl)
+  expect(response.status).toBe(200)
+  const requestId = REQUEST_ID_PATTERN.exec(await response.text())?.[1]
+
+  if (!requestId) throw new Error("no request_id in consent HTML")
+  return { requestId, clientId: client.client_id }
+}
+
 describe("OAuth consent token submission", () => {
   let dir: string
   let oauth: OAuthProvider
@@ -105,41 +142,9 @@ describe("OAuth consent token submission", () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  // Register a client and start an authorization request directly through
-  // the provider so setup does not consume the HTTP /register and /authorize
-  // budgets; /oauth/decide has its own submission budget.
-  const startPendingRequest = async (
-    scopes: string[] = ["vault"],
-  ): Promise<{ requestId: string; clientId: string }> => {
-    const clientsStore = oauth.provider.clientsStore
-
-    if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
-    const client = await clientsStore.registerClient({
-      client_name: "Test Client",
-      redirect_uris: [REDIRECT_URI],
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "none",
-    })
-    const params: AuthorizationParams = {
-      codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-      redirectUri: REDIRECT_URI,
-      scopes,
-      state: "test-state",
-    }
-    let capturedHtml = ""
-    const res = {
-      type: () => res,
-      send: (html: string) => {
-        capturedHtml = html
-        return res
-      },
-    }
-    await oauth.provider.authorize(client, params, res as unknown as Response)
-    const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
-
-    if (!requestId) throw new Error("no request_id in consent HTML")
-    return { requestId, clientId: client.client_id }
+  // Registration uses the provider directly so setup leaves the HTTP registration budget intact.
+  const startPendingRequest = (scopes: string[] = ["vault"]) => {
+    return startAuthorization({ oauth, baseUrl, clientName: "Test Client", scopes })
   }
 
   const submitToken = async (requestId: string, token: string) => {
@@ -217,6 +222,53 @@ describe("OAuth consent token submission", () => {
       })
     },
   )
+
+  it("counts wrong-token re-renders toward the consent submission limit", async () => {
+    const { requestId } = await startPendingRequest()
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await submitToken(requestId, "wrong-token")
+      expect(response.status).toBe(200)
+      expect(readConsentPage(await response.text()).error).toBe("Invalid token. Please try again.")
+    }
+    const sixth = await submitToken(requestId, AUTH_TOKEN)
+
+    expect(sixth.status).toBe(429)
+    expect(await sixth.text()).toBe("Too many requests, please try again later.")
+    expect(sixth.headers.get("location")).toBeNull()
+  })
+
+  it("accepts the same pending consent when the exhausted minute ends", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const windowStart = Date.UTC(2026, 0, 1)
+    vi.setSystemTime(windowStart)
+    const { requestId } = await startPendingRequest()
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await submitToken(requestId, "wrong-token")
+      expect(response.status).toBe(200)
+    }
+    const blocked = await submitToken(requestId, AUTH_TOKEN)
+    expect(blocked.status).toBe(429)
+
+    vi.setSystemTime(windowStart + 59_999)
+    const beforeReset = await submitToken(requestId, AUTH_TOKEN)
+    expect(beforeReset.status).toBe(429)
+
+    vi.setSystemTime(windowStart + 60_000)
+    const afterReset = await submitToken(requestId, AUTH_TOKEN)
+    expect(afterReset.status).toBe(302)
+    const location = afterReset.headers.get("location")
+
+    if (!location) throw new Error("expected consent approval redirect")
+    const redirect = new URL(location)
+    expect(`${redirect.origin}${redirect.pathname}`).toBe(REDIRECT_URI)
+    expect(redirect.searchParams.get("state")).toBe("test-state")
+    expect(redirect.searchParams.get("code")).toMatch(/^[a-f0-9]{64}$/)
+  })
 
   it("re-renders the consent page without the scope the request named after a wrong token", async () => {
     const { requestId, clientId } = await startPendingRequest(["admin-zq9"])
@@ -382,36 +434,8 @@ describe("OAuth consent audit logging", () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  const startPendingRequest = async (): Promise<{ requestId: string; clientId: string }> => {
-    const clientsStore = oauth.provider.clientsStore
-
-    if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
-    const client = await clientsStore.registerClient({
-      client_name: "Audit Client",
-      redirect_uris: [REDIRECT_URI],
-      grant_types: ["authorization_code", "refresh_token"],
-      response_types: ["code"],
-      token_endpoint_auth_method: "none",
-    })
-    const params: AuthorizationParams = {
-      codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-      redirectUri: REDIRECT_URI,
-      scopes: ["vault"],
-      state: "test-state",
-    }
-    let capturedHtml = ""
-    const res = {
-      type: () => res,
-      send: (html: string) => {
-        capturedHtml = html
-        return res
-      },
-    }
-    await oauth.provider.authorize(client, params, res as unknown as Response)
-    const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
-
-    if (!requestId) throw new Error("no request_id in consent HTML")
-    return { requestId, clientId: client.client_id }
+  const startPendingRequest = () => {
+    return startAuthorization({ oauth, baseUrl, clientName: "Audit Client" })
   }
 
   it("logs oauth_consent_completed on approved consent", async () => {
@@ -644,15 +668,25 @@ describe("OAuth endpoint rate limiting", () => {
     const sixth = await submitConsent("203.0.113.9")
 
     expect(sixth.status).toBe(429)
-    expect(sixth.headers.get("cache-control")).toBe("no-store")
     const retryAfter = sixth.headers.get("retry-after")
 
     expect(retryAfter).toMatch(/^(?:[1-9]|[1-5][0-9]|60)$/)
-    expect(sixth.headers.get("ratelimit-limit")).toBe("5")
-    expect(sixth.headers.get("ratelimit-remaining")).toBe("0")
-    expect(sixth.headers.get("ratelimit-reset")).toBe(retryAfter)
-    expect(sixth.headers.get("ratelimit-policy")).toBe("5;w=60")
-    expect([...sixth.headers.keys()].filter((name) => name.startsWith("x-ratelimit-"))).toEqual([])
+    const isLimitHeader = ([name]: [string, string]) => {
+      return (
+        name === "cache-control" ||
+        name === "retry-after" ||
+        name.startsWith("ratelimit") ||
+        name.startsWith("x-ratelimit")
+      )
+    }
+    expect(Object.fromEntries([...sixth.headers].filter(isLimitHeader))).toEqual({
+      "cache-control": "no-store",
+      "retry-after": retryAfter,
+      "ratelimit-limit": "5",
+      "ratelimit-remaining": "0",
+      "ratelimit-reset": retryAfter,
+      "ratelimit-policy": "5;w=60",
+    })
     expect(await sixth.text()).toBe("Too many requests, please try again later.")
   })
 
@@ -689,6 +723,31 @@ describe("OAuth endpoint rate limiting", () => {
 
     expect(firstFromOtherClient.status).toBe(400)
     expect(await firstFromOtherClient.text()).toBe("Invalid form submission.")
+  })
+
+  it("keeps the consent submission budget independent of the registration budget", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      expect((await register("203.0.113.9")).status).toBe(201)
+    }
+    expect((await register("203.0.113.9")).status).toBe(429)
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await submitConsent("203.0.113.9")
+      expect(response.status).toBe(400)
+      expect(await response.text()).toBe("Invalid form submission.")
+    }
+    expect((await submitConsent("203.0.113.9")).status).toBe(429)
+  })
+
+  it("shares the consent budget across IPv6 addresses in one /56 and separates the next /56", async () => {
+    for (const hostPart of ["::1", "::2", "::3", "::4", "::5"]) {
+      const response = await submitConsent(`"[2001:db8${hostPart}]"`)
+      expect(response.status).toBe(400)
+    }
+    expect((await submitConsent('"[2001:db8:0:ff::6]"')).status).toBe(429)
+    const otherSubnet = await submitConsent('"[2001:db8:0:100::1]"')
+    expect(otherSubnet.status).toBe(400)
+    expect(await otherSubnet.text()).toBe("Invalid form submission.")
   })
 
   it("rate-limits an oversized consent form before the form parser rejects it", async () => {
@@ -841,6 +900,38 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
     expect(sixth.status).toBe(429)
   })
 
+  it("ignores spoofed Forwarded addresses when counting consent submissions", async () => {
+    const submit = (hostNumber: number) => {
+      return fetch(`${baseUrl}/oauth/decide`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          forwarded: `for=198.51.100.${hostNumber}`,
+        },
+        body: new URLSearchParams(),
+      })
+    }
+    for (let hostNumber = 1; hostNumber <= 5; hostNumber++) {
+      const response = await submit(hostNumber)
+      expect(response.status).toBe(400)
+      expect(await response.text()).toBe("Invalid form submission.")
+    }
+    const sixth = await submit(6)
+    expect(sixth.status).toBe(429)
+    expect(await sixth.text()).toBe("Too many requests, please try again later.")
+    expect(logs.filter((log) => log.message === "oauth_rate_limited")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_rate_limited",
+        data: {
+          component: "oauth-routes",
+          clientIp: expect.toBeOneOf(LOOPBACK_ADDRESSES),
+          path: "/oauth/decide",
+        },
+      },
+    ])
+  })
+
   it("logs the real peer IP — not the spoofed value — when the limit trips", async () => {
     for (let attempt = 1; attempt <= 5; attempt++) {
       await registerWithSpoofedIp("198.51.100.9")
@@ -912,9 +1003,15 @@ describe("OAuth protected resource metadata", () => {
     const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`)
     expect(response.status).toBe(200)
     const metadata = OAuthMetadataSchema.parse(await response.json())
-    expect(metadata.token_endpoint_auth_methods_supported).toEqual(["client_secret_post"])
-    expect(metadata.revocation_endpoint_auth_methods_supported).toEqual(["client_secret_post"])
-    expect(metadata.code_challenge_methods_supported).toEqual(["S256"])
+    expect({
+      tokenAuthMethods: metadata.token_endpoint_auth_methods_supported,
+      revocationAuthMethods: metadata.revocation_endpoint_auth_methods_supported,
+      codeChallengeMethods: metadata.code_challenge_methods_supported,
+    }).toEqual({
+      tokenAuthMethods: ["client_secret_post"],
+      revocationAuthMethods: ["client_secret_post"],
+      codeChallengeMethods: ["S256"],
+    })
   })
 
   // Also the guard against a future `resourceServerUrl` pass to
@@ -972,10 +1069,13 @@ describe("OAuth protected resource metadata", () => {
       },
     })
     expect(response.status).toBe(204)
-    expect(response.headers.get("access-control-allow-origin")).toBe("*")
-    expect(response.headers.get("access-control-allow-methods")).toBe(
-      "GET,HEAD,PUT,PATCH,POST,DELETE",
-    )
+    expect({
+      allowOrigin: response.headers.get("access-control-allow-origin"),
+      allowMethods: response.headers.get("access-control-allow-methods"),
+    }).toEqual({
+      allowOrigin: "*",
+      allowMethods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+    })
   })
 
   it("leaves the suffixed discovery route unlimited past 5 requests", async () => {
@@ -1201,24 +1301,25 @@ describe("OAuth refresh over HTTP", () => {
     })
   }
 
-  it.each(["none", "client_secret_post", undefined])(
-    "returns the effective registration method for requested %s",
-    async (method) => {
-      const { baseUrl } = await createRefreshTest()
-      const response = await fetch(`${baseUrl}/register`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          redirect_uris: [REDIRECT_URI],
-          ...(method ? { token_endpoint_auth_method: method } : {}),
-        }),
-      })
-      expect(response.status).toBe(201)
-      const client = OAuthClientInformationFullSchema.parse(await response.json())
-      expect(client.token_endpoint_auth_method).toBe("client_secret_post")
-      expect(client.client_secret).toMatch(/^[a-f0-9]{64}$/)
-    },
-  )
+  it.each([
+    { label: "public-client request", method: "none" },
+    { label: "client-secret request", method: "client_secret_post" },
+    { label: "omitted method", method: undefined },
+  ])("returns the effective registration method for $label", async ({ method }) => {
+    const { baseUrl } = await createRefreshTest()
+    const response = await fetch(`${baseUrl}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: [REDIRECT_URI],
+        ...(method ? { token_endpoint_auth_method: method } : {}),
+      }),
+    })
+    expect(response.status).toBe(201)
+    const client = OAuthClientInformationFullSchema.parse(await response.json())
+    expect(client.token_endpoint_auth_method).toBe("client_secret_post")
+    expect(client.client_secret).toMatch(/^[a-f0-9]{64}$/)
+  })
 
   it.each(["authorization_code", "refresh_token"])(
     "rejects missing and wrong secrets without consuming the %s grant",
