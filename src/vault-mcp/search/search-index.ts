@@ -90,6 +90,15 @@ const MAX_INDEXED_CONTENT_BYTES = 102_400
  *  meanwhile, and attribute-heavy pages at 16 MiB already took up to 1.7 s. */
 const MAX_INDEXED_HTML_PAGE_BYTES = 16 * 1024 * 1024
 
+/** True for an HTML page that search finds by its name only, which its reader
+ *  then skips reading. */
+export const isHtmlPageIndexedByNameOnly = (params: {
+  filePath: string
+  fileBytes: number
+}): boolean => {
+  return getFileKind(params.filePath) === "html" && params.fileBytes > MAX_INDEXED_HTML_PAGE_BYTES
+}
+
 /** The text file_content_fts holds for a file, built from the text its reader
  *  supplies:
  *  - a canvas's JSON becomes its outline;
@@ -504,7 +513,7 @@ export const createSearchIndex = (
       body_tags   TEXT NOT NULL DEFAULT '[]'
     );
 
-    -- path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
+    -- path UNINDEXED: stored so a match joins back to its note; not searchable, saves index space
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
       path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
     );
@@ -2488,11 +2497,15 @@ export const createSearchIndex = (
       // read's try, and one such file is skipped rather than failing the rebuild.
       const readDecodedFile = async () => {
         try {
-          const [buffer, fileStat] = await Promise.all([
-            readFile(file.absolutePath),
-            stat(file.absolutePath),
-          ])
-          return { decodedText: decodeTextBuffer(buffer), fileStat }
+          const fileStat = await stat(file.absolutePath)
+          const indexedByNameOnly = isHtmlPageIndexedByNameOnly({
+            filePath: file.relativePath,
+            fileBytes: fileStat.size,
+          })
+
+          if (indexedByNameOnly)
+            return { decodedText: { status: "text", text: "" } as const, fileStat }
+          return { decodedText: decodeTextBuffer(await readFile(file.absolutePath)), fileStat }
         } catch (error) {
           logger.warn("skipped unreadable file during rebuild", {
             path: file.relativePath,

@@ -1589,6 +1589,23 @@ describe("file watcher — obsolete events and embedding queues", () => {
     },
   )
 
+  it("finds a page over 16 MiB by its name without reading it", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    const filler = "<p>filler</p>".repeat(Math.ceil((16 * 1024 * 1024) / 13) + 1)
+    const pagePath = join(testVault, "giganticpage.html")
+    await writeFile(pagePath, `<p>buriedcobalt</p>${filler}`, "utf8")
+    const searchPaths = async (query: string) => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    await fire("add", "giganticpage.html")
+
+    expect(await searchPaths("giganticpage")).toEqual(["giganticpage.html"])
+    expect(await searchPaths("buriedcobalt")).toEqual([])
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath)
+  })
+
   it("leaves a page that is not UTF-8 out of search", async () => {
     const { testVault, database, fire } = await createControlledWatcher()
     // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence

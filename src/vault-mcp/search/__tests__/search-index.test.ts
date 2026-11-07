@@ -8253,7 +8253,7 @@ describe("HTML pages", () => {
     expect(await searchEach(fileIndex, ["closingamber"])).toEqual([["styled.html"]])
   })
 
-  it("finds a page over 16 MiB by its name and not by its text", async () => {
+  it("finds a page over 16 MiB by its name without reading it", async () => {
     const filler = "<p>filler</p>".repeat(Math.ceil((16 * 1024 * 1024) / 13) + 1)
     const fileIndex = await rebuildVaultOf([
       { path: "giganticpage.html", content: `<p>buriedcobalt</p>${filler}` },
@@ -8263,6 +8263,9 @@ describe("HTML pages", () => {
       ["giganticpage.html"],
       [],
     ])
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
+      expect.stringMatching(/giganticpage\.html$/),
+    )
   })
 
   it("leaves out a page that is not UTF-8 or holds a NUL byte, and keeps the rest", async () => {

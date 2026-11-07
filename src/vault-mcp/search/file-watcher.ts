@@ -11,6 +11,7 @@ import { join, relative, resolve as resolvePath, sep } from "node:path"
 import {
   CONTENT_INDEXED_FILE_KINDS,
   INDEXING_FILE_READ_CONCURRENCY,
+  isHtmlPageIndexedByNameOnly,
   PDF_EXTRACTION_CONCURRENCY,
 } from "./search-index.js"
 import type { RebuildResult, SearchIndex } from "./search-index.js"
@@ -250,6 +251,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
             }
             case "html":
             case "script": {
+              const indexedByNameOnly = isHtmlPageIndexedByNameOnly({
+                filePath: relativePath,
+                fileBytes: fileStat.size,
+              })
+
+              if (indexedByNameOnly) return ""
               const decodedSource = decodeTextBuffer(await readFile(filePath))
 
               if (decodedSource.status !== "text") return null
