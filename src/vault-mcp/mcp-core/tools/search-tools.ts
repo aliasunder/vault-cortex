@@ -119,9 +119,9 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const resultCapSentence = config.embeddingEnabled
     ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
-  const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}`
+  const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}
+- Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}.`
   const searchErrorsSection = `Errors:
-- Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}
 - "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name
 ${INDEX_ERROR_ENTRY}`
@@ -804,7 +804,7 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
     : {
         folders: `the daily notes folder (none when Obsidian's Daily Notes folder setting is the vault root or blank), "Templates", ${JSON.stringify(config.memoryDir)}`,
         dailyFolderLine: isToolEnabled("vault_get_daily_note")
-          ? " (the daily notes folder is the folder vault_get_daily_note's path starts with)"
+          ? " (when the vault has a daily notes folder, vault_get_daily_note's path starts with it)"
           : "",
       }
 
