@@ -2250,6 +2250,25 @@ describe("binary file", () => {
       isError: true,
     })
   })
+
+  it("vault_read_file on a file whose bytes are not UTF-8", async () => {
+    const filePath = "Latin1.html"
+    const fileFullPath = join(serverVaultPath, filePath)
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    await writeFile(fileFullPath, Buffer.from([0x3c, 0x70, 0x3e, 0xe9]))
+    onTestFinished(() => rm(fileFullPath))
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: filePath } })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: '[Error]: not valid UTF-8: "Latin1.html" cannot be returned as text',
+        },
+      ],
+      isError: true,
+    })
+  })
 })
 
 // ── Whitespace-only task text ────────────────────────────────
