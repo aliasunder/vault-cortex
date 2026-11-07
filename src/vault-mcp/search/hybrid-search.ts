@@ -42,6 +42,10 @@ const toRankedList = (items: readonly { path: string }[]): { identifier: string 
  *  The harness overrides this per run via the ranking option. */
 const DEFAULT_FILE_LEG_WEIGHT = 0.5
 
+/** Rows each search leg keeps at most. The vault_search description quotes
+ *  it (100 per kind keyword-only, twice that fused), so it stays one value. */
+export const SEARCH_LEG_ROW_CAP = 100
+
 /** Whether reranker document text for file results is prefixed with the
  *  file's kind ("PDF file:") so the cross-encoder can penalize a document
  *  kind that is off-topic for the query. Overridable like the leg weight. */
@@ -378,8 +382,8 @@ export const hybridSearch = async (
   const snippetTokens = params.snippet_tokens ?? 30
   const includeLeadingCallout = params.include_leading_callout ?? false
   // Inflate the per-leg candidate pool beyond the requested limit so RRF
-  // has corroboration to fuse on, capped at 100.
-  const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
+  // has corroboration to fuse on, up to the per-leg cap.
+  const candidateLimit = Math.min(Math.max(1, userLimit * 3), SEARCH_LEG_ROW_CAP)
   const fileLegWeight = context.ranking?.fileLegWeight ?? DEFAULT_FILE_LEG_WEIGHT
   const rerankKindPrefix = context.ranking?.rerankKindPrefix ?? DEFAULT_RERANK_KIND_PREFIX
   // The file-content legs and the folder-only note KNN bind this pattern. buildNoteFilterSql

@@ -821,9 +821,26 @@ value as the static token.
   holds and every access token issued strictly before the revocation. The
   revocation is logged as `oauth_refresh_token_reuse`. Consumed records
   expire with their parent token's window.
+- **Consent requests** — held in memory for 10 minutes while the consent page
+  waits for the owner. `/authorize` needs no sign-in, so the server bounds
+  what anyone can make it hold:
+  - the per-client-IP rate limit bounds how many requests arrive in those
+    10 minutes, so the bound is only as strong as the client IP (see Rate
+    limiting below);
+  - each new request first removes the held requests that have expired,
+    logged as `oauth_pending_requests_purged`;
+  - a request whose parameters exceed 8 KB of JSON is refused with
+    `invalid_request`, logged as `oauth_authorize_rejected`;
+  - a held request keeps its client's ID rather than a copy of the
+    registration, which can run to 100 KB, and lookups load the registration
+    from the database.
+
+  A restart drops them all.
+
 - **Auth codes** — short-lived (10 minutes) and held in memory, so a restart
   drops any code not yet redeemed. A code is redeemable only by the client
-  it was issued to.
+  it was issued to. Only a consent approved with the server's auth token
+  creates a code, so expired codes stay until a restart.
 - **Access tokens** — JWTs with an `iat` (issued-at) claim. Verification
   checks per-token revocation and the client's grant-revocation cutoff
   (see Revoked tokens). Tokens without `iat` are rejected whenever a grant
@@ -875,6 +892,10 @@ client-IP key derived from the deployment's explicit proxy-trust config:
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. An injected forwarding header is ignored on both channels,
   so it can't mint a fresh bucket.
+- Whichever setting supplies the client IP, an IPv6 client is keyed by its /56
+  (express-rate-limit's `ipKeyGenerator`), because one host often holds a
+  /64 and could otherwise get a fresh bucket for every address in it. The
+  `/setup` limiter keys the same way.
 - With the optional `ORIGIN_URL` hardening (a tunnel or reverse proxy
   between API Gateway and the instance —
   [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the tunnel

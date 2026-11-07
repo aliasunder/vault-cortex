@@ -184,7 +184,6 @@ export const registerVaultCrudTools = ({
 Example: vault_read_note({ path: "Projects/vault-cortex.md" })
 Example: vault_read_note({ path: "TASKS.md", outline: true })
 Example: vault_read_note({ path: "TASKS.md", heading: "Active" })
-Example: vault_read_note({ path: "TASKS.md", heading: "Done", heading_level: 2 })
 Example: vault_read_note({ path: "TASKS.md", heading: "Done", start_line: 1, limit: 20 })
 
 When to use: You know the exact path and need a specific note's content. For a large note (a long Kanban board or doc), use outline: true to see its headings and any text sitting above them, then heading: "..." to read just the one section you need. For a note or section too long for one response, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.${readNoteAlternativesLine}
@@ -414,10 +413,9 @@ Parameters:
 - folder names a whole folder; without a glob, notes in its subfolders are listed too: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case; a different case can find nothing.
 - glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "**/*.md" lists every note under it.
 
-Behavior: Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed.
+Behavior: A nonexistent folder or no glob matches returns an empty array, not an error. Paths come back sorted by vault-relative path in code-unit order (uppercase before lowercase). Hidden (dot-prefixed) notes and folders are never listed.
 
 Errors:
-- A nonexistent folder or no glob matches returns an empty array, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative folder outside hidden folders, or omit folder to list the whole vault.
 ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
@@ -478,12 +476,16 @@ Returns: JSON array of every matching vault-relative path (e.g. ["Notes/idea.md"
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create a markdown note, or with overwrite: true replace an existing note's body. Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values. A new note leaves out keys set to null.
+      description: `Create a markdown note, or with overwrite: true replace an existing note's body.
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
 
 When to use: Creating a new note, or replacing a whole note's body.${writeNoteAlternativeLines}
+
+Behavior:
+- Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values.
+- A new note leaves out keys set to null.
 
 Errors:
 - "note already exists" — set overwrite: true to replace it
@@ -1053,7 +1055,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. ${EDIT_SAVE_RULES_SENTENCE} A failed save leaves the note unchanged. A repeated call inserts the content again, or fails as ambiguous when the content holds the anchor, ${RETRY_REREAD_CLAUSE}.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. ${EDIT_SAVE_RULES_SENTENCE} A repeated call inserts the content again, or fails as ambiguous when the content holds the anchor and first_match is false, ${RETRY_REREAD_CLAUSE}.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
@@ -1063,6 +1065,8 @@ When to use: Adding content at a precise location identified by a nearby line's 
 Parameters:
 - ${anchorMatchingText}
 - content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
+
+Behavior: A failed save leaves the note unchanged.
 
 Errors:
 ${noteNotFoundVerifyErrorEntry}
@@ -1292,30 +1296,27 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
   const moveAlternativeSentence = writeAndDeleteServed
     ? "Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink."
     : ""
-  const moveRoutingLine = [
-    moveAlternativeSentence,
-    noteEditSentence,
-    `Protected paths can be neither moved nor moved into: ${protectedPathsText}.`,
-  ]
-    .filter(Boolean)
-    .join(" ")
+  const moveRoutingLine = formatServedSentencesLine([moveAlternativeSentence, noteEditSentence])
 
   registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and links in properties (e.g. related:) — and Canvas cards that embed the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]]). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and links in properties (e.g. related:) — and Canvas cards that embed the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]]).
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md" }) — move to another folder.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
-When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-${moveRoutingLine}
+When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.${moveRoutingLine}
 
 Parameters:
 - prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call.
+
+Behavior:
+- A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
+- Protected paths can be neither moved nor moved into: ${protectedPathsText}.
 
 Errors:
 - "destination exists: …" — this tool never overwrites; pick a free new_path or delete the existing note first.
@@ -1418,18 +1419,31 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
   const updatePropertiesNoteNotFoundRemedy = isToolEnabled("vault_write_note")
     ? "create the note first with vault_write_note"
     : noteNotFoundCheckRemedy
+  const updatePropertiesAlternativesLine = formatServedSentencesLine([
+    whenToolEnabledText(
+      "vault_write_note",
+      "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true).",
+    ),
+    whenToolEnabledText(
+      "vault_read_note",
+      "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused.",
+    ),
+  ])
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update a note's properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block: here null writes a property with no value, and {} removes the whole block. The body is kept.
+      description: `Update a note's properties, merging into the existing ones by default or replacing the whole properties block with replace: true. The body is kept.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })
 
-When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.
-${whenToolEnabledText("vault_write_note", "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). ")}${whenToolEnabledText("vault_read_note", "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused. ")}Arrays are replaced entirely, not appended to.
+When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.${updatePropertiesAlternativesLine}
+
+Behavior:
+- By default properties merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Arrays are replaced entirely, not appended to.
+- With replace: true, null writes a property with no value, and {} removes the whole block.
 
 Errors:
 - "note not found" — path does not exist; ${updatePropertiesNoteNotFoundRemedy}

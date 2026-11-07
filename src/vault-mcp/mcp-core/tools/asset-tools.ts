@@ -251,10 +251,9 @@ Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
 When to use: discovering what files exist${whenToolEnabledText("vault_read_file", " before reading them with vault_read_file")}.${listFilesContrastSentence}${whenToolEnabledText("vault_get_outgoing_links", " For the files one specific note links to, prefer vault_get_outgoing_links.")}
 
-Behavior: Use the folder's exact letter case; a different case can find nothing. Hidden (dot-prefixed) files and folders, .obsidian/ among them, never appear.
+Behavior: A visible folder containing no files — or one that doesn't exist, or a path that names a file — returns an empty listing, not an error. Use the folder's exact letter case; a different case can find nothing. Hidden (dot-prefixed) files and folders, .obsidian/ among them, never appear.
 
 Errors:
-- A visible folder containing no files — or one that doesn't exist, or a path that names a file — returns an empty listing, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder is absolute, escapes the vault, names the vault root itself (e.g. "."), or is hidden like ".obsidian"; use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
 ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 

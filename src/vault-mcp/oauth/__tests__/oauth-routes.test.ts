@@ -529,7 +529,7 @@ describe("OAuth endpoint rate limiting", () => {
   }
 
   it("serves 5 requests in a minute from one client IP, then returns 429", async () => {
-    for (let i = 0; i < 5; i++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const response = await register()
       expect(response.status).toBe(201)
     }
@@ -538,7 +538,7 @@ describe("OAuth endpoint rate limiting", () => {
   })
 
   it("logs oauth_rate_limited with the offending client IP when the limit trips", async () => {
-    for (let i = 0; i < 5; i++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       await register("203.0.113.9")
     }
     logs.length = 0
@@ -557,7 +557,7 @@ describe("OAuth endpoint rate limiting", () => {
   })
 
   it("keys the limit by client IP, so exhausting one client leaves another unaffected", async () => {
-    for (let i = 0; i < 5; i++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const response = await register("203.0.113.7")
       expect(response.status).toBe(201)
     }
@@ -567,6 +567,23 @@ describe("OAuth endpoint rate limiting", () => {
     expect(firstFromOtherClient.status).toBe(201)
   })
 
+  // A /56 spans the first three groups and the top byte of the fourth, so
+  // 2001:db8:0:ff:: shares the budget of 2001:db8::1 and 2001:db8:0:100::
+  // does not.
+  it("keys IPv6 clients by their /56, so rotating addresses inside it shares one budget", async () => {
+    const addressesInOneSubnet = ["::1", "::2", "::3", "::4", "::5"].map(
+      (hostPart) => `"[2001:db8${hostPart}]"`,
+    )
+    for (const address of addressesInOneSubnet) {
+      const response = await register(address)
+      expect(response.status).toBe(201)
+    }
+    const sixthFromSameSubnet = await register(`"[2001:db8:0:ff::6]"`)
+    expect(sixthFromSameSubnet.status).toBe(429)
+    const firstFromOtherSubnet = await register(`"[2001:db8:0:100::1]"`)
+    expect(firstFromOtherSubnet.status).toBe(201)
+  })
+
   // Each flow endpoint mounts its own limiter with its own counter, so the
   // per-endpoint tests below exercise four independent limiters — register
   // passing does not prove authorize/token/revoke are limited. The requests
@@ -574,7 +591,7 @@ describe("OAuth endpoint rate limiting", () => {
   // so invalid requests still count toward the window, and the pre-limit
   // status is each endpoint's own validation error.
   it("rate-limits /authorize after 5 requests from one client IP", async () => {
-    for (let i = 0; i < 5; i++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const response = await fetch(`${baseUrl}/authorize?client_id=unknown`)
       expect(response.status).toBe(400)
     }
@@ -590,7 +607,7 @@ describe("OAuth endpoint rate limiting", () => {
         body: new URLSearchParams({ grant_type: "authorization_code" }),
       })
     }
-    for (let i = 0; i < 5; i++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const response = await requestToken()
       expect(response.status).toBe(400)
     }
@@ -606,7 +623,7 @@ describe("OAuth endpoint rate limiting", () => {
         body: new URLSearchParams({ token: "nonexistent-token" }),
       })
     }
-    for (let i = 0; i < 5; i++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       const response = await revoke()
       expect(response.status).toBe(400)
     }
@@ -615,7 +632,7 @@ describe("OAuth endpoint rate limiting", () => {
   })
 
   it("leaves /.well-known discovery metadata unlimited past 5 requests", async () => {
-    for (let i = 0; i < 6; i++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`)
       expect(response.status).toBe(200)
     }
@@ -680,8 +697,8 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
   // rate-limit bucket — all six share the real peer's bucket, so the sixth
   // is 429.
   it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
-    for (let i = 1; i <= 5; i++) {
-      const response = await registerWithSpoofedIp(`198.51.100.${i}`)
+    for (let hostNumber = 1; hostNumber <= 5; hostNumber++) {
+      const response = await registerWithSpoofedIp(`198.51.100.${hostNumber}`)
       expect(response.status).toBe(201)
     }
     const sixth = await registerWithSpoofedIp("198.51.100.6")
@@ -689,7 +706,7 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
   })
 
   it("logs the real peer IP — not the spoofed value — when the limit trips", async () => {
-    for (let i = 1; i <= 5; i++) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
       await registerWithSpoofedIp("198.51.100.9")
     }
     logs.length = 0
@@ -826,7 +843,7 @@ describe("OAuth protected resource metadata", () => {
   })
 
   it("leaves the suffixed discovery route unlimited past 5 requests", async () => {
-    for (let i = 0; i < 6; i++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
       expect(response.status).toBe(200)
     }
@@ -957,6 +974,38 @@ describe("OAuth refresh over HTTP", () => {
     if (!code) throw new Error(`consent did not redirect with a code`)
     return { code, verifier }
   }
+
+  it("redirects an authorization request over 8 KB back to the client with invalid_request", async () => {
+    const { baseUrl } = await createRefreshTest()
+    const client = await registerClient(baseUrl, "203.0.113.40")
+    const oversizedState = "s".repeat(9000)
+    const authorizeUrl = new URL(`${baseUrl}/authorize`)
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: client.client_id,
+      redirect_uri: REDIRECT_URI,
+      code_challenge: base64Url(randomBytes(32)),
+      code_challenge_method: "S256",
+      state: oversizedState,
+    }).toString()
+
+    const response = await fetch(authorizeUrl, {
+      headers: { forwarded: "for=203.0.113.40" },
+      redirect: "manual",
+    })
+
+    expect(response.status).toBe(302)
+    const location = response.headers.get("location")
+
+    if (!location) throw new Error("the refusal carried no redirect location")
+    const redirect = new URL(location)
+    expect(`${redirect.origin}${redirect.pathname}`).toBe(REDIRECT_URI)
+    expect(Object.fromEntries(redirect.searchParams)).toEqual({
+      error: "invalid_request",
+      error_description: "Authorization request parameters are too large",
+      state: oversizedState,
+    })
+  })
 
   /** Consent page → approve → PKCE code exchange, all over HTTP. */
   const issueTokens = async (

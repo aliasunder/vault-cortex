@@ -717,9 +717,10 @@ the description and each parameter's Zod `.describe()` text.
 
 - **MCP tool descriptions include `Example:`, `When to use:`, and
   `Returns:` sections.** Include `Errors:` whenever the tool has
-  failure modes or a no-match / empty-result contract worth clarifying
-  ("returns an empty array, not an error"); omit it only for tools that
-  cannot meaningfully fail. Include `Obsidian syntax:` on write tools.
+  failure modes; omit it only for tools that cannot meaningfully fail.
+  An empty-result contract ("returns an empty array, not an error")
+  goes under `Behavior:`, not `Errors:`. Include `Obsidian syntax:` on
+  write tools.
 - **`Errors:` lists only failures a client can receive, each proven end
   to end.** A message appears only when a schema-valid call over the
   real transport returns it and a test in

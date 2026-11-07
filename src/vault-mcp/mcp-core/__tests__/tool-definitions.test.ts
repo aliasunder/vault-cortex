@@ -310,15 +310,26 @@ describe("registerTools", () => {
     expect(config.description).toContain("refusing memory write")
   })
 
-  it("vault_update_memory description documents the duplicate no-op contract", () => {
-    // The whole opener, so a reworded "is not a no-op" can't pass
+  it("vault_update_memory opener states the append-only default and the living opt-in", () => {
     const opener = findDescriptionLine({
       registeredCalls: calls,
       toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
       linePrefix: "Append a dated entry",
     })
     expect(opener).toBe(
-      "Append a dated entry to a section of a memory file in About Me/. An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in its properties (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries with vault_delete_memory is expected maintenance.",
+      "Append a dated entry to a section of a memory file in About Me/. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in its properties (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries with vault_delete_memory is expected maintenance.",
+    )
+  })
+
+  it("vault_update_memory description documents the duplicate no-op contract", () => {
+    // The whole Behavior bullet, so a reworded "is not a no-op" can't pass
+    const duplicateRule = findDescriptionLine({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
+      linePrefix: "- An exact duplicate",
+    })
+    expect(duplicateRule).toBe(
+      "- An exact duplicate (same date + text in the same section) is a no-op, so retrying a timed-out call is safe.",
     )
   })
 
@@ -408,9 +419,40 @@ describe("registerTools", () => {
   it("vault_list_tags description says property and body tags both count", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_TAGS)
     expect(config.description).toContain(
-      "Tags in the tags property and #tags written in note bodies both count.",
+      "- Tags in the tags property and #tags written in note bodies both count, and count is unique notes, not occurrences.",
     )
-    expect(config.description).toContain("unique notes")
+  })
+
+  it("vault_move_note's Behavior section states the link-rewrite rule and the protected paths", () => {
+    const behaviorSection = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+      startMarker: "Behavior:",
+      endMarker: "\n\nErrors:",
+    })
+    expect(behaviorSection).toBe(
+      [
+        "Behavior:",
+        "- A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.",
+        "- Protected paths can be neither moved nor moved into: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank).",
+      ].join("\n"),
+    )
+  })
+
+  it("vault_update_properties's Behavior section states the merge and replace rules", () => {
+    const behaviorSection = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
+      startMarker: "Behavior:",
+      endMarker: "\n\nErrors:",
+    })
+    expect(behaviorSection).toBe(
+      [
+        "Behavior:",
+        "- By default properties merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Arrays are replaced entirely, not appended to.",
+        "- With replace: true, null writes a property with no value, and {} removes the whole block.",
+      ].join("\n"),
+    )
   })
 
   it("vault_get_daily_note description documents future date support", () => {
@@ -524,9 +566,11 @@ describe("sentences shared across sibling tools", () => {
   const INDEX_LAG_TOOLS = [
     TOOL_NAMES.VAULT_SEARCH,
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
+    TOOL_NAMES.VAULT_LIST_TAGS,
     TOOL_NAMES.VAULT_RECENT_NOTES,
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
+    TOOL_NAMES.VAULT_GET_BACKLINKS,
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     TOOL_NAMES.VAULT_FIND_ORPHANS,
     TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
@@ -627,6 +671,31 @@ describe("sentences shared across sibling tools", () => {
   it.each(sharedSentenceCases)("$toolName states $label", ({ sentence, toolName }) => {
     const [, config] = requireCall(toolName)
     expect(requireDescription(config, toolName)).toContain(sentence)
+  })
+
+  // Each switch here changes some tool's Errors text, so the default config
+  // alone would miss an entry that only one of them renders.
+  it.each([
+    { label: "by default", env: {} },
+    { label: "with embeddings off", env: { EMBEDDING_ENABLED: "false" } },
+    { label: "with file tools off", env: { FILE_TOOLS_ENABLED: "false" } },
+    { label: "with memory off", env: { MEMORY_ENABLED: "false" } },
+    { label: "with Obsidian Sync on", env: { OBSIDIAN_SYNC: "true" } },
+  ])("no tool lists its empty-result contract under Errors $label", ({ env }) => {
+    // AGENTS.md puts "returns an empty …, not an error" under Behavior; an
+    // Errors entry for it reads as a failure to the calling agent.
+    const toolsWithEmptyResultErrors = registerWithConfig(env)
+      .filter(([toolName, config]) => {
+        const [, errorsAndAfter] = requireDescription(config, toolName).split("\nErrors:")
+
+        // A tool with no Errors section has nothing to misfile
+        if (!errorsAndAfter) return false
+
+        const [errorsSection] = errorsAndAfter.split("\n\n")
+        return Boolean(errorsSection?.includes(", not an error"))
+      })
+      .map(([toolName]) => toolName)
+    expect(toolsWithEmptyResultErrors).toEqual([])
   })
 
   it("no tool restates Obsidian's properties as frontmatter", () => {
@@ -756,6 +825,27 @@ describe("config interpolation in descriptions", () => {
     )
   })
 
+  it.each([
+    {
+      label: "names the memory folder as protected without a PROTECTED_PATHS override",
+      env: {},
+      expectedLine:
+        "Prefer vault_delete_note for deleting whole notes; it refuses protected paths, About Me/ among them.",
+    },
+    {
+      label: "drops the memory-folder claim under a PROTECTED_PATHS override",
+      env: { PROTECTED_PATHS: "Private" },
+      expectedLine: "Prefer vault_delete_note for deleting whole notes.",
+    },
+  ])("vault_delete_memory's delete_note routing $label", ({ env, expectedLine }) => {
+    const routingLine = findDescriptionLine({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_DELETE_MEMORY,
+      linePrefix: "Prefer vault_delete_note",
+    })
+    expect(routingLine).toBe(expectedLine)
+  })
+
   it("vault_delete_note description includes memory hint when memory is enabled", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_NOTE)
     expect(config.description).toContain("use vault_delete_memory for a memory entry")
@@ -766,7 +856,7 @@ describe("config interpolation in descriptions", () => {
     const exclusionDescription = config.inputSchema?.shape.exclude_folders?.description
 
     expect(exclusionDescription).toBe(
-      'Folder paths to exclude (e.g. Projects; default: the daily notes folder, "Templates", "Profile")',
+      'Folder paths to exclude (e.g. Projects; default: the daily notes folder (none when Obsidian\'s Daily Notes folder setting is the vault root or blank), "Templates", "Profile")',
     )
   })
 })
@@ -1462,6 +1552,41 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
         endMarker: " created is omitted",
       }),
     }).toEqual(expectedWording)
+  })
+})
+
+describe("vault_search result cap", () => {
+  const BEHAVIOR_LEAD =
+    "Behavior: Results can lag a file change by a few seconds. No matches returns an empty results array with total 0, not an error."
+
+  it.each([
+    {
+      label: "bounds both modes for notes and files by default",
+      env: {},
+      expectedLine: `${BEHAVIOR_LEAD} When only keyword matching ran (search_mode "fts"), at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files.`,
+    },
+    {
+      label: "bounds both modes for notes only when file tools are off",
+      env: { FILE_TOOLS_ENABLED: "false" },
+      expectedLine: `${BEHAVIOR_LEAD} When only keyword matching ran (search_mode "fts"), at most 100 notes come back; with "hybrid", at most 200 notes.`,
+    },
+    {
+      label: "states only the keyword bound for notes and files when embeddings are off",
+      env: { EMBEDDING_ENABLED: "false" },
+      expectedLine: `${BEHAVIOR_LEAD} At most 100 notes and 100 files come back.`,
+    },
+    {
+      label: "states only the keyword bound for notes when embeddings and file tools are off",
+      env: { EMBEDDING_ENABLED: "false", FILE_TOOLS_ENABLED: "false" },
+      expectedLine: `${BEHAVIOR_LEAD} At most 100 notes come back.`,
+    },
+  ])("$label", ({ env, expectedLine }) => {
+    const behaviorLine = findDescriptionLine({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_SEARCH,
+      linePrefix: "Behavior: ",
+    })
+    expect(behaviorLine).toBe(expectedLine)
   })
 })
 
@@ -2254,11 +2379,11 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links. To keep the daily notes folder excluded, list the folder vault_get_daily_note\'s path starts with.',
+      '- exclude_folders replaces the defaults — list a default yourself to keep it (when the vault has a daily notes folder, vault_get_daily_note\'s path starts with it). Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
-      'Folder paths to exclude (e.g. Projects; default: the daily notes folder, "Templates", "About Me")',
+      'Folder paths to exclude (e.g. Projects; default: the daily notes folder (none when Obsidian\'s Daily Notes folder setting is the vault root or blank), "Templates", "About Me")',
     )
   })
 
@@ -2273,7 +2398,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n\nBehavior:")[0]
     expect(parametersSection).toBe(
       [
-        '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
+        '- exclude_folders replaces the defaults — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
         "- limit applies after exclusions and sorting; nothing in the response signals truncation; raise limit for more.",
       ].join("\n"),
     )
@@ -2290,7 +2415,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
+      '- exclude_folders replaces the defaults — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
     )
   })
 })
@@ -3168,11 +3293,11 @@ describe("DISABLED_TOOLS", () => {
       return findDescriptionLine({
         registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
         toolName: TOOL_NAMES.VAULT_GET_BACKLINKS,
-        linePrefix: "- A path nothing links to",
+        linePrefix: "Behavior: ",
       })
     }
     const ENTRY_START =
-      "- A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links,"
+      "Behavior: Results can lag a file change by a few seconds. A path nothing links to returns an empty result (count 0), not an error; if you expected links,"
 
     expect(emptyResultEntry("")).toBe(
       `${ENTRY_START} find valid paths with vault_search, vault_list_notes, or vault_list_files.`,
@@ -3213,12 +3338,14 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const ENTRY_LEAD =
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
+      "- exclude_folders replaces the defaults — list a default yourself to keep it"
+    const ENTRY_TAIL =
+      '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
 
     expect(excludeFoldersEntry("")).toBe(
-      `${ENTRY_LEAD} To keep the daily notes folder excluded, list the folder vault_get_daily_note's path starts with.`,
+      `${ENTRY_LEAD} (when the vault has a daily notes folder, vault_get_daily_note's path starts with it)${ENTRY_TAIL}`,
     )
-    expect(excludeFoldersEntry("vault_get_daily_note")).toBe(ENTRY_LEAD)
+    expect(excludeFoldersEntry("vault_get_daily_note")).toBe(`${ENTRY_LEAD}${ENTRY_TAIL}`)
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
@@ -3728,7 +3855,7 @@ describe("DISABLED_TOOLS", () => {
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_WRITE_NOTE,
       startMarker: "When to use:",
-      endMarker: "\n\nErrors:",
+      endMarker: "\n\nBehavior:",
     })
     expect(whenToUse).toBe(
       [
@@ -3745,26 +3872,26 @@ describe("DISABLED_TOOLS", () => {
       label: "names vault_write_note and vault_read_note while they are served",
       disabledTools: "",
       expectedLine:
-        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused. Arrays are replaced entirely, not appended to.",
+        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused.",
     },
     {
       label: "drops the vault_write_note sentence when that tool is disabled",
       disabledTools: "vault_write_note",
       expectedLine:
-        "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused. Arrays are replaced entirely, not appended to.",
+        "Read current properties first with vault_read_note({ properties_only: true }), or the full note when repairing a properties block the server refused.",
     },
     {
       label: "drops the vault_read_note sentence when that tool is disabled",
       disabledTools: "vault_read_note",
       expectedLine:
-        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true). Arrays are replaced entirely, not appended to.",
+        "Prefer vault_write_note when creating a new note, or replacing the body (with overwrite: true).",
     },
   ])("vault_update_properties's routing line $label", ({ disabledTools, expectedLine }) => {
     const routingLine = extractDescriptionSection({
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
       startMarker: "the full note body.\n",
-      endMarker: "\n\nErrors:",
+      endMarker: "\n\nBehavior:",
     })
     expect(routingLine).toBe(`the full note body.\n${expectedLine}`)
   })
@@ -3800,7 +3927,7 @@ describe("DISABLED_TOOLS", () => {
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_WRITE_NOTE,
       startMarker: "When to use:",
-      endMarker: "\n\nErrors:",
+      endMarker: "\n\nBehavior:",
     })
     expect(whenToUse).toBe(expectedLines.join("\n"))
   })
@@ -3832,7 +3959,7 @@ describe("DISABLED_TOOLS", () => {
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
       startMarker: "which would orphan every backlink.",
-      endMarker: " Protected paths",
+      endMarker: "\n\nParameters:",
     })
     expect(editRouting).toBe(`which would orphan every backlink.${expectedSentence}`)
   })
@@ -3846,10 +3973,36 @@ describe("DISABLED_TOOLS", () => {
         linePrefix: "To only change a note's body or properties",
       })
       expect(routingLine).toBe(
-        "To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths can be neither moved nor moved into: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank).",
+        "To only change a note's body or properties, use vault_patch_note or vault_update_properties.",
       )
     },
   )
+
+  it("vault_move_note's when-to-use leaves no empty line when every routing tool is disabled", () => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({
+        DISABLED_TOOLS: "vault_write_note,vault_patch_note,vault_update_properties",
+      }),
+      toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(
+      "When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.",
+    )
+  })
+
+  it("vault_update_properties's when-to-use leaves no empty line when vault_write_note and vault_read_note are disabled", () => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_write_note,vault_read_note" }),
+      toolName: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
+      startMarker: "When to use:",
+      endMarker: "\n\nBehavior:",
+    })
+    expect(whenToUse).toBe(
+      "When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.",
+    )
+  })
 
   const PATCH_NOTE_WHEN_TO_USE =
     "When to use: Modifying part of an existing note without overwriting the entire body."

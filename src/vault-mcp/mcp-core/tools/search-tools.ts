@@ -7,6 +7,7 @@ import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
 import { MAX_INDEXED_CONTENT_BYTES } from "../../search/search-index.js"
+import { SEARCH_LEG_ROW_CAP } from "../../search/hybrid-search.js"
 import {
   createStrictInputObject,
   describeNoteMetadataResult,
@@ -113,10 +114,20 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
         stage: "matching",
         outcome: "a query left with no terms returns no results",
       }
-  const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}.`
+
+  // Each kind has a keyword leg, and with embeddings a semantic leg too, so a
+  // fused result holds at most twice the per-leg cap of each kind
+  const describeCapExtent = (perKind: number): string => {
+    return config.fileToolsEnabled ? `${perKind} notes and ${perKind} files` : `${perKind} notes`
+  }
+  const keywordCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP)
+  const hybridCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP * 2)
+  const resultCapSentence = config.embeddingEnabled
+    ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
+    : `At most ${keywordCapExtent} come back.`
+  const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}
+- Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}.`
   const searchErrorsSection = `Errors:
-- No matches returns an empty results array with total 0, not an error
-- Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}
 - "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form
 - "tag must not be empty …" — a tags entry is only "#"; pass the tag name
 ${INDEX_ERROR_ENTRY}`
@@ -135,7 +146,7 @@ ${searchSharedExamples}
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.${searchAlternativesLine}
 
-${searchLagLine}
+${searchBehaviorLine}
 
 ${searchErrorsSection}
 
@@ -149,7 +160,7 @@ Example: vault_search({ query: "deployment", filters: { properties: { status: "a
 
 When to use: The primary discovery tool for content-based queries, optionally constrained by metadata.${searchAlternativesLine}
 
-${searchLagLine}
+${searchBehaviorLine}
 
 ${searchErrorsSection}
 
@@ -251,10 +262,9 @@ Parameters:
 - tag: a trailing slash matches nothing ("project/" matches neither "project" nor "project/a"), so pass the tag name without it.
 - limit keeps the most recently modified notes; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An unknown tag or no matches returns an empty array, not an error.
 
 Errors:
-- An unknown tag or no matches returns an empty array, not an error.
 - "tag must not be empty …" — tag is "#" alone; pass the tag name.
 ${INDEX_ERROR_ENTRY}
 
@@ -304,14 +314,18 @@ Returns: ${describeNoteMetadataResult(tagsFieldsText)} Tags keep the note's lett
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name. Tags in the tags property and #tags written in note bodies both count. Spellings that differ only in letter case are one tag, shown as the spelling written most often. Each hierarchical tag appears as one full entry, not split into segments. Count is unique notes, not occurrences.
+      description: `List all tags in the vault with note counts, ordered by count descending, then by tag name.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
 When to use: Discovering what tags exist before searching by tag. Good first step for vault orientation.${listTagsAlternativesLine}
 
+Behavior: ${INDEX_LAG_LEAD}. A vault with no tagged notes returns an empty array, not an error.
+- Tags in the tags property and #tags written in note bodies both count, and count is unique notes, not occurrences.
+- Spellings that differ only in letter case are one tag, shown as the spelling written most often.
+- Each hierarchical tag appears as one full entry, not split into segments.
+
 Errors:
-- A vault with no tagged notes returns an empty array, not an error.
 ${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { tag, count } holding every tag in the vault; tag omits the "#" prefix.`,
@@ -360,10 +374,9 @@ Parameters:
 - sort_by "modified" uses filesystem mtime. Any file write counts (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.
 - sort_by "created" uses the created property; notes where it is missing or not an ISO date sort after every dated note, so a small limit can leave them out — use "modified" to see them.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An empty vault returns an empty array, not an error.
 
 Errors:
-- An empty vault returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Newest first by the sort_by timestamp.`,
@@ -417,13 +430,12 @@ Example: vault_search_by_folder({ folder: "${config.memoryEnabled ? config.memor
 When to use: Exploring a folder's contents with full context for vault orientation.${searchByFolderAlternativesLine}
 
 Parameters:
-- folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored, and recursive: false keeps only the folder's own notes.
-- limit keeps the most recently modified notes. There is no offset, and ${LIMIT_TRUNCATION_CLAUSE}.
+- folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored.
+- limit keeps the most recently modified notes; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}. Notes in hidden (dot-prefixed) folders never appear.
+Behavior: ${INDEX_LAG_LEAD}. An empty or nonexistent folder returns an empty array, not an error. Notes in hidden (dot-prefixed) folders never appear.
 
 Errors:
-- An empty or nonexistent folder returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently modified, then by path.`,
@@ -484,13 +496,12 @@ When to use: Discovering what properties exist before searching by property. Goo
 Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; omit it to scan the entire vault.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An empty vault or folder returns an empty array, not an error.
 - Only properties count; inline Dataview fields (key:: value) are not listed.
 - count is the number of notes that have the key, including notes where its value is empty (null).
 - sample_values are the key's 3 most frequent values as text (a number as JavaScript prints it, so 1.0 lists as "1"; a checkbox as "1" or "0"), counting each array element separately; null values are skipped.
 
 Errors:
-- An empty vault or folder returns an empty array, not an error.
 ${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending, then by key.`,
@@ -531,14 +542,13 @@ Parameters:
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}.
 - limit keeps the most-used values; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An unknown key or empty folder returns an empty array, not an error.
 - Array elements (tags: ["a", "b"]) are counted individually, so the sum of counts may exceed the note count.
 - Each value is listed as text, and values with the same text share one row with combined occurrence counts: number 1 and text "1" count together, while text "1.0" stays separate.
 - Checkbox true and false come back as "1" and "0", counted with the numbers 1 and 0.
 - null values are skipped.
 
 Errors:
-- An unknown key or empty folder returns an empty array, not an error.
 ${INDEX_ENGINE_ERROR_ENTRY}
 
 Returns: JSON array of { value, count } sorted by count descending, then by value in binary text order ("10" before "2").`,
@@ -611,17 +621,16 @@ Example: vault_search_by_property({ key: "type", value: "session-log", folder: "
 When to use: Finding notes by metadata when you don't have a text query.${searchByPropertyAlternativesLine}
 
 Parameters:
-- key and value both match exactly and case-sensitively, with no partial matching or globbing; value matches a stored text value as written.
-- A value written as a complete, finite YAML number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary) matches only as text.
+- key and value both match exactly and case-sensitively; value matches a stored text value as written.
+- A value written as a complete, finite YAML 1.2 core number (-4, 04, .5, 4., 1e3, 0x1F, 0o17) also matches stored numbers numerically: "04" and "4.0" match number 4 and their own literal text, but not text "4". Anything else ("4abc", " 4", 0b binary) matches only as text.
 - A checkbox matches only as text: pass "1" (checked) or "0" (unchecked); "1.0" and "true" do not match.
 - A list property matches when an element equals value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
 - folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; omit it to search the entire vault.
 - limit keeps the most recently modified matches; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An unknown key or unmatched value returns an empty array, not an error.
 
 Errors:
-- An unknown key or unmatched value returns an empty array, not an error.
 ${INDEX_ERROR_ENTRY}
 
 Returns: ${describeNoteMetadataResult(tagsFieldsText)} Sorted by most recently modified (any file write, so a recently-synced note can sort ahead of an older edit), then by path.`,
@@ -686,11 +695,12 @@ When to use: Understanding what references a note or canvas, assessing its conne
 Parameters:
 - path: pass the target's own path, never a link's text: a link written as [[Note]], as a relative ../Note.md, or as a full path counts toward the note it resolves to.
 
+Behavior: ${INDEX_LAG_LEAD}. A path nothing links to returns an empty result (count 0), not an error; if you expected links, ${linkEmptyResultRemedy}.
+
 Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title; bytes is the source's on-disk size), and count.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
-- A path nothing links to returns an empty result (count 0), not an error; links from a note written or changed in the last few seconds may not appear yet. If you expected links, ${linkEmptyResultRemedy}.
 ${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
         path: z
@@ -741,13 +751,12 @@ Example: vault_get_outgoing_links({ path: "Diagrams/architecture.canvas" })
 
 When to use: Navigating the graph forward, auditing broken links in one note or canvas, or checking dependencies before editing.${outgoingLinksAlternativesLine}
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does; if you expected links, ${linkEmptyResultRemedy}.
 
 Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link into the daily notes folder (a daily note not yet created, not breakage) and false otherwise, including when Obsidian's Daily Notes folder setting is the vault root or blank. bytes is the on-disk size (null for broken links)${fileBytesClause}.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
-- A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does; a note or canvas created or moved in the last few seconds may not appear yet. If you expected links, ${linkEmptyResultRemedy}.
 ${INDEX_ENGINE_ERROR_ENTRY}`,
       inputSchema: {
         path: z
@@ -799,9 +808,9 @@ ${INDEX_ENGINE_ERROR_ENTRY}`,
         dailyFolderLine: "",
       }
     : {
-        folders: `the daily notes folder, "Templates", ${JSON.stringify(config.memoryDir)}`,
+        folders: `the daily notes folder (none when Obsidian's Daily Notes folder setting is the vault root or blank), "Templates", ${JSON.stringify(config.memoryDir)}`,
         dailyFolderLine: isToolEnabled("vault_get_daily_note")
-          ? " To keep the daily notes folder excluded, list the folder vault_get_daily_note's path starts with."
+          ? " (when the vault has a daily notes folder, vault_get_daily_note's path starts with it)"
           : "",
       }
 
@@ -824,13 +833,12 @@ Example: vault_find_orphans({ exclude_folders: ["Templates", "Archive"], limit: 
 When to use: Vault maintenance — surfacing notes to integrate into the graph.${whenToolEnabledText("vault_patch_note", " Link an orphan by mentioning it from a relevant note with vault_patch_note.")}${findOrphansAlternativesLine}
 
 Parameters:
-- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.${orphanDefaultsText.dailyFolderLine}
+- exclude_folders replaces the defaults — list a default yourself to keep it${orphanDefaultsText.dailyFolderLine}. Pass [] for no exclusions. Each entry names ${INDEX_FOLDER_SCOPE_CLAUSE}. Excluded notes are left out of the results; links from them still count as incoming links.
 - limit applies after exclusions and sorting; ${LIMIT_TRUNCATION_CLAUSE}.
 
-Behavior: ${INDEX_LAG_LEAD}.
+Behavior: ${INDEX_LAG_LEAD}. An empty array means no orphans were found (after exclusions), not an error.
 
 Errors:
-- An empty array means no orphans were found (after exclusions), not an error.
 - "too many excluded folders" — pass at most 994 exclude_folders entries, then retry.
 ${INDEX_ERROR_ENTRY}
 

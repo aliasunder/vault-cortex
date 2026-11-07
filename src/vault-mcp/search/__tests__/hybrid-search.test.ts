@@ -1024,6 +1024,162 @@ ${"Deployment coordination requires project planning and monitoring. ".repeat(12
     })
   })
 
+  // vault_search's description promises these bounds, so a change to the per-leg cap must
+  // fail here as well as in the "vault_search result cap" test in tool-definitions.test.ts.
+  describe("per-leg candidate cap", () => {
+    const CAP_QUERY = "zzcap"
+    // Above the cap, so each leg has more matches than it can keep.
+    const MATCHES_PER_LEG = 101
+    const matchNumbers = Array.from({ length: MATCHES_PER_LEG }, (_, matchNumber) => matchNumber)
+    // Far above every count here, so the user limit never decides how many come back.
+    const UNBOUNDED_LIMIT = 1000
+
+    /** How many results each seeded group contributed, plus the total, which catches any
+     *  result from outside the groups. */
+    const countResultsByGroup = (
+      results: ReadonlyArray<{ path: string }>,
+    ): Record<
+      "keywordNotes" | "semanticNotes" | "keywordFiles" | "semanticFiles" | "total",
+      number
+    > => {
+      const countWithPrefix = (pathPrefix: string): number => {
+        return results.filter((result) => result.path.startsWith(pathPrefix)).length
+      }
+
+      return {
+        keywordNotes: countWithPrefix("notes/keyword-"),
+        semanticNotes: countWithPrefix("notes/semantic-"),
+        keywordFiles: countWithPrefix("files/keyword-"),
+        semanticFiles: countWithPrefix("files/semantic-"),
+        total: results.length,
+      }
+    }
+
+    const keywordNoteContent = `---\ntitle: Keyword\n---\n\n${CAP_QUERY} planning.\n`
+    const keywordFileContent = `${CAP_QUERY} planning.`
+    const semanticNoteContent = "---\ntitle: Semantic\n---\n\nUnrelated planning.\n"
+    const semanticFileContent = "Unrelated planning."
+
+    it("keeps at most 100 notes and 100 files when only keyword matching runs", async () => {
+      const ftsIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      for (const matchNumber of matchNumbers) {
+        ftsIndex.upsertNote(
+          withBodyTags({
+            filePath: `notes/keyword-${matchNumber}.md`,
+            rawContent: keywordNoteContent,
+            fileStat: testStat(1000),
+          }),
+          logger,
+        )
+        ftsIndex.upsertNonMdFile(`files/keyword-${matchNumber}.txt`, 100)
+        ftsIndex.upsertFileContent(
+          {
+            filePath: `files/keyword-${matchNumber}.txt`,
+            rawContent: keywordFileContent,
+            fileStat: testStat(1000),
+          },
+          logger,
+        )
+      }
+
+      const { results, search_mode } = await ftsIndex.hybridSearch(
+        { query: CAP_QUERY, limit: UNBOUNDED_LIMIT },
+        logger,
+      )
+
+      expect({ search_mode, counts: countResultsByGroup(results) }).toEqual({
+        search_mode: "fts",
+        counts: {
+          keywordNotes: 100,
+          semanticNotes: 0,
+          keywordFiles: 100,
+          semanticFiles: 0,
+          total: 200,
+        },
+      })
+    })
+
+    it("keeps at most 200 notes and 200 files in hybrid mode", async () => {
+      const mockEmbedder = createHybridMockEmbedder()
+      const queryEmbedding = seededEmbedding(0)
+      // Orthogonal to the query, so keyword matches rank below every semantic match.
+      const distantEmbedding = seededEmbedding(1)
+      mockEmbedder.embedText.mockResolvedValue(queryEmbedding)
+      const hybridIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
+
+      // Keyword matches sit far from the query and semantic matches share no word with it,
+      // so the keyword and semantic legs each keep a different 100 of each kind.
+      const seededLegs = [
+        {
+          name: "keyword",
+          noteContent: keywordNoteContent,
+          fileContent: keywordFileContent,
+          embedding: distantEmbedding,
+        },
+        {
+          name: "semantic",
+          noteContent: semanticNoteContent,
+          fileContent: semanticFileContent,
+          embedding: queryEmbedding,
+        },
+      ]
+      for (const leg of seededLegs) {
+        for (const matchNumber of matchNumbers) {
+          const notePath = `notes/${leg.name}-${matchNumber}.md`
+          const noteSourceVersion = hybridIndex.upsertNote(
+            withBodyTags({
+              filePath: notePath,
+              rawContent: leg.noteContent,
+              fileStat: testStat(1000),
+            }),
+            logger,
+          )
+          mockEmbedder.embedText.mockResolvedValueOnce(leg.embedding)
+          await hybridIndex.embedNote(
+            { sourceVersion: noteSourceVersion, notePath, rawContent: leg.noteContent },
+            logger,
+          )
+
+          const filePath = `files/${leg.name}-${matchNumber}.txt`
+          hybridIndex.upsertNonMdFile(filePath, 100)
+          const fileSourceVersion = hybridIndex.upsertFileContent(
+            {
+              filePath,
+              rawContent: leg.fileContent,
+              fileStat: testStat(1000),
+            },
+            logger,
+          )
+          mockEmbedder.embedText.mockResolvedValueOnce(leg.embedding)
+          await hybridIndex.embedFileContent({ sourceVersion: fileSourceVersion, filePath }, logger)
+        }
+      }
+      // Each note and file embeds as one chunk, so each one took its group's vector.
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(MATCHES_PER_LEG * 4)
+
+      const { results, search_mode } = await hybridIndex.hybridSearch(
+        { query: CAP_QUERY, limit: UNBOUNDED_LIMIT },
+        logger,
+      )
+
+      expect({ search_mode, counts: countResultsByGroup(results) }).toEqual({
+        search_mode: "hybrid",
+        counts: {
+          keywordNotes: 100,
+          semanticNotes: 100,
+          keywordFiles: 100,
+          semanticFiles: 100,
+          total: 400,
+        },
+      })
+    })
+  })
+
   describe("include_leading_callout", () => {
     it("includes leading callout for vector-only results when requested", async () => {
       const mockEmbedder = createHybridMockEmbedder()

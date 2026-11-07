@@ -271,7 +271,7 @@ export const NOTE_END_BLANK_LINES_SENTENCE =
 export const WHITESPACE_ONLY_LINE_CLAUSE =
   "line holding only spaces or tabs counts as text, not as an empty line"
 
-/** The index-lag sentence every index-backed tool's Behavior section opens with. */
+/** The index-lag sentence the search tools' Behavior sections open with. */
 export const INDEX_LAG_LEAD = "Results can lag a file change by a few seconds"
 
 /** How an index-backed folder input scopes its matches. The filesystem
