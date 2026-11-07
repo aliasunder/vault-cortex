@@ -1052,7 +1052,7 @@ Returns: Confirmation message "Replaced <N> line(s) with <M> line(s) in <path>" 
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. ${EDIT_SAVE_RULES_SENTENCE} A failed save leaves the note unchanged. A repeated call inserts the content again, or fails as ambiguous when the content holds the anchor, ${RETRY_REREAD_CLAUSE}.
+      description: `Insert content as whole lines into a note's body, before or after a specific line identified by a short anchor substring. ${EDIT_SAVE_RULES_SENTENCE} A repeated call inserts the content again, or fails as ambiguous when the content holds the anchor, ${RETRY_REREAD_CLAUSE}.
 
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
@@ -1060,8 +1060,12 @@ Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", p
 When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.${insertAtAnchorAlternativesLine}
 
 Parameters:
-- ${anchorMatchingText} With first_match: true, the topmost matching line is the anchor.
+- ${anchorMatchingText}
 - content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
+
+Behavior:
+- A failed save leaves the note unchanged.
+- With first_match: true, a repeated call inserts again even when the content holds the anchor.
 
 Errors:
 ${noteNotFoundVerifyErrorEntry}
@@ -1291,30 +1295,27 @@ Returns: ${deleteNoteText.returns} Notes how many empty folders were pruned when
   const moveAlternativeSentence = writeAndDeleteServed
     ? "Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink."
     : ""
-  const moveRoutingLine = [
-    moveAlternativeSentence,
-    noteEditSentence,
-    `Protected paths can be neither moved nor moved into: ${protectedPathsText}.`,
-  ]
-    .filter(Boolean)
-    .join(" ")
+  const moveRoutingLine = formatServedSentencesLine([moveAlternativeSentence, noteEditSentence])
 
   registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and links in properties (e.g. related:) — and Canvas cards that embed the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]]). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and links in properties (e.g. related:) — and Canvas cards that embed the note are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]]).
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md" }) — move to another folder.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
-When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-${moveRoutingLine}
+When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.${moveRoutingLine}
 
 Parameters:
 - prune_empty_folders keeps a folder that holds any file, even a hidden .DS_Store. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call.
+
+Behavior:
+- A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.
+- Protected paths can be neither moved nor moved into: ${protectedPathsText}.
 
 Errors:
 - "destination exists: …" — this tool never overwrites; pick a free new_path or delete the existing note first.
@@ -1328,7 +1329,7 @@ ${NOTE_EXTENSION_ERROR_ENTRY}.
 - "move aborted: could not read …" — names the note, or a note linking to it, that could not be read; nothing was written. Fix that note, then retry.
 - "move aborted: could not rewrite …" — says why a note could not be saved with its links rewritten, and how to fix it; nothing was written.
 - "move aborted: could not write to …" / "move aborted: could not rename to …" (a case-only rename) — new_path could not be created, and new parent folders it needed may remain; retry once, then ask the vault's owner to fix the folder or disk.
-- "move incomplete: …" — the move failed partway; no data is lost, and the message names what failed, the state it left, and the step that finishes the move. Re-running the same call fails instead: new_path already exists, or after a case-only rename old_path is gone.
+- "move incomplete: …" — the move failed partway; no data is lost, and the message names what failed, the state it left, and the step that finishes the move. After an ordinary move, re-running the same call fails because new_path already exists.
 ${FILESYSTEM_ERROR_ENTRY}; nothing was written.
 - "[SqliteError]: …" — the search index failed and nothing was written; the message says what to do.
 

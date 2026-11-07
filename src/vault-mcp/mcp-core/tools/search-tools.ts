@@ -107,11 +107,12 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
         stage: "matching",
         outcome: "a query left with no terms returns no results",
       }
-  // The keyword leg fetches at most 100 rows, so a keyword-only result is
+  // Each keyword leg fetches at most 100 rows, so a keyword-only result is
   // capped there whatever limit says; a hybrid result is not
+  const keywordCapExtent = config.fileToolsEnabled ? "100 notes and 100 files" : "100 notes"
   const keywordCapSentence = config.embeddingEnabled
-    ? 'When only keyword matching ran (search_mode "fts"), at most 100 results come back whatever limit says.'
-    : "At most 100 results come back whatever limit says."
+    ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back whatever limit says.`
+    : `At most ${keywordCapExtent} come back whatever limit says.`
   const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}. ${keywordCapSentence}`
   const searchErrorsSection = `Errors:
 - No matches returns an empty results array with total 0, not an error

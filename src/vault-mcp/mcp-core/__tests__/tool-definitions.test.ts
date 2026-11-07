@@ -3809,7 +3809,7 @@ describe("DISABLED_TOOLS", () => {
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
       startMarker: "which would orphan every backlink.",
-      endMarker: " Protected paths",
+      endMarker: "\n\nParameters:",
     })
     expect(editRouting).toBe(`which would orphan every backlink.${expectedSentence}`)
   })
@@ -3823,7 +3823,7 @@ describe("DISABLED_TOOLS", () => {
         linePrefix: "To only change a note's body or properties",
       })
       expect(routingLine).toBe(
-        "To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths can be neither moved nor moved into: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank).",
+        "To only change a note's body or properties, use vault_patch_note or vault_update_properties.",
       )
     },
   )
