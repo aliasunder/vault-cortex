@@ -4,16 +4,8 @@ import { posix } from "node:path"
 import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import { foldAsciiCase } from "../obsidian-markdown/links.js"
 import { isRecord } from "../../utils/is-record.js"
-import type {
-  NoteRow,
-  NoteMetadata,
-  SearchResult,
-  SearchFilters,
-  TaskRow,
-  TaskEntry,
-} from "./search-index.js"
+import type { NoteRow, NoteMetadata, SearchResult, TaskRow, TaskEntry } from "./search-index.js"
 
 // ── Type guards ────────────────────────────────────────────────
 
@@ -23,9 +15,10 @@ const isScalarListElement = (element: unknown): boolean => {
   return element != null && typeof element !== "object"
 }
 
-/** Coerces a YAML frontmatter field to a string array: scalar elements are
- *  stringified; null elements, mappings and nested lists are dropped. A
- *  multi-value field may be written as one value (`tags: a`) or as a list. */
+/** Normalizes single-value and list-valued frontmatter fields.
+ *  - Lists stringify scalar entries, including 0, false and empty text.
+ *  - Single scalars stringify only when truthy.
+ *  - Nulls, mappings and nested lists yield no entries. */
 export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.filter(isScalarListElement).map(String)
 
@@ -37,10 +30,8 @@ export const coerceToArray = (value: unknown): string[] => {
 
 // ── Tag comparison ─────────────────────────────────────────────
 
-/** Folds a tag for comparison with `toLowerCase()`, the rule Obsidian's Tags
- *  view groups spellings by. Shared by the `fold_tag` SQL function (registered
- *  in search-index.ts) and the JavaScript mirror of the SQL tag filters, so
- *  both compare by one rule. */
+/** Folds stored tags and query inputs by the rule Obsidian's Tags view uses
+ *  to group spellings. The `fold_tag` SQL function uses the same rule. */
 export const foldTag = (tag: string): string => tag.toLowerCase()
 
 /**
@@ -54,15 +45,6 @@ export const normalizeTagQuery = (input: string): string => {
 
   if (tagName === "") throw new Error('tag must not be empty after its leading "#"')
   return foldTag(tagName)
-}
-
-/** True when a stored tag is the folded query or nested under it. The
- *  JavaScript side of NESTED_TAG_PREDICATE_SQL. */
-export const tagMatchesQuery = (params: { storedTag: string; foldedQuery: string }): boolean => {
-  const foldedStoredTag = foldTag(params.storedTag)
-  return (
-    foldedStoredTag === params.foldedQuery || foldedStoredTag.startsWith(`${params.foldedQuery}/`)
-  )
 }
 
 /**
@@ -185,12 +167,6 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
 /** Strips trailing slashes so folder paths produce clean LIKE patterns
  *  (e.g. `"Projects/"` → `"Projects"`, avoiding `Projects//%`). */
 export const stripTrailingSlashes = (folder: string): string => folder.replace(/\/+$/, "")
-
-/** TypeScript mirror of the `path LIKE 'folder/%'` predicate the SQL legs
- *  apply — segment-boundary (so "Docs" never matches "Docs2/") and
- *  ASCII-case-insensitive, matching SQLite LIKE's folding exactly. */
-export const pathIsInFolder = ({ path, folder }: { path: string; folder: string }): boolean =>
-  foldAsciiCase(path).startsWith(`${foldAsciiCase(stripTrailingSlashes(folder))}/`)
 
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
@@ -350,18 +326,14 @@ export const fileContentRowToSearchResult = (
   bytes: row.bytes,
 })
 
-// ── Filters ────────────────────────────────────────────────────
+// ── Date ranges ────────────────────────────────────────────────
 
-/** Converts a YYYY-MM-DD day into the window of time it covers — from
- *  midnight that day to midnight the next, as half-open epoch-ms
- *  [startMs, endMs) in the process-local zone (governed by the TZ env var).
- *  Single definition shared by the SQL modified-filter conditions and their
- *  TypeScript mirror so both search legs agree on day boundaries.
- *  plus({ days: 1 }) is calendar-aware, so DST-shortened and -lengthened
- *  days get a correct range. Throws on anything but a strict YYYY-MM-DD
- *  day — a malformed date would otherwise yield a NaN range and a
- *  timestamped one a silently time-shifted window, both mis-filtering
- *  instead of failing fast. */
+/** Converts a YYYY-MM-DD day into the half-open epoch-ms range [startMs, endMs) from its
+ *  midnight to the next, in the process-local zone (the TZ env var).
+ *  - plus({ days: 1 }) is calendar-aware, so DST-shortened and -lengthened days get a
+ *    correct range.
+ *  - Throws on anything but a strict YYYY-MM-DD day. A malformed date would yield a NaN
+ *    range, and a timestamp would silently shift the range. */
 export const dayToEpochMsRange = (date: string): { startMs: number; endMs: number } => {
   const dayStart = DateTime.fromFormat(date, "yyyy-MM-dd")
 
@@ -372,111 +344,6 @@ export const dayToEpochMsRange = (date: string): { startMs: number; endMs: numbe
     startMs: dayStart.toMillis(),
     endMs: dayStart.plus({ days: 1 }).toMillis(),
   }
-}
-
-/** SQLite JSON values expose booleans as 1/0 and objects or nested arrays as
- * serialized JSON text; the vector filter must use the same representation. */
-const toSqlComparable = (value: unknown): unknown => {
-  if (value !== null && typeof value === "object") return JSON.stringify(value)
-
-  return typeof value === "boolean" ? Number(value) : value
-}
-
-/** A list property matches when any member equals the wanted value. */
-const propertyValueMatches = (params: {
-  stored: unknown
-  wanted: string | number | boolean
-}): boolean => {
-  const wanted = toSqlComparable(params.wanted)
-
-  if (Array.isArray(params.stored)) {
-    return params.stored.some((element: unknown) => toSqlComparable(element) === wanted)
-  }
-  return toSqlComparable(params.stored) === wanted
-}
-
-/** Mirrors fullTextSearch's SQL filters for vector-only results. Date filter
- * values and tag inputs are pre-validated by fullTextSearch, which
- * hybridSearch runs first, so their throws never fire here; a damaged stored
- * row still throws IndexIntegrityError. */
-export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters): boolean => {
-  if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
-
-  if (filters.tags) {
-    // A requested tag may be in the tags property or written in the body
-    const noteTags = [...parseStringArray(note.tags), ...parseStringArray(note.body_tags)]
-    const foldedQueries = filters.tags.map(normalizeTagQuery)
-    const everyQueryMatches = foldedQueries.every((foldedQuery) => {
-      return noteTags.some((storedTag) => tagMatchesQuery({ storedTag, foldedQuery }))
-    })
-
-    if (!everyQueryMatches) return false
-  }
-
-  if (filters.type && note.type !== filters.type) return false
-
-  if (filters.related) {
-    const noteRelated = parseStringArray(note.related)
-
-    if (!filters.related.every((link) => noteRelated.includes(link))) return false
-  }
-
-  if (filters.properties) {
-    const noteProperties = parseRecord(note.properties)
-    for (const [key, value] of Object.entries(filters.properties)) {
-      if (!Object.hasOwn(noteProperties, key)) return false
-      if (!propertyValueMatches({ stored: noteProperties[key], wanted: value })) return false
-    }
-  }
-
-  // Mirror of the SQL substr(n.created, 1, 10) comparisons — the first 10
-  // chars of the stored ISO created value are its server-local calendar day.
-  // The null rejection is gated on a bound being present so an empty filter
-  // object stays a no-op exactly like the SQL leg (which pushes no
-  // conditions); with a bound set, notes without created never match, like
-  // SQL NULL comparisons.
-  if (filters.created) {
-    const { on: createdOn, before: createdBefore, after: createdAfter } = filters.created
-    const hasCreatedBound =
-      createdOn !== undefined || createdBefore !== undefined || createdAfter !== undefined
-
-    if (hasCreatedBound) {
-      if (note.created === null) return false
-      const createdDay = note.created.slice(0, 10)
-
-      if (createdOn !== undefined && createdDay !== createdOn) return false
-      if (createdBefore !== undefined && createdDay >= createdBefore) return false
-      if (createdAfter !== undefined && createdDay <= createdAfter) return false
-    }
-  }
-
-  // Mirror of the SQL mtime bounds — same dayToEpochMsRange conversion,
-  // exclusive at day granularity: before/after match strictly earlier/later
-  // days, on matches within the day.
-  if (filters.modified) {
-    const { on: modifiedOn, before: modifiedBefore, after: modifiedAfter } = filters.modified
-
-    if (modifiedOn !== undefined) {
-      const dayRange = dayToEpochMsRange(modifiedOn)
-      const withinDay = note.mtime >= dayRange.startMs && note.mtime < dayRange.endMs
-
-      if (!withinDay) return false
-    }
-
-    if (modifiedBefore !== undefined) {
-      const lastAllowedMs = dayToEpochMsRange(modifiedBefore).startMs
-
-      if (note.mtime >= lastAllowedMs) return false
-    }
-
-    if (modifiedAfter !== undefined) {
-      const firstAllowedMs = dayToEpochMsRange(modifiedAfter).endMs
-
-      if (note.mtime < firstAllowedMs) return false
-    }
-  }
-
-  return true
 }
 
 // ── Snippet builder ────────────────────────────────────────────

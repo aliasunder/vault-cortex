@@ -422,8 +422,7 @@ export const createSearchIndex = (
     return String(value)
   })
 
-  // Tag predicates compare folded values; the same fold runs in the
-  // JavaScript mirror of the search filters (foldTag)
+  // SQL tag predicates and query inputs use the same Obsidian case-folding rule.
   db.function("fold_tag", { deterministic: true }, (value: unknown): string => {
     return foldTag(String(value))
   })
@@ -748,7 +747,8 @@ export const createSearchIndex = (
     `SELECT body_tags FROM notes WHERE path = ?`,
   )
 
-  /** Canvas saves share this catalog until a committed note write or rebuild changes it. */
+  /** Note paths cached for resolving canvas links. Note upserts, removals, rebuild resets and
+   *  rebuild rollbacks clear the cache. */
   let cachedCanvasNotePaths: readonly string[] | undefined
   const getCanvasNotePaths = (): readonly string[] => {
     if (cachedCanvasNotePaths) return cachedCanvasNotePaths
@@ -792,11 +792,8 @@ export const createSearchIndex = (
   const resolveNonMdByBasePathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
-  /** Suffix match on the full stored path, for targets that include their
-   *  extension — [[photo.png]] or ![img](attachments/photo.png) where the file
-   *  lives in a deeper folder (Obsidian's shortest-path format). The
-   *  base_path/basename columns strip the extension, so with-extension targets
-   *  can only ever match the path column. Same ESCAPE rationale as above. */
+  /** Full-filename suffix matches precede stem matches, so photo.png beats photo.png.canvas.
+   *  Escape LIKE wildcards as in the base-path suffix query. */
   const resolveNonMdByFullPathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
@@ -1077,6 +1074,24 @@ export const createSearchIndex = (
         )
       : null
 
+  /** The entry_id IN (...) constraint limits this KNN to the requested file's entries.
+   *  - entry_id is the vec0 rowid, so sqlite-vec applies the constraint inside the KNN query.
+   *  - Without it, closer entries from other files could take all k rows. */
+  const memoryKnnInFileStmt =
+    memoryDir && embedder
+      ? db.prepare<unknown[], queries.MemoryEntryVectorHitRow>(
+          `SELECT me.id, me.file, me.section, me.entry_date, me.entry_text, me.entry_index, mev.distance
+           FROM memory_entry_vectors mev
+           JOIN memory_entries me ON me.id = mev.entry_id
+           WHERE mev.embedding MATCH ?
+             AND mev.k = ?
+             AND mev.entry_id IN (
+               SELECT id FROM memory_entries WHERE file = ?
+             )
+           ORDER BY mev.distance, me.file, me.entry_index`,
+        )
+      : null
+
   // ── Vector query statements ─────────────────────────────────────
   /** KNN search — finds the k nearest chunks to a query embedding. */
   const knnSearchStmt = embedder
@@ -1090,11 +1105,9 @@ export const createSearchIndex = (
       )
     : null
 
-  // Folder-scoped KNN: the chunk_id IN (...) constraint narrows the vector
-  // search to in-folder chunks BEFORE the k-window is taken, so a folder
-  // filter sees the folder's own nearest neighbours rather than whatever
-  // survives a vault-wide top-k. sqlite-vec honours rowid IN constraints
-  // inside KNN queries; chunk_id is the vec0 rowid alias.
+  // The chunk_id IN (...) constraint limits this KNN to the folder's chunks.
+  // - chunk_id is the vec0 rowid, so sqlite-vec applies the constraint inside the KNN query.
+  // - Without it, closer chunks outside the folder could take all k rows.
   const knnSearchInFolderStmt = embedder
     ? db.prepare<unknown[], { note_path: string; chunk_text: string; distance: number }>(
         `SELECT nc.note_path, nc.chunk_text, nv.distance
@@ -1129,7 +1142,7 @@ export const createSearchIndex = (
       )
     : null
 
-  // Folder-scoped variant — same pre-window narrowing as knnSearchInFolderStmt.
+  // Folder-scoped variant, limited to the folder's chunks like knnSearchInFolderStmt.
   const fileContentKnnSearchInFolderStmt = fileContentVectorEnabled
     ? db.prepare<unknown[], { file_path: string; chunk_text: string; distance: number }>(
         `SELECT fc.file_path, fc.chunk_text, fv.distance
@@ -1268,15 +1281,17 @@ export const createSearchIndex = (
 
       // This broad suffix check includes SQLite LIKE's ASCII case folding;
       // the resolver remains authoritative for match ordering and exact case.
-      return (
+      const matchesFullFilename =
         filePath === link.target ||
         filePath === relativeTarget ||
-        foldedFilePath.endsWith(targetSuffix) ||
+        foldedFilePath.endsWith(targetSuffix)
+      const matchesStem =
         basePath === link.target ||
         basePath === relativeTarget ||
         foldedBasePath.endsWith(targetSuffix) ||
         baseFilename === link.target
-      )
+
+      return matchesFullFilename || matchesStem
     }
     const unresolvedLinks = selectUnresolvedLinksStmt.all()
     for (const link of unresolvedLinks) {
@@ -1499,6 +1514,7 @@ export const createSearchIndex = (
         }
       }
 
+      // Rebuild FTS only after deleting stale entries, since it reads the surviving rows.
       deleteMemoryFtsForFileStmt.run(memoryFile)
       for (const row of selectMemoryEntriesForFileStmt.all(memoryFile)) {
         insertMemoryFtsStmt.run({
@@ -1593,7 +1609,7 @@ export const createSearchIndex = (
       content: noteBody,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
-      // First path segment only — search filters drill into subfolders
+      // Metadata reports the top-level folder; folder filters use the full note path.
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(frontmatter.type) ? frontmatter.type : null,
       // toISO() returns null for a value Luxon cannot parse, so such a note
@@ -1858,6 +1874,7 @@ export const createSearchIndex = (
           content_hash: hash,
         })
 
+        // INSERT OR REPLACE assigns a new rowid, so the vector must use the replacement's ID.
         const chunkRow = selectChunkIdStmt.get(notePath, chunk.index)
 
         if (!chunkRow) {
@@ -2069,6 +2086,7 @@ export const createSearchIndex = (
           content_hash: hash,
         })
 
+        // INSERT OR REPLACE assigns a new rowid, so the vector must use the replacement's ID.
         const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
 
         if (!chunkRow) {
@@ -2201,6 +2219,8 @@ export const createSearchIndex = (
 
     sourceVersions.clear()
     cachedCanvasNotePaths = undefined
+
+    // If directory listing fails after this reset, source tables stay empty until the next rebuild.
     db.exec("DELETE FROM notes_fts")
     db.exec("DELETE FROM notes")
     db.exec("DELETE FROM links")
@@ -2895,13 +2915,14 @@ export const createSearchIndex = (
     ranking: options?.ranking,
     selectFirstChunkStmt,
     // Null when no memory dir is configured — memoryRecall rejects with a
-    // remediation message. knnStmt is additionally null without an embedder
+    // remediation message. KNN statements are additionally null without an embedder
     // (lexical-only recall).
     memory: memoryFtsSearchStmt
       ? {
           embedder,
           ftsSearchStmt: memoryFtsSearchStmt,
           knnStmt: memoryKnnStmt,
+          knnInFileStmt: memoryKnnInFileStmt,
         }
       : null,
     fileContentFts: searchFileContentFtsStmt ? { searchStmt: searchFileContentFtsStmt } : null,

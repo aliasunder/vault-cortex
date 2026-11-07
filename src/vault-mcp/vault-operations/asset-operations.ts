@@ -1,10 +1,10 @@
+import { posix } from "node:path"
 import { getMeta, renderPageAsImage } from "unpdf"
 import type { PDFDocumentProxy } from "unpdf/pdfjs"
 import { vaultFs } from "./vault-filesystem.js"
 import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
 import { pageTextByLines } from "../obsidian-markdown/lines.js"
 import type { LineWindow } from "../obsidian-markdown/lines.js"
-import { links } from "../obsidian-markdown/links.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
 import { describeErrorForLog } from "../../utils/describe-error.js"
@@ -449,11 +449,11 @@ const readAssetContent = async (
 // ── Browsing ────────────────────────────────────────────────────
 
 /** The extension a listing shows, lowercased with its dot, or "(none)" for an
- *  extensionless file. It splits the name with links.getExtension, as
+ *  extensionless file. It splits the name with posix.extname, as
  *  vaultFs.readAsset does, so a listed extension is the one a read dispatches
  *  on. */
 const getListingExtension = (assetPath: string): string => {
-  return links.getExtension(assetPath).toLowerCase() || "(none)"
+  return posix.extname(assetPath).toLowerCase() || "(none)"
 }
 
 /** Normalizes a caller-supplied extension filter entry: lowercased, leading

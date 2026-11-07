@@ -26,7 +26,7 @@ export const isHarnessSnapshot = (snapshotDir: string): boolean => {
   return existsSync(snapshotDir) && existsSync(join(snapshotDir, SNAPSHOT_MARKER))
 }
 
-const sameStringSet = (left: readonly string[], right: readonly string[]): boolean => {
+const sameStringsIgnoringOrder = (left: readonly string[], right: readonly string[]): boolean => {
   return JSON.stringify(left.toSorted()) === JSON.stringify(right.toSorted())
 }
 
@@ -59,8 +59,8 @@ export const snapshotMatchesProvenance = (
   const recorded = parsedMarker.data
   return (
     recorded.vaultPath === resolve(expected.vaultPath) &&
-    sameStringSet(recorded.excludePaths, expected.excludePaths) &&
-    sameStringSet(recorded.excludePrefixes, expected.excludePrefixes)
+    sameStringsIgnoringOrder(recorded.excludePaths, expected.excludePaths) &&
+    sameStringsIgnoringOrder(recorded.excludePrefixes, expected.excludePrefixes)
   )
 }
 
@@ -94,6 +94,7 @@ export const createVaultSnapshot = (params: {
       `${params.snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,
     )
   }
+
   rmSync(params.snapshotDir, { recursive: true, force: true })
   mkdirSync(params.snapshotDir, { recursive: true })
   // The marker is written in two phases. The empty ownership claim before
@@ -104,6 +105,8 @@ export const createVaultSnapshot = (params: {
   writeFileSync(join(params.snapshotDir, SNAPSHOT_MARKER), "")
   cpSync(vaultRoot, params.snapshotDir, {
     recursive: true,
+    // Modified-date filters must see the source dates, not the snapshot's copy time.
+    preserveTimestamps: true,
     filter: (source) => {
       const absoluteSource = resolve(source)
       const relativeFromRoot = relative(vaultRoot, absoluteSource)

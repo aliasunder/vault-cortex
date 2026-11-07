@@ -14,8 +14,9 @@
  *     --reuse-snapshot so every configuration sees an identical corpus.
  *  2. Build the search index with real ONNX models and await the embedding
  *     pass, because scoring a partially embedded index measures indexing
- *     order, not ranking. Any embedding error fails the run. No query or
- *     score reads body tags, so the body-tag pass is stopped at once.
+ *     order, not ranking. Any embedding error fails the run. The body-tag
+ *     pass is stopped at once, so tag filters in the judgment file match
+ *     frontmatter tags only.
  *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
  *  4. Run every judgment query at each --limits value, reporting the rank
  *     of the first expected result, file pollution in the top 5 (or the
@@ -38,7 +39,8 @@
  *  scripts/search-eval-plan.ts): vault_path, exclude_paths,
  *  exclude_prefixes, and queries — each query carries id, class
  *  (recall/precision/sentinel/filtered), query, expected_any or
- *  expected_prefix, and filters.folder on the filtered class.
+ *  expected_prefix, and optional SearchFilters. The filtered class requires
+ *  at least one filter that narrows results.
  *
  *  Usage:
  *    npx tsx scripts/search-eval.ts --judgment <path> [--label baseline]
@@ -52,12 +54,13 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import {
+  assertHealthyEvalResult,
   countUnexpectedFilesInWindow,
   judgmentFileSchema,
   rankOfFirstExpected,
   resolveEvalRunPlan,
 } from "./search-eval-plan.js"
-import type { JudgmentQuery } from "./search-eval-plan.js"
+import type { EvalSearchProblem, JudgmentQuery } from "./search-eval-plan.js"
 import { createVaultSnapshot, snapshotMatchesProvenance } from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
 import { createSearchModels } from "../src/vault-mcp/search/search-models.js"
@@ -70,14 +73,14 @@ import {
 // ── Counting logger ────────────────────────────────────────────
 
 /** Silences the index's per-query info logs, records warn/error lines so
- *  the embedding pass can be failed on any logged problem, and keeps each
+ *  embedding and scored queries can be failed on logged problems, and keeps each
  *  "vector search" line's knnHits and uniqueNotes for the diversity report. */
 const createCountingLogger = (): {
   logger: Logger
-  problems: { level: string; message: string }[]
+  problems: EvalSearchProblem[]
   vectorSearchStats: { knnHits: number; uniqueNotes: number }[]
 } => {
-  const problems: { level: string; message: string }[] = []
+  const problems: EvalSearchProblem[] = []
   const vectorSearchStats: { knnHits: number; uniqueNotes: number }[] = []
   const printProblem = (
     level: "warn" | "error",
@@ -94,15 +97,15 @@ const createCountingLogger = (): {
   const logger: Logger = {
     debug: () => {},
     info: (message, data) => {
-      if (
-        message === "vector search" &&
-        typeof data?.knnHits === "number" &&
-        typeof data.uniqueNotes === "number"
-      ) {
-        vectorSearchStats.push({
-          knnHits: data.knnHits,
-          uniqueNotes: data.uniqueNotes,
-        })
+      // vectorSearch in hybrid-search.ts supplies this summary once per note-KNN query.
+      if (message !== "vector search") return
+
+      const knnHits = data?.knnHits
+      const uniqueNotes = data?.uniqueNotes
+      const hasNumericCounts = typeof knnHits === "number" && typeof uniqueNotes === "number"
+
+      if (hasNumericCounts) {
+        vectorSearchStats.push({ knnHits, uniqueNotes })
       }
     },
     warn: (message, data) => {
@@ -230,8 +233,8 @@ const main = async (): Promise<void> => {
       logger,
     )
 
-    // No eval query or score reads body tags, so closing the parser stops the
-    // background body-tag pass after at most one note
+    // Closing the parser settles every pending parse as "closed", so the body-tag pass ends
+    // without parsing the remaining notes. Tag filters therefore match frontmatter tags only.
     await bodyTagParser.close()
     await bodyTags
 
@@ -267,13 +270,14 @@ const main = async (): Promise<void> => {
     )
   }
 
-  // The probe's vault-wide KNN window would dilute the diversity ratio —
-  // only stats recorded from here on belong to the scoring runs.
+  // The probe's vault-wide KNN rows would dilute the diversity ratio, so only
+  // stats recorded from here on belong to the scoring runs.
   const vectorSearchStatsBeforeScoring = vectorSearchStats.length
 
   const scores: QueryScore[] = []
   for (const judgmentQuery of judgment.queries) {
     for (const limit of limits) {
+      const problemsBeforeQuery = problems.length
       const queryStartMs = performance.now()
       const searchResult = await search.hybridSearch(
         {
@@ -285,14 +289,12 @@ const main = async (): Promise<void> => {
       )
       const latencyMs = Math.round(performance.now() - queryStartMs)
 
-      // The probe proves the pipeline once; a reranker failure mid-sweep
-      // would otherwise degrade silently to RRF-only ordering while the
-      // report attributes the numbers to the reranked pipeline.
-      if (searchResult.search_mode !== "hybrid" || !searchResult.reranked) {
-        throw new Error(
-          `query ${judgmentQuery.id} ran search_mode=${searchResult.search_mode} reranked=${String(searchResult.reranked)} — expected hybrid + reranked`,
-        )
-      }
+      assertHealthyEvalResult({
+        queryId: judgmentQuery.id,
+        searchResult,
+        problems: problems.slice(problemsBeforeQuery),
+      })
+
       const pollutionWindow = Math.min(5, limit)
       scores.push({
         id: judgmentQuery.id,
@@ -338,14 +340,14 @@ const main = async (): Promise<void> => {
   // while unique notes fall, so a shrinking ratio is the warning sign.
   const scoringVectorSearchStats = vectorSearchStats.slice(vectorSearchStatsBeforeScoring)
   const totalKnnHits = scoringVectorSearchStats.reduce((sum, stats) => sum + stats.knnHits, 0)
-  const totalUniqueNotes = scoringVectorSearchStats.reduce(
+  const totalPerQueryUniqueNotes = scoringVectorSearchStats.reduce(
     (sum, stats) => sum + stats.uniqueNotes,
     0,
   )
 
   if (totalKnnHits > 0) {
     console.log(
-      `note-KNN diversity: ${totalUniqueNotes} unique notes from ${totalKnnHits} chunk hits (${((100 * totalUniqueNotes) / totalKnnHits).toFixed(1)}%)`,
+      `note-KNN diversity: ${totalPerQueryUniqueNotes} unique notes from ${totalKnnHits} chunk hits (${((100 * totalPerQueryUniqueNotes) / totalKnnHits).toFixed(1)}%)`,
     )
   }
 
@@ -374,7 +376,7 @@ const main = async (): Promise<void> => {
           indexDbPath,
           indexReused,
           snapshotReused,
-          knnDiversity: { totalKnnHits, totalUniqueNotes },
+          knnDiversity: { totalKnnHits, totalUniqueNotes: totalPerQueryUniqueNotes },
           scores,
         },
         null,

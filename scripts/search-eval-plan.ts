@@ -6,11 +6,49 @@ import { tmpdir } from "node:os"
 import { z } from "zod"
 import { isHarnessSnapshot } from "./search-eval-snapshot.js"
 import { caseFoldPath } from "../src/utils/case-fold-path.js"
-import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
+import type {
+  HybridSearchResult,
+  SearchFilters,
+  SearchResult,
+} from "../src/vault-mcp/search/search-index.js"
 
 // The schemas are strict because a plain schema would strip a typoed key
 // (a misspelled expectation or filter field) and silently score a
 // different query shape than the judgment file describes.
+const judgmentDateFilterSchema = z.strictObject({
+  before: z.string().min(1).optional(),
+  on: z.string().min(1).optional(),
+  after: z.string().min(1).optional(),
+})
+
+const judgmentFiltersSchema = z.strictObject({
+  folder: z.string().min(1).optional(),
+  tags: z.array(z.string().min(1)).optional(),
+  related: z.array(z.string().min(1)).optional(),
+  type: z.string().min(1).optional(),
+  properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  created: judgmentDateFilterSchema.optional(),
+  modified: judgmentDateFilterSchema.optional(),
+})
+
+const hasNarrowingFilter = (filters: SearchFilters | undefined): boolean => {
+  if (!filters) return false
+
+  return Boolean(
+    filters.folder ||
+    filters.tags?.length ||
+    filters.related?.length ||
+    filters.type ||
+    Object.keys(filters.properties ?? {}).length ||
+    filters.created?.before ||
+    filters.created?.on ||
+    filters.created?.after ||
+    filters.modified?.before ||
+    filters.modified?.on ||
+    filters.modified?.after,
+  )
+}
+
 const judgmentQuerySchema = z
   .strictObject({
     id: z.string().min(1),
@@ -18,13 +56,13 @@ const judgmentQuerySchema = z
     query: z.string().min(1),
     expected_any: z.array(z.string().min(1)).min(1).optional(),
     expected_prefix: z.string().min(1).optional(),
-    filters: z.strictObject({ folder: z.string().min(1) }).optional(),
+    filters: judgmentFiltersSchema.optional(),
   })
   .refine((query) => Boolean(query.expected_any || query.expected_prefix), {
     message: "each query needs expected_any or expected_prefix",
   })
-  .refine((query) => query.class !== "filtered" || Boolean(query.filters), {
-    message: "a filtered query needs filters.folder",
+  .refine((query) => query.class !== "filtered" || hasNarrowingFilter(query.filters), {
+    message: "a filtered query needs at least one filter that narrows results",
   })
 
 export const judgmentFileSchema = z.strictObject({
@@ -35,6 +73,39 @@ export const judgmentFileSchema = z.strictObject({
 })
 
 export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
+
+export type EvalSearchProblem = { level: "warn" | "error"; message: string }
+
+/** Fails a scored query that logged a warning or error, returned results without the vector
+ *  leg, or returned several results without reranking. Empty results may skip both stages,
+ *  and a single result may skip reranking. */
+export const assertHealthyEvalResult = (params: {
+  queryId: string
+  searchResult: HybridSearchResult
+  problems: ReadonlyArray<EvalSearchProblem>
+}): void => {
+  const { queryId, searchResult, problems } = params
+
+  if (problems.length > 0) {
+    const problemMessages = problems.map((problem) => `[${problem.level}] ${problem.message}`)
+    throw new Error(`query ${queryId} logged problem(s): ${problemMessages.join("; ")}`)
+  }
+
+  const nonemptyResultUsedOnlyKeywords =
+    searchResult.results.length > 0 && searchResult.search_mode !== "hybrid"
+
+  if (nonemptyResultUsedOnlyKeywords) {
+    throw new Error(
+      `query ${queryId} ran search_mode=${searchResult.search_mode} — expected hybrid for nonempty results`,
+    )
+  }
+
+  const multipleResultsSkippedReranking = searchResult.results.length > 1 && !searchResult.reranked
+
+  if (multipleResultsSkippedReranking) {
+    throw new Error(`query ${queryId} ran reranked=false — expected reranking for multiple results`)
+  }
+}
 
 // ── Scoring ────────────────────────────────────────────────────
 

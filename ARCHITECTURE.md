@@ -227,7 +227,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 `vault_search_by_tag` matches a tag in the `tags` property or written as `#tag` in the body, and every tag nested under it (`project` matches `project/a/b` but not `projects`), or the tag alone with `exact: true`. It returns the most recently modified notes first, up to `limit` (default 20).
 
-Every tag query reads both tag columns (see **Body tags column** below): `vault_search_by_tag`, `vault_list_tags`, the `tags` filter on `vault_search` and its JavaScript mirror for vector-only results, and the untagged count in `vaultStats`. `vault_list_tasks`' `tag` filter keeps the Tasks plugin's own task-line grammar.
+Every tag query reads both tag columns (see **Body tags column** below): `vault_search_by_tag`, `vault_list_tags`, the shared SQL `tags` filter for keyword and vector note search in `vault_search`, and the untagged count in `vaultStats`. `vault_list_tasks`' `tag` filter keeps the Tasks plugin's own task-line grammar.
 
 Every tag input (`tag` on `vault_search_by_tag` and `vault_list_tasks`, the `tags` filter on `vault_search`) ignores letter case and, unless `exact: true` is set on `vault_search_by_tag`, matches nested tags the same way. Both sides of a comparison are folded with `toLowerCase()`, the rule Obsidian's Tags view groups spellings by. A leading `#` on an input is dropped, and an input that is only `#` is rejected.
 
@@ -294,7 +294,9 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 
 **Query pipeline:**
 
-1. **Retrieve** — union all lexical matches with the vector top-100, fuse by RRF
+1. **Retrieve** — union all lexical matches with the vector top-100, fuse by RRF.
+   With `file`, lexical matches are filtered to that file, and the vector top-100
+   is drawn from that file's entries only
 2. **Cut** — adaptive cross-encoder relevance floor: 10% of the best score,
    clamped between a 0.001 sanity floor and a 0.05 ceiling. Lexical hits always
    survive the cut
@@ -323,7 +325,7 @@ whole files/sections, or date-scoped entries across them with `on_or_after`;
 
 Link queries use a `links` table populated during indexing:
 
-- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Canvas `file`-type node references are also extracted as links — text-node `[[wikilink]]`s are not (matching Obsidian's behavior). Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
+- **Sources:** `[[wikilink]]` and `[text](target)` / `![alt](target)` markdown links in the note body (fence-aware parsing skips code blocks), plus `[[wikilink]]`s in frontmatter property values (e.g. `related:`). Canvas `file`-type node references are also extracted as links — text-node `[[wikilink]]`s are not. Markdown links to any vault target — notes (`.md`), images, PDFs, extensionless paths — are recognized; external URLs are excluded by URI-scheme detection.
 - **Resolution:** Each target is resolved against all known note paths covering Obsidian's three "New link format" modes:
   1. Exact vault-relative path (path from vault folder)
   2. Path relative to the linking note (path from current file, including upward `../`)
@@ -466,9 +468,13 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
    - Under a note-specific filter only the two note legs fuse — steps 2 and 4 skipped the file legs
    - Ties break by path so equal scores order deterministically
 6. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from their respective tables and a snippet from their best-matching chunk text
-7. Apply user filters (folder, tags, type, related, properties, created, modified) to vector-only note results — FTS results are already filtered via SQL
 
-A `folder` filter is applied inside SQL on all four legs — a `LIKE 'folder/%'` predicate on the FTS queries and a `chunk_id IN (…)` pre-filter on the KNN queries — so each leg's candidate window is drawn from the folder itself rather than filtered down from a vault-wide top-k. Folder matching is case-insensitive on every leg.
+A `folder` filter is applied inside SQL on all four legs — a `LIKE 'folder/%'` predicate on the FTS queries and a `chunk_id IN (…)` pre-filter on the KNN queries — so each leg picks its top candidates from inside the folder, and closer matches elsewhere in the vault cannot fill its result limit. Folder matching ignores ASCII letter case on every leg.
+
+Note FTS and note KNN build their filter clauses with one function, `buildNoteFilterSql`, covering folder, tags, type, related, properties, created and modified:
+
+- With any filter besides `folder`, the note KNN query keeps only chunks of notes that pass every filter (a `chunk_id IN (…)` subquery) before sqlite-vec picks the k nearest, so closer notes the filters exclude cannot fill the result.
+- The same function reports whether a filter besides `folder` is set, and `hybridSearch` then skips both file-content legs, which can filter only by folder.
 
 ### Cross-encoder reranking
 
@@ -544,7 +550,10 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
 
 - **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
-- **Chunk prefixes:** every fragment starts with the note title; aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path (capped at the remaining token budget — leading ancestors are dropped when deep nesting with long names would floor the body budget, keeping the deepest segments; the Section line is suppressed entirely when the title and metadata exhaust the budget), while preamble fragments, a singleton wrapper's aggregate, and the TOC chunk keep the bare title. A heading whose slice is empty emits no section chunk — its name still rides the TOC chunk, and descendant chunks' Section lines carry it when it has children. A top-level heading with children but no body of its own still emits its aggregate (the slice spans the subtree)
+- **Chunk prefixes:** every fragment starts with the note title. Aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path, with these exceptions:
+  - Long ancestor paths drop their leading segments to fit the remaining token budget, keeping the deepest segments. The `Section:` line is omitted when the title and metadata exhaust the budget.
+  - Preamble and TOC fragments omit the `Section:` line. The aggregate also omits it when one top-level heading opens the note with no preceding text or heading, because that heading wraps the whole note.
+- **Empty sections:** a heading whose slice is empty emits no section chunk. Its name still appears in the TOC and in descendant chunks' `Section:` lines. A top-level heading with children still emits its aggregate even without text of its own, because its slice spans the subtree.
 - **Table-of-contents chunk:** each split note with named headings emits one short chunk with its folder path and title on the first line, followed by heading names in document order within the chunk budget. This gives a broad query a compact view of the note's topics without requiring one section to represent the whole note
 - **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
 
@@ -613,17 +622,17 @@ flowchart TD
 
 The search query and indexing layer is split into nine modules (the embedding pipeline and file watcher are described above):
 
-| Module               | Responsibility                                                                                                                                                                                                                                                                                                             |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search-index.ts`    | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`, `upsertFileContent`, `removeFileContent`), embedder + reranker wiring                                                                                                                         |
-| `search-queries.ts`  | `SearchQueryContext` + 16 query methods — `fullTextSearch`, `memoryRecall`, `searchByTag`, `searchByFolder`, `listTasks`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
-| `hybrid-search.ts`   | `hybridSearch` — runs the note FTS, note vector, file-content FTS, and file-content vector legs, fuses them with RRF, applies cross-encoder reranking; falls back to FTS-only when no embeddings are available                                                                                                             |
-| `search-helpers.ts`  | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), filters (`noteMatchesSearchFilters`), tag comparison (`foldTag`, `NESTED_TAG_PREDICATE_SQL`), snippet construction                                                                        |
-| `fts-query.ts`       | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                                               |
-| `rrf.ts`             | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                                            |
-| `reranker.ts`        | Cross-encoder factory (`createReranker`, ms-marco-MiniLM-L-6-v2) + position-aware score blending (`blendScores`, `normalizeScores`)                                                                                                                                                                                        |
-| `body-tag-parser.ts` | `createBodyTagParser` — queues notes for the body-tag worker one at a time, enforces `BODY_TAG_PARSE_TIMEOUT_MS`, replaces a worker that crashes or passes the limit, and reports each note's outcome (`BodyTagParseResult`)                                                                                               |
-| `body-tag-worker.ts` | Worker-thread entry — runs `parseBodyTags` (`obsidian-markdown/body-tags.ts`) on each body the parser posts and answers with the tags or the parser's error                                                                                                                                                                |
+| Module               | Responsibility                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search-index.ts`    | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`, `upsertFileContent`, `removeFileContent`), embedder + reranker wiring                                                                                                                                                                        |
+| `search-queries.ts`  | `SearchQueryContext`, shared note-filter SQL (`buildNoteFilterSql`) + 16 query methods — `fullTextSearch`, `memoryRecall`, `searchByTag`, `searchByFolder`, `listTasks`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
+| `hybrid-search.ts`   | `hybridSearch` — runs the note FTS, note vector, file-content FTS, and file-content vector legs, fuses them with RRF, applies cross-encoder reranking; falls back to FTS-only when no embeddings are available                                                                                                                                                            |
+| `search-helpers.ts`  | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), tag comparison (`foldTag`, `NESTED_TAG_PREDICATE_SQL`), snippet construction                                                                                                                                                             |
+| `fts-query.ts`       | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                                                                                              |
+| `rrf.ts`             | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                                                                                           |
+| `reranker.ts`        | Cross-encoder factory (`createReranker`, ms-marco-MiniLM-L-6-v2) + position-aware score blending (`blendScores`, `normalizeScores`)                                                                                                                                                                                                                                       |
+| `body-tag-parser.ts` | `createBodyTagParser` — queues notes for the body-tag worker one at a time, enforces `BODY_TAG_PARSE_TIMEOUT_MS`, replaces a worker that crashes or passes the limit, and reports each note's outcome (`BodyTagParseResult`)                                                                                                                                              |
+| `body-tag-worker.ts` | Worker-thread entry — runs `parseBodyTags` (`obsidian-markdown/body-tags.ts`) on each body the parser posts and answers with the tags or the parser's error                                                                                                                                                                                                               |
 
 Write concerns (index mutations) are separated from read concerns (queries) and pure logic (helpers, RRF). `search-index.ts` remains the factory — it binds query functions to the database via a `SearchQueryContext` closure.
 
@@ -1353,8 +1362,10 @@ Docker hardening, and durability seatbelts above.
 
 #### SQL + search safety
 
-- **Parameterized statements**: every SQLite query uses `?` parameters,
-  never string interpolation — no user input reaches SQL syntax.
+- **Parameterized statements**: search text, paths and metadata values use bound
+  parameters, so no user input reaches SQL syntax. Interpolated clauses are fixed
+  SQL written in the code, and the one interpolated number (the snippet size)
+  passes through `Number()`.
 - **`sanitizeFtsQuery()`** (`fts-query.ts`): strips FTS5 metacharacters
   (`*^():`), reserved words (`AND`/`OR`/`NOT`/`NEAR`), and
   compound-joiner punctuation so user input can never produce FTS5 syntax
