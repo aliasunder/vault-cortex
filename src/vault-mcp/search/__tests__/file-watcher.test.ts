@@ -1603,7 +1603,9 @@ describe("file watcher — obsolete events and embedding queues", () => {
 
     expect(await searchPaths("giganticpage")).toEqual(["giganticpage.html"])
     expect(await searchPaths("buriedcobalt")).toEqual([])
+    // readFile takes at most two arguments, so these two cover every read of the page
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath, expect.anything())
   })
 
   it("leaves a page that is not UTF-8 out of search", async () => {

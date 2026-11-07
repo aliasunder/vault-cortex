@@ -8263,8 +8263,13 @@ describe("HTML pages", () => {
       ["giganticpage.html"],
       [],
     ])
+    // readFile takes at most two arguments, so these two cover every read of the page
     expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
       expect.stringMatching(/giganticpage\.html$/),
+    )
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(
+      expect.stringMatching(/giganticpage\.html$/),
+      expect.anything(),
     )
   })
 
@@ -8399,6 +8404,15 @@ describe("scripts", () => {
       files: 1,
       fileChunksEmbedded: 1,
     })
+  })
+
+  it("finds a script over 16 MiB by its text, since the page size limit is for HTML only", async () => {
+    const filler = "# filler\n".repeat(Math.ceil((16 * 1024 * 1024) / 9) + 1)
+    const { database } = await rebuildVaultOf({
+      files: [{ path: "giganticscript.py", content: `buriedjasper = 1\n${filler}` }],
+    })
+
+    expect(keywordPaths(database, "buriedjasper")).toEqual(["giganticscript.py"])
   })
 
   it("leaves a script holding a NUL byte out of search", async () => {
@@ -9117,6 +9131,45 @@ describe("file content vector embeddings", () => {
       )
       expect(vectorCount.count).toBe(1)
     })
+  })
+
+  it("runs no file embedding pass after a rebuild with file tools off, though canvases still index", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "file-tools-off-embedding-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const vaultPath = join(dir, "vault")
+    await mkdir(vaultPath)
+    await writeFile(join(vaultPath, "note.md"), "A note the canvas embeds.")
+    await writeFile(
+      join(vaultPath, "board.canvas"),
+      JSON.stringify({
+        nodes: [{ id: "a", type: "file", x: 0, y: 0, width: 100, height: 100, file: "note.md" }],
+        edges: [],
+      }),
+    )
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+    const index = createSearchIndex(":memory:", createMockEmbedder(), undefined, {
+      fileToolsEnabled: false,
+    })
+
+    const rebuilt = await index.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    // The canvas still indexes for its links, so it reached the rebuild's file list
+    expect(
+      index.getBacklinks({ path: "note.md" }, logger).map((backlink) => backlink.path),
+    ).toEqual(["board.canvas"])
+    expect(infoSpy).toHaveBeenCalledWith("embedding pass complete", {
+      notes: 1,
+      chunksEmbedded: 1,
+    })
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      "file content embedding pass complete",
+      expect.anything(),
+    )
   })
 })
 

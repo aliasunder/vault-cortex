@@ -1130,6 +1130,27 @@ describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
   })
 })
 
+// The tool text says a read drops a leading byte-order mark, so both decode
+// paths are pinned: text formats and every other UTF-8 file
+describe("readAssetContent — byte-order mark", () => {
+  const BYTE_ORDER_MARK = Buffer.from([0xef, 0xbb, 0xbf])
+
+  it.each([
+    { label: "a text format", path: "exports/data.json", extension: ".json", source: '{"a":1}\n' },
+    { label: "an HTML page", path: "pages/home.html", extension: ".html", source: "<p>hi</p>\n" },
+  ])(
+    "drops a leading byte-order mark from $label and keeps the rest byte-exact",
+    async ({ path, extension, source }) => {
+      const buffer = Buffer.concat([BYTE_ORDER_MARK, Buffer.from(source)])
+      mockedReadAsset.mockResolvedValue({ buffer, bytes: buffer.length, extension })
+
+      const result = await assetOperations.readAssetContent({ ...defaultParams, path }, logger)
+
+      expect(result).toEqual({ kind: "text", text: source, path })
+    },
+  )
+})
+
 // Each stub reports the extension lowercased, as readAsset does, while the path
 // keeps the caller's uppercase extension
 describe("readAssetContent — uppercase extensions", () => {

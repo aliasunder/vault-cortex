@@ -40,7 +40,7 @@
     },
     {
       "title": "Obsidian Markdown Parsing",
-      "purpose": "The pure parser layer in obsidian-markdown/ — no filesystem I/O except pdf-engine.ts, which resolves pdfjs package paths from disk: links.ts, lines.ts, frontmatter.ts, tags.ts, body-tags.ts with obsidian-remark-parser.ts and remark-ports/ (body tags on remark-parse 8, the parser Obsidian forked), callouts.ts, headings.ts, tasks.ts, recurrence.ts, memory-entries.ts, canvas.ts, file-kinds.ts, html.ts, plaintext.ts, pdf.ts, pdf-engine.ts, moment-format.ts. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
+      "purpose": "The pure parser layer in obsidian-markdown/: links.ts, lines.ts, frontmatter.ts, tags.ts, body-tags.ts with obsidian-remark-parser.ts and remark-ports/ (body tags on remark-parse 8, the parser Obsidian forked), callouts.ts, headings.ts, tasks.ts, recurrence.ts, memory-entries.ts, canvas.ts, file-kinds.ts, html.ts, plaintext.ts, pdf.ts, pdf-engine.ts, moment-format.ts. None does filesystem I/O except pdf-engine.ts, which resolves pdfjs package paths from disk. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
       "parent": "Architecture"
     },
     {

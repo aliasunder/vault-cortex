@@ -93,10 +93,10 @@ mechanism-level detail.
   _visible_ vault folder — there `vault_list_files` lists it like any
   other vault file, and `vault_read_file` refuses it only because a
   SQLite file holds binary data.
-- `vault_read_file` returns any visible file whose bytes are UTF-8 text,
-  whatever its extension (a file named as an image or a PDF goes to the
-  image or PDF reader instead), so a credential kept in a visible vault folder
-  (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
+- `vault_read_file` returns any visible non-markdown file whose bytes are
+  UTF-8 text, whatever its extension, so a credential kept in a visible vault
+  folder (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
+  A file named as an image or a PDF goes to the image or PDF reader instead.
   Hidden files such as `.env` stay refused by the hidden-path check above.
 - The hidden-path check is lexical: a visible symlink whose target is a
   hidden path is followed. Creating such a symlink requires direct

@@ -237,8 +237,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
     if (isCanvas || isIndexableNonCanvas) {
       try {
-        /** The file's text, or null for an HTML page or script that is not
-         *  UTF-8 or holds a NUL byte early on, which vault_read_file refuses too. */
+        /** The text to index for the file:
+         *  - empty for an HTML page too large to extract, which is never read, so
+         *    its file_content row still lets search find it by name;
+         *  - null for an HTML page or script that is not UTF-8 or holds a NUL byte
+         *    early on, which vault_read_file refuses too;
+         *  - the file's text otherwise. */
         const readContentToIndex = async (): Promise<string | null> => {
           switch (fileKind) {
             case "pdf": {

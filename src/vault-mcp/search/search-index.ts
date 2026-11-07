@@ -83,15 +83,15 @@ const EMBEDDED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["canvas", "pdf", "te
 
 /** Cap on rendered content indexed into file_content_fts — prevents
  *  pathological FTS rows from large CSVs or verbose JSONs. */
-const MAX_INDEXED_CONTENT_BYTES = 102_400
+export const MAX_INDEXED_CONTENT_BYTES = 102_400
 
 /** An HTML page larger than this is indexed by its name only, like a scanned
  *  PDF. Extracting its text runs on the main thread, which answers no request
  *  meanwhile, and attribute-heavy pages at 16 MiB already took up to 1.7 s. */
 const MAX_INDEXED_HTML_PAGE_BYTES = 16 * 1024 * 1024
 
-/** True for an HTML page that search finds by its name only, which its reader
- *  then skips reading. */
+/** True for an HTML page too large to extract. Search finds such a page by its
+ *  name only, so indexing never reads it. */
 export const isHtmlPageIndexedByNameOnly = (params: {
   filePath: string
   fileBytes: number
@@ -113,7 +113,7 @@ const fileTextToIndexedText = (params: {
     case "canvas":
       return linearizeCanvas(params.fileText)
     case "html":
-      if (params.fileBytes > MAX_INDEXED_HTML_PAGE_BYTES) return ""
+      if (isHtmlPageIndexedByNameOnly(params)) return ""
       return extractHtmlVisibleText({
         html: params.fileText,
         maxBytes: MAX_INDEXED_CONTENT_BYTES,
@@ -513,7 +513,8 @@ export const createSearchIndex = (
       body_tags   TEXT NOT NULL DEFAULT '[]'
     );
 
-    -- path UNINDEXED: stored so a match joins back to its note; not searchable, saves index space
+    -- A search match joins back to its notes row by path. UNINDEXED keeps
+    -- path out of keyword matching and saves index space.
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
       path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
     );
@@ -2487,9 +2488,12 @@ export const createSearchIndex = (
     })
     const textFileContents = textFileContentResults.filter((entry) => entry !== null)
 
-    /** Reads an HTML page or script as bytes and keeps it only when the bytes
-     *  are UTF-8 with no NUL byte early on, the test vault_read_file applies,
-     *  so search never holds text that a read refuses. */
+    /** Reads an HTML page or script for indexing:
+     *  - a page too large to extract is never read and keeps empty text, so its
+     *    file_content row still lets search find it by name;
+     *  - any other file keeps its text only when its bytes are UTF-8 with no NUL
+     *    byte early on, the test vault_read_file applies, so search never holds
+     *    text that a read refuses. */
     const readHtmlOrScriptFile = async (
       file: RebuildFilePaths,
     ): Promise<RebuildFileContent | null> => {
@@ -2733,13 +2737,10 @@ export const createSearchIndex = (
     // Files of an embedded kind whose text this rebuild indexed. Each file's
     // text loads from file_content only when the embedding pass reaches it,
     // so the pass holds one file's text at a time.
-    const isEmbeddedFilePath = ([filePath]: [string, symbol]): boolean => {
-      return EMBEDDED_FILE_KINDS.has(getFileKind(filePath))
-    }
     const filesForEmbedding = fileContentVectorEnabled
       ? [...fileVersionsForEmbedding]
-          .filter(isEmbeddedFilePath)
           .map(([path, sourceVersion]) => ({ path, sourceVersion }))
+          .filter((file) => EMBEDDED_FILE_KINDS.has(getFileKind(file.path)))
       : []
     // Every note read from disk, including notes that failed to index, unlike indexedNotes
     const readableNotePaths = new Set(noteContents.map((note) => note.relativePath))
