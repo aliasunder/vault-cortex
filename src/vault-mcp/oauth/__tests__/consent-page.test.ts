@@ -62,8 +62,8 @@ describe("consent page rows", () => {
     },
     {
       label: "the host after the userinfo, not the userinfo",
-      redirectUri: "https://claude.ai@evil.example/cb",
-      destination: "https://evil.example",
+      redirectUri: "https://claude.ai@other.example/cb",
+      destination: "https://other.example",
     },
     {
       label: "a host with a lookalike letter as punycode",
@@ -72,8 +72,8 @@ describe("consent page rows", () => {
     },
     {
       label: "a lookalike subdomain in full",
-      redirectUri: "https://claude.ai.evil.example/cb",
-      destination: "https://claude.ai.evil.example",
+      redirectUri: "https://claude.ai.other.example/cb",
+      destination: "https://claude.ai.other.example",
     },
     {
       label: "a host holding & escaped",
