@@ -113,6 +113,7 @@ When to use: Reading user preferences, principles, opinions, or other persistent
 Behavior:
 - No args reads every file, joined by --- lines, which can be large.
 - Entries come back in the order the file holds them, which is newest first when entries were added at the top.
+- With no memory files yet, a read returns an empty string; with on_or_after, an empty match returns { entries: [], total: 0, on_or_after }.
 
 Errors:
 - "section requires a file" / "on_or_after requires a file" — add file
@@ -122,7 +123,7 @@ ${SECTION_NOT_FOUND_ERROR_ENTRY}
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 - "cannot read memory file …" / "cannot list memory folder …" — a memory file, or the ${config.memoryDir}/ folder itself on a call without file, can't be read: ${memoryFileNameCheckRemedy}; otherwise ask the vault's owner to check the folder
 
-Returns: Without on_or_after, raw markdown with the properties block stripped, or an empty string when no memory files exist yet. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the raw entry markdown (bullet + continuation lines, wikilinks intact). An empty match returns { entries: [], total: 0, on_or_after }.`,
+Returns: Without on_or_after, raw markdown with the properties block stripped. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the raw entry markdown (bullet + continuation lines, wikilinks intact).`,
       inputSchema: {
         file: z
           .string()

@@ -450,7 +450,7 @@ describe("registerTools", () => {
       [
         "Behavior:",
         "- By default properties merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Arrays are replaced entirely, not appended to.",
-        "- With replace: true the whole properties block is replaced: here null writes a property with no value, and {} removes the whole block.",
+        "- With replace: true, null writes a property with no value, and {} removes the whole block.",
       ].join("\n"),
     )
   })
@@ -3655,7 +3655,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   const FENCED_BLOCK_WARNING =
-    "A span that includes a code block's opening fence can't end at a plain closing fence (```): that end anchor also matches the opening fence, so it is ambiguous, and first_match: true would end the span there"
+    "A span that includes a code block's opening fence can't end at a plain closing fence (```): the end anchor is ambiguous, and first_match: true would end the span at the opening fence"
 
   it.each([
     {

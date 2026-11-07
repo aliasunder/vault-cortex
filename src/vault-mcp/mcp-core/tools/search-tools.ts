@@ -424,7 +424,7 @@ Example: vault_search_by_folder({ folder: "${config.memoryEnabled ? config.memor
 When to use: Exploring a folder's contents with full context for vault orientation.${searchByFolderAlternativesLine}
 
 Parameters:
-- folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored. With recursive: false, only the folder's own notes are kept.
+- folder names ${INDEX_FOLDER_SCOPE_CLAUSE}; a trailing slash is ignored.
 - limit keeps the most recently modified notes; ${LIMIT_TRUNCATION_CLAUSE}.
 
 Behavior: ${INDEX_LAG_LEAD}. An empty or nonexistent folder returns an empty array, not an error. Notes in hidden (dot-prefixed) folders never appear.
@@ -691,7 +691,7 @@ Parameters:
 
 Behavior: ${INDEX_LAG_LEAD}. A path nothing links to returns an empty result (count 0), not an error; if you expected links, ${linkEmptyResultRemedy}.
 
-Returns: JSON with path (the queried note or canvas), backlinks (every linking note and canvas, as { path, title, bytes } sorted by title; bytes is the source's on-disk size), and count.
+Returns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title; bytes is the source's on-disk size), and count.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}
@@ -747,7 +747,7 @@ When to use: Navigating the graph forward, auditing broken links in one note or 
 
 Behavior: ${INDEX_LAG_LEAD}. A path that does not exist, or one in a dot-prefixed folder, returns an empty result (count 0), not an error, just as a note with no outbound links does; if you expected links, ${linkEmptyResultRemedy}.
 
-Returns: JSON with path, outgoing_links (every link target, as { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link into the daily notes folder (a daily note not yet created, not breakage) and false otherwise, including when Obsidian's Daily Notes folder setting is the vault root or blank. bytes is the on-disk size (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. A target's path is the vault-relative path the link resolved to; a broken link's path is its target text without any #heading or |alias, with a markdown link's %-escapes decoded. When exists is true, kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")} and kind "file" a non-markdown file (.canvas, image, PDF)${fileReadableClause}; when exists is false the link is broken and kind is "note" even for a path like "diagram.png". title is null for files and broken links. daily_note_forward_ref is true on a broken link into the daily notes folder (a daily note not yet created, not breakage) and false otherwise, including when Obsidian's Daily Notes folder setting is the vault root or blank. bytes is the on-disk size (null for broken links)${fileBytesClause}.
 
 Errors:
 ${LINK_GRAPH_EXTENSION_ERROR_ENTRY}

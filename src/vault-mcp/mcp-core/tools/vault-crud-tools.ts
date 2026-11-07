@@ -818,7 +818,7 @@ Returns: "Replaced <N> occurrence(s) in <path>".`,
       "vault_replace_in_note",
       `; to ${editVerb} such a block, use vault_replace_in_note${newTextArgument}`,
     )
-    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): that end anchor also matches the opening fence, so it is ambiguous, and first_match: true would end the span there${fallbackAdvice}.`
+    return `A span that includes a code block's opening fence can't end at a plain closing fence (\`\`\`): the end anchor is ambiguous, and first_match: true would end the span at the opening fence${fallbackAdvice}.`
   }
 
   /** The anchor rule the three anchor tools share. "Body line" is defined here
@@ -1443,7 +1443,7 @@ When to use: Changing tags, status, type, or any property without reading/rewrit
 
 Behavior:
 - By default properties merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Arrays are replaced entirely, not appended to.
-- With replace: true the whole properties block is replaced: here null writes a property with no value, and {} removes the whole block.
+- With replace: true, null writes a property with no value, and {} removes the whole block.
 
 Errors:
 - "note not found" — path does not exist; ${updatePropertiesNoteNotFoundRemedy}
