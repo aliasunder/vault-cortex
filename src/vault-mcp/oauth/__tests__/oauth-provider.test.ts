@@ -1116,6 +1116,20 @@ const loadedClient = (client: OAuthClientInformationFull): OAuthClientInformatio
   return { ...client, token_endpoint_auth_method: "client_secret_post" }
 }
 
+const FIVE_MINUTES_MS = 5 * 60 * 1000
+const TEN_MINUTES_MS = 10 * 60 * 1000
+
+/** Freezes the clock at the returned start time; Luxon reads Date.now. */
+const freezeClock = (): number => {
+  vi.useFakeTimers({ toFake: ["Date"] })
+  onTestFinished(() => {
+    vi.useRealTimers()
+  })
+  const startedAt = DateTime.fromISO("2026-11-02T12:00:00Z").toMillis()
+  vi.setSystemTime(startedAt)
+  return startedAt
+}
+
 describe("OAuth pending consent request storage", () => {
   const PARAMS_CAP_BYTES = 8192
   const BASE_PARAMS = {
@@ -1143,7 +1157,7 @@ describe("OAuth pending consent request storage", () => {
     expect(REQUEST_ID_PATTERN.test(getHtml())).toBe(true)
   })
 
-  it("rejects a consent request whose parameters exceed 8 KB, holding nothing", async () => {
+  it("rejects a consent request whose parameters exceed 8 KB before rendering consent", async () => {
     const { logs, oauth, client } = await setupAuditTest()
     const { response, getHtml } = createMockResponse()
 
@@ -1171,6 +1185,34 @@ describe("OAuth pending consent request storage", () => {
     ])
   })
 
+  it("holds nothing for a consent request rejected as too large", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const startedAt = freezeClock()
+    await startAuthFlow(oauth, client)
+    const { response } = createMockResponse()
+    await expect(
+      oauth.provider.authorize(
+        client,
+        { ...BASE_PARAMS, state: stateForParamsBytes(PARAMS_CAP_BYTES + 1) },
+        response,
+      ),
+    ).rejects.toThrow(new InvalidRequestError("Authorization request parameters are too large"))
+
+    // Both requests arrived at startedAt and are expired by now. The next
+    // request purges only the valid one, because the rejected one was never held.
+    vi.setSystemTime(startedAt + TEN_MINUTES_MS + 1000)
+    await startAuthFlow(oauth, client)
+
+    const purgeLogs = logs.filter((log) => log.message === "oauth_pending_requests_purged")
+    expect(purgeLogs).toEqual([
+      {
+        level: "info",
+        message: "oauth_pending_requests_purged",
+        data: { component: "oauth", purgedRequestCount: 1 },
+      },
+    ])
+  })
+
   it("drops a held consent request whose client was deleted after it started", async () => {
     const { logs, testLogger, oauth, db, client } = await setupAuditTest()
     const requestId = await startAuthFlow(oauth, client)
@@ -1188,20 +1230,6 @@ describe("OAuth pending consent request storage", () => {
 })
 
 describe("OAuth pending consent request expiry", () => {
-  const FIVE_MINUTES_MS = 5 * 60 * 1000
-  const TEN_MINUTES_MS = 10 * 60 * 1000
-
-  /** Freezes the clock at the returned start time; Luxon reads Date.now. */
-  const freezeClock = (): number => {
-    vi.useFakeTimers({ toFake: ["Date"] })
-    onTestFinished(() => {
-      vi.useRealTimers()
-    })
-    const startedAt = DateTime.fromISO("2026-11-02T12:00:00Z").toMillis()
-    vi.setSystemTime(startedAt)
-    return startedAt
-  }
-
   it("keeps a consent request pending for ten minutes", async () => {
     const { logs, testLogger, oauth, client } = await setupAuditTest()
     const startedAt = freezeClock()
