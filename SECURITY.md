@@ -138,12 +138,20 @@ mechanism-level detail.
   escapes `&`, `<`, `>`, `"` in every interpolated value (client name,
   client ID, the address approval sends access to, error messages, request
   IDs, the Obsidian account name, vault names, API error text)
-- **Framing and response headers:** every response from both servers carries
-  `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`
-  (Express's own 404 page replaces the latter), so no other site can frame the
-  consent or setup pages. Responses also carry `X-Content-Type-Options: nosniff`
-  and `Referrer-Policy: same-origin`, never `X-Powered-By`. Consent decisions
-  and setup-mode responses send `Cache-Control: no-store`
+
+### Response headers
+
+Both servers set these headers:
+
+- **Framing** — every response carries `X-Frame-Options: DENY` and
+  `Content-Security-Policy: frame-ancestors 'none'`, so no other site can
+  frame the consent or setup pages. Express's own 404 page replaces the
+  content policy; `X-Frame-Options` still applies there
+- **Content type and referrer** — every response carries
+  `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`, and
+  none carries `X-Powered-By`
+- **Caching** — consent decisions and every setup-mode response send
+  `Cache-Control: no-store`
 
 ### Data corruption prevention
 
