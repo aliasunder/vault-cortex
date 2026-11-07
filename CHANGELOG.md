@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.56.5] — 2026-11-07
+
+### Bug Fixes
+
+- **oauth:** Forbid framing of the consent and setup pages and show where approval sends access (#747)
+- **oauth:** Bound the consent requests /authorize holds and rate-limit IPv6 by /56 (#745)
+- **tools:** Name result extents and the search bound, and move behavior rules under a Behavior section (#744)
+
 ## [0.56.4] — 2026-11-07
 
 ### Bug Fixes
