@@ -863,6 +863,10 @@ client-IP key derived from the deployment's explicit proxy-trust config:
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. An injected forwarding header is ignored on both channels,
   so it can't mint a fresh bucket.
+- Whichever setting supplies the client IP, an IPv6 client is keyed by its /56
+  (express-rate-limit's `ipKeyGenerator`), because one host often holds a
+  /64 and could otherwise get a fresh bucket for every address in it. The
+  `/setup` limiter keys the same way.
 - With the optional `ORIGIN_URL` hardening (a tunnel or reverse proxy
   between API Gateway and the instance —
   [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the tunnel

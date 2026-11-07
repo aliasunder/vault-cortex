@@ -4,7 +4,7 @@
 
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
-import { rateLimit } from "express-rate-limit"
+import { ipKeyGenerator, rateLimit } from "express-rate-limit"
 import { randomUUID } from "node:crypto"
 import { DateTime } from "luxon"
 import { extractClientIp, safeEqual } from "../../auth.js"
@@ -115,11 +115,12 @@ export const createSetupRoutes = ({
 
   // 5/min per client IP, the same budget as the OAuth endpoints. The miss
   // path calls Obsidian's API, so an unlimited endpoint would relay password
-  // guesses from this server's address.
+  // guesses from this server's address. ipKeyGenerator keys an IPv6 address
+  // by its /56, because one host often holds a /64.
   const limiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 5,
-    keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHops),
+    keyGenerator: (req: Request) => ipKeyGenerator(extractClientIp(req, trustForwardedHops)),
     handler: (
       req: Request,
       res: Response,

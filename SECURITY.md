@@ -234,8 +234,8 @@ Sync client accepts:
   accounts from the server's address. The two-factor step is tied to that
   check by a random single-use id that only a token-checked sign-in
   receives
-- **Rate-limited** — 5 requests per minute per client IP, the same budget
-  as the OAuth endpoints
+- **Rate-limited** — 5 requests per minute per client IP (an IPv6 client
+  by its /56), the same budget as the OAuth endpoints
 - **Credentials are never stored or logged** — the Obsidian email and
   password go to Obsidian's API once; for a two-factor account they wait
   in memory for the code (5-minute expiry, single use) and are never

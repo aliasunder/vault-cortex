@@ -2,6 +2,7 @@
 
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
+import { ipKeyGenerator } from "express-rate-limit"
 import { createOAuthMetadata, mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
@@ -48,12 +49,15 @@ export const createOAuthRoutes = ({
   const rateLimit = {
     windowMs: 60 * 1000,
     max: 5,
-    // Bucket by client IP via extractClientIp: when the Forwarded header
-    // is trusted (trustForwardedHops > 0), the resolved client IP is the
-    // key — the library default (req.ip) would merge every client into a
-    // single gateway-egress bucket. Elsewhere req.ip, governed by the
-    // server's trust-proxy hop count, is the key.
-    keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHops),
+    // The key is the client IP from extractClientIp:
+    // - With the Forwarded header trusted (trustForwardedHops > 0), it is
+    //   the resolved visitor. The library default (req.ip) would put every
+    //   client in one bucket, the gateway's egress address.
+    // - Otherwise it is req.ip, set by the server's trust-proxy hop count.
+    // - ipKeyGenerator keys an IPv6 address by its /56, as the library
+    //   default does. One host often holds a /64 and could otherwise rotate
+    //   through its addresses for a fresh budget on every request.
+    keyGenerator: (req: Request) => ipKeyGenerator(extractClientIp(req, trustForwardedHops)),
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).

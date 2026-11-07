@@ -567,6 +567,23 @@ describe("OAuth endpoint rate limiting", () => {
     expect(firstFromOtherClient.status).toBe(201)
   })
 
+  // A /56 spans the first three groups and the top byte of the fourth, so
+  // 2001:db8:0:ff:: shares the budget of 2001:db8::1 and 2001:db8:0:100::
+  // does not.
+  it("keys IPv6 clients by their /56, so rotating addresses inside it shares one budget", async () => {
+    const addressesInOneSubnet = ["::1", "::2", "::3", "::4", "::5"].map(
+      (hostPart) => `"[2001:db8${hostPart}]"`,
+    )
+    for (const address of addressesInOneSubnet) {
+      const response = await register(address)
+      expect(response.status).toBe(201)
+    }
+    const sixthFromSameSubnet = await register(`"[2001:db8:0:ff::6]"`)
+    expect(sixthFromSameSubnet.status).toBe(429)
+    const firstFromOtherSubnet = await register(`"[2001:db8:0:100::1]"`)
+    expect(firstFromOtherSubnet.status).toBe(201)
+  })
+
   // Each flow endpoint mounts its own limiter with its own counter, so the
   // per-endpoint tests below exercise four independent limiters — register
   // passing does not prove authorize/token/revoke are limited. The requests
