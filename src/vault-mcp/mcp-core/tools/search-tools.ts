@@ -107,11 +107,14 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
         stage: "matching",
         outcome: "a query left with no terms returns no results",
       }
-  // Every search leg keeps at most 100 rows (candidateLimit in hybridSearch),
-  // so a keyword-only result holds at most 100 per kind and a fused one 200
+
+  // Every search leg keeps at most 100 rows (candidateLimit in hybridSearch). Each kind has a
+  // keyword leg, and with embeddings a semantic leg too, so a fused result holds at most 200 of
+  // each kind
   const keywordCapExtent = config.fileToolsEnabled ? "100 notes and 100 files" : "100 notes"
+  const hybridCapExtent = config.fileToolsEnabled ? "200 notes and 200 files" : "200 notes"
   const resultCapSentence = config.embeddingEnabled
-    ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most twice that.`
+    ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
   const searchLagLine = `Behavior: ${INDEX_LAG_LEAD}. ${resultCapSentence}`
   const searchErrorsSection = `Errors:
