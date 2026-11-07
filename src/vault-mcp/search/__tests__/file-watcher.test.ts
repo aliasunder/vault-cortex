@@ -1598,6 +1598,58 @@ describe("file watcher — obsolete events and embedding queues", () => {
     ])
   })
 
+  it("finds a script by keyword through an add, a change and a delete, never embedding it", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(vector),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, database, search, fire } = await createControlledWatcher(embedder)
+    const settledEmbeds: string[] = []
+    const realFileEmbed = search.embedFileContent
+    vi.spyOn(search, "embedFileContent").mockImplementation(async (params, requestLogger) => {
+      await realFileEmbed(params, requestLogger)
+      settledEmbeds.push(params.filePath)
+    })
+    const keywordPaths = (phrase: string): string[] => {
+      return database
+        .prepare<[string], { path: string }>(
+          "SELECT path FROM file_content_fts WHERE file_content_fts MATCH ? ORDER BY path",
+        )
+        .all(`"${phrase}"`)
+        .map((row) => row.path)
+    }
+    const storedChunkPaths = () => {
+      return database.prepare("SELECT DISTINCT file_path FROM file_content_chunks").all()
+    }
+
+    await writeFile(join(testVault, "report.py"), "def get_user_name():\n    pass\n", "utf8")
+    await writeFile(join(testVault, "control.txt"), "plain text control\n", "utf8")
+    await fire("add", "report.py")
+    await fire("add", "control.txt")
+    await vi.waitFor(() => expect(settledEmbeds.toSorted()).toEqual(["control.txt", "report.py"]))
+
+    expect(keywordPaths("get user name")).toEqual(["report.py"])
+    expect(storedChunkPaths()).toEqual([{ file_path: "control.txt" }])
+
+    await writeFile(join(testVault, "report.py"), "def get_order_total():\n    pass\n", "utf8")
+    await fire("change", "report.py")
+    await vi.waitFor(() => expect(settledEmbeds).toHaveLength(3))
+
+    expect(keywordPaths("get order total")).toEqual(["report.py"])
+    expect(keywordPaths("get user name")).toEqual([])
+    expect(storedChunkPaths()).toEqual([{ file_path: "control.txt" }])
+
+    await unlink(join(testVault, "report.py"))
+    await fire("unlink", "report.py")
+
+    expect(keywordPaths("get order total")).toEqual([])
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([
+      { path: "control.txt" },
+    ])
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("control\n\nplain text control")
+  })
+
   it("drops a page from search while it holds a NUL byte, and a held embedding cannot restore it", async () => {
     const firstEntered = Promise.withResolvers<undefined>()
     const releaseFirst = Promise.withResolvers<Float32Array>()

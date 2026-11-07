@@ -8039,6 +8039,121 @@ describe("HTML pages", () => {
   })
 })
 
+describe("scripts", () => {
+  const SCRIPT_FILES = [
+    { path: "report.py", content: "def get_user_name():\n    return 'jade'\n" },
+    { path: "deploy.sh", content: "#!/bin/sh\n# restart_service_now\nsystemctl restart api\n" },
+    { path: "Backup.ps1", content: "# copy_backup_files\nCopy-Item -Path $Source\n" },
+  ]
+
+  /** Writes the files into a new vault and rebuilds an index over it. */
+  const rebuildVaultOf = async (params: {
+    files: ReadonlyArray<{ path: string; content: string | Buffer }>
+    embedder?: Parameters<typeof createSearchIndex>[1]
+  }) => {
+    const dir = await mkdtemp(join(tmpdir(), "script-index-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const vaultPath = join(dir, "vault")
+    await mkdir(vaultPath)
+    for (const file of params.files) {
+      await writeFile(join(vaultPath, file.path), file.content)
+    }
+
+    const databasePath = join(dir, "index.db")
+    const fileIndex = createSearchIndex(databasePath, params.embedder, undefined, {
+      fileToolsEnabled: true,
+    })
+    const rebuilt = await fileIndex.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    const database = new Database(databasePath, { readonly: true })
+    sqliteVec.load(database)
+    onTestFinished(() => {
+      database.close()
+    })
+    return { fileIndex, database }
+  }
+
+  /** The paths whose indexed text matches the phrase, by keyword alone. */
+  const keywordPaths = (database: Database.Database, phrase: string): string[] => {
+    return database
+      .prepare<[string], { path: string }>(
+        "SELECT path FROM file_content_fts WHERE file_content_fts MATCH ? ORDER BY path",
+      )
+      .all(`"${phrase}"`)
+      .map((row) => row.path)
+  }
+
+  it("finds .py, .sh and .ps1 scripts by keyword after a rebuild with embedding off", async () => {
+    const { fileIndex } = await rebuildVaultOf({ files: SCRIPT_FILES })
+    const queries = ["get_user_name", "restart_service_now", "copy_backup_files"]
+
+    const searchFor = async (query: string) => {
+      const { results } = await fileIndex.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    expect(await Promise.all(queries.map(searchFor))).toEqual([
+      ["report.py"],
+      ["deploy.sh"],
+      ["Backup.ps1"],
+    ])
+  })
+
+  it("embeds a text file but no script after a rebuild with embedding on, while both stay found by keyword", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(vector),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { database } = await rebuildVaultOf({
+      files: [...SCRIPT_FILES, { path: "notes.txt", content: "plain text control\n" }],
+      embedder,
+    })
+
+    const phrases = [
+      "get user name",
+      "restart service now",
+      "copy backup files",
+      "plain text control",
+    ]
+    const findByKeyword = (phrase: string) => keywordPaths(database, phrase)
+
+    expect(phrases.map(findByKeyword)).toEqual([
+      ["report.py"],
+      ["deploy.sh"],
+      ["Backup.ps1"],
+      ["notes.txt"],
+    ])
+    expect(database.prepare("SELECT file_path, chunk_text FROM file_content_chunks").all()).toEqual(
+      [{ file_path: "notes.txt", chunk_text: "notes\n\nplain text control" }],
+    )
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 1,
+    })
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("notes\n\nplain text control")
+  })
+
+  it("leaves a script holding a NUL byte out of search", async () => {
+    const { database } = await rebuildVaultOf({
+      files: [
+        {
+          path: "binary.py",
+          content: Buffer.concat([Buffer.from("nulscriptword = 1\n"), Buffer.from([0])]),
+        },
+        { path: "plain.py", content: "plainscriptword = 1\n" },
+      ],
+    })
+
+    expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual([
+      { path: "plain.py" },
+    ])
+  })
+})
+
 describe("committed embedding source versions", () => {
   it.each(["note", "file"] as const)(
     "rejects a %s model result after source deletion",
