@@ -820,7 +820,8 @@ value as the static token.
 
 - **Auth codes** — short-lived (10 minutes) and held in memory, so a restart
   drops any code not yet redeemed. A code is redeemable only by the client
-  it was issued to.
+  it was issued to. Only a consent approved with the server's auth token
+  creates a code, so expired codes stay until a restart.
 - **Access tokens** — JWTs with an `iat` (issued-at) claim. Verification
   checks per-token revocation and the client's grant-revocation cutoff
   (see Revoked tokens). Tokens without `iat` are rejected whenever a grant

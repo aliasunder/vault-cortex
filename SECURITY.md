@@ -253,6 +253,18 @@ Sync client accepts:
 - **Plain-HTTP warning** — the page tells the owner when it was served
   without HTTPS from a non-local address, since the form carries a password
 
+### OAuth consent requests
+
+`/authorize` needs no sign-in, so the consent requests it holds in memory
+while the owner decides are bounded:
+
+- **Expire** — after 10 minutes; each new request first removes the
+  expired ones
+- **Size-capped** — parameters over 8 KB of JSON are refused with
+  `invalid_request`, and a held request keeps only its client's ID
+- **Rate-limited** — 5 requests per minute per client IP (an IPv6 client
+  by its /56)
+
 ### Symlink safety
 
 - `filterValidSymlinks()` excludes broken symlinks and symlinks to
