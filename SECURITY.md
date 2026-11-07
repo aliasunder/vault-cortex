@@ -90,8 +90,13 @@ mechanism-level detail.
   database stores refresh tokens keyed by an HMAC under `MCP_AUTH_TOKEN`,
   so a copy of it holds no usable credential.
   Hidden-path blocking does not cover a database relocated into a
-  _visible_ vault folder — there it is readable like any other vault
-  file.
+  _visible_ vault folder — there `vault_list_files` lists it like any
+  other vault file, and `vault_read_file` refuses it only because a
+  SQLite file holds binary data.
+- `vault_read_file` returns any visible file whose bytes are UTF-8 text,
+  whatever its extension, so a credential kept in a visible vault folder
+  (a `deploy.env` or `secrets.txt`) is readable by any signed-in client.
+  Hidden files such as `.env` stay refused by the hidden-path check above.
 - The hidden-path check is lexical: a visible symlink whose target is a
   hidden path is followed. Creating such a symlink requires direct
   filesystem access — no tool can create one, and anyone with that

@@ -48,6 +48,7 @@ const EXCLUDED_H2 = new Set([
   "Hybrid Search",
   "Memory",
   "Tasks",
+  "Files",
   "Data Integrity",
   "Authentication",
   "Development",

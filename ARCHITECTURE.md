@@ -345,11 +345,11 @@ Link queries use a `links` table populated during indexing:
 | `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint |
 | `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint |
 
-`vault_read_file` reads non-markdown vault files, dispatching on extension to the most useful representation per type:
+`vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF; every extension check in reads, indexing, the note mover and the link tools goes through it:
 
 1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block: the path, the delivered format, dimensions and bytes, and, when the image was recompressed, its original dimensions and bytes. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
 2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas `file`-type node references are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
-3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation). `start_line`/`limit` page any text result — passthrough formats, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read stays byte-exact.
+3. **Text formats** (`.svg`/`.json`/`.txt`/`.csv`/`.xml`/`.log`/`.yaml`/`.yml`/`.base`) pass through verbatim as text, capped at a fixed 100 KiB output size (explicit error over silent truncation). They skip the NUL-byte check in item 5, so a NUL-padded log still reads. `start_line`/`limit` page any text result — text files, canvas renditions, PDF-extracted text — as a 1-based line window preceded by a window-metadata block stating the range, total line count, and next `start_line`; the cap applies to the window, and an unpaged read stays byte-exact.
 4. **PDFs** (`.pdf`) return structured markdown reconstructed from layout-aware extraction (`unpdf`, based on Mozilla's PDF.js):
    - A document metadata header (title, page count, link count)
    - Heading hierarchy inferred from font sizes relative to the dominant
@@ -364,11 +364,27 @@ Link queries use a `links` table populated during indexing:
 
    **Why text works without system fonts:** every PDF read goes through `obsidian-markdown/pdf-engine.ts`, which swaps unpdf's bundled edge build for the `pdfjs-dist` legacy Node build and creates document proxies with `disableFontFace` + bundled standard fonts + cMaps. Glyphs render from font data (embedded or bundled), never from host system fonts, so text survives in the fontless container. unpdf's own defaults reach the bundled fonts only if a lookup of `pdfjs-dist` succeeds, and a failed lookup is silent: rendering falls back to system fonts, which drops all text glyphs where no fonts exist while vector graphics still draw.
 
-5. **Unknown types** return an error naming the readable set.
+5. **Every other file** — HTML pages, scripts, and files with an unlisted extension or none — returns its source as text, with the same cap and paging. `utils/decode-text-buffer.ts` refuses two cases:
+   - a NUL byte in the first 8,000 bytes, git's test for binary data, which also catches UTF-16 text; the error names the readable types
+   - bytes that are not UTF-8
 
 The extension-to-representation routing above is implemented by the `vault-operations/asset-operations.ts` use-case. Beneath it, every read goes through `vaultFs.readAsset`, which applies the same `resolveSafePath` traversal + hidden-path guards as notes, rejects `.md` paths (notes belong to `vault_read_note`), and enforces a stat-before-read size cap (`MAX_FILE_BYTES`, default 50 MiB). The read buffer is one byte longer than the statted size, so a file that grows during the read (an Obsidian Sync download can do this) fills that byte, and the read fails with "file changed while reading".
 
-`vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice. Canvas, PDF, and text files (.txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base) are indexed for full-text search in the `file_content` + `file_content_fts` tables — see Canvas entry above for the canvas-specific link graph integration. PDF text is extracted via `obsidian-markdown/pdf.ts` (structured markdown reconstruction) — this works on PDFs with embedded text content; scanned or image-only PDFs have no text to extract, so they are indexed with an empty body and found by file name only. Text files are indexed as raw UTF-8 content. Content exceeding 100 KiB is truncated before FTS insertion.
+`vault_list_files` is the discovery surface (also `vault-operations/asset-operations.ts`): a filesystem walk (`vaultFs.listAssets` — filesystem truth, deliberately not the index), folder and case-insensitive extension filters, per-extension counts computed over the full filtered set, and byte sizes statted only for the returned slice.
+
+Search indexes file content in the `file_content` + `file_content_fts` tables, cut to 100 KiB before FTS insertion. Each kind is indexed as follows:
+
+| Kind                         | Indexed text                                                                                                      | Embedded |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------- |
+| Canvas                       | Linearized outline; file cards also go to the link graph (see Canvas above)                                       | Yes      |
+| PDF                          | Text extracted by `obsidian-markdown/pdf.ts`; a scanned or image-only PDF has none and is found by file name only | Yes      |
+| Text formats (item 3)        | The file's UTF-8 content                                                                                          | Yes      |
+| HTML (`.html`/`.htm`)        | The text a browser shows, from `obsidian-markdown/html.ts`; a page over 16 MiB is found by file name only         | Yes      |
+| Scripts (`.py`/`.sh`/`.ps1`) | The file's source                                                                                                 | No       |
+
+- **HTML extraction** runs htmlparser2's tokenizer, which keeps no element stack, so unclosed tags cost no more than closed ones. Hidden elements (script, style, noscript, template, and the fallback content of iframe, noembed and noframes) end only at a closing tag with their own name, so a stray closing tag never shows hidden text. Block elements become line breaks, other whitespace collapses, and reading stops at the 100 KiB cap. Extraction stays on the main thread; the 16 MiB page limit keeps its measured worst case under the 2-second bar for moving a parser to a worker.
+- **HTML pages and scripts are read as bytes** and indexed only when `utils/decode-text-buffer.ts` accepts them, the test `vault_read_file` applies, so search never holds text a read refuses. When a watched page or script stops passing it, its stored content is removed and its file row stays.
+- **Scripts are searched by keyword only.** The markdown chunker reads a script's `# comment` lines as headings and turns `snake_case` names into one word, so embedding skips scripts before their text loads.
 
 **Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
 
@@ -460,7 +476,7 @@ Both models lazy-load on first use (~1–2s cold start each, kept in memory afte
 `vault_search` calls `hybridSearch`, which runs up to four ranked retrieval legs and merges results via RRF. The flow:
 
 1. **Note FTS5** keyword search (synchronous, `fullTextSearch`)
-2. **File content FTS5** — linearized canvas, extracted PDF text, plain text files (skipped when note-specific filters are active)
+2. **File content FTS5** — linearized canvas, extracted PDF text, text files, HTML visible text, and scripts (skipped when note-specific filters are active)
 3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
 4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
 5. **RRF fusion** (`computeRrfScores`) — score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3):
@@ -563,7 +579,7 @@ Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on 
 
 - `note_chunks`: stores chunk text, position index, and content hash per note
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
-- `file_content_chunks`: stores chunk text, position index, and content hash per non-markdown file (canvas, PDF, text)
+- `file_content_chunks`: stores chunk text, position index, and content hash per non-markdown file (canvas, PDF, text, HTML; scripts are never embedded)
 - `file_content_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
 
 **New-directory rescan:** chokidar handles a newly-appeared directory in two steps: first it scans the directory's contents, then it registers the directory's `fs.watch`. A file created between the scan and the registration is silently lost ([chokidar#1471](https://github.com/paulmillr/chokidar/issues/1471)) — the scan didn't see it, and no watch existed to catch the event. The server's atomic write into a freshly created folder can hit exactly that window, leaving the note invisible to search. As a safety net, the watcher schedules a one-shot rescan of every new directory, delayed to twice chokidar's write-stability threshold (`awaitWriteFinish`, 2 s — a 4 s delay) so in-flight writes settle first. The rescan:
