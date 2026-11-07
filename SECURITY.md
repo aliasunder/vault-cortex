@@ -261,7 +261,8 @@ while the owner decides are bounded:
 - **Expire** — after 10 minutes; each new request first removes the
   expired ones
 - **Size-capped** — parameters over 8 KB of JSON are refused with
-  `invalid_request`, and a held request keeps only its client's ID
+  `invalid_request`, and a held request keeps its client's ID, not a copy
+  of the registration
 - **Rate-limited** — 5 requests per minute per client IP (an IPv6 client
   by its /56)
 

@@ -617,7 +617,7 @@ export const createOAuthProvider = ({
         throw new InvalidRequestError("Authorization request parameters are too large")
       }
       // /authorize needs no sign-in. Its rate limit bounds how fast requests
-      // arrive; purging on each new one bounds how long abandoned ones stay.
+      // arrive; purging on each new one keeps expired ones from piling up.
       purgeExpiredPendingRequests()
       pendingRequests.set(requestId, {
         clientId: client.client_id,
