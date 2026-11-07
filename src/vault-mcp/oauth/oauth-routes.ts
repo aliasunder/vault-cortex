@@ -2,7 +2,7 @@
 
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
-import { ipKeyGenerator } from "express-rate-limit"
+import { ipKeyGenerator, rateLimit } from "express-rate-limit"
 import { createOAuthMetadata, mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
@@ -39,14 +39,15 @@ export const createOAuthRoutes = ({
   const router = Router()
 
   // 5 req/min per client IP on each flow endpoint (/authorize, /token,
-  // /register, /revoke — each mounts its own limiter), far tighter than
-  // the SDK's per-endpoint defaults: a complete OAuth flow touches each
-  // endpoint at most twice per minute, so 5/min absorbs reconnect storms
-  // while shutting down brute force. windowMs/max mirror the exact keys
-  // the SDK sets before spreading this config, so the spread replaces
-  // them outright. Don't rename `max` to `limit` (its modern alias):
-  // the options would then carry both keys, with no guarantee ours wins.
-  const rateLimit = {
+  // /register, /revoke, /oauth/decide — each mounts its own limiter), far
+  // tighter than the SDK's per-endpoint defaults: a complete OAuth flow
+  // touches each endpoint at most twice per minute, so 5/min absorbs
+  // reconnect storms while shutting down brute force. windowMs/max mirror
+  // the exact keys the SDK sets before spreading this config, so the spread
+  // replaces them outright. Don't rename `max` to `limit` (its modern
+  // alias): the options would then carry both keys, with no guarantee ours
+  // wins.
+  const oauthRateLimitOptions = {
     windowMs: 60 * 1000,
     max: 5,
     // The key is the client IP from extractClientIp:
@@ -59,7 +60,7 @@ export const createOAuthRoutes = ({
     //   through its addresses for a fresh budget on every request.
     keyGenerator: (req: Request) => ipKeyGenerator(extractClientIp(req, trustForwardedHops)),
     // The default handler sends the 429 silently — log the offender, then
-    // send the SDK's per-endpoint message unchanged. The query string is
+    // send each limiter's own message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).
     handler: (
       req: Request,
@@ -126,10 +127,10 @@ export const createOAuthRoutes = ({
       issuerUrl: serverUrl,
       serviceDocumentationUrl: new URL(serviceDocumentationUrl),
       scopesSupported,
-      authorizationOptions: { rateLimit },
-      clientRegistrationOptions: { rateLimit },
-      revocationOptions: { rateLimit },
-      tokenOptions: { rateLimit },
+      authorizationOptions: { rateLimit: oauthRateLimitOptions },
+      clientRegistrationOptions: { rateLimit: oauthRateLimitOptions },
+      revocationOptions: { rateLimit: oauthRateLimitOptions },
+      tokenOptions: { rateLimit: oauthRateLimitOptions },
     }),
   )
 
@@ -142,9 +143,19 @@ export const createOAuthRoutes = ({
     next()
   })
 
+  // Bounds MCP_AUTH_TOKEN guesses on the consent form. Mounted ahead of the
+  // form parser, so an over-limit submission is refused unparsed. The header
+  // flags match the ones the SDK sets on its own limiters.
+  const consentDecisionLimiter = rateLimit({
+    ...oauthRateLimitOptions,
+    standardHeaders: "draft-6",
+    legacyHeaders: false,
+  })
+
   // Consent form submission (unauthenticated — part of authorize flow)
   router.post(
     "/oauth/decide",
+    consentDecisionLimiter,
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
       const body: Record<string, unknown> = req.body

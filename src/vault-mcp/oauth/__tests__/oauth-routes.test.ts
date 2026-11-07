@@ -106,8 +106,8 @@ describe("OAuth consent token submission", () => {
   })
 
   // Register a client and start an authorization request directly through
-  // the provider (the HTTP /register and /authorize routes are rate-limited;
-  // /oauth/decide, the route under test, is not).
+  // the provider so setup does not consume the HTTP /register and /authorize
+  // budgets; /oauth/decide has its own submission budget.
   const startPendingRequest = async (
     scopes: string[] = ["vault"],
   ): Promise<{ requestId: string; clientId: string }> => {
@@ -621,6 +621,86 @@ describe("OAuth endpoint rate limiting", () => {
     expect(sixthFromSameClient.status).toBe(429)
     const firstFromOtherClient = await register("203.0.113.8")
     expect(firstFromOtherClient.status).toBe(201)
+  })
+
+  const submitConsent = (forwardedClientIp: string, body = new URLSearchParams()) => {
+    return fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        forwarded: `for=${forwardedClientIp}`,
+      },
+      body,
+      redirect: "manual",
+    })
+  }
+
+  it("serves 5 consent submissions per client IP, then returns an uncached 429 with OAuth headers", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await submitConsent("203.0.113.9")
+      expect(response.status).toBe(400)
+      expect(await response.text()).toBe("Invalid form submission.")
+    }
+    const sixth = await submitConsent("203.0.113.9")
+
+    expect(sixth.status).toBe(429)
+    expect(sixth.headers.get("cache-control")).toBe("no-store")
+    const retryAfter = sixth.headers.get("retry-after")
+
+    expect(retryAfter).toMatch(/^(?:[1-9]|[1-5][0-9]|60)$/)
+    expect(sixth.headers.get("ratelimit-limit")).toBe("5")
+    expect(sixth.headers.get("ratelimit-remaining")).toBe("0")
+    expect(sixth.headers.get("ratelimit-reset")).toBe(retryAfter)
+    expect(sixth.headers.get("ratelimit-policy")).toBe("5;w=60")
+    expect([...sixth.headers.keys()].filter((name) => name.startsWith("x-ratelimit-"))).toEqual([])
+    expect(await sixth.text()).toBe("Too many requests, please try again later.")
+  })
+
+  it("logs oauth_rate_limited with the client IP and consent decision path", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await submitConsent("203.0.113.9")
+      expect(response.status).toBe(400)
+    }
+    const sixth = await submitConsent("203.0.113.9")
+
+    expect(sixth.status).toBe(429)
+    expect(logs.filter((log) => log.message === "oauth_rate_limited")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_rate_limited",
+        data: {
+          component: "oauth-routes",
+          clientIp: "203.0.113.9",
+          path: "/oauth/decide",
+        },
+      },
+    ])
+  })
+
+  it("leaves another client's consent allowance available after one client exhausts its budget", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await submitConsent("203.0.113.7")
+      expect(response.status).toBe(400)
+    }
+    const sixthFromSameClient = await submitConsent("203.0.113.7")
+
+    expect(sixthFromSameClient.status).toBe(429)
+    const firstFromOtherClient = await submitConsent("203.0.113.8")
+
+    expect(firstFromOtherClient.status).toBe(400)
+    expect(await firstFromOtherClient.text()).toBe("Invalid form submission.")
+  })
+
+  it("rate-limits an oversized consent form before the form parser rejects it", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await submitConsent("203.0.113.9")
+      expect(response.status).toBe(400)
+    }
+    const oversizedForm = new URLSearchParams({ token: "x".repeat(101 * 1024) })
+    const response = await submitConsent("203.0.113.9", oversizedForm)
+
+    expect(response.status).toBe(429)
+    expect(await response.text()).toBe("Too many requests, please try again later.")
   })
 
   // A /56 spans the first three groups and the top byte of the fourth, so

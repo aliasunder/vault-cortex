@@ -870,8 +870,9 @@ removed two ways:
   rotation never accumulate.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
-`/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
-client-IP key derived from the deployment's explicit proxy-trust config:
+`/revoke`, `/oauth/decide`) are rate-limited at 5 req/min per client IP,
+bucketed by a client-IP key derived from the deployment's explicit
+proxy-trust config:
 
 - `TRUST_FORWARDED_HOPS` (default `0`) reads the client from the
   [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header.
