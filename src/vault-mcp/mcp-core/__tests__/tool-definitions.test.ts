@@ -310,8 +310,7 @@ describe("registerTools", () => {
     expect(config.description).toContain("refusing memory write")
   })
 
-  it("vault_update_memory description documents the duplicate no-op contract", () => {
-    // The whole opener, so a reworded "is not a no-op" can't pass
+  it("vault_update_memory opener states the append-only default and the living opt-in", () => {
     const opener = findDescriptionLine({
       registeredCalls: calls,
       toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
@@ -320,6 +319,10 @@ describe("registerTools", () => {
     expect(opener).toBe(
       "Append a dated entry to a section of a memory file in About Me/. Memory files are append-only by default: when a preference changes, append the new state (newest wins) rather than deleting the old one. A file may declare `entry-policy: living` in its properties (surfaced by vault_list_memory_files) — a current-state file where pruning expired entries with vault_delete_memory is expected maintenance.",
     )
+  })
+
+  it("vault_update_memory description documents the duplicate no-op contract", () => {
+    // The whole Behavior bullet, so a reworded "is not a no-op" can't pass
     const duplicateRule = findDescriptionLine({
       registeredCalls: calls,
       toolName: TOOL_NAMES.VAULT_UPDATE_MEMORY,
@@ -417,6 +420,38 @@ describe("registerTools", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_LIST_TAGS)
     expect(config.description).toContain(
       "- Tags in the tags property and #tags written in note bodies both count, and count is unique notes, not occurrences.",
+    )
+  })
+
+  it("vault_move_note's Behavior section states the link-rewrite rule and the protected paths", () => {
+    const behaviorSection = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+      startMarker: "Behavior:",
+      endMarker: "\n\nErrors:",
+    })
+    expect(behaviorSection).toBe(
+      [
+        "Behavior:",
+        "- A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone.",
+        "- Protected paths can be neither moved nor moved into: About Me/ and the daily notes folder (Daily Notes/ by default; vault_get_daily_note's path shows the folder in use; not protected when Obsidian's Daily Notes folder setting is the vault root or blank).",
+      ].join("\n"),
+    )
+  })
+
+  it("vault_update_properties's Behavior section states the merge and replace rules", () => {
+    const behaviorSection = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
+      startMarker: "Behavior:",
+      endMarker: "\n\nErrors:",
+    })
+    expect(behaviorSection).toBe(
+      [
+        "Behavior:",
+        "- By default properties merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. Arrays are replaced entirely, not appended to.",
+        "- With replace: true the whole properties block is replaced: here null writes a property with no value, and {} removes the whole block.",
+      ].join("\n"),
     )
   })
 
@@ -1462,6 +1497,40 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
         endMarker: " created is omitted",
       }),
     }).toEqual(expectedWording)
+  })
+})
+
+describe("vault_search result cap", () => {
+  const LAG_SENTENCE = "Behavior: Results can lag a file change by a few seconds."
+
+  it.each([
+    {
+      label: "bounds both modes for notes and files by default",
+      env: {},
+      expectedLine: `${LAG_SENTENCE} When only keyword matching ran (search_mode "fts"), at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files.`,
+    },
+    {
+      label: "bounds both modes for notes only when file tools are off",
+      env: { FILE_TOOLS_ENABLED: "false" },
+      expectedLine: `${LAG_SENTENCE} When only keyword matching ran (search_mode "fts"), at most 100 notes come back; with "hybrid", at most 200 notes.`,
+    },
+    {
+      label: "states only the keyword bound for notes and files when embeddings are off",
+      env: { EMBEDDING_ENABLED: "false" },
+      expectedLine: `${LAG_SENTENCE} At most 100 notes and 100 files come back.`,
+    },
+    {
+      label: "states only the keyword bound for notes when embeddings and file tools are off",
+      env: { EMBEDDING_ENABLED: "false", FILE_TOOLS_ENABLED: "false" },
+      expectedLine: `${LAG_SENTENCE} At most 100 notes come back.`,
+    },
+  ])("$label", ({ env, expectedLine }) => {
+    const behaviorLine = findDescriptionLine({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_SEARCH,
+      linePrefix: "Behavior: ",
+    })
+    expect(behaviorLine).toBe(expectedLine)
   })
 })
 
@@ -3834,6 +3903,32 @@ describe("DISABLED_TOOLS", () => {
       )
     },
   )
+
+  it("vault_move_note's when-to-use leaves no empty line when every routing tool is disabled", () => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({
+        DISABLED_TOOLS: "vault_write_note,vault_patch_note,vault_update_properties",
+      }),
+      toolName: TOOL_NAMES.VAULT_MOVE_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nParameters:",
+    })
+    expect(whenToUse).toBe(
+      "When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.",
+    )
+  })
+
+  it("vault_update_properties's when-to-use leaves no empty line when vault_write_note and vault_read_note are disabled", () => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: "vault_write_note,vault_read_note" }),
+      toolName: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
+      startMarker: "When to use:",
+      endMarker: "\n\nBehavior:",
+    })
+    expect(whenToUse).toBe(
+      "When to use: Changing tags, status, type, or any property without reading/rewriting the full note body.",
+    )
+  })
 
   const PATCH_NOTE_WHEN_TO_USE =
     "When to use: Modifying part of an existing note without overwriting the entire body."
