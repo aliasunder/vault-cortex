@@ -94,6 +94,7 @@ const startHarness = async ({
   // the destructuring default and silently test the wrong thing.
   vaultNameUnset = false,
   publicUrlUnset = false,
+  forwardedHeaderTrusted = false,
   hostingPlatform,
 }: {
   api?: ApiScript
@@ -102,6 +103,7 @@ const startHarness = async ({
   savedLoginRejected?: boolean
   vaultNameUnset?: boolean
   publicUrlUnset?: boolean
+  forwardedHeaderTrusted?: boolean
   hostingPlatform?: HostingPlatform
 } = {}): Promise<Harness> => {
   const vaultName = vaultNameUnset ? undefined : "Notes"
@@ -137,7 +139,7 @@ const startHarness = async ({
       obsidianApiBaseUrl: fakeApi.baseUrl,
       savedLoginRejected,
       hostingPlatform,
-      trustForwardedHops: 0,
+      trustForwardedHops: forwardedHeaderTrusted ? 1 : 0,
       onSetupComplete,
       logger: recordingLogger(logs),
     }),
@@ -320,6 +322,38 @@ describe("POST /setup — MCP token gate", () => {
 
     expect(statuses).toEqual([401, 401, 401, 401, 401, 429])
     expect(harness.logs.at(-1)?.message).toBe("setup_rate_limited")
+  })
+
+  // A /56 spans the first three groups and the top byte of the fourth, so
+  // 2001:db8:0:ff::6 shares the budget of 2001:db8::1 and 2001:db8:0:100::1
+  // does not.
+  it("keys IPv6 clients by their /56, so rotating addresses inside it shares one budget", async () => {
+    const harness = await startHarness({ forwardedHeaderTrusted: true })
+    const addresses = [
+      "2001:db8::1",
+      "2001:db8::2",
+      "2001:db8::3",
+      "2001:db8::4",
+      "2001:db8::5",
+      "2001:db8:0:ff::6",
+      "2001:db8:0:100::1",
+    ]
+
+    const statuses: number[] = []
+    for (const address of addresses) {
+      const response = await fetch(`${harness.baseUrl}/setup`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          forwarded: `for="[${address}]"`,
+        },
+        body: new URLSearchParams({ ...CREDENTIALS, token: "wrong" }),
+      })
+      await response.text()
+      statuses.push(response.status)
+    }
+
+    expect(statuses).toEqual([401, 401, 401, 401, 401, 429, 401])
   })
 })
 

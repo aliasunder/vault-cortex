@@ -234,8 +234,8 @@ Sync client accepts:
   accounts from the server's address. The two-factor step is tied to that
   check by a random single-use id that only a token-checked sign-in
   receives
-- **Rate-limited** — 5 requests per minute per client IP, the same budget
-  as the OAuth endpoints
+- **Rate-limited** — 5 requests per minute per client IP (an IPv6 client
+  by its /56), the same budget as the OAuth endpoints
 - **Credentials are never stored or logged** — the Obsidian email and
   password go to Obsidian's API once; for a two-factor account they wait
   in memory for the code (5-minute expiry, single use) and are never
@@ -252,6 +252,21 @@ Sync client accepts:
   static page; changing accounts goes through `OBSIDIAN_AUTH_TOKEN`
 - **Plain-HTTP warning** — the page tells the owner when it was served
   without HTTPS from a non-local address, since the form carries a password
+
+### OAuth consent requests
+
+`/authorize` needs no sign-in, so the consent requests it holds in memory
+while the owner decides are bounded:
+
+- **Expire** — after 10 minutes; each new request first removes the
+  expired ones
+- **Size-capped** — parameters over 8 KB of JSON are refused with
+  `invalid_request`, and a held request keeps its client's ID, not a copy
+  of the registration
+- **Rate-limited** — 5 requests per minute per client IP (an IPv6 client
+  by its /56). The rate limit is what bounds how many requests are held,
+  so it is only as strong as the client IP: set `TRUST_PROXY_HOPS` and
+  `TRUST_FORWARDED_HOPS` above 0 only for a proxy that writes those headers
 
 ### Symlink safety
 

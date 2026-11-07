@@ -2,6 +2,7 @@
 
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
+import { ipKeyGenerator } from "express-rate-limit"
 import { createOAuthMetadata, mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
@@ -48,12 +49,15 @@ export const createOAuthRoutes = ({
   const rateLimit = {
     windowMs: 60 * 1000,
     max: 5,
-    // Bucket by client IP via extractClientIp: when the Forwarded header
-    // is trusted (trustForwardedHops > 0), the resolved client IP is the
-    // key — the library default (req.ip) would merge every client into a
-    // single gateway-egress bucket. Elsewhere req.ip, governed by the
-    // server's trust-proxy hop count, is the key.
-    keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHops),
+    // The key is the client IP from extractClientIp:
+    // - With the Forwarded header trusted (trustForwardedHops > 0), it is
+    //   the resolved visitor. The library default (req.ip) would put every
+    //   client in one bucket, the gateway's egress address.
+    // - Otherwise it is req.ip, set by the server's trust-proxy hop count.
+    // - ipKeyGenerator keys an IPv6 address by its /56, as the library
+    //   default does. One host often holds a /64 and could otherwise rotate
+    //   through its addresses for a fresh budget on every request.
+    keyGenerator: (req: Request) => ipKeyGenerator(extractClientIp(req, trustForwardedHops)),
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).
@@ -75,6 +79,16 @@ export const createOAuthRoutes = ({
 
   const scopesSupported = [DEFAULT_SCOPE]
 
+  // The same derivation the provider mints tokens from, so metadata and
+  // tokens can't disagree.
+  const { issuer, audience } = tokenBindingForServer(serverUrl)
+  const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
+    resource: audience,
+    authorization_servers: [issuer],
+    scopes_supported: scopesSupported,
+    resource_documentation: new URL(serviceDocumentationUrl).href,
+  }
+
   // A second, path-suffixed metadata mount, separate from the SDK's root
   // document:
   // - RFC 9728 §3.1: a metadata document's `resource` must equal the
@@ -85,19 +99,12 @@ export const createOAuthRoutes = ({
   //   the route and break every client that discovers via the root form.
   // - The SDK's own metadataHandler serves it, so CORS/OPTIONS/405
   //   behavior matches the root route.
-
-  // The same derivation the provider mints tokens from, so metadata and
-  // tokens can't disagree.
-  const { issuer, audience } = tokenBindingForServer(serverUrl)
-  const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
-    resource: audience,
-    authorization_servers: [issuer],
-    scopes_supported: scopesSupported,
-    resource_documentation: new URL(serviceDocumentationUrl).href,
-  }
   router.use("/.well-known/oauth-protected-resource/mcp", metadataHandler(mcpResourceMetadata))
 
-  // The SDK includes public-client auth, but our registrations require a secret.
+  // This document replaces the SDK's own:
+  // - The SDK includes public-client auth, but our registrations require a secret.
+  // - mcpAuthRouter below serves this path too. Express answers with the first
+  //   matching route, so mounting this one first makes it the one clients get.
   router.use(
     "/.well-known/oauth-authorization-server",
     metadataHandler({
@@ -176,10 +183,10 @@ export const createOAuthRoutes = ({
       // terminal: a 64-character token wraps across lines in a narrow
       // terminal, and selecting it captures the wrap as an embedded
       // newline (plus possible leading/trailing spaces). A valid
-      // MCP_AUTH_TOKEN never contains whitespace, so stripping it is safe
-      // and keeps the consent flow forgiving — mirroring the trim()
-      // already applied to bearer-header auth in parseBearer().
-      const submittedToken = token?.replace(/\s+/g, "") ?? ""
+      // MCP_AUTH_TOKEN never contains whitespace, so stripping all of it is
+      // safe and keeps the consent flow forgiving. parseBearer() trims only
+      // the ends of a bearer header, which carries no line wrap.
+      const submittedToken = token.replace(/\s+/g, "")
 
       if (!submittedToken || !safeEqual(submittedToken, authToken)) {
         consentLogger.warn("oauth_consent_bad_token")
