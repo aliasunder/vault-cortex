@@ -1850,7 +1850,7 @@ describe("OAuth resource parameter (RFC 8707)", () => {
   })
 })
 
-describe("OAuth default scope", () => {
+describe("OAuth vault scope", () => {
   const GRANT_ROW_VALUE =
     '<div class="value">Everything this server\'s tools can do in your vault</div>'
 

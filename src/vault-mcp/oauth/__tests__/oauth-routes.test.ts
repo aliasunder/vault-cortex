@@ -325,7 +325,9 @@ describe("OAuth consent body validation", () => {
       expectedStatus: 400,
     },
     {
-      // The body exceeds express.urlencoded's default 100 KB limit.
+      // The body exceeds express.urlencoded's default 100 KB limit. This router
+      // alone answers the parser's 413; the full server's error middleware
+      // turns the same error into a 500, and no-store holds either way.
       label: "form parser's 413 for an oversized form",
       body: `request_id=a&token=${"t".repeat(200 * 1024)}&action=approve`,
       expectedStatus: 413,

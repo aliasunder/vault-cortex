@@ -194,7 +194,7 @@ const refresh = ({
 // ── Consent page response headers ──────────────────────────────
 
 describe("consent page response headers", () => {
-  it("serves the consent page with the security headers and without X-Powered-By", async () => {
+  it("serves the consent page with the security headers, not cacheable and without X-Powered-By", async () => {
     const port = await freePort()
     const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
     onTestFinished(() => server.cleanup())
@@ -206,6 +206,7 @@ describe("consent page response headers", () => {
     expect(response.status).toBe(200)
     expect(await response.text()).toContain("<h1>Authorize access</h1>")
     expect(readSecurityHeaders(response)).toEqual(EXPECTED_SECURITY_HEADERS)
+    expect(response.headers.get("cache-control")).toBe("no-store")
   })
 })
 
