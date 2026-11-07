@@ -457,8 +457,9 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
   const entryNotFoundRemedy = isToolEnabled("vault_get_memory")
     ? "verify the exact text with vault_get_memory(file, section)"
     : "check entry's letter case and spacing"
-  // A PROTECTED_PATHS override replaces the default list, so the memory
-  // folder is protected only without one
+
+  // A PROTECTED_PATHS override replaces the default list and may leave out the
+  // memory folder, so the description names that folder only without an override
   const memoryFolderProtectedClause = config.protectedPathsOverride
     ? ""
     : `, ${config.memoryDir}/ among them`
