@@ -208,6 +208,30 @@ describe("consent page response headers", () => {
     expect(readSecurityHeaders(response)).toEqual(EXPECTED_SECURITY_HEADERS)
     expect(response.headers.get("cache-control")).toBe("no-store")
   })
+
+  it("answers an oversized consent form with a 500 that is not cacheable", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(() => server.cleanup())
+
+    // The body exceeds express.urlencoded's default 100 KB limit, and the
+    // server's error middleware answers the parser's error.
+    const response = await fetch(`http://127.0.0.1:${port}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `request_id=a&token=${"t".repeat(200 * 1024)}&action=approve`,
+    })
+
+    expect({
+      status: response.status,
+      cacheControl: response.headers.get("cache-control"),
+      body: await response.json(),
+    }).toEqual({
+      status: 500,
+      cacheControl: "no-store",
+      body: { error: "internal server error" },
+    })
+  })
 })
 
 // ── Expired access token challenge ─────────────────────────────
