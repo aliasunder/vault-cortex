@@ -86,26 +86,27 @@ const EMBEDDED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["canvas", "pdf", "te
 const MAX_INDEXED_CONTENT_BYTES = 102_400
 
 /** An HTML page larger than this is indexed by its name only, like a scanned
- *  PDF. Extracting its text runs on the main thread, and attribute-heavy pages
- *  at 16 MiB already took up to 1.7 s, close to the 2-second point at which
- *  this server moves a parser to a worker thread. */
+ *  PDF. Extracting its text runs on the main thread, which answers no request
+ *  meanwhile, and attribute-heavy pages at 16 MiB already took up to 1.7 s. */
 const MAX_INDEXED_HTML_PAGE_BYTES = 16 * 1024 * 1024
 
-/** The text file_content_fts holds for a file, from the file's own text: a
- *  canvas's outline, an HTML page's visible text, and every other kind as
- *  it arrives. */
-const rawContentToIndexedText = (params: {
+/** The text file_content_fts holds for a file, built from the text its reader
+ *  supplies:
+ *  - a canvas's JSON becomes its outline;
+ *  - an HTML page's source becomes its visible text;
+ *  - every other kind, a PDF's extracted text included, is indexed as supplied. */
+const fileTextToIndexedText = (params: {
   filePath: string
-  rawContent: string
+  fileText: string
   fileBytes: number
 }): string => {
   switch (getFileKind(params.filePath)) {
     case "canvas":
-      return linearizeCanvas(params.rawContent)
+      return linearizeCanvas(params.fileText)
     case "html":
       if (params.fileBytes > MAX_INDEXED_HTML_PAGE_BYTES) return ""
       return extractHtmlVisibleText({
-        html: params.rawContent,
+        html: params.fileText,
         maxBytes: MAX_INDEXED_CONTENT_BYTES,
       })
     case "image":
@@ -113,7 +114,7 @@ const rawContentToIndexedText = (params: {
     case "text":
     case "script":
     case "other":
-      return params.rawContent
+      return params.fileText
   }
 }
 
@@ -503,6 +504,7 @@ export const createSearchIndex = (
       body_tags   TEXT NOT NULL DEFAULT '[]'
     );
 
+    -- path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
       path UNINDEXED, title, content, metadata, tokenize='porter unicode61'
     );
@@ -569,7 +571,6 @@ export const createSearchIndex = (
       file_identity  TEXT
     );
   `)
-  // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
   // ── Vector tables (embedding pipeline) ────────────────────────
   // Created only when an embedder is provided — otherwise the search index
@@ -1208,20 +1209,21 @@ export const createSearchIndex = (
    *  links.resolve's three-tier strategy but checks against non_md_files
    *  instead of the notes table.
    *
-   *  Resolution tiers are grouped into two families by what they match
-   *  against: the full-filename family queries the path column as-is, and
-   *  the stem family queries the extension-stripped base_path/basename
-   *  columns. The full-filename family runs first. The families are
-   *  NOT disjoint: a multi-dot filename's stem retains its inner dots
-   *  ("photo.png.canvas" → base_path "photo.png"), so a with-extension target
-   *  can stem-match a different file. Family ordering makes the full-filename
-   *  match win ("photo.png" prefers a/photo.png), while the stem tiers remain
-   *  the fallback so [[photo.png]] with only photo.png.canvas in the vault
-   *  still resolves — mirroring Obsidian's [[Trip Route]] → Trip Route.canvas
-   *  stem matching. An extensionless target can match in both families: the
-   *  full-filename tiers hit an extensionless file (LICENSE, Dockerfile) by
-   *  exact path or path suffix, and the stem tiers hit any file whose
-   *  extension-stripped name matches. */
+   *  Resolution tiers fall into two families by what they match against, and
+   *  the full-filename family runs first:
+   *  - The full-filename family queries the path column as-is.
+   *  - The stem family queries the extension-stripped base_path/basename
+   *    columns.
+   *  - One target can match in both families. A multi-dot filename's stem
+   *    keeps its inner dots ("photo.png.canvas" → base_path "photo.png"), so
+   *    [[photo.png]] can stem-match a different file. Running full-filename
+   *    first makes it prefer a/photo.png, and the stem tiers still resolve it
+   *    when only photo.png.canvas exists, as Obsidian's
+   *    [[Trip Route]] → Trip Route.canvas stem matching does.
+   *  - An extensionless target can match in both too: the full-filename tiers
+   *    hit an extensionless file (LICENSE, Dockerfile) by exact path or path
+   *    suffix, and the stem tiers hit any file whose extension-stripped name
+   *    matches. */
   const resolveNonMarkdownFile = (params: {
     target: string
     sourcePath?: string
@@ -1310,8 +1312,9 @@ export const createSearchIndex = (
       const relativeTarget = posix.join(posix.dirname(link.source), link.target)
       const targetSuffix = `/${link.target.toLowerCase()}`
 
-      // This broad suffix check includes SQLite LIKE's ASCII case folding;
-      // the resolver remains authoritative for match ordering and exact case.
+      // toLowerCase folds every letter, while SQLite's LIKE folds only ASCII
+      // letters, so this suffix check keeps every link the resolver's LIKE
+      // queries could match. The resolver then decides the match and its case.
       const matchesFullFilename =
         filePath === link.target ||
         filePath === relativeTarget ||
@@ -1364,15 +1367,12 @@ export const createSearchIndex = (
   ): symbol => {
     const extension = posix.extname(params.filePath)
     const isCanvas = isCanvasPath(params.filePath)
-    const contentToIndex = rawContentToIndexedText({
+    const contentToIndex = fileTextToIndexedText({
       filePath: params.filePath,
-      rawContent: params.rawContent,
+      fileText: params.rawContent,
       fileBytes: params.fileStat.size,
     })
 
-    // Truncate content exceeding the FTS cap — iterates Unicode code points
-    // and accumulates UTF-8 byte length so the cap is enforced in bytes
-    // without splitting multi-byte characters at the boundary.
     const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
     const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
     const truncatedContent = needsTruncation
@@ -2339,15 +2339,15 @@ export const createSearchIndex = (
     })
     const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
     const canvasFiles = allNonMdFiles.filter((file) => isCanvasPath(file.relativePath))
-    // PDF and text files are only read when file content FTS is enabled —
-    // without the tables, the extraction is wasted I/O.
+    // PDF, text, HTML and script files are only read when file content FTS is
+    // enabled — without the tables, the extraction is wasted I/O.
     const pdfFiles = fileToolsEnabled
       ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "pdf")
       : []
     const textFiles = fileToolsEnabled
       ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "text")
       : []
-    const sourceFiles = fileToolsEnabled
+    const htmlAndScriptFiles = fileToolsEnabled
       ? allNonMdFiles.filter((file) => {
           const fileKind = getFileKind(file.relativePath)
           return fileKind === "html" || fileKind === "script"
@@ -2420,7 +2420,8 @@ export const createSearchIndex = (
     })
     const pdfContents = pdfResults.filter((entry) => entry !== null)
 
-    // Read text files for content indexing (raw UTF-8).
+    // Text formats decode leniently, so a text file with a stray invalid byte
+    // or NUL padding still indexes; HTML pages and scripts get the strict check below.
     const textFileContentResults = await mapWithConcurrency({
       items: textFiles,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
@@ -2431,18 +2432,18 @@ export const createSearchIndex = (
     /** Reads an HTML page or script as bytes and keeps it only when the bytes
      *  are UTF-8 with no NUL byte early on, the test vault_read_file applies,
      *  so search never holds text that a read refuses. */
-    const readDecodedSourceFile = async (
+    const readHtmlOrScriptFile = async (
       file: RebuildFilePaths,
     ): Promise<RebuildFileContent | null> => {
       // Decoding throws on text longer than V8's string limit, so it shares the
       // read's try, and one such file is skipped rather than failing the rebuild.
-      const readSource = async () => {
+      const readDecodedFile = async () => {
         try {
           const [buffer, fileStat] = await Promise.all([
             readFile(file.absolutePath),
             stat(file.absolutePath),
           ])
-          return { decodedSource: decodeTextBuffer(buffer), fileStat }
+          return { decodedText: decodeTextBuffer(buffer), fileStat }
         } catch (error) {
           logger.warn("skipped unreadable file during rebuild", {
             path: file.relativePath,
@@ -2451,35 +2452,35 @@ export const createSearchIndex = (
           return null
         }
       }
-      const source = await readSource()
+      const decodedFile = await readDecodedFile()
 
-      if (!source) return null
+      if (!decodedFile) return null
 
-      const { decodedSource } = source
+      const { decodedText, fileStat } = decodedFile
 
-      switch (decodedSource.status) {
+      switch (decodedText.status) {
         case "text":
           return {
             relativePath: file.relativePath,
-            content: decodedSource.text,
-            modifiedAtMs: source.fileStat.mtimeMs,
-            sizeBytes: source.fileStat.size,
+            content: decodedText.text,
+            modifiedAtMs: fileStat.mtimeMs,
+            sizeBytes: fileStat.size,
           }
         case "binary":
         case "invalid-utf8":
           logger.debug("left a file that is not UTF-8 text out of the index", {
             path: file.relativePath,
-            decodeStatus: decodedSource.status,
+            decodeStatus: decodedText.status,
           })
           return null
       }
     }
-    const sourceContentResults = await mapWithConcurrency({
-      items: sourceFiles,
+    const htmlAndScriptContentResults = await mapWithConcurrency({
+      items: htmlAndScriptFiles,
       concurrency: INDEXING_FILE_READ_CONCURRENCY,
-      mapper: readDecodedSourceFile,
+      mapper: readHtmlOrScriptFile,
     })
-    const sourceContents = sourceContentResults.filter((entry) => entry !== null)
+    const htmlAndScriptContents = htmlAndScriptContentResults.filter((entry) => entry !== null)
 
     const noteContentResults = await mapWithConcurrency({
       items: markdownFiles,
@@ -2625,7 +2626,7 @@ export const createSearchIndex = (
           ...canvasContents,
           ...pdfContents,
           ...textFileContents,
-          ...sourceContents,
+          ...htmlAndScriptContents,
         ]
         for (const fileEntry of allFileContents) {
           try {

@@ -321,7 +321,7 @@ export const fileContentRowToSearchResult = (
   folder: row.folder,
   type: null,
   kind: "file",
-  // Lowercased, as vault_list_files reports it
+  // Lowercased like vault_list_files' extension, and absent for a file with none
   extension: posix.extname(row.path).toLowerCase() || undefined,
   modified: storedMtimeToIso(row.mtime),
   bytes: row.bytes,

@@ -34,13 +34,13 @@ import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
  *  100ms, which stat()s the whole tree 10×/sec; 300ms meaningfully cuts CPU, and
  *  re-index latency is already governed by the 2000ms awaitWriteFinish window, so
  *  the perceived cost is negligible. */
-const POLLING_INTERVAL_MS = 300
+const FILESYSTEM_POLLING_INTERVAL_MS = 300
 
 /** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
 const DEFAULT_STABILITY_THRESHOLD_MS = 2000
 
 /** Default for FileWatcherOptions.pollInterval. */
-const DEFAULT_POLL_INTERVAL_MS = 100
+const DEFAULT_WRITE_FINISH_POLL_INTERVAL_MS = 100
 
 /**
  * Default for FileWatcherOptions.heldChangesDeadline. The server starts
@@ -182,7 +182,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
   let watcherState: WatcherState = { mode: "holding", heldPaths: new Map() }
 
   /** Indexes an added or modified non-md file: its asset-table row, plus its
-   *  content when it is a canvas or an indexable text or PDF file. */
+   *  content when it is a canvas or, with file content indexing on, a PDF,
+   *  text file, HTML page or script. */
   const indexChangedNonMdFile = async (params: {
     filePath: string
     relativePath: string
@@ -254,6 +255,9 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
               if (decodedSource.status !== "text") return null
               return decodedSource.text
             }
+            // Canvases and text formats decode leniently, so a stray invalid byte
+            // or NUL padding keeps them in search. Images and other files never
+            // reach this switch: the guard above reads only the kinds search indexes.
             case "canvas":
             case "text":
             case "image":
@@ -387,8 +391,8 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
       // Parsed before the second token check, with no await between that check
       // and the write, so a delete or newer event that lands during a slow parse wins.
-      // An aborted parse resolves "dropped", but every abort comes with such an
-      // event, so that check discards it
+      // An aborted parse resolves with outcome "dropped", but every abort comes
+      // with such an event, so that check discards it
       const parseResult = await parseNoteBodyTags(content)
 
       if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
@@ -617,12 +621,12 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     // interval only drives chokidar's polling backend. Pass it only when
     // polling, so we never depend on how chokidar treats an interval set
     // without usePolling (today it's ignored — a future release needn't be).
-    ...(watcherOptions?.usePolling ? { interval: POLLING_INTERVAL_MS } : {}),
+    ...(watcherOptions?.usePolling ? { interval: FILESYSTEM_POLLING_INTERVAL_MS } : {}),
     // Obsidian Sync writes files in chunks — wait for write stability before
     // indexing to avoid reading partial content
     awaitWriteFinish: {
       stabilityThreshold,
-      pollInterval: watcherOptions?.pollInterval ?? DEFAULT_POLL_INTERVAL_MS,
+      pollInterval: watcherOptions?.pollInterval ?? DEFAULT_WRITE_FINISH_POLL_INTERVAL_MS,
     },
   })
 

@@ -72,7 +72,7 @@ const ignoreToken = (): void => {}
  * comments dropped, entities decoded, one line per block element, and every
  * other run of whitespace collapsed to one space.
  * - Reading stops once the text reaches `maxBytes` of UTF-8, so the result can
- *   run past it by up to one text section; the caller cuts it to size.
+ *   run past it by up to the text between two tags; the caller cuts it to size.
  * - The tokenizer keeps no element stack, so unclosed tags cost no more than
  *   closed ones and the time stays linear in the page's size.
  * - A hidden element ends only at a closing tag with its own name, so a stray
@@ -94,6 +94,7 @@ export const extractHtmlVisibleText = (params: { html: string; maxBytes: number 
     textParts.push(text)
     textBytes += Buffer.byteLength(text, "utf8")
 
+    // emit runs only inside tokenizer.write below, so `tokenizer` exists by then
     if (textBytes >= maxBytes) tokenizer.pause()
   }
 
@@ -102,15 +103,21 @@ export const extractHtmlVisibleText = (params: { html: string; maxBytes: number 
 
     const collapsedText = text.replace(WHITESPACE_RUN, " ")
     const words = collapsedText.trim()
+    const hasLeadingGap = collapsedText.startsWith(" ")
+    const hasTrailingGap = collapsedText.endsWith(" ")
 
     if (!words) {
-      spaceOwed = spaceOwed || collapsedText === " "
+      // Text that is only whitespace still separates the words around it
+      if (hasLeadingGap) spaceOwed = true
       return
     }
-    if (!atLineStart && (spaceOwed || collapsedText.startsWith(" "))) emit(" ")
+
+    const needsSpaceBefore = !atLineStart && (spaceOwed || hasLeadingGap)
+
+    if (needsSpaceBefore) emit(" ")
     emit(words)
     atLineStart = false
-    spaceOwed = collapsedText.endsWith(" ")
+    spaceOwed = hasTrailingGap
   }
 
   const breakLine = (): void => {
@@ -168,8 +175,8 @@ export const extractHtmlVisibleText = (params: { html: string; maxBytes: number 
 
   tokenizer.write(html)
 
-  // A paused tokenizer has stopped reading at the cap, and ending it would
-  // read on through the rest of the page.
+  // pause() clears `running`, so only a page read to its end is ended. Ending
+  // emits the text the tokenizer still holds there, such as an unfinished entity.
   if (tokenizer.running) tokenizer.end()
   return textParts.join("").trimEnd()
 }

@@ -40,7 +40,7 @@ import type { Logger } from "../../logger.js"
  *  limit. Deliberately not an env var — the image budget is the tunable
  *  surface; text past this size is read in line windows, not raised into a
  *  bigger blob. */
-const MAX_TEXT_OUTPUT_BYTES = 102_400
+export const MAX_TEXT_OUTPUT_BYTES = 102_400
 
 type RenderedPdfPage = Readonly<{
   fitted: FittedImage
@@ -88,14 +88,27 @@ const requestsLineWindow = (params: {
 
 /** Rejects text output past the fixed cap — an explicit error beats silent
  *  truncation, and states the actual size so the caller knows what exists. */
-const assertTextWithinCap = (params: { text: string; path: string }): void => {
-  const textBytes = Buffer.byteLength(params.text, "utf8")
+const assertTextWithinCap = (params: {
+  text: string
+  path: string
+  lineWindow?: LineWindow | undefined
+}): void => {
+  const { text, path, lineWindow } = params
+  const textBytes = Buffer.byteLength(text, "utf8")
 
   if (textBytes <= MAX_TEXT_OUTPUT_BYTES) return
+
+  const renderedSubject = lineWindow
+    ? `"${path}" lines ${lineWindow.startLine}–${lineWindow.endLine} render`
+    : `"${path}" renders`
   throw new Error(
-    `text output too large: "${params.path}" renders to ${textBytes} bytes ` +
+    `text output too large: ${renderedSubject} to ${textBytes} bytes ` +
       `(cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
   )
+}
+
+const notValidUtf8Message = (path: string): string => {
+  return `not valid UTF-8: "${path}" cannot be returned as text`
 }
 
 /**
@@ -126,59 +139,49 @@ const buildTextResult = (params: {
     limit,
   })
 
-  const windowBytes = Buffer.byteLength(windowText, "utf8")
-  const exceedsByteCap = windowBytes > MAX_TEXT_OUTPUT_BYTES
-
-  if (exceedsByteCap) {
-    throw new Error(
-      `text output too large: "${path}" lines ${lineWindow.startLine}–${lineWindow.endLine} ` +
-        `render to ${windowBytes} bytes (cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
-    )
-  }
-
+  assertTextWithinCap({ text: windowText, path, lineWindow })
   return { kind: "text", text: windowText, path, lineWindow }
 }
 
 /** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — text
  *  is promised verbatim, and the default decoder would silently substitute
- *  U+FFFD for every undecodable byte instead. */
+ *  U+FFFD for every undecodable byte instead. Unlike decodeTextBuffer, it
+ *  accepts NUL bytes. */
 const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer)
   } catch (error) {
-    throw new Error(`not valid UTF-8: "${params.path}" cannot be returned as text`, {
-      cause: error,
-    })
+    throw new Error(notValidUtf8Message(params.path), { cause: error })
   }
 }
+
+type ReadAsset = Readonly<{ buffer: Buffer; bytes: number; extension: string }>
 
 /** Builds the text result for a file outside the dedicated types (HTML pages,
  *  scripts, files with no extension), refusing binary data and bytes that are
  *  not UTF-8. */
 const buildUtf8SourceResult = (params: {
-  buffer: Buffer
-  bytes: number
-  extension: string
+  asset: ReadAsset
   path: string
   startLine?: number | undefined
   limit?: number | undefined
 }): AssetReadResult => {
-  const { path, startLine, limit } = params
-  const decodedSource = decodeTextBuffer(params.buffer)
+  const { asset, path, startLine, limit } = params
+  const decodedSource = decodeTextBuffer(asset.buffer)
 
   switch (decodedSource.status) {
     case "text":
       return buildTextResult({ text: decodedSource.text, path, startLine, limit })
     case "binary":
       throw new Error(
-        `unsupported file type "${params.extension}": "${path}" exists ` +
-          `(${params.bytes} bytes) and holds a NUL byte in its first ` +
+        `unsupported file type "${asset.extension}": "${path}" exists ` +
+          `(${asset.bytes} bytes) and holds a NUL byte in its first ` +
           `${NUL_SEARCH_WINDOW_BYTES.toLocaleString("en-US")} bytes (binary data or UTF-16 text). ` +
           `Readable types: images (${getExtensionsOfKind("image").join("/")}), .canvas, .pdf, ` +
           `and UTF-8 text files`,
       )
     case "invalid-utf8":
-      throw new Error(`not valid UTF-8: "${path}" cannot be returned as text`)
+      throw new Error(notValidUtf8Message(path))
   }
 }
 
@@ -342,8 +345,6 @@ const readPdfPages = async (
   }
 }
 
-type ReadAsset = Readonly<{ buffer: Buffer; bytes: number }>
-
 /** Images have no raw source or line range, because the fitted image block is
  *  the only form delivered. */
 const readImageAsset = async (params: {
@@ -500,14 +501,7 @@ const readAssetContent = async (
     case "html":
     case "script":
     case "other":
-      return buildUtf8SourceResult({
-        buffer: asset.buffer,
-        bytes: asset.bytes,
-        extension: asset.extension,
-        path,
-        startLine,
-        limit,
-      })
+      return buildUtf8SourceResult({ asset, path, startLine, limit })
   }
 }
 

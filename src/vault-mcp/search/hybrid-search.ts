@@ -91,7 +91,7 @@ const vectorSearch = (
   params: {
     query: string
     queryEmbeddingBuffer: Buffer
-    limit: number
+    chunkLimit: number
     folderPathPattern: string | undefined
     noteFilterSql: NoteFilterSql
   },
@@ -102,8 +102,8 @@ const vectorSearch = (
   if (!knnSearchStmt || !knnSearchInFolderStmt) return []
 
   // sqlite-vec picks its k rows before ORDER BY sorts them. With k at twice the limit, ties at
-  // `slice(0, params.limit)` below sort by path. A tie that runs past row k keeps scan order.
-  const overFetchedK = params.limit * 2
+  // `slice(0, params.chunkLimit)` below sort by path. A tie that runs past row k keeps scan order.
+  const overFetchedK = params.chunkLimit * 2
 
   const readNoteVectorRows = (): VectorHitRow[] => {
     // KNN sees only chunks of notes that pass every filter, so excluded notes can't take all k
@@ -145,7 +145,7 @@ const vectorSearch = (
 
   try {
     const overFetchedNoteRows = readNoteVectorRows()
-    const noteKnnRows = overFetchedNoteRows.slice(0, params.limit)
+    const noteKnnRows = overFetchedNoteRows.slice(0, params.chunkLimit)
 
     // Deduplicate to best chunk per note — rows are ordered by distance
     // ascending, so the first occurrence of each path is the closest match.
@@ -182,7 +182,7 @@ const fileContentVectorSearch = (
   params: {
     query: string
     queryEmbeddingBuffer: Buffer
-    limit: number
+    chunkLimit: number
     folderPathPattern: string | undefined
   },
   logger: Logger,
@@ -192,7 +192,7 @@ const fileContentVectorSearch = (
 
   try {
     // Fetch twice the limit so ties sort by path, as in vectorSearch.
-    const overFetchedK = params.limit * 2
+    const overFetchedK = params.chunkLimit * 2
     const overFetchedFileRows = params.folderPathPattern
       ? knnSearchInFolderStmt.all(
           params.queryEmbeddingBuffer,
@@ -200,7 +200,7 @@ const fileContentVectorSearch = (
           params.folderPathPattern,
         )
       : knnSearchStmt.all(params.queryEmbeddingBuffer, overFetchedK)
-    const fileKnnRows = overFetchedFileRows.slice(0, params.limit)
+    const fileKnnRows = overFetchedFileRows.slice(0, params.chunkLimit)
 
     const bestChunkPerFile = new Map<string, VectorHit>()
     for (const knnRow of fileKnnRows) {
@@ -427,7 +427,7 @@ export const hybridSearch = async (
         {
           query: params.query,
           queryEmbeddingBuffer,
-          limit: candidateLimit,
+          chunkLimit: candidateLimit,
           folderPathPattern,
           noteFilterSql,
         },
@@ -444,7 +444,7 @@ export const hybridSearch = async (
           {
             query: params.query,
             queryEmbeddingBuffer,
-            limit: candidateLimit,
+            chunkLimit: candidateLimit,
             folderPathPattern,
           },
           logger,

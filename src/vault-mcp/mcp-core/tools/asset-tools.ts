@@ -2,7 +2,7 @@
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import { assetOperations } from "../../vault-operations/asset-operations.js"
+import { assetOperations, MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
@@ -100,6 +100,7 @@ export const registerAssetTools = ({
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     TOOL_NAMES.VAULT_SEARCH,
   ].every(isToolEnabled)
+  const imageExtensions = formatExtensionsOfKind("image")
   const htmlExtensions = formatExtensionsOfKind("html")
   const scriptExtensions = formatExtensionsOfKind("script")
   const textExtensions = formatExtensionsOfKind("text")
@@ -123,7 +124,7 @@ When to use: whenever a note references a file you need to actually see or read 
 
 Parameters:
 - raw: true switches a canvas or PDF to its other form. A canvas returns its exact JSON source (geometry, ids, colors) instead of the outline. A PDF returns each page rendered as an image instead of extracted text, showing layout, diagrams, tables, and formatting; only the first ${config.maxPdfRenderPages} pages are rendered, and later pages are readable only as text, without raw.
-- start_line and limit page any text result as a line window. The text output cap (a fixed 100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap.
+- start_line and limit page any text result as a line window. The text output cap (a fixed ${MAX_TEXT_OUTPUT_BYTES / 1024} KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap.
 
 Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text file returns the file byte-exact.
 
@@ -148,7 +149,7 @@ ${FILESYSTEM_ERROR_ENTRY}
 - "unsupported file type …" — the file holds binary data (audio, archives, UTF-16 text, …); the error names the readable types plus the file's existence and size. Ask for a UTF-8 copy of UTF-16 text
 
 Returns: by file type:
-- Images (.png/.jpg/.jpeg/.gif/.webp): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels; an animated GIF is reduced to its first frame when recompressed.
+- Images (${imageExtensions}): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels; an animated GIF is reduced to its first frame when recompressed.
 - Canvas (.canvas): one text block holding a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
 - PDFs (.pdf): one text block of structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer; with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page).
 - Any other UTF-8 text file (.svg, .json, .csv, .html, .py, no extension, …): one text block holding the file content verbatim.`,
@@ -259,7 +260,7 @@ ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).${whenToolEnabledText(
         "vault_read_file",
-        "\n\nReadable types: vault_read_file reads images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and any UTF-8 text file.",
+        `\n\nReadable types: vault_read_file reads images (${imageExtensions}), .canvas, .pdf, and any UTF-8 text file.`,
       )}`,
       inputSchema: {
         folder: z

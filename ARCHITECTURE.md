@@ -345,7 +345,7 @@ Link queries use a `links` table populated during indexing:
 | `vault_read_file`  | `path, raw?, start_line?, limit?` | readOnlyHint |
 | `vault_list_files` | `folder?, extensions?, limit?`    | readOnlyHint |
 
-`vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF; every file-kind check in reads, indexing, the note mover and the link tools goes through it:
+`vault_read_file` reads non-markdown vault files, dispatching on the file's kind to the most useful representation per type. `obsidian-markdown/file-kinds.ts` maps the lowercased extension to a kind, so `Report.PDF` is a PDF. Reads, indexing, the note mover and the link tools take every non-markdown file's kind from it:
 
 1. **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) return an MCP `image` content block plus a one-line metadata text block: the path, the delivered format, dimensions and bytes, and, when the image was recompressed, its original dimensions and bytes. A shared fit-to-byte-budget pipeline (`utils/fit-image-to-byte-budget.ts`, built on sharp) makes oversized images deliverable: EXIF auto-orient → resize long edge to ≤1568px → walk a fixed quality ladder (JPEG via mozjpeg for opaque images, WebP for alpha — PNG has no quality knob) → shrink dimensions by √(budget/actual) if the ladder floor still exceeds the budget. Deterministic and terminating (bounded attempts, 64px floor); sharp's default `limitInputPixels` stays active as the decompression-bomb guard. The budget (`MAX_IMAGE_OUTPUT_BYTES`, default 48 KiB binary) is sized for the tightest mainstream client cap.
 2. **Canvas** (`.canvas`) linearizes to markdown via the pure `obsidian-markdown/canvas.ts` parser ([JSON Canvas 1.0](https://jsoncanvas.org)): group membership by spatial rect containment (innermost group wins; equal rects tiebreak deterministically by id), nodes in reading order (y, then x), and an edge list with node ids resolved to display names. Lenient parsing — unknown properties ignored, malformed entries skipped. `raw: true` skips the linearizer and returns the JSON source verbatim for full structural fidelity. Canvas content is also FTS-indexed (linearized text in `file_content` + `file_content_fts` tables, gated behind `FILE_TOOLS_ENABLED`) so canvas files appear in `vault_search` results with `kind: "file"`. Canvas `file`-type node references are extracted unconditionally into the `links` table for graph queries regardless of the feature gate.
@@ -378,12 +378,12 @@ Search indexes file content in the `file_content` + `file_content_fts` tables, c
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------- |
 | Canvas                       | Linearized outline; file cards also go to the link graph (see Canvas above)                                       | Yes      |
 | PDF                          | Text extracted by `obsidian-markdown/pdf.ts`; a scanned or image-only PDF has none and is found by file name only | Yes      |
-| Text formats (item 3)        | The file's UTF-8 content                                                                                          | Yes      |
+| Text formats (item 3)        | The file's content, with bytes that are not UTF-8 replaced rather than refused                                    | Yes      |
 | HTML (`.html`/`.htm`)        | The text a browser shows, from `obsidian-markdown/html.ts`; a page over 16 MiB is found by file name only         | Yes      |
 | Scripts (`.py`/`.sh`/`.ps1`) | The file's source                                                                                                 | No       |
 
-- **HTML extraction** runs htmlparser2's tokenizer, which keeps no element stack, so unclosed tags cost no more than closed ones. Hidden elements (script, style, noscript, template, and the fallback content of iframe, noembed and noframes) end only at a closing tag with their own name, so a stray closing tag never shows hidden text. Block elements become line breaks, other whitespace collapses, and reading stops at the 100 KiB cap. Extraction stays on the main thread; the 16 MiB page limit keeps its measured worst case under the 2-second bar for moving a parser to a worker.
-- **HTML pages and scripts are read as bytes** and indexed only when `utils/decode-text-buffer.ts` accepts them, the test `vault_read_file` applies, so search never holds text a read refuses. When a watched page or script stops passing it, its stored content is removed and its file row stays.
+- **HTML extraction** runs htmlparser2's tokenizer, which keeps no element stack, so unclosed tags cost no more than closed ones. Hidden elements (script, style, noscript, template, and the fallback content of iframe, noembed and noframes) end only at a closing tag with their own name, so a stray closing tag never shows hidden text. Block elements become line breaks, other whitespace collapses, and reading stops at the 100 KiB cap. Extraction stays on the main thread, and the 16 MiB page limit keeps its measured worst case under 2 seconds.
+- **HTML pages and scripts are read as bytes** and indexed only when `utils/decode-text-buffer.ts` accepts them, the test `vault_read_file` applies, so search never holds a page or script that a read refuses. When a watched page or script stops passing it, its stored content is removed and its file row stays.
 - **Scripts are searched by keyword only.** The markdown chunker reads a script's `# comment` lines as headings and turns `snake_case` names into one word, so embedding skips scripts before their text loads.
 
 **Opt-out:** File tools are opt-out: set `FILE_TOOLS_ENABLED=false` to hide `vault_read_file` and `vault_list_files`, and strip file tool references from server metadata and other tool descriptions. The `vault_get_outgoing_links` tool continues to report file links (it indexes from the links table, not the file tools). File config vars (`MAX_FILE_BYTES`, `MAX_IMAGE_OUTPUT_BYTES`, `MAX_PDF_RENDER_PAGES`) are still parsed when disabled.
@@ -536,7 +536,7 @@ When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are index
 **Indexing flow:** `rebuildFromVault` runs passes 1 and 2, then returns while pass 3 and the body-tag pass run in the background:
 
 1. **Pass 1** — index notes (FTS5 + metadata), each with the body tags stored before the rebuild
-2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
+2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text, HTML, scripts → FTS5)
 3. **Pass 3 (background)** — embed notes, then file content. Until a note's vectors exist, search finds it by keyword only
 4. **Body-tag pass (background)** — parse each note's body tags again in the body-tag worker thread and write the ones that changed (see **Body tags column**)
 
@@ -595,7 +595,7 @@ flowchart TD
     VF[Vault Files] --> RB[rebuildFromVault]
     RB --> P1[Pass 1: Index Notes\nFTS5 + metadata]
     P1 --> P2[Pass 2: Extract Links\nresolve with full path list]
-    P2 --> FC[Index File Content\ncanvas + PDF + text → FTS5]
+    P2 --> FC[Index File Content\ncanvas + PDF + text\n+ HTML + scripts → FTS5]
     FC --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
     P3 --> P3F[Embed File Content\nchunk → hash → embed → store]
     FC --> BTP[Body-Tag Pass\nparse in worker → write changed tags]
