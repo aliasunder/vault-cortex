@@ -51,8 +51,8 @@ const AUTH_CODE_TTL_S = 10 * 60
 const PENDING_REQUEST_TTL_S = 10 * 60
 // Caps the JSON size of a consent request's stored parameters. Real clients
 // send under 2 KB, and a JWT used as `state` can reach about 4 KB. Without
-// the cap, each held request could keep the 100 KB body /authorize accepts
-// without sign-in.
+// the cap, anyone could make a held request keep up to 100 KB, the default
+// body limit of the express.urlencoded parser the SDK mounts on /authorize.
 const MAX_PENDING_REQUEST_PARAMS_BYTES = 8192
 // Every rejected code gets this one message, so a code issued to another
 // client looks the same as an unknown one.
@@ -68,12 +68,12 @@ type GrantedAuthorizationParams = AuthorizationParams & { scopes: string[] }
 type PendingAuthRequest = {
   client: OAuthClientInformationFull
   params: GrantedAuthorizationParams
-  createdAt: DateTime
+  expiresAt: DateTime
 }
 
 /** A held consent request keeps the client's ID, not a parsed copy of its
- *  registration, which can run to 100 KB. Lookups load the client from the
- *  database. */
+ *  registration, which can run to the 100 KB that the SDK's express.json
+ *  parser on /register accepts. Lookups load the client from the database. */
 type StoredPendingRequest = Omit<PendingAuthRequest, "client"> & { clientId: string }
 
 type StoredAuthCode = {
@@ -224,10 +224,9 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   /** Deletes every registration older than NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
    *  that never signed in.
    *
-   *  A client that signed in is never swept. It keeps presenting its
-   *  client_id, and /authorize rejects an unknown one in the browser, where
-   *  the client never sees the error. A swept client would retry the dead ID
-   *  forever. */
+   *  A client that signed in is never swept, because a swept client would
+   *  retry its dead client_id forever. /authorize rejects an unknown ID in
+   *  the browser, where the client never sees the error. */
   private sweepNeverSignedInClients(): void {
     const issuedBefore = DateTime.now().toUnixInteger() - NEVER_SIGNED_IN_CLIENT_MAX_AGE_S
     const { changes: sweptClientCount } = this.deleteNeverSignedInClientsStmt.run(issuedBefore)
@@ -301,6 +300,8 @@ export const createOAuthProvider = ({
   const db = initDb(dbPath, oauthLogger)
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, StoredPendingRequest>()
+  // Only a consent approved with MCP_AUTH_TOKEN adds a code, so unlike
+  // pendingRequests this Map needs no purge of expired entries.
   const authCodes = new Map<string, StoredAuthCode>()
   const { issuer, audience } = tokenBindingForServer(serverUrl)
   // The root discovery document (/.well-known/oauth-protected-resource,
@@ -464,9 +465,10 @@ export const createOAuthProvider = ({
   /** Stores a refresh token under its storage key. In the same transaction:
    *  - marks the token's client as signed in, so the client sweep never
    *    deletes it;
-   *  - purges expired rows. A row is only read when its own token is
-   *    presented, so rows left by dormant clients — or made unreachable by
-   *    rotating MCP_AUTH_TOKEN — would otherwise stay forever. */
+   *  - purges expired rows from refresh_tokens and consumed_refresh_tokens.
+   *    A row in either table is only read when its own token is presented,
+   *    so rows left by dormant clients — or made unreachable by rotating
+   *    MCP_AUTH_TOKEN — would otherwise stay forever. */
   const saveRefreshToken = db.transaction(
     ({ token, clientId, scopes }: { token: string; clientId: string; scopes: string[] }): void => {
       const now = DateTime.now()
@@ -558,27 +560,24 @@ export const createOAuthProvider = ({
   const isRevoked = (token: string): boolean => Boolean(selectRevokedTokenStmt.get(token))
 
   const isPendingRequestExpired = (pending: StoredPendingRequest): boolean => {
-    return pending.createdAt.plus({ seconds: PENDING_REQUEST_TTL_S }) < DateTime.now()
+    return pending.expiresAt < DateTime.now()
   }
 
   const purgeExpiredPendingRequests = (): void => {
-    const expiredRequestIds: string[] = []
+    const pendingCountBefore = pendingRequests.size
 
-    // A Map iterates in insertion order, which is creation order, so the
-    // expired requests come first and the walk stops at the first live one.
-    // Without the early stop, each new request would walk the whole Map.
+    // A Map iterates in insertion order. authorize sets each request once,
+    // under a fresh ID, with the same TTL, so the expired requests come first
+    // and the walk stops at the first live one. Without the early stop, each
+    // new request would walk the whole Map.
     for (const [requestId, pending] of pendingRequests) {
       if (!isPendingRequestExpired(pending)) break
-      expiredRequestIds.push(requestId)
-    }
-    for (const requestId of expiredRequestIds) {
       pendingRequests.delete(requestId)
     }
+    const purgedRequestCount = pendingCountBefore - pendingRequests.size
 
-    if (expiredRequestIds.length === 0) return
-    oauthLogger.info("oauth_pending_requests_purged", {
-      purgedRequestCount: expiredRequestIds.length,
-    })
+    if (purgedRequestCount === 0) return
+    oauthLogger.info("oauth_pending_requests_purged", { purgedRequestCount })
   }
 
   // Methods below implement OAuthServerProvider from the MCP SDK.
@@ -623,7 +622,7 @@ export const createOAuthProvider = ({
       pendingRequests.set(requestId, {
         clientId: client.client_id,
         params: grantedParams,
-        createdAt: DateTime.now(),
+        expiresAt: DateTime.now().plus({ seconds: PENDING_REQUEST_TTL_S }),
       })
 
       oauthLogger.info("oauth_authorize_started", {
@@ -887,6 +886,8 @@ export const createOAuthProvider = ({
     },
   }
 
+  /** Deletes a request that has expired or whose client can no longer be
+   *  loaded, and returns undefined for it. */
   const getPendingRequest = (
     requestId: string,
     reqLogger: Logger,
@@ -902,7 +903,8 @@ export const createOAuthProvider = ({
     const { clientId, ...heldRequest } = pending
     const client = store.getClient(clientId)
 
-    // The client sweep deleted the registration after the request started.
+    // The client sweep deleted the registration after the request started,
+    // or getClient refused the row because it has no secret.
     if (!client) {
       pendingRequests.delete(requestId)
       reqLogger.info("oauth_request_client_missing", { clientId })
@@ -914,6 +916,9 @@ export const createOAuthProvider = ({
   const approveRequest = (requestId: string, reqLogger: Logger): string => {
     const pending = getPendingRequest(requestId, reqLogger)
 
+    // The consent route looked the request up earlier in the same synchronous
+    // handler, so this runs only when the TTL lapses between the two lookups.
+    // The error middleware then answers 500.
     if (!pending) {
       reqLogger.warn("oauth_consent_approve_failed", {
         reason: "no_pending_request",

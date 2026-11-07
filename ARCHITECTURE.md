@@ -808,11 +808,12 @@ value as the static token.
 - **Consent requests** — held in memory for 10 minutes while the consent page
   waits for the owner. `/authorize` needs no sign-in, so the server bounds
   what anyone can make it hold:
-  - each new request first removes the ones that expired without being
-    submitted, logged as `oauth_pending_requests_purged`;
+  - each new request first removes the held requests that have expired,
+    logged as `oauth_pending_requests_purged`;
   - a request whose parameters exceed 8 KB of JSON is refused with
     `invalid_request`, logged as `oauth_authorize_rejected`;
-  - a held request keeps its client's ID, and lookups load the registration
+  - a held request keeps its client's ID rather than a copy of the
+    registration, which can run to 100 KB, and lookups load the registration
     from the database.
 
   A restart drops them all.

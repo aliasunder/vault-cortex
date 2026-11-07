@@ -96,6 +96,8 @@ export const createSetupRoutes = ({
     const remainingMs = expiresAt.diff(DateTime.now()).toMillis()
 
     // The inherited expiry already passed — don't store credentials at all.
+    // The returned ID then maps to no sign-in, so the code form's next
+    // submission shows the expired-sign-in page.
     if (remainingMs <= 0) return requestId
     pendingSignIns.set(requestId, { email, password, expiresAt })
     // Drop the credentials at the expiry even when no further request arrives;
@@ -113,10 +115,10 @@ export const createSetupRoutes = ({
     return pending
   }
 
-  // 5/min per client IP, the same budget as the OAuth endpoints. The miss
-  // path calls Obsidian's API, so an unlimited endpoint would relay password
-  // guesses from this server's address. ipKeyGenerator keys an IPv6 address
-  // by its /56, because one host often holds a /64.
+  // 5/min per client IP, the same budget as the OAuth endpoints. Sign-in and
+  // two-factor submissions call Obsidian's API, so an unlimited endpoint
+  // would relay password guesses from this server's address. ipKeyGenerator
+  // keys an IPv6 address by its /56, because one host often holds a /64.
   const limiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 5,
@@ -181,8 +183,8 @@ export const createSetupRoutes = ({
     }
   }
 
-  /** The check `ob sync-setup` would fail on next boot with a wrong
-   *  VAULT_PASSWORD. A key this server cannot derive blocks too — the next
+  /** Runs the vault-key check that `ob sync-setup` fails on at the next boot
+   *  when VAULT_PASSWORD is wrong. A key this server cannot derive blocks too — the next
    *  boot cannot derive it either. Only a check that cannot reach Obsidian
    *  is advisory, like the listing. */
   const checkVaultKey = async (
@@ -253,19 +255,17 @@ export const createSetupRoutes = ({
     const vaults = await listAccountVaults(token, requestLogger)
 
     if (!vaults) return undefined
-    const matches = vaults.filter((vault) => vault.name === vaultName)
+    const [vault, secondMatch] = vaults.filter((listedVault) => listedVault.name === vaultName)
 
-    if (matches.length === 0) {
+    if (!vault) {
       return {
         kind: "vault-not-found",
         vaultName,
-        vaultNames: vaults.map((vault) => vault.name),
+        vaultNames: vaults.map((listedVault) => listedVault.name),
       }
     }
-    if (matches.length > 1) return { kind: "vault-name-ambiguous", vaultName }
-    const [vault] = matches
-
-    if (!vault?.encrypted) return undefined
+    if (secondMatch) return { kind: "vault-name-ambiguous", vaultName }
+    if (!vault.encrypted) return undefined
     if (!vaultPassword) return { kind: "password-missing", vaultName }
     return checkVaultKey(
       {
@@ -300,7 +300,8 @@ export const createSetupRoutes = ({
     await syncTokenStore.writeSyncToken({ tokenFilePath, token }, requestLogger)
     requestLogger.info("setup_complete")
     // Wait for the response to reach the browser before exiting, so the
-    // polling script arrives before the server dies. If the browser
+    // completion page, whose script polls /healthz until the full server is
+    // back, arrives before the server dies. If the browser
     // disconnected during the token write, `close` already fired and a
     // listener would never trigger — `res.destroyed` catches that case.
     if (res.destroyed) {
@@ -375,6 +376,8 @@ export const createSetupRoutes = ({
     await completeSetup(result, res, requestLogger)
   }
 
+  /** Skips the MCP token check, because only a token-checked sign-in
+   *  receives a request_id, and each one is single use. */
   const handleMfaForm = async ({
     req,
     res,
@@ -447,7 +450,9 @@ export const createSetupRoutes = ({
         clientIp: extractClientIp(req, trustForwardedHops),
       })
 
-      if (formField(body, "request_id")) {
+      const isMfaCodeForm = Boolean(formField(body, "request_id"))
+
+      if (isMfaCodeForm) {
         await handleMfaForm({ req, res, body, requestLogger })
         return
       }
