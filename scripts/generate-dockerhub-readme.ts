@@ -52,6 +52,7 @@ const EXCLUDED_H2 = new Set([
   "Authentication",
   "Development",
   "Companion: obsidian-vault skill",
+  "Companion: vault-onboarding skill",
   "Contributing",
   "Security",
   "Roadmap",
