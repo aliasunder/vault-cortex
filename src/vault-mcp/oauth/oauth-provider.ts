@@ -28,6 +28,7 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js"
 import {
   InvalidGrantError,
+  InvalidRequestError,
   InvalidScopeError,
   InvalidTargetError,
   InvalidTokenError,
@@ -48,6 +49,11 @@ const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
 const AUTH_CODE_TTL_S = 10 * 60
 // 10 minutes for the user to approve a consent request before it expires.
 const PENDING_REQUEST_TTL_S = 10 * 60
+// Caps the JSON size of a consent request's stored parameters. Real clients
+// send under 2 KB, and a JWT used as `state` can reach about 4 KB. Without
+// the cap, each held request could keep the 100 KB body /authorize accepts
+// without sign-in.
+const MAX_PENDING_REQUEST_PARAMS_BYTES = 8192
 // Every rejected code gets this one message, so a code issued to another
 // client looks the same as an unknown one.
 const INVALID_AUTH_CODE_MESSAGE = "Authorization code expired or invalid"
@@ -64,6 +70,11 @@ type PendingAuthRequest = {
   params: GrantedAuthorizationParams
   createdAt: DateTime
 }
+
+/** A held consent request keeps the client's ID, not a parsed copy of its
+ *  registration, which can run to 100 KB. Lookups load the client from the
+ *  database. */
+type StoredPendingRequest = Omit<PendingAuthRequest, "client"> & { clientId: string }
 
 type StoredAuthCode = {
   clientId: string
@@ -289,7 +300,7 @@ export const createOAuthProvider = ({
   const oauthLogger = logger.child({ component: "oauth" })
   const db = initDb(dbPath, oauthLogger)
   const store = new SqliteClientsStore(db, oauthLogger)
-  const pendingRequests = new Map<string, PendingAuthRequest>()
+  const pendingRequests = new Map<string, StoredPendingRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
   const { issuer, audience } = tokenBindingForServer(serverUrl)
   // The root discovery document (/.well-known/oauth-protected-resource,
@@ -546,7 +557,7 @@ export const createOAuthProvider = ({
 
   const isRevoked = (token: string): boolean => Boolean(selectRevokedTokenStmt.get(token))
 
-  const isPendingRequestExpired = (pending: PendingAuthRequest): boolean => {
+  const isPendingRequestExpired = (pending: StoredPendingRequest): boolean => {
     return pending.createdAt.plus({ seconds: PENDING_REQUEST_TTL_S }) < DateTime.now()
   }
 
@@ -594,12 +605,24 @@ export const createOAuthProvider = ({
       // The SDK splits `scope=` into [""], so blank entries count as none.
       const requestedScopes = (params.scopes ?? []).filter((scope) => scope !== "")
       const scopes = requestedScopes.length > 0 ? requestedScopes : [DEFAULT_SCOPE]
+      const grantedParams = { ...params, scopes }
+      const paramsBytes = Buffer.byteLength(JSON.stringify(grantedParams))
+
+      // Thrown before anything is sent, like the resource check above.
+      if (paramsBytes > MAX_PENDING_REQUEST_PARAMS_BYTES) {
+        oauthLogger.warn("oauth_authorize_rejected", {
+          clientId: client.client_id,
+          reason: "params_too_large",
+          paramsBytes,
+        })
+        throw new InvalidRequestError("Authorization request parameters are too large")
+      }
       // /authorize needs no sign-in. Its rate limit bounds how fast requests
       // arrive; purging on each new one bounds how long abandoned ones stay.
       purgeExpiredPendingRequests()
       pendingRequests.set(requestId, {
-        client,
-        params: { ...params, scopes },
+        clientId: client.client_id,
+        params: grantedParams,
         createdAt: DateTime.now(),
       })
 
@@ -876,7 +899,16 @@ export const createOAuthProvider = ({
       reqLogger.info("oauth_request_expired")
       return undefined
     }
-    return pending
+    const { clientId, ...heldRequest } = pending
+    const client = store.getClient(clientId)
+
+    // The client sweep deleted the registration after the request started.
+    if (!client) {
+      pendingRequests.delete(requestId)
+      reqLogger.info("oauth_request_client_missing", { clientId })
+      return undefined
+    }
+    return { ...heldRequest, client }
   }
 
   const approveRequest = (requestId: string, reqLogger: Logger): string => {

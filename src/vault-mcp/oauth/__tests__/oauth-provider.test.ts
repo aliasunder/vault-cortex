@@ -7,6 +7,7 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import {
   InvalidGrantError,
+  InvalidRequestError,
   InvalidScopeError,
   InvalidTargetError,
   InvalidTokenError,
@@ -1109,6 +1110,83 @@ describe("OAuth authorization code client binding", () => {
   })
 })
 
+/** A client as the provider loads it from the database, which sets
+ *  `client_secret_post` on every registration. */
+const loadedClient = (client: OAuthClientInformationFull): OAuthClientInformationFull => {
+  return { ...client, token_endpoint_auth_method: "client_secret_post" }
+}
+
+describe("OAuth pending consent request storage", () => {
+  const PARAMS_CAP_BYTES = 8192
+  const BASE_PARAMS = {
+    codeChallenge: "test-challenge",
+    redirectUri: "https://example.com/cb",
+    scopes: ["vault"],
+  }
+
+  /** A `state` that makes the stored parameters exactly `totalBytes` long. */
+  const stateForParamsBytes = (totalBytes: number): string => {
+    const emptyStateBytes = Buffer.byteLength(JSON.stringify({ ...BASE_PARAMS, state: "" }))
+    return "s".repeat(totalBytes - emptyStateBytes)
+  }
+
+  it("accepts a consent request whose parameters are exactly 8 KB", async () => {
+    const { oauth, client } = await setupAuditTest()
+    const { response, getHtml } = createMockResponse()
+
+    await oauth.provider.authorize(
+      client,
+      { ...BASE_PARAMS, state: stateForParamsBytes(PARAMS_CAP_BYTES) },
+      response,
+    )
+
+    expect(REQUEST_ID_PATTERN.test(getHtml())).toBe(true)
+  })
+
+  it("rejects a consent request whose parameters exceed 8 KB, holding nothing", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const { response, getHtml } = createMockResponse()
+
+    await expect(
+      oauth.provider.authorize(
+        client,
+        { ...BASE_PARAMS, state: stateForParamsBytes(PARAMS_CAP_BYTES + 1) },
+        response,
+      ),
+    ).rejects.toThrow(new InvalidRequestError("Authorization request parameters are too large"))
+
+    expect(getHtml()).toBe("")
+    const authorizeLogs = logs.filter((log) => log.message.startsWith("oauth_authorize"))
+    expect(authorizeLogs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_authorize_rejected",
+        data: {
+          component: "oauth",
+          clientId: "test-client",
+          reason: "params_too_large",
+          paramsBytes: PARAMS_CAP_BYTES + 1,
+        },
+      },
+    ])
+  })
+
+  it("drops a held consent request whose client was deleted after it started", async () => {
+    const { logs, testLogger, oauth, db, client } = await setupAuditTest()
+    const requestId = await startAuthFlow(oauth, client)
+    db.prepare("DELETE FROM clients WHERE client_id = ?").run(client.client_id)
+
+    expect(oauth.getPendingRequest(requestId, testLogger)).toBeUndefined()
+    const missingLogs = logs.filter((log) => log.message === "oauth_request_client_missing")
+    expect(missingLogs).toEqual([
+      { level: "info", message: "oauth_request_client_missing", data: { clientId: "test-client" } },
+    ])
+    // The lookup deleted the request, so restoring the client does not bring it back.
+    seedClient(db)
+    expect(oauth.getPendingRequest(requestId, testLogger)).toBeUndefined()
+  })
+})
+
 describe("OAuth pending consent request expiry", () => {
   const FIVE_MINUTES_MS = 5 * 60 * 1000
   const TEN_MINUTES_MS = 10 * 60 * 1000
@@ -1132,7 +1210,7 @@ describe("OAuth pending consent request expiry", () => {
     vi.setSystemTime(startedAt + TEN_MINUTES_MS)
     const pending = oauth.getPendingRequest(requestId, testLogger)
 
-    expect(pending?.client).toEqual(client)
+    expect(pending?.client).toEqual(loadedClient(client))
     const expiryLogs = logs.filter((log) => log.message === "oauth_request_expired")
     expect(expiryLogs).toEqual([])
   })
@@ -1186,7 +1264,7 @@ describe("OAuth pending consent request expiry", () => {
         data: { component: "oauth", purgedRequestCount: 1 },
       },
     ])
-    expect(oauth.getPendingRequest(liveRequestId, testLogger)?.client).toEqual(client)
+    expect(oauth.getPendingRequest(liveRequestId, testLogger)?.client).toEqual(loadedClient(client))
     // The purge already removed the abandoned request, so this lookup finds
     // nothing to expire and logs no oauth_request_expired.
     expect(oauth.getPendingRequest(abandonedRequestId, testLogger)).toBeUndefined()
@@ -1204,7 +1282,9 @@ describe("OAuth pending consent request expiry", () => {
 
     const purgeLogs = logs.filter((log) => log.message === "oauth_pending_requests_purged")
     expect(purgeLogs).toEqual([])
-    expect(oauth.getPendingRequest(firstRequestId, testLogger)?.client).toEqual(client)
+    expect(oauth.getPendingRequest(firstRequestId, testLogger)?.client).toEqual(
+      loadedClient(client),
+    )
   })
 })
 

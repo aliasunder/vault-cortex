@@ -806,9 +806,17 @@ value as the static token.
   revocation is logged as `oauth_refresh_token_reuse`. Consumed records
   expire with their parent token's window.
 - **Consent requests** — held in memory for 10 minutes while the consent page
-  waits for the owner. `/authorize` needs no sign-in, so each new request
-  first removes the ones that expired without being submitted, logged as
-  `oauth_pending_requests_purged`. A restart drops them all.
+  waits for the owner. `/authorize` needs no sign-in, so the server bounds
+  what anyone can make it hold:
+  - each new request first removes the ones that expired without being
+    submitted, logged as `oauth_pending_requests_purged`;
+  - a request whose parameters exceed 8 KB of JSON is refused with
+    `invalid_request`, logged as `oauth_authorize_rejected`;
+  - a held request keeps its client's ID, and lookups load the registration
+    from the database.
+
+  A restart drops them all.
+
 - **Auth codes** — short-lived (10 minutes) and held in memory, so a restart
   drops any code not yet redeemed. A code is redeemable only by the client
   it was issued to.
