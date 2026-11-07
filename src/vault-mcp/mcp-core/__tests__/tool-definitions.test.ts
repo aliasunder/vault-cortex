@@ -1489,8 +1489,8 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
 
   // Search indexes file content only while file tools are on, so with them
   // off the description must not mention file content, the extension field,
-  // or file results. Both embedding variants share this wording, except that
-  // only the hybrid variant says scripts match by keyword alone.
+  // or file results. Both embedding variants share this wording; the Behavior
+  // line tests below pin where they differ.
   const FILE_RESULT_WORDING = {
     searchedScope:
       "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts)",
@@ -1505,11 +1505,6 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
     filtersLeadIn: "Filters — all conditions AND-combine with each other and the text query:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (top-level folder), type, kind, created, modified, bytes`,
     kindSentence: 'kind is always "note".',
-  }
-  const KEYWORD_ONLY_FILE_RESULT_WORDING = {
-    ...FILE_RESULT_WORDING,
-    searchedScope:
-      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts)",
   }
 
   it.each([
@@ -1526,7 +1521,7 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
     {
       label: "advertises file results in the keyword-only variant while file tools are on",
       env: { EMBEDDING_ENABLED: "false" },
-      expectedWording: KEYWORD_ONLY_FILE_RESULT_WORDING,
+      expectedWording: FILE_RESULT_WORDING,
     },
     {
       label: "advertises notes only in the keyword-only variant when file tools are off",
