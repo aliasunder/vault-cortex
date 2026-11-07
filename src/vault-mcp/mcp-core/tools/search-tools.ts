@@ -89,7 +89,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const scriptExtensions = getExtensionsOfKind("script").join("/")
   const textExtensions = getExtensionsOfKind("text").join("/")
   const searchedContentText = config.fileToolsEnabled
-    ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, HTML pages, and ${scriptExtensions} scripts${scriptMatchClause})`
+    ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages, and ${scriptExtensions} scripts${scriptMatchClause})`
     : "vault notes"
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`

@@ -120,13 +120,13 @@ Example: vault_read_file({ path: "exports/data.json" }) — the file content as 
 Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines
 Example: vault_read_file({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 
-When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", ` vault_search also indexes the content of canvases, PDFs, HTML pages (${htmlExtensions}), scripts (${scriptExtensions}), and the text formats ${textExtensions}, but not images or other files.`)}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
+When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", ` vault_search also indexes the content of canvases and PDFs, the visible text of HTML pages (${htmlExtensions}), scripts (${scriptExtensions}), and the text formats ${textExtensions}, but not images or other files.`)}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
 Parameters:
 - raw: true switches a canvas or PDF to its other form. A canvas returns its exact JSON source (geometry, ids, colors) instead of the outline. A PDF returns each page rendered as an image instead of extracted text, showing layout, diagrams, tables, and formatting; only the first ${config.maxPdfRenderPages} pages are rendered, and later pages are readable only as text, without raw.
 - start_line and limit page any text result as a line window. The text output cap (a fixed ${MAX_TEXT_OUTPUT_BYTES / 1024} KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap.
 
-Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text file returns the file byte-exact.
+Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text file returns the file byte-exact, except that a leading byte-order mark is dropped.
 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_read_note", "; read notes with vault_read_note")}
@@ -152,7 +152,7 @@ Returns: by file type:
 - Images (${imageExtensions}): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels; an animated GIF is reduced to its first frame when recompressed.
 - Canvas (.canvas): one text block holding a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
 - PDFs (.pdf): one text block of structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer; with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page).
-- Any other UTF-8 text file (.svg, .json, .csv, .html, .py, no extension, …): one text block holding the file content verbatim.`,
+- Any other UTF-8 text file (.svg, .json, .csv, .html, .py, no extension, …): one text block holding the file content.`,
       inputSchema: {
         path: z
           .string()
