@@ -107,7 +107,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
         stage: "matching",
         outcome: "a query left with no terms returns no results",
       }
-  // Every search leg fetches at most 100 rows (candidateLimit in hybridSearch),
+  // Every search leg keeps at most 100 rows (candidateLimit in hybridSearch),
   // so a keyword-only result holds at most 100 per kind and a fused one 200
   const keywordCapExtent = config.fileToolsEnabled ? "100 notes and 100 files" : "100 notes"
   const resultCapSentence = config.embeddingEnabled
