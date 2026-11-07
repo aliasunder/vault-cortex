@@ -457,6 +457,11 @@ Returns: "Added entry to ${config.memoryDir}/<file>.md → ## <section>", plus a
   const entryNotFoundRemedy = isToolEnabled("vault_get_memory")
     ? "verify the exact text with vault_get_memory(file, section)"
     : "check entry's letter case and spacing"
+  // A PROTECTED_PATHS override replaces the default list, so the memory
+  // folder is protected only without one
+  const memoryFolderProtectedClause = config.protectedPathsOverride
+    ? ""
+    : `, ${config.memoryDir}/ among them`
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_MEMORY,
@@ -468,7 +473,7 @@ Example: vault_delete_memory({ file: "Opinions", section: "Tools and workflows (
 Example: vault_delete_memory({ file: "Routines", section: "Daily/weekly rhythm (newest first)", date: "2026-03-10", entry: "Gym Tue/Thu at 7am" }) — prune an expired entry from an entry-policy: living file
 
 When to use: Removing an entry that was wrong when it was written. Memory files are append-only by default, so do NOT delete to reflect a change: append the new state${whenToolEnabledText("vault_update_memory", " via vault_update_memory")} instead. The exception is a file whose properties declare \`entry-policy: living\`${whenToolEnabledText("vault_list_memory_files", " (check via vault_list_memory_files)")} — a current-state file where deleting an expired entry is the intended maintenance.${whenToolEnabledText("vault_get_memory", " Call vault_get_memory(file, section) first to see exact entry text for matching.")}
-${whenToolEnabledText("vault_delete_note", `Prefer vault_delete_note for deleting whole notes; it refuses protected paths, ${config.memoryDir}/ among them.\n`)}
+${whenToolEnabledText("vault_delete_note", `Prefer vault_delete_note for deleting whole notes; it refuses protected paths${memoryFolderProtectedClause}.\n`)}
 Parameters:
 - date + entry together pick the bullet line within the given section; identical copies make the match ambiguous. The entry text matches the bullet's first line only.
 - section scopes the match — an identical entry under a different heading is not found.

@@ -817,6 +817,28 @@ describe("config interpolation in descriptions", () => {
     )
   })
 
+  it.each([
+    {
+      label: "names the memory folder as protected without a PROTECTED_PATHS override",
+      env: {},
+      expectedLine:
+        "Prefer vault_delete_note for deleting whole notes; it refuses protected paths, About Me/ among them.",
+    },
+    {
+      label: "drops the memory-folder claim under a PROTECTED_PATHS override",
+      env: { PROTECTED_PATHS: "Private" },
+      expectedLine:
+        "Prefer vault_delete_note for deleting whole notes; it refuses protected paths.",
+    },
+  ])("vault_delete_memory's delete_note routing $label", ({ env, expectedLine }) => {
+    const routingLine = findDescriptionLine({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_DELETE_MEMORY,
+      linePrefix: "Prefer vault_delete_note",
+    })
+    expect(routingLine).toBe(expectedLine)
+  })
+
   it("vault_delete_note description includes memory hint when memory is enabled", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_NOTE)
     expect(config.description).toContain("use vault_delete_memory for a memory entry")
@@ -2343,7 +2365,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it (the daily notes folder is the folder vault_get_daily_note\'s path starts with). Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
+      '- exclude_folders replaces the defaults — list a default yourself to keep it (the daily notes folder is the folder vault_get_daily_note\'s path starts with). Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
     )
     expect(toolConfig.description).not.toContain("Journal")
     expect(toolConfig.inputSchema?.shape.exclude_folders?.description).toBe(
@@ -2362,7 +2384,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n\nBehavior:")[0]
     expect(parametersSection).toBe(
       [
-        '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
+        '- exclude_folders replaces the defaults — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
         "- limit applies after exclusions and sorting; nothing in the response signals truncation; raise limit for more.",
       ].join("\n"),
     )
@@ -2379,7 +2401,7 @@ describe("vault_find_orphans live folder defaults", () => {
       ?.split("\n")
       .find((line) => line.startsWith("- exclude_folders replaces the defaults"))
     expect(excludeFoldersLine).toBe(
-      '- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
+      '- exclude_folders replaces the defaults — list a default yourself to keep it. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.',
     )
   })
 })
@@ -3286,7 +3308,7 @@ describe("DISABLED_TOOLS", () => {
       })
     }
     const ENTRY_LEAD =
-      "- exclude_folders replaces the defaults, it does not add to them — list a default yourself to keep it"
+      "- exclude_folders replaces the defaults — list a default yourself to keep it"
     const ENTRY_TAIL =
       '. Pass [] for no exclusions. Each entry names a whole folder, subfolders included: "Projects" covers "Projects/Archive" but not "ProjectsOld/", ignoring ASCII letter case. Excluded notes are left out of the results; links from them still count as incoming links.'
 
