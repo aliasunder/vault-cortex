@@ -315,6 +315,26 @@ describe("setup-server entry point", () => {
     expect(readSecurityHeaders(browserRedirect)).toEqual(EXPECTED_SECURITY_HEADERS)
   })
 
+  it("marks the sign-in page and the browser redirect as not cacheable", async () => {
+    const server = await spawnSetupServer({
+      HOME: tmpdir(),
+      MCP_AUTH_TOKEN: AUTH_TOKEN,
+      PUBLIC_URL: "https://vault.example.com",
+    })
+    await waitForStart(server)
+
+    const signInPage = await fetch(`http://127.0.0.1:${server.port}/setup`)
+    const browserRedirect = await fetch(`http://127.0.0.1:${server.port}/anything`, {
+      headers: { Accept: "text/html" },
+      redirect: "manual",
+    })
+
+    expect(signInPage.status).toBe(200)
+    expect(signInPage.headers.get("cache-control")).toBe("no-store")
+    expect(browserRedirect.status).toBe(302)
+    expect(browserRedirect.headers.get("cache-control")).toBe("no-store")
+  })
+
   it("shows the saved-login notice when SETUP_REASON is login-failed", async () => {
     const server = await spawnSetupServer({
       HOME: tmpdir(),

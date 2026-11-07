@@ -240,7 +240,12 @@ const startServer = async (): Promise<void> => {
   // token (setup/setup-server.ts); once configured, the same address says so
   // instead of 404ing on a link from that flow or a guide.
   app.get("/setup", (_req: Request, res: Response) => {
-    res.type("html").send(renderSetupPage({ kind: "configured" }))
+    // Not cached, so the address shows setup mode's page again if the
+    // container returns to setup mode.
+    res
+      .set("Cache-Control", "no-store")
+      .type("html")
+      .send(renderSetupPage({ kind: "configured" }))
   })
 
   app.use(

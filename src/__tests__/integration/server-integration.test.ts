@@ -1405,6 +1405,13 @@ describe("default config", () => {
       )
     })
 
+    it("marks the already-configured page as not cacheable", async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/setup`)
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("cache-control")).toBe("no-store")
+    })
+
     it("does not redirect a browser GET on the root once configured — that behavior belongs to setup mode only", async () => {
       const response = await fetch(`http://127.0.0.1:${port}/`, {
         headers: { accept: "text/html,application/xhtml+xml" },

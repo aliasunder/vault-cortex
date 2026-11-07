@@ -57,6 +57,11 @@ const startSetupServer = (): void => {
   // First, so every response carries the headers, errors and redirects included.
   app.use(securityHeaders)
   app.disable("x-powered-by")
+  // Setup mode serves sign-in forms and their results, so no response may be cached.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.set("Cache-Control", "no-store")
+    next()
+  })
   app.set("trust proxy", config.trustProxyHops)
 
   // Healthy on purpose: the platform's health check must pass for the

@@ -171,6 +171,7 @@ describe("OAuth consent token submission", () => {
     const { requestId } = await startPendingRequest()
     const response = await submitToken(requestId, token)
     expect(response.status).toBe(302)
+    expect(response.headers.get("cache-control")).toBe("no-store")
     const locationHeader = response.headers.get("location")
 
     if (!locationHeader) throw new Error("expected Location header on 302")
@@ -208,6 +209,7 @@ describe("OAuth consent token submission", () => {
       const response = await submitToken(requestId, token)
       expect(response.status).toBe(200)
       expect(response.headers.get("location")).toBeNull()
+      expect(response.headers.get("cache-control")).toBe("no-store")
       expect(readConsentPage(await response.text())).toEqual({
         error: "Invalid token. Please try again.",
         values: ["Test Client", clientId],
@@ -272,6 +274,7 @@ describe("OAuth consent body validation", () => {
       body: "request_id=a&request_id=b&token=t&action=approve",
     })
     expect(response.status).toBe(400)
+    expect(response.headers.get("cache-control")).toBe("no-store")
     const text = await response.text()
     expect(text).toBe("Invalid form submission.")
   })
@@ -283,8 +286,35 @@ describe("OAuth consent body validation", () => {
       body: "request_id=a",
     })
     expect(response.status).toBe(400)
+    expect(response.headers.get("cache-control")).toBe("no-store")
     const text = await response.text()
     expect(text).toBe("Invalid form submission.")
+  })
+
+  it("returns 400 for a request ID with no pending request", async () => {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "request_id=nonexistent-id&token=t&action=approve",
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    await expect(response.text()).resolves.toBe("Authorization request expired or invalid.")
+  })
+
+  it("marks the form parser's 413 for an oversized form as not cacheable", async () => {
+    // Over express.urlencoded's default 100 KB body limit
+    const oversizedToken = "t".repeat(200 * 1024)
+
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: `request_id=a&token=${oversizedToken}&action=approve`,
+    })
+
+    expect(response.status).toBe(413)
+    expect(response.headers.get("cache-control")).toBe("no-store")
   })
 })
 
