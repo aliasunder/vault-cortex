@@ -23,6 +23,7 @@ import { splitPropertiesBlock } from "../obsidian-markdown/frontmatter.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { getFileKind, isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import type { Logger } from "../../logger.js"
+import { decodeTextBuffer } from "../../utils/decode-text-buffer.js"
 import { describeError, describeErrorForLog } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { isMissingPathError, readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js"
@@ -226,7 +227,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
     }
 
     // Canvas files are always read — link extraction is unconditional.
-    // PDF and text files are only read when file content FTS is enabled.
+    // PDF, text and HTML files are only read when file content FTS is enabled.
     const fileKind = getFileKind(filePath)
     const isCanvas = fileKind === "canvas"
     const isIndexableNonCanvas =
@@ -234,19 +235,43 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
 
     if (isCanvas || isIndexableNonCanvas) {
       try {
-        const readContentToIndex = async (): Promise<string> => {
-          if (fileKind !== "pdf") return await readFile(filePath, "utf8")
+        /** The file's text, or null for an HTML page that is not UTF-8 or
+         *  holds a NUL byte early on, which vault_read_file refuses too. */
+        const readContentToIndex = async (): Promise<string | null> => {
+          switch (fileKind) {
+            case "pdf": {
+              const buffer = await readFile(filePath)
+              // pdfjs throws on a Node Buffer, so it gets a plain Uint8Array view
+              // over the same bytes.
+              const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+              const pdfResult = await extractPdfText(pdfData)
+              return pdfResult.text
+            }
+            case "html": {
+              const decodedSource = decodeTextBuffer(await readFile(filePath))
 
-          const buffer = await readFile(filePath)
-          // pdfjs throws on a Node Buffer, so it gets a plain Uint8Array view
-          // over the same bytes.
-          const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-          const pdfResult = await extractPdfText(pdfData)
-          return pdfResult.text
+              if (decodedSource.status !== "text") return null
+              return decodedSource.text
+            }
+            case "canvas":
+            case "text":
+            case "image":
+            case "script":
+            case "other":
+              return await readFile(filePath, "utf8")
+          }
         }
         const contentToIndex = await readContentToIndex()
 
         if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
+
+        // A page that stopped reading as text loses what search held for it,
+        // while its file row above stays
+        if (contentToIndex === null) {
+          search.removeFileContent({ filePath: relativePath }, logger)
+          logger.debug("indexed non-md file without its content", { path: relativePath })
+          return { status: "file-indexed" }
+        }
 
         const sourceVersion = search.upsertFileContent(
           {

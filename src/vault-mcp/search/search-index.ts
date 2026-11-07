@@ -11,6 +11,8 @@ import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/canvas.js"
 import { getFileKind, isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import type { FileKind } from "../obsidian-markdown/file-kinds.js"
+import { extractHtmlVisibleText } from "../obsidian-markdown/html.js"
+import { decodeTextBuffer } from "../../utils/decode-text-buffer.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -67,11 +69,43 @@ export const PDF_EXTRACTION_CONCURRENCY = 4
 /** File kinds whose content is indexed into file_content_fts when file tools
  *  are on. A canvas is left out because it is read whatever that setting is,
  *  since its file cards are graph links. */
-export const CONTENT_INDEXED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["pdf", "text"])
+export const CONTENT_INDEXED_FILE_KINDS: ReadonlySet<FileKind> = new Set(["pdf", "text", "html"])
 
 /** Cap on rendered content indexed into file_content_fts — prevents
  *  pathological FTS rows from large CSVs or verbose JSONs. */
 const MAX_INDEXED_CONTENT_BYTES = 102_400
+
+/** An HTML page larger than this is indexed by its name only, like a scanned
+ *  PDF. Extracting its text runs on the main thread, and attribute-heavy pages
+ *  at 16 MiB already took up to 1.7 s, close to the 2-second point at which
+ *  this server moves a parser to a worker thread. */
+const MAX_INDEXED_HTML_PAGE_BYTES = 16 * 1024 * 1024
+
+/** The text file_content_fts holds for a file, from the file's own text: a
+ *  canvas's outline, an HTML page's visible text, and every other kind as
+ *  it arrives. */
+const rawContentToIndexedText = (params: {
+  filePath: string
+  rawContent: string
+  fileBytes: number
+}): string => {
+  switch (getFileKind(params.filePath)) {
+    case "canvas":
+      return linearizeCanvas(params.rawContent)
+    case "html":
+      if (params.fileBytes > MAX_INDEXED_HTML_PAGE_BYTES) return ""
+      return extractHtmlVisibleText({
+        html: params.rawContent,
+        maxBytes: MAX_INDEXED_CONTENT_BYTES,
+      })
+    case "image":
+    case "pdf":
+    case "text":
+    case "script":
+    case "other":
+      return params.rawContent
+  }
+}
 
 /** Truncates a string to fit within a UTF-8 byte limit without splitting
  *  multi-byte characters — iterates Unicode code points and accumulates
@@ -1313,6 +1347,7 @@ export const createSearchIndex = (
 
   /** Pass the returned source version to embedFileContent for this upsert.
    *  - Canvas JSON is linearized for FTS and parsed for graph links regardless of fileToolsEnabled.
+   *  - An HTML page arrives as its source and is indexed as its visible text.
    *  - Other files supply rendered text; FTS storage requires fileToolsEnabled and caps UTF-8 bytes. */
   const upsertFileContent = (
     params: {
@@ -1324,10 +1359,11 @@ export const createSearchIndex = (
   ): symbol => {
     const extension = posix.extname(params.filePath)
     const isCanvas = isCanvasPath(params.filePath)
-
-    // A canvas is linearized for FTS, and its raw JSON is read for links.
-    // Every other kind arrives as its rendered text.
-    const contentToIndex = isCanvas ? linearizeCanvas(params.rawContent) : params.rawContent
+    const contentToIndex = rawContentToIndexedText({
+      filePath: params.filePath,
+      rawContent: params.rawContent,
+      fileBytes: params.fileStat.size,
+    })
 
     // Truncate content exceeding the FTS cap — iterates Unicode code points
     // and accumulates UTF-8 byte length so the cap is enforced in bytes
@@ -2317,6 +2353,9 @@ export const createSearchIndex = (
     const textFiles = fileToolsEnabled
       ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "text")
       : []
+    const htmlFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => getFileKind(file.relativePath) === "html")
+      : []
 
     const readRebuildFileContent = async (params: {
       file: RebuildFilePaths
@@ -2391,6 +2430,57 @@ export const createSearchIndex = (
       mapper: (file) => readRebuildFileContent({ file, sourceKind: "text file" }),
     })
     const textFileContents = textFileContentResults.filter((entry) => entry !== null)
+
+    /** Reads an HTML page as bytes and keeps it only when the bytes are UTF-8
+     *  with no NUL byte early on, the test vault_read_file applies, so search
+     *  never holds text that a read refuses. */
+    const readDecodedSourceFile = async (
+      file: RebuildFilePaths,
+    ): Promise<RebuildFileContent | null> => {
+      const readSource = async () => {
+        try {
+          const [buffer, fileStat] = await Promise.all([
+            readFile(file.absolutePath),
+            stat(file.absolutePath),
+          ])
+          return { buffer, fileStat }
+        } catch (error) {
+          logger.warn("skipped unreadable file during rebuild", {
+            path: file.relativePath,
+            error: describeError(error),
+          })
+          return null
+        }
+      }
+      const source = await readSource()
+
+      if (!source) return null
+
+      const decodedSource = decodeTextBuffer(source.buffer)
+
+      switch (decodedSource.status) {
+        case "text":
+          return {
+            relativePath: file.relativePath,
+            content: decodedSource.text,
+            modifiedAtMs: source.fileStat.mtimeMs,
+            sizeBytes: source.fileStat.size,
+          }
+        case "binary":
+        case "invalid-utf8":
+          logger.debug("left a file that is not UTF-8 text out of the index", {
+            path: file.relativePath,
+            decodeStatus: decodedSource.status,
+          })
+          return null
+      }
+    }
+    const htmlContentResults = await mapWithConcurrency({
+      items: htmlFiles,
+      concurrency: INDEXING_FILE_READ_CONCURRENCY,
+      mapper: readDecodedSourceFile,
+    })
+    const htmlContents = htmlContentResults.filter((entry) => entry !== null)
 
     const noteContentResults = await mapWithConcurrency({
       items: markdownFiles,
@@ -2529,10 +2619,15 @@ export const createSearchIndex = (
           }
         }
 
-        // File content indexing: canvas (FTS + link extraction), PDF and text
-        // (FTS only). upsertFileContent deletes old canvas links before
-        // inserting, so canvas links append cleanly after the note link pass.
-        const allFileContents = [...canvasContents, ...pdfContents, ...textFileContents]
+        // Canvas content is indexed with its links, and PDF, text and HTML
+        // content for search only. upsertFileContent deletes old canvas links
+        // before inserting, so canvas links append cleanly after the note link pass.
+        const allFileContents = [
+          ...canvasContents,
+          ...pdfContents,
+          ...textFileContents,
+          ...htmlContents,
+        ]
         for (const fileEntry of allFileContents) {
           try {
             const sourceVersion = upsertFileContent(
