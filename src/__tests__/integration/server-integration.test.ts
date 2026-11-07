@@ -27,6 +27,8 @@ import {
   mcpInitStatus,
   callTool,
   textContent,
+  readSecurityHeaders,
+  EXPECTED_SECURITY_HEADERS,
 } from "./test-harness.js"
 import type { ToolResult } from "./test-harness.js"
 
@@ -1410,6 +1412,32 @@ describe("default config", () => {
       })
 
       expect(response.status).toBe(404)
+      // Express's 404 page replaces Content-Security-Policy with a policy of
+      // its own, so X-Frame-Options alone forbids framing it.
+      expect(response.headers.get("x-frame-options")).toBe("DENY")
+      expect(response.headers.get("x-powered-by")).toBeNull()
+    })
+  })
+
+  describe("security headers", () => {
+    it.each([
+      { label: "/healthz", path: "/healthz", init: {}, expectedStatus: 200 },
+      {
+        label: "an unauthenticated /mcp request",
+        path: "/mcp",
+        init: {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", id: 1, params: {} }),
+        },
+        expectedStatus: 401,
+      },
+      { label: "/setup", path: "/setup", init: {}, expectedStatus: 200 },
+    ])("sets them on $label, without X-Powered-By", async ({ path, init, expectedStatus }) => {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, init)
+
+      expect(response.status).toBe(expectedStatus)
+      expect(readSecurityHeaders(response)).toEqual(EXPECTED_SECURITY_HEADERS)
     })
   })
 

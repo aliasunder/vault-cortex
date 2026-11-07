@@ -382,3 +382,28 @@ export const mcpInitStatus = async (port: number, authHeader?: string): Promise<
   })
   return response.status
 }
+
+type SecurityHeaders = {
+  frameOptions: string | null
+  contentSecurityPolicy: string | null
+  contentTypeOptions: string | null
+  referrerPolicy: string | null
+  poweredBy: string | null
+}
+
+/** The headers both apps add to every response, plus X-Powered-By, which both turn off. */
+export const readSecurityHeaders = (response: Response): SecurityHeaders => ({
+  frameOptions: response.headers.get("x-frame-options"),
+  contentSecurityPolicy: response.headers.get("content-security-policy"),
+  contentTypeOptions: response.headers.get("x-content-type-options"),
+  referrerPolicy: response.headers.get("referrer-policy"),
+  poweredBy: response.headers.get("x-powered-by"),
+})
+
+export const EXPECTED_SECURITY_HEADERS: SecurityHeaders = {
+  frameOptions: "DENY",
+  contentSecurityPolicy: "frame-ancestors 'none'",
+  contentTypeOptions: "nosniff",
+  referrerPolicy: "same-origin",
+  poweredBy: null,
+}

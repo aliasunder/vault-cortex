@@ -23,6 +23,7 @@ import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
+import { securityHeaders } from "../utils/security-headers.js"
 import env from "env-var"
 
 /** Error middleware — logs the failure with request context, answers 500.
@@ -219,6 +220,9 @@ const startServer = async (): Promise<void> => {
   })
 
   const app = express()
+  // First, so every response carries the headers, errors and redirects included.
+  app.use(securityHeaders)
+  app.disable("x-powered-by")
   // Proxy trust is deployment-explicit: TRUST_PROXY_HOPS grants one
   // X-Forwarded-For hop per proxy the deployment controls. With the
   // default 0, req.ip — the OAuth rate limiter's fallback bucket key —

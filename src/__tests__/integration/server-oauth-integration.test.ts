@@ -8,7 +8,12 @@ import { join } from "node:path"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import { signJwt } from "../../jwt.js"
-import { startServer, freePort } from "./test-harness.js"
+import {
+  startServer,
+  freePort,
+  readSecurityHeaders,
+  EXPECTED_SECURITY_HEADERS,
+} from "./test-harness.js"
 
 const REDIRECT_URI = "http://127.0.0.1/callback"
 const TOKEN_A = "integration-token-before-rotation"
@@ -74,6 +79,27 @@ const registerClient = async (port: number): Promise<RegisteredClient> => {
   return registered
 }
 
+const buildAuthorizeUrl = ({
+  port,
+  client,
+  challenge,
+}: {
+  port: number
+  client: RegisteredClient
+  challenge: string
+}): URL => {
+  const authorizeUrl = new URL(`http://127.0.0.1:${port}/authorize`)
+  authorizeUrl.search = new URLSearchParams({
+    response_type: "code",
+    client_id: client.client_id,
+    redirect_uri: REDIRECT_URI,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    scope: "vault",
+  }).toString()
+  return authorizeUrl
+}
+
 /** Consent page → approve with the auth token → PKCE code exchange. */
 const authorize = async ({
   port,
@@ -86,15 +112,7 @@ const authorize = async ({
 }): Promise<IssuedTokens> => {
   const verifier = base64Url(randomBytes(32))
   const challenge = base64Url(createHash("sha256").update(verifier).digest())
-  const authorizeUrl = new URL(`http://127.0.0.1:${port}/authorize`)
-  authorizeUrl.search = new URLSearchParams({
-    response_type: "code",
-    client_id: client.client_id,
-    redirect_uri: REDIRECT_URI,
-    code_challenge: challenge,
-    code_challenge_method: "S256",
-    scope: "vault",
-  }).toString()
+  const authorizeUrl = buildAuthorizeUrl({ port, client, challenge })
   const consentHtml = await (await fetch(authorizeUrl)).text()
   const requestId = /name="request_id"\s+value="([^"]+)"/.exec(consentHtml)?.[1]
 
@@ -164,6 +182,24 @@ const refresh = ({
     body: params,
   })
 }
+
+// ── Consent page response headers ──────────────────────────────
+
+describe("consent page response headers", () => {
+  it("serves the consent page with the security headers and without X-Powered-By", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(() => server.cleanup())
+    const client = await registerClient(port)
+    const challenge = base64Url(createHash("sha256").update("header-check").digest())
+
+    const response = await fetch(buildAuthorizeUrl({ port, client, challenge }))
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("<h1>Authorize access</h1>")
+    expect(readSecurityHeaders(response)).toEqual(EXPECTED_SECURITY_HEADERS)
+  })
+})
 
 // ── Expired access token challenge ─────────────────────────────
 

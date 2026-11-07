@@ -11,6 +11,7 @@ import env from "env-var"
 import { loadConfig } from "../config.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
+import { securityHeaders } from "../../utils/security-headers.js"
 import { createSetupRoutes } from "./setup-routes.js"
 import type { HostingPlatform } from "./setup-page.js"
 
@@ -53,6 +54,9 @@ const startSetupServer = (): void => {
   const setupUrl = publicUrl ? new URL("/setup", publicUrl).href : "/setup"
 
   const app = express()
+  // First, so every response carries the headers, errors and redirects included.
+  app.use(securityHeaders)
+  app.disable("x-powered-by")
   app.set("trust proxy", config.trustProxyHops)
 
   // Healthy on purpose: the platform's health check must pass for the
