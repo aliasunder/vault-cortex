@@ -324,6 +324,34 @@ describe("POST /setup — MCP token gate", () => {
     expect(harness.logs.at(-1)?.message).toBe("setup_rate_limited")
   })
 
+  it("sends the OAuth endpoints' rate-limit headers on the sixth attempt, without legacy X-RateLimit headers", async () => {
+    const harness = await startHarness()
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await harness.postForm({ ...CREDENTIALS, token: "wrong" })
+      await response.text()
+    }
+    const sixth = await harness.postForm({ ...CREDENTIALS, token: "wrong" })
+    await sixth.text()
+
+    expect(sixth.status).toBe(429)
+    const retryAfter = sixth.headers.get("retry-after")
+
+    expect(retryAfter).toMatch(/^(?:[1-9]|[1-5][0-9]|60)$/)
+    const isRateLimitHeader = ([name]: [string, string]) => {
+      return (
+        name === "retry-after" || name.startsWith("ratelimit") || name.startsWith("x-ratelimit")
+      )
+    }
+    expect(Object.fromEntries([...sixth.headers].filter(isRateLimitHeader))).toEqual({
+      "retry-after": retryAfter,
+      "ratelimit-limit": "5",
+      "ratelimit-remaining": "0",
+      "ratelimit-reset": retryAfter,
+      "ratelimit-policy": "5;w=60",
+    })
+  })
+
   // A /56 spans the first three groups and the top byte of the fourth, so
   // 2001:db8:0:ff::6 shares the budget of 2001:db8::1 and 2001:db8:0:100::1
   // does not.
