@@ -1223,7 +1223,8 @@ random, so the Sync device name cannot fall back to it.
 A platform qualifies only if it starts the image's entrypoint as PID 1 —
 s6-overlay v3 refuses to run as a child of a platform-injected init
 (`s6-overlay-suexec: fatal: can only run as pid 1`). Both platforms above
-do; the probe must reach the container's init scripts rather than fail in s6.
+do; the probe is a deploy with no variables set, which must reach
+`init-check-auth`'s own error rather than the s6 one.
 
 `cli/src/__tests__/templates.test.ts` pins `render.yaml` to the published
 image, to the fixed values above (`PORT`, `STORAGE_ROOT`, `DEVICE_NAME`), to
