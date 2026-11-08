@@ -40,6 +40,22 @@ const ready = (child: ChildProcess): void => {
   child.emit("message", { kind: "ready", oomPreference: "unsupported" })
 }
 
+const captureChildLaunch = (child: ChildProcess) => {
+  const launch = vi.fn()
+  vi.mocked(spawn).mockImplementation((command, args, options) => {
+    // Capture only child-owned settings so a failed assertion never prints the ambient environment.
+    launch({
+      command,
+      args,
+      stdio: options?.stdio,
+      logDir: options?.env?.LOG_DIR,
+      nodeOptions: options?.env?.NODE_OPTIONS,
+    })
+    return child
+  })
+  return launch
+}
+
 const finishIndex = (child: ChildProcess, requestId: number, text = "indexed"): void => {
   child.emit("message", { kind: "index-result", requestId, result: { text, totalPages: 1 } })
 }
@@ -93,6 +109,23 @@ describe("PDF extraction child", () => {
 })
 
 describe("PDF extraction ownership", () => {
+  it("preserves system error metadata for the caller's repair guidance", async () => {
+    const { extractor, child } = startControlledExtractor()
+    const request = extractor.readText({ path: "locked.pdf" }, logger)
+    const rejected = expect(request).rejects.toThrow(
+      Object.assign(new Error("permission denied"), { code: "EACCES", syscall: "open" }),
+    )
+    ready(child)
+    child.emit("message", {
+      kind: "failure",
+      requestId: 0,
+      code: "read",
+      message: "permission denied",
+      systemError: { code: "EACCES", syscall: "open" },
+    })
+    await rejected
+    expect(child.kill).not.toHaveBeenCalled()
+  })
   it("uses the controlled size code without interpreting the failure message", async () => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.extractForIndex({ path: "one.pdf" }, logger)
@@ -115,6 +148,10 @@ describe("PDF extraction ownership", () => {
     expect(spawn).toHaveBeenCalledTimes(1)
   })
   it("starts the source child directly on macOS with only its own heap and loader flags", async () => {
+    vi.stubEnv("NODE_OPTIONS", "--inspect=127.0.0.1:0 --max-old-space-size=128")
+    onTestFinished(() => {
+      vi.unstubAllEnvs()
+    })
     const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
 
     if (!descriptor) throw new Error("process.platform has no descriptor")
@@ -123,22 +160,25 @@ describe("PDF extraction ownership", () => {
       Object.defineProperty(process, "platform", descriptor)
     })
     const { extractor, child } = startControlledExtractor()
+    const launch = captureChildLaunch(child)
     const result = extractor.extractForIndex({ path: "one.pdf" }, logger)
     ready(child)
     finishIndex(child, 0)
     await result
 
     expect(spawn).toHaveBeenCalledTimes(1)
-    expect(spawn).toHaveBeenCalledWith(
-      process.execPath,
-      [
+    expect(launch).toHaveBeenCalledExactlyOnceWith({
+      command: process.execPath,
+      args: [
         "--max-old-space-size=512",
         "--import",
         "tsx",
         fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url)),
       ],
-      { env: { ...process.env, LOG_DIR: "none" }, stdio: ["ignore", "ignore", "ignore", "ipc"] },
-    )
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
+      logDir: "none",
+      nodeOptions: undefined,
+    })
   })
 
   it("logs unavailable OOM preference once across reader reuse", async () => {
@@ -216,15 +256,16 @@ describe("PDF extraction ownership", () => {
       Object.defineProperty(process, "platform", descriptor)
     })
     const { extractor, child } = startControlledExtractor()
+    const launch = captureChildLaunch(child)
     const result = extractor.extractForIndex({ path: "one.pdf" }, logger)
     ready(child)
     finishIndex(child, 0)
     await result
 
     expect(spawn).toHaveBeenCalledTimes(1)
-    expect(spawn).toHaveBeenCalledWith(
-      "/bin/sh",
-      [
+    expect(launch).toHaveBeenCalledExactlyOnceWith({
+      command: "/bin/sh",
+      args: [
         "-c",
         'ulimit -d 786432 && exec "$@"',
         "pdf-extraction",
@@ -234,8 +275,10 @@ describe("PDF extraction ownership", () => {
         "tsx",
         fileURLToPath(new URL("../pdf-extraction-child.ts", import.meta.url)),
       ],
-      { env: { ...process.env, LOG_DIR: "none" }, stdio: ["ignore", "ignore", "ignore", "ipc"] },
-    )
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
+      logDir: "none",
+      nodeOptions: undefined,
+    })
     expect(child.send).toHaveBeenCalledTimes(1)
     expect(child.send).toHaveBeenCalledWith(
       {

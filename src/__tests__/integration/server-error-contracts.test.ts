@@ -787,6 +787,28 @@ describe("filesystem errors name the path vault-relative and carry their remedy"
     },
   )
 
+  it.skipIf(runsAsRoot).each([
+    { label: "text", raw: false },
+    { label: "raw", raw: true },
+  ])("vault_read_file preserves the permissions remedy for a PDF $label read", async ({ raw }) => {
+    await plantFileWithMode({ filePath: "Locked.pdf", mode: 0o000 })
+    const result = await callTool({
+      client,
+      name: "vault_read_file",
+      args: { path: "Locked.pdf", raw },
+    })
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: `[Error]: EACCES: permission denied, open 'Locked.pdf'. ${PERMISSIONS_REMEDY}`,
+        },
+      ],
+      isError: true,
+    })
+  })
+
   it.skipIf(runsAsRoot)(
     "vault_get_daily_note on a daily note it cannot open names the note vault-relative",
     async () => {

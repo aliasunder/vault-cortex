@@ -99,7 +99,8 @@ export const createPdfExtractor = (params: {
           ]
         : nodeArgs
     const child = spawn(command, args, {
-      env: { ...inheritedEnvironment, LOG_DIR: "none" },
+      // The child owns its Node flags; launcher/debug settings must not reach it.
+      env: { ...inheritedEnvironment, NODE_OPTIONS: undefined, LOG_DIR: "none" },
       stdio: ["ignore", "ignore", "ignore", "ipc"],
     })
     const state: Reader = { child, ready: false, ended: false, exited: Promise.resolve() }
@@ -201,7 +202,8 @@ export const createPdfExtractor = (params: {
         }
         if (reply.kind === "failure") {
           const code = reply.code === "size" ? "pdf-size" : "pdf-read"
-          finish(Object.assign(new Error(reply.message), { code }), false)
+          const failureDetails = reply.systemError ?? { code }
+          finish(Object.assign(new Error(reply.message), failureDetails), false)
           return
         }
         const expected = job.request.kind === "index" ? "index-result" : "read-result"

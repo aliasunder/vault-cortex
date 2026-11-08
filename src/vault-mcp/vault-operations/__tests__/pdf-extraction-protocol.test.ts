@@ -9,6 +9,27 @@ const requestFields = {
 }
 
 describe("PDF extraction protocol", () => {
+  it("keeps safe filesystem metadata while discarding unrelated system error fields", () => {
+    const reply = {
+      kind: "failure",
+      requestId: 7,
+      code: "read",
+      message: "permission denied",
+      systemError: {
+        code: "EACCES",
+        syscall: "open",
+        path: "/private/host/path",
+        stack: "internal stack",
+      },
+    }
+    expect(pdfReplySchema.parse(reply)).toEqual({
+      kind: "failure",
+      requestId: 7,
+      code: "read",
+      message: "permission denied",
+      systemError: { code: "EACCES", syscall: "open" },
+    })
+  })
   it("preserves a size refusal independently of its human-readable message", () => {
     const reply = {
       kind: "failure",

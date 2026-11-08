@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises"
 import { logger } from "../../logger.js"
 import { describeError, describeErrorRelativeTo } from "../../utils/describe-error.js"
+import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { extractPdfIndexText, extractPdfText } from "../obsidian-markdown/pdf.js"
 import { vaultFs } from "./vault-filesystem.js"
 import { buildPdfTextResult, describePdfOpenFailure } from "./asset-text.js"
@@ -10,6 +11,14 @@ import { pdfRequestSchema, type PdfRequest, type PdfReply } from "./pdf-extracti
 const CHILD_OOM_SCORE_ADJUSTMENT = "1000"
 /** Matches a bracketed error name followed by a colon at the start of a formatted error. */
 const FORMATTED_ERROR_NAME_PREFIX = /^\[[^\]]+\]: /
+
+const getSystemErrorDetails = (error: unknown): { code: string; syscall: string } | undefined => {
+  if (!isErrnoException(error)) return undefined
+  const { syscall } = error
+
+  if (typeof syscall !== "string") return undefined
+  return { code: error.code, syscall }
+}
 
 const send = (reply: PdfReply): void => {
   if (!process.connected || !process.send) {
@@ -83,7 +92,14 @@ const main = async (): Promise<void> => {
       const description = describeErrorRelativeTo({ error, directory: request.vaultPath })
       const message = description.replace(FORMATTED_ERROR_NAME_PREFIX, "")
       const code = message.startsWith("file too large:") ? "size" : "read"
-      send({ kind: "failure", requestId: request.requestId, code, message })
+      const systemError = getSystemErrorDetails(error)
+      send({
+        kind: "failure",
+        requestId: request.requestId,
+        code,
+        message,
+        ...(systemError ? { systemError } : {}),
+      })
     })
   })
   send({ kind: "ready", oomPreference })
