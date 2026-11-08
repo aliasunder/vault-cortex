@@ -271,8 +271,8 @@ describe("createShutdownHandler", () => {
   it("waits for extraction and HTTP drain before exiting after a parser cleanup failure", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     onTestFinished(() => exitSpy.mockRestore())
-    const extractionClosed = Promise.withResolvers<void>()
-    const drained = Promise.withResolvers<void>()
+    const extractionClosed = Promise.withResolvers<undefined>()
+    const drained = Promise.withResolvers<undefined>()
     const close = vi.fn(async (callback: () => void) => {
       await drained.promise
       callback()
@@ -289,10 +289,10 @@ describe("createShutdownHandler", () => {
       })()
       await vi.advanceTimersByTimeAsync(0)
       expect(exitSpy).not.toHaveBeenCalled()
-      extractionClosed.resolve()
+      extractionClosed.resolve(undefined)
       await vi.advanceTimersByTimeAsync(0)
       expect(exitSpy).not.toHaveBeenCalled()
-      drained.resolve()
+      drained.resolve(undefined)
       await vi.advanceTimersByTimeAsync(0)
 
       expect(logger.warn).toHaveBeenCalledExactlyOnceWith("shutdown cleanup failed", {
@@ -300,8 +300,8 @@ describe("createShutdownHandler", () => {
       })
       expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
     } finally {
-      extractionClosed.resolve()
-      drained.resolve()
+      extractionClosed.resolve(undefined)
+      drained.resolve(undefined)
       await vi.advanceTimersByTimeAsync(0)
     }
   })
