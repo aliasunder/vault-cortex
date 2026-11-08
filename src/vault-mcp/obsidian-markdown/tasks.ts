@@ -874,11 +874,156 @@ const removeLastMetadataMatch = (metadata: string, regex: RegExp): string => {
   return `${beforeMatch}${afterMatch}`.replace(/ {2,}/g, " ").trim()
 }
 
-/** Removes EVERY occurrence of a field regex from a metadata tail.
- *  Clear paths, onCompletion sets, and completion stamps discard every duplicate. */
+type MetadataRemovalGrammar = Readonly<{
+  regex: RegExp
+  symbols: string
+  key: string
+  value: "date" | "priority" | "id" | "dependencies" | "recurrence" | "action"
+}>
+
+/** Matches a lowercase priority-word character. */
+const PRIORITY_CHARACTER_RE = /[a-z]/u
+/** Matches an on-completion action character. */
+const ACTION_CHARACTER_RE = /[a-zA-Z]/u
+/** Matches a recurrence-rule character. */
+const RECURRENCE_CHARACTER_RE = /[a-zA-Z0-9, !]/u
+
+const METADATA_REMOVAL_GRAMMARS: ReadonlyArray<MetadataRemovalGrammar> = [
+  { regex: DONE_DATE_INLINE_RE, symbols: "✅", key: "completion", value: "date" },
+  { regex: CANCELLED_DATE_INLINE_RE, symbols: "❌", key: "cancelled", value: "date" },
+  { regex: DUE_DATE_INLINE_RE, symbols: "📅📆🗓", key: "due", value: "date" },
+  { regex: SCHEDULED_DATE_INLINE_RE, symbols: "⏳⌛", key: "scheduled", value: "date" },
+  { regex: START_DATE_INLINE_RE, symbols: "🛫", key: "start", value: "date" },
+  { regex: CREATED_DATE_INLINE_RE, symbols: "➕", key: "created", value: "date" },
+  { regex: PRIORITY_INLINE_RE, symbols: "🔺⏫🔼🔽⏬", key: "priority", value: "priority" },
+  { regex: TASK_ID_INLINE_RE, symbols: "🆔", key: "id", value: "id" },
+  { regex: DEPENDS_ON_INLINE_RE, symbols: "⛔", key: "dependsOn", value: "dependencies" },
+  { regex: RECURRENCE_INLINE_RE, symbols: "🔁", key: "repeat", value: "recurrence" },
+  { regex: ON_COMPLETION_INLINE_RE, symbols: "🏁", key: "onCompletion", value: "action" },
+]
+
+/** Removes duplicates from right to left, including fields exposed by an earlier removal. */
 const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
-  const stripped = removeLastMetadataMatch(metadata, regex)
-  return stripped === metadata ? metadata : removeAllMetadataMatches(stripped, regex)
+  const grammar = METADATA_REMOVAL_GRAMMARS.find((entry) => entry.regex === regex)
+
+  if (!grammar) throw new Error("unknown metadata removal grammar")
+  const matcher = new RegExp(`^(?:${regex.source})`, regex.flags)
+  const suffix: string[] = []
+  // The stack and its lower bound retain surviving text without copying it after each removal.
+  let suffixStart = 0
+  let removed = false
+  const read = (offset: number): string => {
+    const index = suffix.length - 1 - offset
+
+    return index >= suffixStart ? (suffix[index] ?? "") : ""
+  }
+  const skipSpace = (offset: number): number => offset + Number(read(offset) === " ")
+  const scan = (offset: number, characterPattern: RegExp): number => {
+    // Each successful variable-length scan consumes its characters; failed fields stop at an opener.
+    let end = offset
+
+    while (end < suffix.length - suffixStart && characterPattern.test(read(end))) end += 1
+    return end
+  }
+  const valueEnd = (offset: number): number => {
+    switch (grammar.value) {
+      case "date":
+        return offset + 10
+      case "priority":
+        return scan(offset, PRIORITY_CHARACTER_RE)
+      case "id":
+        return scan(offset, TASK_ID_WHOLE_RE)
+      case "action":
+        return scan(offset, ACTION_CHARACTER_RE)
+      case "recurrence":
+        return scan(offset, RECURRENCE_CHARACTER_RE)
+      case "dependencies": {
+        let end = scan(offset, TASK_ID_WHOLE_RE)
+        let comma = skipSpace(end)
+
+        while (read(comma) === ",") {
+          const nextStart = skipSpace(comma + 1)
+          const nextEnd = scan(nextStart, TASK_ID_WHOLE_RE)
+
+          if (nextEnd === nextStart) break
+          end = nextEnd
+          comma = skipSpace(end)
+        }
+        return end
+      }
+    }
+  }
+  const matchLength = (character: string): number => {
+    const bracketed = character === "[" || character === "("
+
+    if (!bracketed && !grammar.symbols.includes(character)) return 0
+    let offset = 1
+
+    if (bracketed) {
+      offset = skipSpace(offset)
+      for (const keyCharacter of `${grammar.key}::`) {
+        if (read(offset) !== keyCharacter) return 0
+        offset += 1
+      }
+    } else if (read(offset) === "\uFE0F") {
+      offset += 1
+    }
+    if (bracketed || grammar.value !== "priority") {
+      offset = valueEnd(skipSpace(offset))
+    }
+    if (bracketed) {
+      offset = skipSpace(offset)
+      if (read(offset) !== "]" && read(offset) !== ")") return 0
+      offset += 1
+      const comma = skipSpace(offset)
+
+      if (read(comma) === ",") offset = comma + 1
+    }
+    if (offset > suffix.length - suffixStart) return 0
+    const candidate = suffix
+      .slice(suffix.length - offset)
+      .reverse()
+      .join("")
+    const match = matcher.exec(candidate)
+
+    return match?.[0].length ? Array.from(match[0]).length : 0
+  }
+
+  // Walk code points backward without copying the full input into character arrays.
+  for (let index = metadata.length - 1; index >= 0; index -= 1) {
+    const codeUnit = metadata.charCodeAt(index)
+    const precedingCodeUnit = metadata.charCodeAt(index - 1)
+    const hasSurrogatePair =
+      codeUnit >= 0xdc00 &&
+      codeUnit <= 0xdfff &&
+      precedingCodeUnit >= 0xd800 &&
+      precedingCodeUnit <= 0xdbff
+    const character = metadata.slice(index - Number(hasSurrogatePair), index + 1)
+
+    index -= Number(hasSurrogatePair)
+    if (character === " " && read(0) === " ") continue
+    if (removed && suffix.length === suffixStart && character.trim() === "") continue
+    const nextCharacter = read(0)
+    const nextCodeUnit = nextCharacter.charCodeAt(0)
+    const formsSurrogatePair =
+      character.length === 1 &&
+      codeUnit >= 0xd800 &&
+      codeUnit <= 0xdbff &&
+      nextCodeUnit >= 0xdc00 &&
+      nextCodeUnit <= 0xdfff
+    const fieldCharacter = formsSurrogatePair ? character + nextCharacter : character
+
+    // A deletion can join previously unpaired surrogates into a metadata emoji.
+    if (formsSurrogatePair) suffix.pop()
+    suffix.push(fieldCharacter)
+    const length = matchLength(fieldCharacter)
+
+    if (!length) continue
+    suffix.length -= length
+    removed = true
+    while (suffixStart < suffix.length && suffix[suffixStart]?.trim() === "") suffixStart += 1
+  }
+  return removed ? suffix.slice(suffixStart).reverse().join("").trim() : metadata
 }
 
 // Re-export config types so consumers of tasks.ts don't need a
