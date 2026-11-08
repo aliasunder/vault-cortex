@@ -190,7 +190,7 @@ const groupHeading = (group: CanvasNode, depth: number): string => {
 type GroupFrame =
   { kind: "enter"; group: CanvasNode; depth: number } | { kind: "leave"; group: CanvasNode }
 
-/** Appends each section once, so deep groups need neither recursion nor descendant string copies. */
+/** With unique group IDs, each section is appended once without recursion or descendant copies. */
 const renderNestedNodes = (
   contentNodes: readonly CanvasNode[],
   groups: readonly CanvasNode[],
