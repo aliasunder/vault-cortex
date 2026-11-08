@@ -94,6 +94,10 @@ describe("PDF extraction protocol", () => {
       reply: { kind: "failure", requestId: 7, code: "shell-command", message: "failed" },
     },
     {
+      label: "a parse failure code the child never emits",
+      reply: { kind: "failure", requestId: 7, code: "parse", message: "failed" },
+    },
+    {
       label: "an exception object as a message",
       reply: {
         kind: "failure",
