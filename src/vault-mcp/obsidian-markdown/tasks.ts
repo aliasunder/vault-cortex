@@ -1749,12 +1749,6 @@ const replaceTaskLineDescription = ({
   return joinTaskLine({ ...parts, description: newDescription })
 }
 
-/** Matches a specific hashtag as a whole token — preceded by start-of-string
- *  or whitespace, followed by whitespace or end-of-string. */
-const hashtagTokenPattern = (escapedTag: string): RegExp => {
-  return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`)
-}
-
 /** Matches the characters allowed after '#' in the plugin's hashtag grammar. */
 const HASHTAG_CHARACTER_RE = /[^ !@#$%^&*(),.?":{}|<>]/u
 /** Matches whitespace consumed between successive trailing tags. */
@@ -1800,18 +1794,42 @@ const deduplicateDescriptionTags = (
     return { taskLine, deduplicatedTags: [] }
   }
 
-  // Strip from the metadata only tags that byte-match a trailing
-  // description tag — non-overlapping tags stay in both positions.
-  // Each iteration shortens the metadata (sequential stripping state).
+  // Each stripping pass consumes at most one hashtag, and other fields exclude
+  // its marker. The metadata therefore has at most MAX_STRIPPING_PASSES markers;
+  // checking those positions avoids a whole-tail search for every description tag.
+  const tagPositionsIn = (metadata: string): readonly number[] => {
+    const positions: number[] = []
+
+    for (let index = 0; index < metadata.length; index++) {
+      if (
+        metadata[index] === "#" &&
+        (index === 0 || TAG_WHITESPACE_RE.test(metadata.charAt(index - 1)))
+      ) {
+        positions.push(index)
+      }
+    }
+    return positions
+  }
+
+  // Successful removals change subsequent positions and consume a hashtag.
   let dedupedMetadata = parts.metadata
+  let tagPositions = tagPositionsIn(dedupedMetadata)
   const deduplicatedTags: string[] = []
   for (const tag of descriptionTrailingTags) {
-    const tagPattern = hashtagTokenPattern(RegExp.escape(tag))
+    const tagStart = tagPositions.find((position) => {
+      const tagEnd = position + tag.length
+      const hasTokenEnd =
+        tagEnd === dedupedMetadata.length || TAG_WHITESPACE_RE.test(dedupedMetadata.charAt(tagEnd))
+      return hasTokenEnd && dedupedMetadata.startsWith(tag, position)
+    })
 
-    if (tagPattern.test(dedupedMetadata)) {
-      dedupedMetadata = dedupedMetadata.replace(tagPattern, "").trim()
-      deduplicatedTags.push(tag)
-    }
+    if (tagStart === undefined) continue
+    const removalStart = tagStart === 0 ? 0 : tagStart - 1
+    dedupedMetadata = (
+      dedupedMetadata.slice(0, removalStart) + dedupedMetadata.slice(tagStart + tag.length)
+    ).trim()
+    tagPositions = tagPositionsIn(dedupedMetadata)
+    deduplicatedTags.push(tag)
   }
 
   if (deduplicatedTags.length === 0) {
