@@ -587,35 +587,51 @@ describe("tasks.extractTasks", () => {
     })
 
     it.each([
-      { name: "emoji", field: (value: string) => `⛔ ${value}` },
-      { name: "Dataview", field: (value: string) => `[dependsOn:: ${value}]` },
-    ])("parses a 60-ID adversarial $name dependency list in under 50 ms", ({ field }) => {
-      const dependencies = Array.from({ length: 60 }, () => "a").join(" , ")
-      const line = `- [ ] x ${field(`${dependencies}!`)}`
-      const parserUrl = new URL("../tasks.ts", import.meta.url).href
-      // The child deadline can interrupt a synchronous regex that blocks the event loop.
-      const output = execFileSync(
-        process.execPath,
-        [
-          "--import",
-          "tsx",
-          "--input-type=module",
-          "--eval",
-          `import { tasks } from ${JSON.stringify(parserUrl)};
+      { name: "emoji", field: (value: string) => `⛔ ${value}`, idCount: 60, trailingSpaces: 0 },
+      {
+        name: "Dataview",
+        field: (value: string) => `[dependsOn:: ${value}]`,
+        idCount: 60,
+        trailingSpaces: 0,
+      },
+      {
+        name: "Dataview with a long whitespace suffix",
+        field: (value: string) => `[dependsOn:: ${value}]`,
+        idCount: 2,
+        // A long run exposes retries between the list and its surrounding field grammar.
+        trailingSpaces: 60000,
+      },
+    ])(
+      "rejects an adversarial $name dependency list in under 50 ms",
+      ({ field, idCount, trailingSpaces }) => {
+        const ids = Array.from({ length: idCount }, () => "a").join(" , ")
+        const dependencies = `${ids}${" ".repeat(trailingSpaces)}`
+        const line = `- [ ] x ${field(`${dependencies}!`)}`
+        const parserUrl = new URL("../tasks.ts", import.meta.url).href
+        // The child deadline can interrupt a synchronous regex that blocks the event loop.
+        const output = execFileSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "--input-type=module",
+            "--eval",
+            `import { tasks } from ${JSON.stringify(parserUrl)};
            const started = performance.now();
            const extracted = tasks.extractTasks(${JSON.stringify(line)});
            const elapsed = performance.now() - started;
            process.stdout.write(JSON.stringify({ extracted, elapsed }));`,
-        ],
-        { encoding: "utf8", timeout: 2000 },
-      )
-      const result = JSON.parse(output)
+          ],
+          { encoding: "utf8", timeout: 2000 },
+        )
+        const result = JSON.parse(output)
 
-      expect(result.extracted).toEqual([
-        task({ description: `x ${field(`${dependencies}!`)}`, dependsOn: [] }),
-      ])
-      expect(result.elapsed).toBeLessThan(50)
-    })
+        expect(result.extracted).toEqual([
+          task({ description: `x ${field(`${dependencies}!`)}`, dependsOn: [] }),
+        ])
+        expect(result.elapsed).toBeLessThan(50)
+      },
+    )
 
     it("preserves dependency matches and group 1 across fixed-seed lists and existing fixtures", () => {
       /** The former dependency grammar, retained as the compatibility oracle. */
@@ -676,7 +692,7 @@ describe("tasks.extractTasks", () => {
       for (const pattern of dependencyPatterns) {
         const oldPattern = new RegExp(
           pattern.source.replace(
-            "[a-zA-Z0-9_-]+(?:(?: *, *[a-zA-Z0-9_-]+)+ *)?",
+            "[a-zA-Z0-9_-]+(?:(?: *, *[a-zA-Z0-9_-]+)+ *(?! ))?",
             oldSequence.source,
           ),
           pattern.flags,
@@ -2006,6 +2022,30 @@ describe("task line mutations", () => {
   // ── updateTaskLineTaskId ──────────────────────────────────────
 
   describe("updateTaskLineTaskId", () => {
+    it.each([
+      { name: "a newline", lineBreak: "\n" },
+      { name: "a carriage return", lineBreak: "\r" },
+      { name: "a line separator", lineBreak: "\u2028" },
+      { name: "a paragraph separator", lineBreak: "\u2029" },
+    ])("does not mutate a body containing $name", ({ lineBreak }) => {
+      const taskLine = `- [ ] First${lineBreak}second`
+
+      expect(tasks.isTaskLine(taskLine)).toBe(false)
+      expect(tasks.updateTaskLineTaskId({ taskLine, taskId: "abc123", config: EMOJI_CONFIG })).toBe(
+        taskLine,
+      )
+    })
+
+    it.each([
+      { name: "without a trailing space", taskLine: "- [ ]", expected: "- [ ]🆔 abc123" },
+      { name: "with a trailing space", taskLine: "- [ ] ", expected: "- [ ] 🆔 abc123" },
+    ])("sets an ID on an empty task body $name", ({ taskLine, expected }) => {
+      expect(tasks.isTaskLine(taskLine)).toBe(true)
+      expect(tasks.updateTaskLineTaskId({ taskLine, taskId: "abc123", config: EMOJI_CONFIG })).toBe(
+        expected,
+      )
+    })
+
     it("sets a task ID (emoji format)", () => {
       const line = "- [ ] My task ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineTaskId({

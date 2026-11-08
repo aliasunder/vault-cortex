@@ -5,7 +5,7 @@
  *  **Parsing:** a faithful reimplementation of the plugin's own parser
  *  (obsidian-tasks-group/obsidian-tasks, `DefaultTaskSerializer` +
  *  `DataviewTaskSerializer`): metadata is stripped off the END of the line, one
- *  `$`-anchored field at a time, in repeated passes until nothing matches. Any
+ *  `$`-anchored field at a time, until nothing matches or 20 passes finish. Any
  *  order of fields parses; unrecognized trailing text stops the scan and leaves
  *  everything to its left as description — exactly the plugin's behavior.
  *  Unlike the plugin (which reads one configured format per vault), both
@@ -64,8 +64,8 @@ export type ParsedTask = Readonly<{
   doneDate: string | null
   cancelledDate: string | null
   priority: TaskPriority | null
-  /** Verbatim recurrence rule text after 🔁 / `repeat::` (e.g. "every week
-   *  when done"). Completing the task spawns the next occurrence from it. */
+  /** Recurrence rule text after 🔁 / `repeat::` (e.g. "every week when done").
+   *  Completion uses it to compute the next occurrence, if one exists. */
   recurrence: string | null
   /** Raw word after 🏁 / `onCompletion::` (the plugin accepts "delete" and
    *  "keep"). */
@@ -84,8 +84,7 @@ export type ParsedTask = Readonly<{
   heading: string | null
   /** Nesting depth: 0 for top-level tasks, 1+ for sub-tasks. Derived from
    *  structural indentation relative to ancestor task lines; a plain list
-   *  item at a task's indent ends its scope, so a task nested under a
-   *  non-task bullet is top-level. */
+   *  item closes tasks at its indent or deeper without becoming a parent. */
   depth: number
   /** 1-based file line number of the parent task, or null for top-level
    *  tasks. The index resolves it to the parent's block_id; the wire shape
@@ -163,8 +162,8 @@ const TASK_ID = /[a-zA-Z0-9_-]+/
 const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
 const isTaskId = (candidate: string): boolean => TASK_ID_WHOLE_RE.test(candidate)
 /** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`.
- *  Trailing spaces follow the repeated group so repetitions cannot divide them. */
-const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.source})+ *)?`)
+ *  The repeated suffix consumes trailing spaces as one maximal run. */
+const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.source})+ *(?! ))?`)
 
 /** Builds an emoji field regex: signifier + optional VS16 (U+FE0F, matched
  *  via escape so no invisible character hides in this source) + spaces +
@@ -1097,6 +1096,9 @@ type TaskLineParts = {
  *  checkbox — the two must stay in sync on what counts as the prefix. */
 const TASK_PREFIX_RE = /^([\s>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/u
 
+/** Matches line terminators excluded by TASK_LINE_RE's body capture. */
+const TASK_BODY_LINE_BREAK_RE = /[\r\n\u2028\u2029]/u
+
 /** Splits a task line at the parser's description/metadata boundary.
  *  Returns null when the line is not a task line. */
 const splitTaskLine = (taskLine: string): TaskLineParts | null => {
@@ -1105,6 +1107,9 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
 
   if (!prefix) return null
   const afterCheckbox = taskLine.slice(prefix.length)
+
+  if (TASK_BODY_LINE_BREAK_RE.test(afterCheckbox)) return null
+
   // Capture trailing whitespace before splitTrailingBlockLink trims it —
   // a markdown hard break (two+ trailing spaces) must survive the round-trip.
   const trimmedAfterCheckbox = afterCheckbox.trimEnd()
@@ -1565,9 +1570,8 @@ const removeBlockId = (taskLine: string): string => {
   return `${trimmedLine.slice(0, blockLinkMatch.index)}${trailingWhitespace}`
 }
 
-/** Removes the trailing `^block-id` from a task line, if it has one, and
- *  drops trailing whitespace either way — unlike removeBlockId, which keeps a
- *  hard break. Used to start a spawned occurrence's line. */
+/** Removes the trailing ` ^block-id` after trimming the line's end.
+ *  Spaces before that link remain. Used to start a spawned occurrence's line. */
 const stripBlockLink = (taskLine: string): string => {
   const trimmedLine = taskLine.trimEnd()
   const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine)
@@ -1706,7 +1710,7 @@ const updateTaskLineStatus = (params: {
 /** The next-occurrence line for a completed recurring task — the plugin's
  *  createNextOccurrence as a line transform. The completed line's copy keeps
  *  its description, priority, tags, recurrence rule, and indentation, and:
- *  - becomes `[ ]` with done/cancelled dates stripped;
+ *  - becomes the configured todo checkbox with done/cancelled dates stripped;
  *  - loses its block link, 🆔 id, and ⛔ dependencies (a new occurrence
  *    cannot share identity with the completed one);
  *  - has start/scheduled/due replaced by the next occurrence's dates;
