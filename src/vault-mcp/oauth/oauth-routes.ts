@@ -147,7 +147,7 @@ export const createOAuthRoutes = ({
    */
   const consentDecisionLimiter = rateLimit({
     ...oauthRateLimitOptions,
-    standardHeaders: "draft-6",
+    standardHeaders: true,
     legacyHeaders: false,
   })
 
