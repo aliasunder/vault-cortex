@@ -371,6 +371,32 @@ describe("createFileSinkExtension", () => {
     expect(readFileSync(logFile, "utf8")).toBe(existingLine + JSON.stringify(records()[0]) + "\n")
   })
 
+  it("keeps an over-cap file unchanged when the sink restarts", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const line = '{"message":"first"}\n'
+    const maxDailyBytes = Buffer.byteLength(line)
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes })
+    extension(sampleEntry("first"), line)
+    extension(sampleEntry("over cap"), line)
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const cappedContent = readFileSync(logFile, "utf8")
+    const restartedExtension = createFileSinkExtension({ logDir, maxDailyBytes })
+
+    restartedExtension(sampleEntry("after restart"), line)
+
+    expect(records()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes,
+      },
+    ])
+    expect(readFileSync(logFile, "utf8")).toBe(cappedContent)
+  })
+
   it("resumes writing after midnight and prunes exactly the dates before the retention cutoff", () => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()

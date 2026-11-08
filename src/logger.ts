@@ -157,7 +157,7 @@ export const createFileSinkExtension = ({
       pruneOldLogFiles(logDir, retentionDays)
       logDay.bytes = statSync(logPath, { throwIfNoEntry: false })?.size ?? 0
       logDay.date = today
-      logDay.capped = false
+      logDay.capped = logDay.bytes > maxDailyBytes
     }
     if (logDay.capped) return
     const lineBytes = Buffer.byteLength(line)
