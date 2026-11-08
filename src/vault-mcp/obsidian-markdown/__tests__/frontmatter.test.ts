@@ -1307,5 +1307,6 @@ describe("linear duplicate-key checking", () => {
     } finally {
       warning.mockRestore()
     }
-  }, 30_000)
+    // 10,000 documents take about 10 s on a laptop and over 30 s on a loaded CI runner.
+  }, 120_000)
 })
