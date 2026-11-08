@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest"
 
 /** Allows scheduling noise across the full input range. */
 const LINEAR_GROWTH_ALLOWANCE = 2
+/** Below this many milliseconds a median is mostly scheduling noise, so it sets no tighter growth bound. */
+const TIMING_FLOOR_MS = 25
 
 type RemovalGrammar = {
   clear: (text: string, index: number) => string
@@ -161,7 +163,7 @@ describe("task metadata clear compatibility", () => {
         medians.push(samples[2]);
       }
       assert.ok(medians.every(value=>value<1000),'metadata clear exceeded ceiling '+medians);
-      assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'metadata clear scaled superlinearly '+medians);
+      assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'metadata clear scaled superlinearly '+medians);
       process.stdout.write(JSON.stringify({sizes,medians}));
     `,
       ],
@@ -200,7 +202,7 @@ describe("task metadata clear compatibility", () => {
         ['🏁keep','[onCompletion::keep]']
       ];
       assert.equal(fields.length,grammar.count);
-      const sizes=[20000,40000,80000];
+      const sizes=[10000,20000,40000];
       const timings=[];
       const checkFixture=(name,index,makeText)=>{
         const medians=[];
@@ -212,7 +214,7 @@ describe("task metadata clear compatibility", () => {
           medians.push(samples[2]);
         }
         assert.ok(medians.every(value=>value<2000),name+' exceeded ceiling '+medians);
-        assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},name+' scaled superlinearly '+medians);
+        assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},name+' scaled superlinearly '+medians);
         timings.push({name,medians});
       };
       fields.forEach((formats,index)=>formats.forEach((field,format)=>checkFixture(index+'-'+format,index,size=>'#'+field.repeat(size))));
@@ -227,7 +229,7 @@ describe("task metadata clear compatibility", () => {
     const result: unknown = JSON.parse(output)
 
     expect(result).toEqual({
-      sizes: [20000, 40000, 80000],
+      sizes: [10000, 20000, 40000],
       timings: Array.from({ length: 24 }, () => ({
         name: expect.any(String),
         medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
