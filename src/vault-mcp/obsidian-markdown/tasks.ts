@@ -1629,20 +1629,30 @@ const hashtagTokenPattern = (escapedTag: string): RegExp => {
   return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`)
 }
 
-/** Extracts trailing hashtags from a string by repeated right-to-left
- *  stripping — the same loop shape as parseTaskMetadata's tag pass. */
+/** Matches the characters allowed after '#' in the plugin's hashtag grammar. */
+const HASHTAG_CHARACTER_RE = /[^ !@#$%^&*(),.?":{}|<>]/u
+/** Matches whitespace consumed between successive trailing tags. */
+const TAG_WHITESPACE_RE = /\s/u
+
+/** Extracts the trailing hashtag run without rescanning earlier tags. */
 const extractTrailingTags = (text: string): readonly string[] => {
   const tags: string[] = []
-  // Each iteration shortens the string from the right; later passes
-  // depend on the shortened result (sequential parser state).
-  let remaining = text
-  let tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
-  while (tagMatch) {
-    tags.unshift(tagMatch[0].trim())
-    remaining = remaining.slice(0, tagMatch.index).trim()
-    tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
+  // Both boundaries move left once across the suffix, preserving the stripping order.
+  let end = text.length
+
+  while (end > 0) {
+    let start = end - 1
+
+    while (start >= 0 && HASHTAG_CHARACTER_RE.test(text.charAt(start))) start -= 1
+    const hasTagValue = start < end - 1
+    const hasTagBoundary = start === 0 || TAG_WHITESPACE_RE.test(text.charAt(start - 1))
+
+    if (text[start] !== "#" || !hasTagValue || !hasTagBoundary) break
+    tags.push(text.slice(start, end).trim())
+    end = start
+    while (end > 0 && TAG_WHITESPACE_RE.test(text.charAt(end - 1))) end -= 1
   }
-  return tags
+  return tags.toReversed()
 }
 
 /** Strips tags from the metadata tail that byte-match trailing tags in the

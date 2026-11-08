@@ -5,6 +5,7 @@ import { DateTime } from "luxon"
 import ts from "typescript"
 import { describe, expect, it } from "vitest"
 import { tasks } from "../tasks.js"
+import { createScannerDocuments } from "./link-scanner-corpus.js"
 
 type Matcher = { exec: (input: string) => RegExpExecArray | null }
 type Grammar = {
@@ -16,6 +17,8 @@ type Grammar = {
   metadataStart: (body: string) => number
   legacyMetadataStart: (body: string) => number
   withoutBlockLink: (body: string) => string
+  trailingTags: (text: string) => readonly string[]
+  legacyTrailingTags: (text: string) => readonly string[]
 }
 
 const isGrammar = (value: unknown): value is Grammar => {
@@ -33,7 +36,11 @@ const isGrammar = (value: unknown): value is Grammar => {
     "legacyMetadataStart" in value &&
     typeof value.legacyMetadataStart === "function" &&
     "withoutBlockLink" in value &&
-    typeof value.withoutBlockLink === "function"
+    typeof value.withoutBlockLink === "function" &&
+    "trailingTags" in value &&
+    typeof value.trailingTags === "function" &&
+    "legacyTrailingTags" in value &&
+    typeof value.legacyTrailingTags === "function"
   )
 }
 
@@ -56,6 +63,18 @@ const readGrammar = (): Grammar => {
       dependencies: DATAVIEW_DEPENDS_ON_RE,
       metadataStart: findMetadataStart,
       withoutBlockLink: (body) => splitTrailingBlockLink(body).body,
+      trailingTags: extractTrailingTags,
+      legacyTrailingTags: (text) => {
+        const tags = [];
+        let remaining = text;
+        let match = HASHTAG_FROM_END_RE.exec(remaining);
+        while (match) {
+          tags.unshift(match[0].trim());
+          remaining = remaining.slice(0,match.index).trim();
+          match = HASHTAG_FROM_END_RE.exec(remaining);
+        }
+        return tags;
+      },
       // Freeze the unbounded search while sharing the unchanged metadata parser.
       legacyMetadataStart: (taskBody) => {
         for (const candidate of taskBody.matchAll(new RegExp(FIRST_METADATA_SIGNIFIER_RE.source, "gu"))) {
@@ -84,6 +103,89 @@ const consumedMatch = (match: RegExpExecArray | null): unknown => {
 }
 
 describe("task recognizer compatibility", () => {
+  it("preserves trailing tags over fixed-seed punctuation and whitespace variants", () => {
+    const grammar = readGrammar()
+    const alphabet = [
+      "#",
+      "a",
+      "b",
+      " ",
+      "\t",
+      "\r",
+      "\n",
+      "\u2028",
+      "\u2029",
+      "\u00a0",
+      "[",
+      "]",
+      "(",
+      ")",
+      "!",
+      "_",
+      "/",
+      ":",
+      ".",
+      "😀",
+    ]
+    const documents = createScannerDocuments(alphabet, 10_000)
+    const boundaryCases = [
+      "#a\t#b",
+      "#a\n#b",
+      "#a ",
+      "#a\t",
+      "#a\tcontent",
+      "before #a\t#b",
+      "##a",
+      "#a ! #b",
+      "#a #a",
+      "#😀/nested",
+    ]
+
+    for (const text of [...boundaryCases, ...documents]) {
+      expect({ text, tags: grammar.trailingTags(text) }).toEqual({
+        text,
+        tags: grammar.legacyTrailingTags(text),
+      })
+    }
+    expect(grammar.trailingTags("#a\t#b #a")).toEqual(["#a", "#b", "#a"])
+  })
+
+  it("bounds deduplication with tens of thousands of trailing description tags", () => {
+    const parserUrl = new URL("../tasks.ts", import.meta.url).href
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "--eval",
+        `
+      import assert from 'node:assert/strict';
+      import { tasks } from ${JSON.stringify(parserUrl)};
+      const sizes=[20000,40000];
+      const medians=[];
+      for (const size of sizes) {
+        const taskLine='- [ ] '+'#a '.repeat(size)+'📅 2026-01-02';
+        const check=()=>assert.deepEqual(tasks.deduplicateDescriptionTags(taskLine),{taskLine,deduplicatedTags:[]});
+        check();
+        const samples=Array.from({length:3},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
+        medians.push(samples[1]);
+      }
+      assert.ok(medians.every(value=>value<500),'trailing tag deduplication exceeded ceiling '+medians);
+      if(medians[0]>10) assert.ok(medians[1]<medians[0]*3,'trailing tag deduplication scaled superlinearly '+medians);
+      process.stdout.write(JSON.stringify({sizes,medians}));
+    `,
+      ],
+      { encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL" },
+    )
+
+    expect(JSON.parse(output)).toEqual({
+      sizes: [20000, 40000],
+      medians: [expect.any(Number), expect.any(Number)],
+    })
+    process.stdout.write(`Trailing tag deduplication timings ${output}\n`)
+  }, 15_000)
+
   it("preserves metadata boundaries over fixed-seed bodies and every literal task fixture", () => {
     const grammar = readGrammar()
     // The generator advances once per draw so a failure has a reproducible body.
