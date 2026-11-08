@@ -682,15 +682,15 @@ const separatedCanvas = (counts: {
 }
 
 describe("canvas ownership work and rendering depth", () => {
-  it("retains the legacy cycle refusal for duplicate IDs in a parent-killed child", () => {
+  it("renders nested duplicate IDs once in a parent-killed child", () => {
     expect(readParserComplexityReport("canvas-cycle")).toEqual({
       fixture: "canvas-cycle",
-      name: "RangeError",
-      message: "Maximum call stack size exceeded",
+      node: process.version,
+      semantics: "exact",
     })
   }, 35_000)
 
-  it("retains shared child buckets for duplicate IDs on distinct acyclic paths", () => {
+  it("renders each child only under its owning node when parent IDs repeat", () => {
     const nodes = [
       { ...groupNode(0), id: "a", label: "First" },
       { ...groupNode(0), id: "a", label: "Second", x: 100 },
@@ -704,11 +704,21 @@ describe("canvas ownership work and rendering depth", () => {
         "### Group: Child",
         "[text]\nBody",
         "## Group: Second",
-        "### Group: Child",
-        "[text]\nBody",
       ].join("\n\n"),
     )
   })
+
+  it("renders 28 duplicate-ID groups once within the parent watchdog", () => {
+    expect(readParserComplexityReport("canvas-duplicate-ids")).toEqual({
+      fixture: "canvas-duplicate-ids",
+      node: process.version,
+      inputBytes: 2590,
+      nodeCount: 28,
+      headingCount: 28,
+      medianMs: expect.any(Number),
+      semantics: "exact",
+    })
+  }, 35_000)
 
   it.each([
     { fixture: "canvas-cross", copies: 1 },

@@ -187,48 +187,29 @@ const groupHeading = (group: CanvasNode, depth: number): string => {
   return `${heading} Group: ${group.label ?? "(unlabeled)"}`
 }
 
-type GroupFrame =
-  { kind: "enter"; group: CanvasNode; depth: number } | { kind: "leave"; group: CanvasNode }
-
-/** With unique group IDs, each section is appended once without recursion or descendant copies. */
+/** Buckets keyed by node identity append each section once, even when IDs repeat. */
 const renderNestedNodes = (
   contentNodes: readonly CanvasNode[],
   groups: readonly CanvasNode[],
 ): string[] => {
-  const membersByGroupId = groupBy(
-    contentNodes,
-    (node) => smallestContainingGroup(node, groups)?.id,
-  )
-  const childGroupsByParentId = groupBy(
-    groups,
-    (group) => smallestContainingGroup(group, groups)?.id,
-  )
-  const sections = (membersByGroupId.get(undefined) ?? []).map(renderNode)
-  const frames: GroupFrame[] = (childGroupsByParentId.get(undefined) ?? [])
+  const membersByGroup = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups))
+  const childGroupsByParent = groupBy(groups, (group) => smallestContainingGroup(group, groups))
+  const sections = (membersByGroup.get(undefined) ?? []).map(renderNode)
+  const frames = (childGroupsByParent.get(undefined) ?? [])
     .toReversed()
-    .map((group) => ({ kind: "enter", group, depth: 0 }))
-  const activeGroups = new Set<CanvasNode>()
+    .map((group) => ({ group, depth: 0 }))
 
   // Reverse pushes retain the buckets' reading order during depth-first traversal.
   while (frames.length) {
     const frame = frames.pop()
 
     if (!frame) break
-    if (frame.kind === "leave") {
-      activeGroups.delete(frame.group)
-      continue
-    }
     const { group, depth } = frame
 
-    // Duplicate IDs can make child buckets revisit an active group; refuse the cycle
-    // so traversal cannot continue forever.
-    if (activeGroups.has(group)) throw new RangeError("Maximum call stack size exceeded")
-    activeGroups.add(group)
-    frames.push({ kind: "leave", group })
     sections.push(groupHeading(group, depth))
-    for (const member of membersByGroupId.get(group.id) ?? []) sections.push(renderNode(member))
-    for (const child of (childGroupsByParentId.get(group.id) ?? []).toReversed()) {
-      frames.push({ kind: "enter", group: child, depth: depth + 1 })
+    for (const member of membersByGroup.get(group) ?? []) sections.push(renderNode(member))
+    for (const child of (childGroupsByParent.get(group) ?? []).toReversed()) {
+      frames.push({ group: child, depth: depth + 1 })
     }
   }
   return sections
@@ -271,7 +252,7 @@ const parseCanvasJson = (canvasJson: string): unknown => {
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
  * form with ids resolved to display names. Above the ownership-work budget,
  * node content and group headings stay flat in reading order. Throws on
- * unparseable JSON or a group cycle caused by duplicate IDs.
+ * unparseable JSON. Every valid node is rendered once, even when IDs repeat.
  */
 export const linearizeCanvas = (canvasJson: string): string => {
   const parsed = parseCanvasJson(canvasJson)

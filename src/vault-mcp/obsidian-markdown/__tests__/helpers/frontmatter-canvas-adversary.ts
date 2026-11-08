@@ -148,14 +148,58 @@ const runFixture = (fixture: string): unknown => {
       { id: "b", type: "group", label: "B", x: 1, y: 1, width: 20, height: 20 },
       { id: "a", type: "group", label: "Inner A", x: 2, y: 2, width: 10, height: 10 },
     ]
-    try {
-      linearizeCanvas(JSON.stringify({ nodes, edges: [] }))
-    } catch (error) {
-      if (!(error instanceof RangeError) || error.message !== "Maximum call stack size exceeded")
-        throw error
-      return { fixture, name: error.name, message: error.message }
+    assert.equal(
+      linearizeCanvas(JSON.stringify({ nodes, edges: [] })),
+      [
+        "# Canvas: 3 nodes, 0 edges",
+        "## Group: Outer A",
+        "### Group: B",
+        "#### Group: Inner A",
+      ].join("\n\n"),
+    )
+    return { fixture, node: process.version, semantics: "exact" }
+  }
+  if (fixture === "canvas-duplicate-ids") {
+    const levels = 14
+    const nodes = Array.from({ length: levels }, (_, level) => {
+      return [0, 1].map((copy) => ({
+        id: `g${String(level).padStart(3, "0")}`,
+        type: "group",
+        label: `level-${level}-copy-${copy}`,
+        x: -level,
+        y: -level,
+        width: 10 + level * 2,
+        height: 10 + level * 2,
+      }))
+    }).flat()
+    const json = JSON.stringify({ nodes, edges: [] })
+    const firstCopies = Array.from({ length: levels }, (_, depth) => {
+      return `${"#".repeat(Math.min(2 + depth, 6))} Group: level-${levels - depth - 1}-copy-0`
+    })
+    const secondCopies = Array.from({ length: levels }, (_, level) => {
+      return `${"#".repeat(Math.min(2 + levels - level - 1, 6))} Group: level-${level}-copy-1`
+    })
+    const expected = ["# Canvas: 28 nodes, 0 edges", ...firstCopies, ...secondCopies].join("\n\n")
+    const render = (): number => {
+      const actual = linearizeCanvas(json)
+      const headingCount = actual.split("\n").filter((line) => line.includes("Group:")).length
+      assert.equal(headingCount, nodes.length)
+      assert.equal(actual, expected)
+      return headingCount
     }
-    throw new Error("cyclic ownership buckets did not refuse the canvas")
+    const headingCount = render()
+    const medianMs = measure(() => {
+      render()
+    })
+    return {
+      fixture,
+      node: process.version,
+      inputBytes: Buffer.byteLength(json),
+      nodeCount: nodes.length,
+      headingCount,
+      medianMs,
+      semantics: "exact",
+    }
   }
   if (fixture === "yaml-unique" || fixture === "yaml-duplicate") {
     const duplicate = fixture === "yaml-duplicate"
