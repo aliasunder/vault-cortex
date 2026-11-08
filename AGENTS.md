@@ -290,9 +290,9 @@ exists.
   while the config readers do light I/O, yet both use named exports because
   neither is an operation surface.
 - **`links.ts` is the deliberate edge case** — a pure parser that nonetheless
-  exports a single `links` namespace, _not_ for the service-grouping reason above
-  but to wall off its `/g` grammar regexes (shared `lastIndex` footgun) behind
-  position-safe methods.
+  exports a single `links` namespace to keep link recognition private behind
+  position-safe methods. Its scanners own their cursors per call; the remaining
+  `/g` inline-code regex is used through `matchAll` and `replace`.
 
 `vault-filesystem.ts` illustrates the nuance within one module: its high-level
 data API is grouped under `vaultFs`, but its low-level shared primitives
