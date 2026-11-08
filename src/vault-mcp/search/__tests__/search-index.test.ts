@@ -7,17 +7,24 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
-import { createSearchIndex, INDEXABLE_TEXT_EXTENSIONS } from "../search-index.js"
+import {
+  createSearchIndex,
+  CONTENT_INDEXED_FILE_KINDS,
+  isHtmlOrScriptTooLargeToRead,
+} from "../search-index.js"
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
 import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
-import { statOrNull } from "../../../utils/fs.js"
+import { readFileTextPrefix, statOrNull } from "../../../utils/fs.js"
+import { decodeTextBuffer } from "../../../utils/decode-text-buffer.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
+import { buildPdf } from "../../obsidian-markdown/__tests__/pdf-fixture.js"
 import type { BodyTagParser, BodyTagParseResult } from "../body-tag-parser.js"
 import { inProcessBodyTagParser, withBodyTags } from "./body-tag-test-helpers.js"
 
 vi.mock("node:fs/promises", { spy: true })
 vi.mock("../../../utils/fs.js", { spy: true })
+vi.mock("../../../utils/decode-text-buffer.js", { spy: true })
 vi.mock("../../obsidian-markdown/pdf.js", { spy: true })
 
 const realSqliteVec = await vi.importActual<typeof sqliteVec>("sqlite-vec")
@@ -200,8 +207,9 @@ const isoFromMillis = (mtimeMs: number): string => {
 }
 
 /** Poisons one factory-prepared statement, identified by an SQL fragment: a
- *  prototype-level prepare spy patches the matching statement's .run to throw
- *  while armed. Must be installed BEFORE createSearchIndex — every write
+ *  prototype-level prepare spy patches the matching statement's .run and .get
+ *  (a write with RETURNING runs through .get) to throw while armed. Must be
+ *  installed BEFORE createSearchIndex — every write
  *  statement is prepared at factory scope — and stays disarmed so factory
  *  setup and seeding writes succeed until a test arms it. */
 const installStatementPoison = (sqlFragment: string) => {
@@ -210,7 +218,7 @@ const installStatementPoison = (sqlFragment: string) => {
   // so a concrete function type pins the default instantiation explicitly.
   const realPrepare: (this: Database.Database, source: string) => Database.Statement =
     Database.prototype.prepare
-  // The patched .run closes over this mutable flag so tests can trigger the
+  // The patched methods close over this mutable flag so tests can trigger the
   // failure long after the statement was prepared.
   const poisonState = { armed: false }
   const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementation(function (
@@ -221,9 +229,14 @@ const installStatementPoison = (sqlFragment: string) => {
 
     if (source.includes(sqlFragment)) {
       const realRun = statement.run.bind(statement)
+      const realGet = statement.get.bind(statement)
       statement.run = (...runParams: unknown[]) => {
         if (poisonState.armed) throw new Error(message)
         return realRun(...runParams)
+      }
+      statement.get = (...getParams: unknown[]) => {
+        if (poisonState.armed) throw new Error(message)
+        return realGet(...getParams)
       }
     }
     return statement
@@ -1515,6 +1528,51 @@ describe("removeNote", () => {
 
   it("does not throw for non-existent path", () => {
     expect(() => index.removeNote("ghost.md")).not.toThrow()
+  })
+
+  it("leaves other notes' text searchable", () => {
+    const upsertText = (filePath: string, body: string): void => {
+      index.upsertNote(
+        withBodyTags({ filePath, rawContent: `${body}\n`, fileStat: testStat(1000) }),
+        logger,
+      )
+    }
+    upsertText("a.md", "amberwick lantern")
+    upsertText("b.md", "copperfen meadow")
+
+    index.removeNote("a.md")
+
+    const searchPaths = (query: string): string[] => {
+      return index.fullTextSearch({ query }, logger).map((result) => result.path)
+    }
+    expect(searchPaths("amberwick")).toEqual([])
+    expect(searchPaths("copperfen")).toEqual(["b.md"])
+  })
+})
+
+describe("note text across repeated updates", () => {
+  it("keeps only a note's latest text searchable", () => {
+    const upsertText = (filePath: string, body: string): void => {
+      index.upsertNote(
+        withBodyTags({ filePath, rawContent: `${body}\n`, fileStat: testStat(1000) }),
+        logger,
+      )
+    }
+    const searchPaths = (query: string): string[] => {
+      return index.fullTextSearch({ query }, logger).map((result) => result.path)
+    }
+
+    // The third version catches an FTS row left behind by the second, which
+    // a single update cannot show.
+    upsertText("a.md", "amberwick lantern")
+    upsertText("b.md", "copperfen meadow")
+    upsertText("a.md", "slatebrook harbor")
+    upsertText("a.md", "thistledown quarry")
+
+    expect(searchPaths("amberwick")).toEqual([])
+    expect(searchPaths("slatebrook")).toEqual([])
+    expect(searchPaths("thistledown")).toEqual(["a.md"])
+    expect(searchPaths("copperfen")).toEqual(["b.md"])
   })
 })
 
@@ -3806,10 +3864,19 @@ describe("rebuildFromVault bounded I/O", () => {
         })
         restoreOperations.push(() => statSpy.mockRestore())
       }
-      if (operation !== "size") {
+      // Text files go through the prefix reader; notes and canvases are read whole
+      if (operation === "text") {
+        const prefixReadSpy = vi.mocked(readFileTextPrefix).mockImplementation(async (params) => {
+          if (targetPaths.has(params.path)) await holdTargetOperation(params.path)
+          return actualFsUtils.readFileTextPrefix(params)
+        })
+        restoreOperations.push(() => prefixReadSpy.mockRestore())
+      }
+      if (operation === "note" || operation === "canvas") {
         const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
-          if (typeof requestedPath === "string" && targetPaths.has(requestedPath))
+          if (typeof requestedPath === "string" && targetPaths.has(requestedPath)) {
             await holdTargetOperation(requestedPath)
+          }
           return actualFs.readFile(requestedPath, options)
         })
         restoreOperations.push(() => readSpy.mockRestore())
@@ -3948,8 +4015,9 @@ describe("rebuildFromVault filesystem failures", () => {
     const actualFs =
       await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
     const statSpy = vi.mocked(statOrNull).mockImplementation(async (requestedPath) => {
-      if (requestedPath === filePath)
+      if (requestedPath === filePath) {
         throw Object.assign(new Error("controlled stat failure"), { code })
+      }
       return actualFs.statOrNull(requestedPath)
     })
     const warnSpy = vi.spyOn(logger, "warn")
@@ -4006,10 +4074,44 @@ describe("rebuildFromVault filesystem failures", () => {
     expect(warnSpy).toHaveBeenCalledTimes(1)
   })
 
+  it("warns and skips an unreadable text file while indexing healthy files", async () => {
+    const { vaultPath, search } = await createRebuildVault()
+    const filePath = join(vaultPath, "broken.txt")
+    await writeFile(filePath, "brokenquartz")
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const prefixReadSpy = vi.mocked(readFileTextPrefix).mockImplementation(async (params) => {
+      if (params.path === filePath) throw new Error("controlled read failure")
+      return actualFsUtils.readFileTextPrefix(params)
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      prefixReadSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(rebuilt.count).toBe(1)
+    expect(prefixReadSpy).toHaveBeenCalledWith({ path: filePath, maxBytes: 102_400 })
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable text file during rebuild", {
+      path: "broken.txt",
+      error: "[Error]: controlled read failure",
+    })
+    expect(
+      (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.md"])
+    expect((await search.hybridSearch({ query: "brokenquartz" }, logger)).results).toEqual([])
+  })
+
   it.each([
     { fileName: "broken.md", sourceKind: "note" },
     { fileName: "broken.canvas", sourceKind: "canvas file" },
-    { fileName: "broken.txt", sourceKind: "text file" },
     { fileName: "broken.pdf", sourceKind: "PDF" },
   ])(
     "warns and skips an unreadable $sourceKind while indexing healthy files",
@@ -4047,6 +4149,83 @@ describe("rebuildFromVault filesystem failures", () => {
       expect((await search.hybridSearch({ query: "brokenquartz" }, logger)).results).toEqual([])
     },
   )
+
+  it.each([
+    { label: "HTML page", fileName: "broken.html" },
+    { label: "script", fileName: "broken.py" },
+  ])("warns and skips an unreadable $label while indexing healthy files", async ({ fileName }) => {
+    const { vaultPath, search } = await createRebuildVault()
+    const filePath = join(vaultPath, fileName)
+    await writeFile(filePath, "brokenquartz")
+    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
+      if (requestedPath === filePath) throw new Error("controlled read failure")
+      return actualFs.readFile(requestedPath, options)
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      readSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(rebuilt.count).toBe(1)
+    // Read as bytes, so the strict UTF-8 check sees them
+    expect(readSpy).toHaveBeenCalledWith(filePath)
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable file during rebuild", {
+      path: fileName,
+      error: "[Error]: controlled read failure",
+    })
+    expect(
+      (await search.hybridSearch({ query: "healthyamber" }, logger)).results.map(
+        (entry) => entry.path,
+      ),
+    ).toEqual(["healthy.md"])
+    expect((await search.hybridSearch({ query: "brokenquartz" }, logger)).results).toEqual([])
+  })
+
+  it("warns and skips a page whose text fails to decode, and indexes the other pages", async () => {
+    const { vaultPath, search } = await createRebuildVault()
+    await writeFile(join(vaultPath, "huge.html"), "<p>brokenquartz</p>")
+    await writeFile(join(vaultPath, "plain.html"), "<p>plainopal</p>")
+    const actualDecoder = await vi.importActual<
+      typeof import("../../../utils/decode-text-buffer.js")
+    >("../../../utils/decode-text-buffer.js")
+    // Stands in for the error V8 throws on text past its string length limit,
+    // which a test cannot allocate
+    const decodeSpy = vi.mocked(decodeTextBuffer).mockImplementation((buffer) => {
+      if (Buffer.from(buffer).toString("utf8") === "<p>brokenquartz</p>") {
+        throw new Error("controlled decode failure")
+      }
+      return actualDecoder.decodeTextBuffer(buffer)
+    })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => {
+      decodeSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+    const rebuilt = await search.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("skipped unreadable file during rebuild", {
+      path: "huge.html",
+      error: "[Error]: controlled decode failure",
+    })
+    const searchPaths = async (query: string): Promise<string[]> => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+    expect(await searchPaths("plainopal")).toEqual(["plain.html"])
+    expect(await searchPaths("brokenquartz")).toEqual([])
+    expect(await searchPaths("healthyamber")).toEqual(["healthy.md"])
+  })
 
   it("contains a rebuild PDF extraction failure and indexes its next valid extraction", async () => {
     const { vaultPath, search } = await createRebuildVault()
@@ -4681,7 +4860,7 @@ describe("rebuildFromVault", () => {
 
     const results = index.fullTextSearch({ query: "symlink target content" }, logger)
     expect(results).toHaveLength(2)
-    const paths = results.map((result) => result.path).sort()
+    const paths = results.map((result) => result.path).toSorted()
     expect(paths).toEqual(["linked.md", "real/original.md"])
   })
 
@@ -7038,20 +7217,9 @@ Shared datefilter content for mtime boundary tests.
 
 // ── File content indexing constants ──────────────────────────
 
-describe("INDEXABLE_TEXT_EXTENSIONS", () => {
-  it("contains the expected set of extensions for FTS indexing", () => {
-    expect([...INDEXABLE_TEXT_EXTENSIONS].sort()).toEqual([
-      ".base",
-      ".csv",
-      ".json",
-      ".log",
-      ".pdf",
-      ".svg",
-      ".txt",
-      ".xml",
-      ".yaml",
-      ".yml",
-    ])
+describe("CONTENT_INDEXED_FILE_KINDS", () => {
+  it("indexes the content of PDF, text and HTML files and scripts", () => {
+    expect([...CONTENT_INDEXED_FILE_KINDS].toSorted()).toEqual(["html", "pdf", "script", "text"])
   })
 })
 
@@ -7777,6 +7945,89 @@ describe("canvas file content and links", () => {
       )
       expect(afterResults).toHaveLength(0)
     })
+
+    it("keeps only a file's latest text searchable across repeated updates", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertText = (filePath: string, rawContent: string): void => {
+        fileIndex.upsertNonMdFile(filePath, rawContent.length)
+        fileIndex.upsertFileContent(
+          { filePath, rawContent, fileStat: testStat(1000, rawContent.length) },
+          logger,
+        )
+      }
+      const searchPaths = async (query: string): Promise<string[]> => {
+        const { results } = await fileIndex.hybridSearch({ query }, logger)
+        return results.map((result) => result.path)
+      }
+
+      // The third version catches an FTS row left behind by the second, which
+      // a single update cannot show.
+      upsertText("logs/a.log", "amberwick lantern")
+      upsertText("logs/b.log", "copperfen meadow")
+      upsertText("logs/a.log", "slatebrook harbor")
+      upsertText("logs/a.log", "thistledown quarry")
+
+      expect(await searchPaths("amberwick")).toEqual([])
+      expect(await searchPaths("slatebrook")).toEqual([])
+      expect(await searchPaths("thistledown")).toEqual(["logs/a.log"])
+      expect(await searchPaths("copperfen")).toEqual(["logs/b.log"])
+    })
+
+    it("removeFileContent leaves other files' text searchable", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      for (const [filePath, rawContent] of [
+        ["logs/a.log", "amberwick lantern"],
+        ["logs/b.log", "copperfen meadow"],
+      ] as const) {
+        fileIndex.upsertNonMdFile(filePath, rawContent.length)
+        fileIndex.upsertFileContent(
+          { filePath, rawContent, fileStat: testStat(1000, rawContent.length) },
+          logger,
+        )
+      }
+
+      fileIndex.removeFileContent({ filePath: "logs/a.log" }, logger)
+
+      const { results: removedResults } = await fileIndex.hybridSearch(
+        { query: "amberwick" },
+        logger,
+      )
+      const { results: keptResults } = await fileIndex.hybridSearch({ query: "copperfen" }, logger)
+      expect(removedResults.map((result) => result.path)).toEqual([])
+      expect(keptResults.map((result) => result.path)).toEqual(["logs/b.log"])
+    })
+
+    it("removeFileContent leaves none of a file's text for a later file at its path to bring back", async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertText = (filePath: string, rawContent: string): void => {
+        fileIndex.upsertNonMdFile(filePath, rawContent.length)
+        fileIndex.upsertFileContent(
+          { filePath, rawContent, fileStat: testStat(1000, rawContent.length) },
+          logger,
+        )
+      }
+      const searchPaths = async (query: string): Promise<string[]> => {
+        const { results } = await fileIndex.hybridSearch({ query }, logger)
+        return results.map((result) => result.path)
+      }
+
+      // b.log holds a later row id, so the re-added a.log takes a new one
+      // instead of reusing the removed row's id
+      upsertText("logs/a.log", "amberwick lantern")
+      upsertText("logs/b.log", "copperfen meadow")
+      fileIndex.removeFileContent({ filePath: "logs/a.log" }, logger)
+      upsertText("logs/a.log", "slatebrook harbor")
+
+      expect(await searchPaths("amberwick")).toEqual([])
+      expect(await searchPaths("slatebrook")).toEqual(["logs/a.log"])
+      expect(await searchPaths("copperfen")).toEqual(["logs/b.log"])
+    })
   })
 
   describe("note-specific filter suppression", () => {
@@ -7846,6 +8097,463 @@ describe("canvas file content and links", () => {
 })
 
 // ── File content vector embeddings ────────────────────────────
+
+// Each test rebuilds a vault holding two PDFs, whose text extraction can pass
+// the default 5-second limit on a loaded machine
+describe("files with an uppercase extension", { timeout: 15_000 }, () => {
+  /** A canvas holding one text card and one file card naming `cardPath`. */
+  const buildCanvasWithFileCard = (params: { cardPath: string; text: string }): string => {
+    return JSON.stringify({
+      nodes: [
+        { id: "t1", type: "text", x: 0, y: 0, width: 200, height: 100, text: params.text },
+        { id: "f1", type: "file", x: 300, y: 0, width: 200, height: 100, file: params.cardPath },
+      ],
+      edges: [],
+    })
+  }
+
+  /** Each file holds one word no other file holds, so a search for that word
+   *  finds only that file. Every uppercase file has a lowercase control. */
+  const writeMixedCaseVault = async (): Promise<string> => {
+    const vaultDir = await mkdtemp(join(tmpdir(), "uppercase-extensions-"))
+    onTestFinished(() => rm(vaultDir, { recursive: true }))
+    await mkdir(join(vaultDir, "Notes"))
+    await mkdir(join(vaultDir, "files"))
+    await writeFile(join(vaultDir, "Notes/Plan.md"), "# Plan\n", "utf8")
+    await writeFile(join(vaultDir, "Notes/Route.md"), "# Route\n", "utf8")
+    await writeFile(join(vaultDir, "Notes/Index.md"), "See [[files/Board.Canvas]].\n", "utf8")
+    await writeFile(join(vaultDir, "files/upper.TXT"), "crimson memo\n", "utf8")
+    await writeFile(join(vaultDir, "files/lower.txt"), "teal memo\n", "utf8")
+    await writeFile(join(vaultDir, "files/Prices.CSV"), "id,item\n1,saffron\n", "utf8")
+    await writeFile(join(vaultDir, "files/costs.csv"), "id,item\n1,umber\n", "utf8")
+    await writeFile(
+      join(vaultDir, "files/Report.PDF"),
+      buildPdf([{ text: "amber ledger", x: 100, y: 700, fontSize: 12 }]),
+    )
+    await writeFile(
+      join(vaultDir, "files/control.pdf"),
+      buildPdf([{ text: "violet ledger", x: 100, y: 700, fontSize: 12 }]),
+    )
+    await writeFile(
+      join(vaultDir, "files/Board.Canvas"),
+      buildCanvasWithFileCard({ cardPath: "Notes/Plan.md", text: "indigo board" }),
+      "utf8",
+    )
+    await writeFile(
+      join(vaultDir, "files/control.canvas"),
+      buildCanvasWithFileCard({ cardPath: "Notes/Route.md", text: "olive board" }),
+      "utf8",
+    )
+    return vaultDir
+  }
+
+  const rebuildMixedCaseIndex = async (): Promise<SearchIndex> => {
+    const vaultDir = await writeMixedCaseVault()
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    await fileIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    return fileIndex
+  }
+
+  it("finds every file by its content after a rebuild, reporting its extension lowercased", async () => {
+    const fileIndex = await rebuildMixedCaseIndex()
+    const queries = ["crimson", "teal", "saffron", "umber", "amber", "violet", "indigo", "olive"]
+
+    const searchFor = async (query: string) => {
+      const { results } = await fileIndex.hybridSearch({ query }, logger)
+      return results.map(({ path, extension }) => ({ path, extension }))
+    }
+
+    expect(await Promise.all(queries.map(searchFor))).toEqual([
+      [{ path: "files/upper.TXT", extension: ".txt" }],
+      [{ path: "files/lower.txt", extension: ".txt" }],
+      [{ path: "files/Prices.CSV", extension: ".csv" }],
+      [{ path: "files/costs.csv", extension: ".csv" }],
+      [{ path: "files/Report.PDF", extension: ".pdf" }],
+      [{ path: "files/control.pdf", extension: ".pdf" }],
+      [{ path: "files/Board.Canvas", extension: ".canvas" }],
+      [{ path: "files/control.canvas", extension: ".canvas" }],
+    ])
+  })
+
+  it("lists the file cards of a canvas with an uppercase extension as its outgoing links", async () => {
+    const fileIndex = await rebuildMixedCaseIndex()
+
+    const outgoingLinks = fileIndex.getOutgoingLinks({ path: "files/Board.Canvas" }, logger)
+
+    expect(outgoingLinks).toEqual([
+      {
+        path: "Notes/Plan.md",
+        title: "Plan",
+        exists: true,
+        kind: "note",
+        bytes: Buffer.byteLength("# Plan\n"),
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
+  it("lists a canvas with an uppercase extension among a note's backlinks", async () => {
+    const fileIndex = await rebuildMixedCaseIndex()
+
+    const backlinks = fileIndex.getBacklinks({ path: "Notes/Plan.md" }, logger)
+
+    expect(backlinks).toEqual([
+      {
+        path: "files/Board.Canvas",
+        title: "Board",
+        bytes: Buffer.byteLength(
+          buildCanvasWithFileCard({ cardPath: "Notes/Plan.md", text: "indigo board" }),
+        ),
+      },
+    ])
+  })
+
+  it("lists the notes linking to a canvas with an uppercase extension", async () => {
+    const fileIndex = await rebuildMixedCaseIndex()
+
+    const backlinks = fileIndex.getBacklinks({ path: "files/Board.Canvas" }, logger)
+
+    expect(backlinks).toEqual([
+      {
+        path: "Notes/Index.md",
+        title: "Index",
+        bytes: Buffer.byteLength("See [[files/Board.Canvas]].\n"),
+      },
+    ])
+  })
+})
+
+describe("HTML pages", () => {
+  /** Rebuilds an index over a vault holding the given files, waiting for the
+   *  embedding pass when an embedder is given. */
+  const rebuildVaultOf = async (
+    files: ReadonlyArray<{ path: string; content: string | Buffer }>,
+    embedder?: Parameters<typeof createSearchIndex>[1],
+  ): Promise<{ fileIndex: SearchIndex; vaultDir: string }> => {
+    const vaultDir = await mkdtemp(join(tmpdir(), "html-pages-"))
+    onTestFinished(() => rm(vaultDir, { recursive: true }))
+    for (const file of files) {
+      await writeFile(join(vaultDir, file.path), file.content)
+    }
+
+    const fileIndex = createSearchIndex(":memory:", embedder, undefined, {
+      fileToolsEnabled: true,
+    })
+    const rebuilt = await fileIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+    return { fileIndex, vaultDir }
+  }
+
+  /** The paths each query finds, in query order. */
+  const searchEach = async (
+    search: SearchIndex,
+    queries: readonly string[],
+  ): Promise<string[][]> => {
+    const findPaths = async (query: string): Promise<string[]> => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+    return Promise.all(queries.map(findPaths))
+  }
+
+  it("finds an .html or .htm page by its visible text, never by its script", async () => {
+    const { fileIndex } = await rebuildVaultOf([
+      { path: "runbook.html", content: "<p>visiblequartz</p><script>scriptquartz()</script>" },
+      { path: "report.htm", content: "<p>visibleopal</p><script>scriptopal()</script>" },
+    ])
+
+    const queries = ["visiblequartz", "scriptquartz", "visibleopal", "scriptopal"]
+    expect(await searchEach(fileIndex, queries)).toEqual([["runbook.html"], [], ["report.htm"], []])
+  })
+
+  it("embeds a page's visible text, not its source, for semantic search", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(vector),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+
+    await rebuildVaultOf(
+      [{ path: "runbook.html", content: "<p>visiblequartz</p><script>scriptquartz()</script>" }],
+      embedder,
+    )
+
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("runbook\n\nvisiblequartz")
+  })
+
+  it("indexes a page's last paragraph when its markup passes the 100 KiB cap but its text does not", async () => {
+    // About 140 KB of markup around about 2 KB of text
+    const styledWords = '<span style="color: red; font-weight: bold; padding: 2px">a</span>'.repeat(
+      2_000,
+    )
+    const { fileIndex } = await rebuildVaultOf([
+      { path: "styled.html", content: `<p>${styledWords}</p><p>closingamber</p>` },
+    ])
+
+    expect(await searchEach(fileIndex, ["closingamber"])).toEqual([["styled.html"]])
+  })
+
+  it("finds a page over 16 MiB by its name without reading it", async () => {
+    const filler = "<p>filler</p>".repeat(Math.ceil((16 * 1024 * 1024) / 13) + 1)
+    const { fileIndex, vaultDir } = await rebuildVaultOf([
+      { path: "giganticpage.html", content: `<p>buriedcobalt</p>${filler}` },
+    ])
+    const pagePath = join(vaultDir, "giganticpage.html")
+
+    expect(await searchEach(fileIndex, ["giganticpage", "buriedcobalt"])).toEqual([
+      ["giganticpage.html"],
+      [],
+    ])
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath, expect.anything())
+  })
+
+  it("leaves out a page that is not UTF-8 or holds a NUL byte, and keeps the rest", async () => {
+    const { fileIndex } = await rebuildVaultOf([
+      {
+        path: "latin1.html",
+        // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+        content: Buffer.concat([
+          Buffer.from("<p>latinword caf"),
+          Buffer.from([0xe9]),
+          Buffer.from("</p>"),
+        ]),
+      },
+      {
+        path: "nul.html",
+        content: Buffer.concat([Buffer.from("<p>nulword"), Buffer.from([0]), Buffer.from("</p>")]),
+      },
+      { path: "plain.html", content: "<p>plainword</p>" },
+    ])
+
+    expect(await searchEach(fileIndex, ["latinword", "nulword", "plainword"])).toEqual([
+      [],
+      [],
+      ["plain.html"],
+    ])
+  })
+})
+
+describe("scripts", () => {
+  const SCRIPT_FILES = [
+    { path: "report.py", content: "def get_user_name():\n    return 'jade'\n" },
+    { path: "deploy.sh", content: "#!/bin/sh\n# restart_service_now\nsystemctl restart api\n" },
+    { path: "Backup.ps1", content: "# copy_backup_files\nCopy-Item -Path $Source\n" },
+  ]
+
+  /** Writes the files into a new vault and rebuilds an index over it. */
+  const rebuildVaultOf = async (params: {
+    files: ReadonlyArray<{ path: string; content: string | Buffer }>
+    embedder?: Parameters<typeof createSearchIndex>[1]
+  }) => {
+    const dir = await mkdtemp(join(tmpdir(), "script-index-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const vaultPath = join(dir, "vault")
+    await mkdir(vaultPath)
+    for (const file of params.files) {
+      await writeFile(join(vaultPath, file.path), file.content)
+    }
+
+    const databasePath = join(dir, "index.db")
+    const fileIndex = createSearchIndex(databasePath, params.embedder, undefined, {
+      fileToolsEnabled: true,
+    })
+    const rebuilt = await fileIndex.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    const database = new Database(databasePath, { readonly: true })
+    sqliteVec.load(database)
+    onTestFinished(() => {
+      database.close()
+    })
+    return { fileIndex, database, vaultPath }
+  }
+
+  /** The paths whose indexed text matches the phrase, by keyword alone. */
+  const keywordPaths = (database: Database.Database, phrase: string): string[] => {
+    return database
+      .prepare<[string], { path: string }>(
+        "SELECT path FROM file_content_fts WHERE file_content_fts MATCH ? ORDER BY path",
+      )
+      .all(`"${phrase}"`)
+      .map((row) => row.path)
+  }
+
+  it("finds .py, .sh and .ps1 scripts by keyword after a rebuild with embedding off", async () => {
+    const { fileIndex } = await rebuildVaultOf({ files: SCRIPT_FILES })
+    const queries = ["get_user_name", "restart_service_now", "copy_backup_files"]
+
+    const searchFor = async (query: string) => {
+      const { results } = await fileIndex.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    expect(await Promise.all(queries.map(searchFor))).toEqual([
+      ["report.py"],
+      ["deploy.sh"],
+      ["Backup.ps1"],
+    ])
+  })
+
+  it("embeds a text file but no script after a rebuild with embedding on, while both stay found by keyword", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(vector),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => {
+      infoSpy.mockRestore()
+    })
+    const { database } = await rebuildVaultOf({
+      files: [...SCRIPT_FILES, { path: "notes.txt", content: "plain text control\n" }],
+      embedder,
+    })
+
+    const phrases = [
+      "get user name",
+      "restart service now",
+      "copy backup files",
+      "plain text control",
+    ]
+    const findByKeyword = (phrase: string) => keywordPaths(database, phrase)
+
+    expect(phrases.map(findByKeyword)).toEqual([
+      ["report.py"],
+      ["deploy.sh"],
+      ["Backup.ps1"],
+      ["notes.txt"],
+    ])
+    expect(database.prepare("SELECT file_path, chunk_text FROM file_content_chunks").all()).toEqual(
+      [{ file_path: "notes.txt", chunk_text: "notes\n\nplain text control" }],
+    )
+    expect(database.prepare("SELECT COUNT(*) AS count FROM file_content_vectors").get()).toEqual({
+      count: 1,
+    })
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("notes\n\nplain text control")
+    // The embedding pass never queues the scripts, so it counts the text file alone
+    expect(infoSpy).toHaveBeenCalledWith("file content embedding pass complete", {
+      files: 1,
+      fileChunksEmbedded: 1,
+    })
+  })
+
+  it("finds a script over 16 MiB by its name without reading it", async () => {
+    const filler = "# filler\n".repeat(Math.ceil((16 * 1024 * 1024) / 9) + 1)
+    const { fileIndex, vaultPath } = await rebuildVaultOf({
+      files: [{ path: "giganticscript.py", content: `buriedjasper = 1\n${filler}` }],
+    })
+    const scriptPath = join(vaultPath, "giganticscript.py")
+    const searchPaths = async (query: string) => {
+      const { results } = await fileIndex.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    expect(await searchPaths("giganticscript")).toEqual(["giganticscript.py"])
+    expect(await searchPaths("buriedjasper")).toEqual([])
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath, expect.anything())
+  })
+
+  it("leaves a script holding a NUL byte out of search", async () => {
+    const { database } = await rebuildVaultOf({
+      files: [
+        {
+          path: "binary.py",
+          content: Buffer.concat([Buffer.from("nulscriptword = 1\n"), Buffer.from([0])]),
+        },
+        { path: "plain.py", content: "plainscriptword = 1\n" },
+      ],
+    })
+
+    expect(database.prepare("SELECT path FROM file_content ORDER BY path").all()).toEqual([
+      { path: "plain.py" },
+    ])
+  })
+})
+
+describe("text formats in a rebuild", () => {
+  it("reads only the first 100 KiB of a text file, all the text search keeps", async () => {
+    const vaultDir = await mkdtemp(join(tmpdir(), "text-formats-"))
+    onTestFinished(() => rm(vaultDir, { recursive: true }))
+    const logPath = join(vaultDir, "prefixread.log")
+    // The opening word sits inside the first 100 KiB and the closing word past it
+    await writeFile(logPath, `openingtopaz\n${"x ".repeat(60_000)}\nclosingtopaz\n`)
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    await fileIndex.rebuildFromVault(
+      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    const searchPaths = async (query: string) => {
+      const { results } = await fileIndex.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    expect(await searchPaths("openingtopaz")).toEqual(["prefixread.log"])
+    expect(await searchPaths("closingtopaz")).toEqual([])
+    expect(vi.mocked(readFileTextPrefix)).toHaveBeenCalledWith({
+      path: logPath,
+      maxBytes: 102_400,
+    })
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath, expect.anything())
+  })
+})
+
+describe("isHtmlOrScriptTooLargeToRead", () => {
+  const limitBytes = 16 * 1024 * 1024
+
+  it.each([
+    {
+      label: "reads a script of exactly 16 MiB",
+      filePath: "big.py",
+      fileBytes: limitBytes,
+      expected: false,
+    },
+    {
+      label: "skips a script one byte over 16 MiB",
+      filePath: "big.py",
+      fileBytes: limitBytes + 1,
+      expected: true,
+    },
+    {
+      label: "reads a page of exactly 16 MiB",
+      filePath: "big.html",
+      fileBytes: limitBytes,
+      expected: false,
+    },
+    {
+      label: "skips a page one byte over 16 MiB",
+      filePath: "big.html",
+      fileBytes: limitBytes + 1,
+      expected: true,
+    },
+    {
+      label: "never skips a text file, which is read by its first bytes",
+      filePath: "big.log",
+      fileBytes: limitBytes + 1,
+      expected: false,
+    },
+  ])("$label", ({ filePath, fileBytes, expected }) => {
+    expect(isHtmlOrScriptTooLargeToRead({ filePath, fileBytes })).toBe(expected)
+  })
+})
 
 describe("committed embedding source versions", () => {
   it.each(["note", "file"] as const)(
@@ -8546,6 +9254,45 @@ describe("file content vector embeddings", () => {
       )
       expect(vectorCount.count).toBe(1)
     })
+  })
+
+  it("runs no file embedding pass after a rebuild with file tools off, though canvases still index", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "file-tools-off-embedding-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const vaultPath = join(dir, "vault")
+    await mkdir(vaultPath)
+    await writeFile(join(vaultPath, "note.md"), "A note the canvas embeds.")
+    await writeFile(
+      join(vaultPath, "board.canvas"),
+      JSON.stringify({
+        nodes: [{ id: "a", type: "file", x: 0, y: 0, width: 100, height: 100, file: "note.md" }],
+        edges: [],
+      }),
+    )
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+    const index = createSearchIndex(":memory:", createMockEmbedder(), undefined, {
+      fileToolsEnabled: false,
+    })
+
+    const rebuilt = await index.rebuildFromVault(
+      { vaultPath, bodyTagParser: inProcessBodyTagParser },
+      logger,
+    )
+    await rebuilt.embedding
+
+    // The canvas still indexes for its links, so it reached the rebuild's file list
+    expect(
+      index.getBacklinks({ path: "note.md" }, logger).map((backlink) => backlink.path),
+    ).toEqual(["board.canvas"])
+    expect(infoSpy).toHaveBeenCalledWith("embedding pass complete", {
+      notes: 1,
+      chunksEmbedded: 1,
+    })
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      "file content embedding pass complete",
+      expect.anything(),
+    )
   })
 })
 

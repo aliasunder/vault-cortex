@@ -369,9 +369,10 @@ SYNC_EXCLUDED_FOLDERS=
 # Sync → "Selective sync".
 #   Valid values: image | audio | video | pdf | unsupported
 #   Empty (default): image,audio,video,pdf
-# The text files Vault Cortex reads (CSV, JSON, TXT, XML, LOG, YAML) fall
-# under "unsupported", Obsidian Sync's name for its "Sync all other types"
-# category; SVG syncs as "image", and notes, canvases, and bases always sync.
+# The text files Vault Cortex reads (CSV, JSON, TXT, HTML, scripts and other
+# UTF-8 files) fall under "unsupported", Obsidian Sync's name for its "Sync
+# all other types" category; SVG syncs as "image", and notes, canvases, and
+# bases always sync.
 # To read those text files, set
 # SYNC_FILE_TYPES=image,audio,video,pdf,unsupported (the value replaces the
 # default list, so keep the four defaults) and turn on "Sync all other types"

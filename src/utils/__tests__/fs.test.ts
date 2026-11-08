@@ -1,5 +1,15 @@
 import { describe, it, expect, onTestFinished, vi } from "vitest"
-import { chmod, mkdtemp, readdir, realpath, rm, symlink, writeFile, mkdir } from "node:fs/promises"
+import {
+  chmod,
+  mkdtemp,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  truncate,
+  writeFile,
+  mkdir,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -8,6 +18,7 @@ import { tmpdir } from "node:os"
 vi.mock("node:fs/promises", { spy: true })
 import {
   readFileOrNull,
+  readFileTextPrefix,
   readdirOrNull,
   realpathOrNull,
   fileExists,
@@ -73,13 +84,117 @@ describe("readFileOrNull", () => {
   )
 })
 
+describe("readFileTextPrefix", () => {
+  it("returns the whole text of a file shorter than maxBytes", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "short.log")
+    await writeFile(path, "short line\n", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 100 })).toBe("short line\n")
+  })
+
+  it("returns an empty string for an empty file", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "empty.log")
+    await writeFile(path, "", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 100 })).toBe("")
+  })
+
+  it("reads the start of a file too large to load whole", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "huge.log")
+    await writeFile(path, "first line\n", "utf8")
+    // A sparse 3 GiB file takes no disk space, and readFile refuses any file over 2 GiB
+    await truncate(path, 3 * 1024 ** 3)
+
+    expect(await readFileTextPrefix({ path, maxBytes: 11 })).toBe("first line\n")
+  })
+
+  it("returns an empty string for a maxBytes below one byte", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "short.log")
+    await writeFile(path, "short line\n", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 0 })).toBe("")
+    expect(await readFileTextPrefix({ path, maxBytes: 0.5 })).toBe("")
+  })
+
+  it("reads whole bytes only when maxBytes has a fraction", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "short.log")
+    await writeFile(path, "short line\n", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 2.5 })).toBe("sh")
+  })
+
+  it("returns only the first maxBytes of a longer file", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "long.log")
+    await writeFile(path, "0123456789abcdef", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 10 })).toBe("0123456789")
+  })
+
+  it("leaves out a character the cut splits instead of ending in a replacement character", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "accent.log")
+    // "é" is the two bytes 0xC3 0xA9, so a 3-byte cut keeps only its first byte
+    await writeFile(path, "abé", "utf8")
+
+    expect(await readFileTextPrefix({ path, maxBytes: 3 })).toBe("ab")
+  })
+
+  it("replaces an unfinished character at the end of the file, as readFile does", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "unfinished.log")
+    // 0xE2 0x82 starts a three-byte character that the file never finishes
+    await writeFile(path, Buffer.from([0x61, 0x62, 0xe2, 0x82]))
+
+    expect(await readFileTextPrefix({ path, maxBytes: 100 })).toBe("ab\uFFFD")
+  })
+
+  it("replaces an unfinished character at the end of a file exactly maxBytes long", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "exact.log")
+    // The file ends at the limit, so nothing is cut and readFile's decoding applies
+    await writeFile(path, Buffer.from([0x61, 0x62, 0xe2, 0x82]))
+
+    expect(await readFileTextPrefix({ path, maxBytes: 4 })).toBe("ab\uFFFD")
+  })
+
+  it("keeps a byte-order mark and replaces an invalid byte, as readFile does", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "latin1.log")
+    // 0xEF 0xBB 0xBF is the UTF-8 byte-order mark; 0xE9 alone is never valid UTF-8
+    await writeFile(path, Buffer.from([0xef, 0xbb, 0xbf, 0x61, 0xe9, 0x62]))
+
+    expect(await readFileTextPrefix({ path, maxBytes: 100 })).toBe("\uFEFFa\uFFFDb")
+  })
+
+  it("rejects when no file exists at the path", async () => {
+    const dir = await makeTempDir()
+    const missingPath = join(dir, "missing.log")
+
+    // Node reports ENOENT as errno -2 on both Linux and macOS
+    const missingFileError = Object.assign(
+      new Error(`ENOENT: no such file or directory, open '${missingPath}'`),
+      { errno: -2, code: "ENOENT", syscall: "open", path: missingPath },
+    )
+
+    await expect(readFileTextPrefix({ path: missingPath, maxBytes: 100 })).rejects.toThrow(
+      missingFileError,
+    )
+  })
+})
+
 describe("readdirOrNull", () => {
   it("returns recursive directory entries when the directory exists", async () => {
     const dir = await makeTempDir()
     await mkdir(join(dir, "sub"))
     await writeFile(join(dir, "sub", "a.md"), "x", "utf8")
     const entries = await readdirOrNull(dir)
-    const names = entries?.map((entry) => entry.name).sort()
+    const names = entries?.map((entry) => entry.name).toSorted()
     expect(names).toEqual(["a.md", "sub"])
   })
 

@@ -440,25 +440,6 @@ describe("readAssetContent — PDF extraction", () => {
     )
   })
 
-  it("includes .pdf in the unsupported-type error's readable types list", async () => {
-    mockedReadAsset.mockResolvedValue({
-      buffer: Buffer.from("fake-audio"),
-      bytes: 10_000,
-      extension: ".mp3",
-    })
-
-    await expect(
-      assetOperations.readAssetContent({ ...defaultParams, path: "audio/song.mp3" }, logger),
-    ).rejects.toThrow(
-      new Error(
-        'unsupported file type ".mp3": "audio/song.mp3" exists ' +
-          "(10000 bytes). Readable types: images " +
-          "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats " +
-          "(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)",
-      ),
-    )
-  })
-
   it("passes a PDF load failure other than pdf.js refusing the file through unchanged", async () => {
     mockedReadAsset.mockResolvedValue({
       buffer: Buffer.from("not-a-real-pdf"),
@@ -1013,6 +994,209 @@ describe("readAssetContent — PDF page rendering (raw: true)", () => {
       totalPages: 1,
       pagesRendered: 1,
       path: "notitle.pdf",
+    })
+  })
+})
+
+describe("readAssetContent — UTF-8 files outside the dedicated types", () => {
+  /** Stubs readAsset with the given bytes, reporting the extension lowercased
+   *  as readAsset does. */
+  const stubReadAsset = (params: { buffer: Buffer; extension: string }): void => {
+    mockedReadAsset.mockResolvedValue({
+      buffer: params.buffer,
+      bytes: params.buffer.length,
+      extension: params.extension,
+    })
+  }
+
+  /** `length` bytes of ASCII "a" with a NUL byte at `nulIndex`. */
+  const buildBufferWithNulAt = (params: { length: number; nulIndex: number }): Buffer => {
+    const buffer = Buffer.alloc(params.length, "a")
+    buffer[params.nulIndex] = 0
+    return buffer
+  }
+
+  it.each([
+    {
+      label: "an HTML page's source",
+      path: "runbooks/restart.html",
+      extension: ".html",
+      source: '<!doctype html>\n<p class="step">Restart &mdash; then wait</p>\n',
+    },
+    {
+      label: "a Python script",
+      path: "scripts/report.py",
+      extension: ".py",
+      source: "def get_user_name():\n    return 'café'\n",
+    },
+    {
+      label: "a PowerShell script",
+      path: "scripts/Backup.ps1",
+      extension: ".ps1",
+      source: "Get-ChildItem -Path $Home | Out-Null\r\n",
+    },
+    {
+      label: "a file with no extension",
+      path: "scripts/Makefile",
+      extension: "",
+      source: "build:\n\tnpm run build\n",
+    },
+  ])("returns $label byte-exact as text", async ({ path, extension, source }) => {
+    stubReadAsset({ buffer: Buffer.from(source, "utf8"), extension })
+
+    const result = await assetOperations.readAssetContent({ ...defaultParams, path }, logger)
+
+    expect(result).toEqual({ kind: "text", text: source, path })
+  })
+
+  it("pages a script by line like the dedicated text formats", async () => {
+    stubReadAsset({ buffer: Buffer.from("one\ntwo\nthree\nfour\n", "utf8"), extension: ".sh" })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "deploy.sh", startLine: 2, limit: 2 },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "two\nthree",
+      path: "deploy.sh",
+      lineWindow: { startLine: 2, endLine: 3, totalLines: 4 },
+    })
+  })
+
+  it("refuses a file with a NUL byte in its first 8,000 bytes, naming the readable types", async () => {
+    stubReadAsset({
+      buffer: buildBufferWithNulAt({ length: 9_000, nulIndex: 7_999 }),
+      extension: ".mp3",
+    })
+
+    await expect(
+      assetOperations.readAssetContent({ ...defaultParams, path: "audio/song.mp3" }, logger),
+    ).rejects.toThrow(
+      new Error(
+        'unsupported file type ".mp3": "audio/song.mp3" exists (9000 bytes) and holds a NUL ' +
+          "byte in its first 8,000 bytes (binary data or UTF-16 text). Readable types: images " +
+          "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and UTF-8 text files",
+      ),
+    )
+  })
+
+  it("names a binary file with no extension as type (none)", async () => {
+    stubReadAsset({ buffer: buildBufferWithNulAt({ length: 40, nulIndex: 0 }), extension: "" })
+
+    await expect(
+      assetOperations.readAssetContent({ ...defaultParams, path: "bin/firmware" }, logger),
+    ).rejects.toThrow(
+      new Error(
+        'unsupported file type (none): "bin/firmware" exists (40 bytes) and holds a NUL ' +
+          "byte in its first 8,000 bytes (binary data or UTF-16 text). Readable types: images " +
+          "(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and UTF-8 text files",
+      ),
+    )
+  })
+
+  it("reads an HTML page whose first NUL byte sits just past the first 8,000 bytes", async () => {
+    const buffer = buildBufferWithNulAt({ length: 8_001, nulIndex: 8_000 })
+    stubReadAsset({ buffer, extension: ".html" })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "padded.html" },
+      logger,
+    )
+
+    expect(result).toEqual({ kind: "text", text: buffer.toString("utf8"), path: "padded.html" })
+  })
+
+  it("refuses an HTML page that is not UTF-8", async () => {
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    stubReadAsset({ buffer: Buffer.from([0x3c, 0x70, 0x3e, 0xe9]), extension: ".html" })
+
+    await expect(
+      assetOperations.readAssetContent({ ...defaultParams, path: "latin1.html" }, logger),
+    ).rejects.toThrow(new Error('not valid UTF-8: "latin1.html" cannot be returned as text'))
+  })
+
+  it("keeps reading a log that opens with NUL bytes, since the dedicated text formats skip the NUL check", async () => {
+    const buffer = Buffer.concat([Buffer.alloc(4), Buffer.from("boot ok\n", "utf8")])
+    stubReadAsset({ buffer, extension: ".log" })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "server.log" },
+      logger,
+    )
+
+    expect(result).toEqual({ kind: "text", text: buffer.toString("utf8"), path: "server.log" })
+  })
+})
+
+// The tool text says a read drops a leading byte-order mark, so both decode
+// paths are pinned: text formats and every other UTF-8 file
+describe("readAssetContent — byte-order mark", () => {
+  const BYTE_ORDER_MARK = Buffer.from([0xef, 0xbb, 0xbf])
+
+  it.each([
+    { label: "a text format", path: "exports/data.json", extension: ".json", source: '{"a":1}\n' },
+    { label: "an HTML page", path: "pages/home.html", extension: ".html", source: "<p>hi</p>\n" },
+  ])(
+    "drops a leading byte-order mark from $label and keeps the rest byte-exact",
+    async ({ path, extension, source }) => {
+      const buffer = Buffer.concat([BYTE_ORDER_MARK, Buffer.from(source)])
+      mockedReadAsset.mockResolvedValue({ buffer, bytes: buffer.length, extension })
+
+      const result = await assetOperations.readAssetContent({ ...defaultParams, path }, logger)
+
+      expect(result).toEqual({ kind: "text", text: source, path })
+    },
+  )
+})
+
+// Each stub reports the extension lowercased, as readAsset does, while the path
+// keeps the caller's uppercase extension
+describe("readAssetContent — uppercase extensions", () => {
+  it("returns the outline of a canvas whose extension is uppercase", async () => {
+    const canvasSource = JSON.stringify({
+      nodes: [{ id: "t1", type: "text", text: "Launch plan", x: 0, y: 0, width: 200, height: 100 }],
+      edges: [],
+    })
+    mockedReadAsset.mockResolvedValue({
+      buffer: Buffer.from(canvasSource, "utf8"),
+      bytes: Buffer.byteLength(canvasSource, "utf8"),
+      extension: ".canvas",
+    })
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "Boards/Roadmap.CANVAS" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "text",
+      text: "# Canvas: 1 node, 0 edges\n\n[text]\nLaunch plan",
+      path: "Boards/Roadmap.CANVAS",
+    })
+  })
+
+  it("fits an image whose extension is uppercase to the image budget", async () => {
+    const imageBuffer = Buffer.from("fake-png-bytes")
+    const fitted = buildFittedImage()
+    mockedReadAsset.mockResolvedValue({ buffer: imageBuffer, bytes: 14, extension: ".png" })
+    mockedFitImage.mockResolvedValue(fitted)
+
+    const result = await assetOperations.readAssetContent(
+      { ...defaultParams, path: "Scans/Receipt.PNG" },
+      logger,
+    )
+
+    expect(result).toEqual({
+      kind: "image",
+      fitted,
+      originalBytes: 14,
+      path: "Scans/Receipt.PNG",
+    })
+    expect(mockedFitImage).toHaveBeenCalledExactlyOnceWith({
+      buffer: imageBuffer,
+      budgetBytes: defaultParams.maxImageOutputBytes,
     })
   })
 })

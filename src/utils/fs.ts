@@ -1,5 +1,8 @@
 import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises"
+import { createReadStream } from "node:fs"
 import type { Dirent, Stats } from "node:fs"
+import { buffer as streamToBuffer } from "node:stream/consumers"
+import { StringDecoder } from "node:string_decoder"
 import { isErrnoException } from "./is-errno-exception.js"
 
 /** True for the errors that mean nothing is reachable at a path: the entry is
@@ -20,6 +23,33 @@ export const readFileOrNull = async (path: string): Promise<string | null> => {
     if (isMissingPathError(error) || isErrnoException(error, "EISDIR")) return null
     throw error
   }
+}
+
+/** Decodes as UTF-8 the way readFile does: an invalid byte becomes a
+ *  replacement character and a byte-order mark stays. Reads at most one byte
+ *  past maxBytes, and leaves out a character that the maxBytes cut splits. */
+export const readFileTextPrefix = async (params: {
+  path: string
+  maxBytes: number
+}): Promise<string> => {
+  const byteLimit = Math.floor(params.maxBytes)
+
+  if (byteLimit < 1) return ""
+
+  // end is inclusive, so the stream stops after byteLimit + 1 bytes. The extra
+  // byte shows whether the file goes on past byteLimit.
+  const readBytes = await streamToBuffer(
+    createReadStream(params.path, { start: 0, end: byteLimit }),
+  )
+  const decoder = new StringDecoder("utf8")
+  const fileContinuesPastLimit = readBytes.length > byteLimit
+
+  // At a cut, write() holds back the bytes of the character the cut splits, so
+  // the text never ends in a replacement character. At the end of the file,
+  // end() turns an unfinished character into one, as readFile does.
+  return fileContinuesPastLimit
+    ? decoder.write(readBytes.subarray(0, byteLimit))
+    : decoder.end(readBytes)
 }
 
 /** Stats a path, returning null instead of throwing when nothing exists there

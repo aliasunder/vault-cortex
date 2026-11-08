@@ -4,6 +4,7 @@ import type Database from "better-sqlite3"
 import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
+import { getFileKind } from "../obsidian-markdown/file-kinds.js"
 import { sanitizeFtsQuery } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { blendScores } from "./reranker.js"
@@ -50,11 +51,20 @@ export const SEARCH_LEG_ROW_CAP = 100
  *  kind that is off-topic for the query. Overridable like the leg weight. */
 const DEFAULT_RERANK_KIND_PREFIX = false
 
-/** Kind label for the reranker prefix, from the file's extension. */
-const fileKindLabel = (extension: string | undefined): string => {
-  if (extension === ".pdf") return "PDF file"
-  if (extension === ".canvas") return "Canvas file"
-  return "File"
+/** Kind label for the reranker prefix. */
+const fileKindLabel = (filePath: string): string => {
+  switch (getFileKind(filePath)) {
+    case "pdf":
+      return "PDF file"
+    case "canvas":
+      return "Canvas file"
+    case "image":
+    case "text":
+    case "html":
+    case "script":
+    case "other":
+      return "File"
+  }
 }
 
 // ── Vector search (internal) ───────────────────────────────────
@@ -85,7 +95,7 @@ const vectorSearch = (
   params: {
     query: string
     queryEmbeddingBuffer: Buffer
-    limit: number
+    chunkLimit: number
     folderPathPattern: string | undefined
     noteFilterSql: NoteFilterSql
   },
@@ -96,8 +106,8 @@ const vectorSearch = (
   if (!knnSearchStmt || !knnSearchInFolderStmt) return []
 
   // sqlite-vec picks its k rows before ORDER BY sorts them. With k at twice the limit, ties at
-  // `slice(0, params.limit)` below sort by path. A tie that runs past row k keeps scan order.
-  const overFetchedK = params.limit * 2
+  // `slice(0, params.chunkLimit)` below sort by path. A tie that runs past row k keeps scan order.
+  const overFetchedK = params.chunkLimit * 2
 
   const readNoteVectorRows = (): VectorHitRow[] => {
     // KNN sees only chunks of notes that pass every filter, so excluded notes can't take all k
@@ -139,7 +149,7 @@ const vectorSearch = (
 
   try {
     const overFetchedNoteRows = readNoteVectorRows()
-    const noteKnnRows = overFetchedNoteRows.slice(0, params.limit)
+    const noteKnnRows = overFetchedNoteRows.slice(0, params.chunkLimit)
 
     // Deduplicate to best chunk per note — rows are ordered by distance
     // ascending, so the first occurrence of each path is the closest match.
@@ -176,7 +186,7 @@ const fileContentVectorSearch = (
   params: {
     query: string
     queryEmbeddingBuffer: Buffer
-    limit: number
+    chunkLimit: number
     folderPathPattern: string | undefined
   },
   logger: Logger,
@@ -186,7 +196,7 @@ const fileContentVectorSearch = (
 
   try {
     // Fetch twice the limit so ties sort by path, as in vectorSearch.
-    const overFetchedK = params.limit * 2
+    const overFetchedK = params.chunkLimit * 2
     const overFetchedFileRows = params.folderPathPattern
       ? knnSearchInFolderStmt.all(
           params.queryEmbeddingBuffer,
@@ -194,7 +204,7 @@ const fileContentVectorSearch = (
           params.folderPathPattern,
         )
       : knnSearchStmt.all(params.queryEmbeddingBuffer, overFetchedK)
-    const fileKnnRows = overFetchedFileRows.slice(0, params.limit)
+    const fileKnnRows = overFetchedFileRows.slice(0, params.chunkLimit)
 
     const bestChunkPerFile = new Map<string, VectorHit>()
     for (const knnRow of fileKnnRows) {
@@ -303,7 +313,7 @@ const tryRerank = async (params: {
       // Kind marker only — the chunk text already opens with the file's
       // title, so prefixing the filename again would just repeat it.
       if (params.rerankKindPrefix && result.kind === "file") {
-        return `${fileKindLabel(result.extension)}: ${documentText}`
+        return `${fileKindLabel(result.path)}: ${documentText}`
       }
       return documentText
     })
@@ -421,7 +431,7 @@ export const hybridSearch = async (
         {
           query: params.query,
           queryEmbeddingBuffer,
-          limit: candidateLimit,
+          chunkLimit: candidateLimit,
           folderPathPattern,
           noteFilterSql,
         },
@@ -438,7 +448,7 @@ export const hybridSearch = async (
           {
             query: params.query,
             queryEmbeddingBuffer,
-            limit: candidateLimit,
+            chunkLimit: candidateLimit,
             folderPathPattern,
           },
           logger,

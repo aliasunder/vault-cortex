@@ -47,6 +47,7 @@ import {
   extractCanvasFileLinks,
   rewriteCanvasLinks,
 } from "../obsidian-markdown/canvas.js"
+import { isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import { withExclusiveMultiFileLock } from "../../utils/file-write-lock.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
@@ -120,7 +121,8 @@ const classifyLinkForm = (params: {
   // The resolved path carries the file's real extension — ".md" for notes,
   // the asset's own otherwise — so one rule covers both kinds (a stem-form
   // asset link gets its extension appended, exactly like an extensionless
-  // wikilink to a note).
+  // wikilink to a note). An extensionless file gives "", which every target
+  // ends with, so nothing is appended.
   const extension = posix.extname(resolvedTarget)
   const targetWithExtension = rawTarget.endsWith(extension) ? rawTarget : `${rawTarget}${extension}`
 
@@ -146,8 +148,9 @@ const buildReplacementTarget = (params: {
   const { form, desiredTarget, newSourcePath, keepExtension, resolveFromNewSource } = params
   const absoluteForm = keepExtension ? desiredTarget : links.stripExtension(desiredTarget)
 
-  const resolvesToDesired = (candidate: string): boolean =>
-    resolveFromNewSource(candidate) === desiredTarget
+  const resolvesToDesired = (candidate: string): boolean => {
+    return resolveFromNewSource(candidate) === desiredTarget
+  }
 
   if (form === "basename") {
     const basename = posix.basename(absoluteForm)
@@ -204,18 +207,20 @@ const rewriteTarget = (
 
   // Resolves against the post-move vault from the source's new location —
   // shared by the "already resolves" check and the candidate verifier.
-  const resolveFromNewSource = (candidate: string): string | null =>
-    targetKind === "note"
-      ? links.resolve({
-          target: candidate,
-          allPaths: context.allNotePathsAfter,
-          sourcePath: context.newSourcePath,
-        })
-      : links.resolveAsset({
-          target: candidate,
-          allAssetPaths: context.allAssetPaths,
-          sourcePath: context.newSourcePath,
-        })
+  const resolveFromNewSource = (candidate: string): string | null => {
+    if (targetKind === "note") {
+      return links.resolve({
+        target: candidate,
+        allPaths: context.allNotePathsAfter,
+        sourcePath: context.newSourcePath,
+      })
+    }
+    return links.resolveAsset({
+      target: candidate,
+      allAssetPaths: context.allAssetPaths,
+      sourcePath: context.newSourcePath,
+    })
+  }
 
   // Already resolves correctly from the new location — leave it alone.
   const resolvedAfter = resolveFromNewSource(rawTarget)
@@ -226,9 +231,9 @@ const rewriteTarget = (
   // extension is kept only when the original carried the resolved file's
   // real extension (markdown links always keep theirs; a wikilink to a note
   // never carries ".md"; a stem-form asset link stays extensionless).
-  const resolvedExtension = posix.extname(desiredTarget)
-  const keepExtension =
-    (targetKind === "asset" || grammar === "markdown") && originalExtension === resolvedExtension
+  const grammarWritesExtension = targetKind === "asset" || grammar === "markdown"
+  const carriesResolvedExtension = originalExtension === posix.extname(desiredTarget)
+  const keepExtension = grammarWritesExtension && carriesResolvedExtension
 
   return buildReplacementTarget({
     form: classifyLinkForm({
@@ -248,11 +253,12 @@ const rewriteTarget = (
 /** Percent-encodes a markdown link path segment-by-segment. Parentheses are
  *  encoded explicitly because encodeURIComponent skips them and an unencoded ")"
  *  would close the link early. */
-const encodeMarkdownLinkPath = (path: string): string =>
-  path
+const encodeMarkdownLinkPath = (path: string): string => {
+  return path
     .split("/")
     .map((segment) => encodeURIComponent(segment).replace(/\(/g, "%28").replace(/\)/g, "%29"))
     .join("/")
+}
 
 type LinkEdit = { start: number; end: number; replacement: string }
 
@@ -379,8 +385,9 @@ const rewriteBody = (
 type FrontmatterRewrite = { value: unknown; linksRewritten: number }
 
 /** Total links rewritten across a set of child results. */
-const totalLinksRewritten = (rewrites: ReadonlyArray<FrontmatterRewrite>): number =>
-  rewrites.reduce((runningTotal, child) => runningTotal + child.linksRewritten, 0)
+const totalLinksRewritten = (rewrites: ReadonlyArray<FrontmatterRewrite>): number => {
+  return rewrites.reduce((runningTotal, child) => runningTotal + child.linksRewritten, 0)
+}
 
 /** Rewrites wikilinks inside a frontmatter value, recursing into arrays and
  *  objects. Markdown links are body-only and left untouched. */
@@ -452,10 +459,11 @@ const rewriteNoteContent = (
     }
   }
 
-  // Called only for the error it throws. A link inside the block changed, so
-  // the block reads as key-value properties: an unreadable, list or
-  // single-value block reads as none, and the function returned above.
-  // stringifyNote below would still drop an explicit YAML tag on any value.
+  // Called only for the error it throws on a value with an explicit YAML tag,
+  // which stringifyNote below would drop. Its other refusals cannot fire here:
+  // a link inside the block changed, so the block reads as key-value
+  // properties, and an unreadable, list or single-value block reads as none,
+  // which returned above.
   parseNoteForRewrite(rawContent)
 
   const rewrittenData = frontmatterResult.value
@@ -466,10 +474,6 @@ const rewriteNoteContent = (
   const content = stringifyNote(bodyResult.body, rewrittenData)
   return { content, linksRewritten }
 }
-
-/** Case-sensitive, like the search index: only a lowercase ".canvas"
- *  extension marks a file as a Canvas. */
-const isCanvasPath = (path: string): boolean => posix.extname(path) === ".canvas"
 
 /** True when a file card's path names a note. Obsidian opens a file card by
  *  its exact path, so a card for Plan.pdf opens the PDF even though the
@@ -610,24 +614,9 @@ const extractLinkTargets = (params: { path: string; content: string }): string[]
   return links.extractAll(parsed.content, frontmatter)
 }
 
-/** Scans vault notes and Canvas files for links that resolve to targetPath,
- *  returning paths the caller didn't already know about. The index records
- *  only a Canvas's file cards, so a Canvas linking the note from a text card
- *  is found here. Pre-filters by basename substring before parsing. Read
- *  failures on individual files are logged and skipped. */
-const discoverBacklinksFromFilesystem = async (
-  params: {
-    vaultPath: string
-    targetPath: string
-    allNotePaths: readonly string[]
-    /** Read only to pick out the Canvas files to scan; links resolve against
-     *  allNotePaths alone. */
-    allAssetPaths: readonly string[]
-    knownPaths: ReadonlySet<string>
-  },
-  logger: Logger,
-): Promise<string[]> => {
-  const targetStem = posix.basename(params.targetPath, ".md")
+/** Every lowercased spelling a link to a note named `targetStem` can take in a
+ *  note's or Canvas's text, for a substring pre-filter before the full parse. */
+const listLowercaseStemSpellings = (targetStem: string): string[] => {
   // Pre-filter stems are lowercased so a case-mismatched link is never
   // skipped before the resolver runs. Encode the original-case stem FIRST,
   // then lowercase — encodeURIComponent is codepoint-sensitive, so encoding
@@ -655,6 +644,36 @@ const discoverBacklinksFromFilesystem = async (
     })
     .toLowerCase()
 
+  return [
+    lowercaseStem,
+    lowercaseEncodedStem,
+    lowercaseParenEncodedStem,
+    lowercaseJsonEscapedStem,
+    lowercaseAsciiEscapedStem,
+  ]
+}
+
+/** Scans vault notes and Canvas files for links that resolve to targetPath,
+ *  returning paths the caller didn't already know about. The index records
+ *  only a Canvas's file cards, so a Canvas linking the note from a text card
+ *  is found here. Pre-filters by basename substring before parsing. Read
+ *  failures on individual files are logged and skipped. */
+const discoverBacklinksFromFilesystem = async (
+  params: {
+    vaultPath: string
+    targetPath: string
+    allNotePaths: readonly string[]
+    /** Read only to pick out the Canvas files to scan; links resolve against
+     *  allNotePaths alone. */
+    allAssetPaths: readonly string[]
+    knownPaths: ReadonlySet<string>
+  },
+  logger: Logger,
+): Promise<string[]> => {
+  const lowercaseStemSpellings = listLowercaseStemSpellings(
+    posix.basename(params.targetPath, ".md"),
+  )
+
   const candidatePaths = [...params.allNotePaths, ...params.allAssetPaths.filter(isCanvasPath)]
   // The target itself is never its own backlink source: moveNote rewrites the
   // moved note's own links separately.
@@ -673,12 +692,9 @@ const discoverBacklinksFromFilesystem = async (
         // Skip files whose text can't contain a link — a cheap substring
         // pre-filter before the full parse below.
         const lowercaseContent = content.toLowerCase()
-        const couldContainLink =
-          lowercaseContent.includes(lowercaseStem) ||
-          lowercaseContent.includes(lowercaseEncodedStem) ||
-          lowercaseContent.includes(lowercaseParenEncodedStem) ||
-          lowercaseContent.includes(lowercaseJsonEscapedStem) ||
-          lowercaseContent.includes(lowercaseAsciiEscapedStem)
+        const couldContainLink = lowercaseStemSpellings.some((spelling) => {
+          return lowercaseContent.includes(spelling)
+        })
 
         if (!couldContainLink) return null
 

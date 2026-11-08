@@ -1465,7 +1465,7 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
     const description = findSearchDescription(registerWithConfig({}))
     const openingSentence = description.slice(0, description.indexOf(". ") + 1)
     expect(openingSentence).toBe(
-      "Hybrid search across vault notes and file content (canvas, PDF, and text files), ranked by combined keyword and semantic relevance.",
+      "Hybrid search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts), ranked by combined keyword and semantic relevance.",
     )
     expect(description).toContain("career aspirations")
     expect(description).toContain("search_mode")
@@ -1489,9 +1489,11 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
 
   // Search indexes file content only while file tools are on, so with them
   // off the description must not mention file content, the extension field,
-  // or file results. Both embedding variants share this wording.
+  // or file results. Both embedding variants share this wording; the Behavior
+  // line tests below pin where they differ.
   const FILE_RESULT_WORDING = {
-    searchedScope: "search across vault notes and file content (canvas, PDF, and text files)",
+    searchedScope:
+      "search across vault notes and file content (canvas, PDF, the text formats .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base, the visible text of HTML pages, and .py/.sh/.ps1 scripts)",
     filtersLeadIn:
       "Filters — all conditions AND-combine with each other and the text query; any filter but folder returns notes only:",
     resultFields: `results array (path, title, snippet, score, ${TAG_FIELDS_WORDING}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`,
@@ -1548,25 +1550,29 @@ describe("vault_search description reflects FILE_TOOLS_ENABLED", () => {
   })
 })
 
-describe("vault_search result cap", () => {
+describe("vault_search Behavior line: result cap and file content limits", () => {
   const BEHAVIOR_LEAD =
     "Behavior: Results can lag a file change by a few seconds. No matches returns an empty results array with total 0, not an error."
+  // Stated only while file content is searched (FILE_TOOLS_ENABLED on)
+  const FILE_CONTENT_LIMITS =
+    "Each file's first 100 KiB of text is searched; a page or script over 16 MiB is found by its name only"
 
   it.each([
     {
-      label: "bounds both modes for notes and files by default",
+      label: "bounds both modes for notes and files and states the file limits by default",
       env: {},
-      expectedLine: `${BEHAVIOR_LEAD} When only keyword matching ran (search_mode "fts"), at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files.`,
+      expectedLine: `${BEHAVIOR_LEAD} With search_mode "fts", at most 100 notes and 100 files come back; with "hybrid", at most 200 notes and 200 files. ${FILE_CONTENT_LIMITS}; scripts match by keyword only.`,
     },
     {
       label: "bounds both modes for notes only when file tools are off",
       env: { FILE_TOOLS_ENABLED: "false" },
-      expectedLine: `${BEHAVIOR_LEAD} When only keyword matching ran (search_mode "fts"), at most 100 notes come back; with "hybrid", at most 200 notes.`,
+      expectedLine: `${BEHAVIOR_LEAD} With search_mode "fts", at most 100 notes come back; with "hybrid", at most 200 notes.`,
     },
     {
-      label: "states only the keyword bound for notes and files when embeddings are off",
+      label:
+        "states only the keyword bound for notes and files, and the file limits, when embeddings are off",
       env: { EMBEDDING_ENABLED: "false" },
-      expectedLine: `${BEHAVIOR_LEAD} At most 100 notes and 100 files come back.`,
+      expectedLine: `${BEHAVIOR_LEAD} At most 100 notes and 100 files come back. ${FILE_CONTENT_LIMITS}.`,
     },
     {
       label: "states only the keyword bound for notes when embeddings and file tools are off",
@@ -2973,19 +2979,35 @@ describe("file tool handlers", () => {
     })
   })
 
-  it("rejects an unsupported extension naming the readable types", async () => {
+  it("rejects a file holding NUL bytes, naming the readable types", async () => {
     const { vault, readAsset } = await setupAssetHarness()
-    await writeFile(join(vault, "song.mp3"), "xxxx", "utf8")
+    // An ID3v2.4 tag header, which opens most MP3 files and holds NUL bytes
+    await writeFile(join(vault, "song.mp3"), Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]))
     const result = await readAsset({ path: "song.mp3" })
     expect(result).toEqual({
       isError: true,
       content: [
         {
           type: "text",
-          text: '[Error]: unsupported file type ".mp3": "song.mp3" exists (4 bytes). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)',
+          text: '[Error]: unsupported file type ".mp3": "song.mp3" exists (6 bytes) and holds a NUL byte in its first 8,000 bytes (binary data or UTF-16 text). Readable types: images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and UTF-8 text files',
         },
       ],
     })
+  })
+
+  it("returns an HTML page's source as text", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    const pageSource = "<!doctype html>\n<h1>Runbook</h1>\n<script>restart()</script>\n"
+    await writeFile(join(vault, "runbook.html"), pageSource, "utf8")
+    const result = await readAsset({ path: "runbook.html" })
+    expect(result).toEqual({ content: [{ type: "text", text: pageSource }] })
+  })
+
+  it("reads a note whose .MD extension is uppercase as text, until notes with that extension are supported", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "Note.MD"), "# Upper\n", "utf8")
+    const result = await readAsset({ path: "Note.MD" })
+    expect(result).toEqual({ content: [{ type: "text", text: "# Upper\n" }] })
   })
 
   it("rejects a .md path without touching the note", async () => {
@@ -3449,7 +3471,7 @@ describe("DISABLED_TOOLS", () => {
 
   it("vault_list_files contrasts itself with the note discovery tools while all three are served", () => {
     expect(listFilesWhenToUse("")).toBe(
-      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
+      "When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, HTML (.html/.htm), script (.py/.sh/.ps1), and .txt/.csv/.json/.xml/.svg/.log/.yaml/.yml/.base files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.",
     )
   })
 

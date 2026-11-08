@@ -6,6 +6,7 @@ import { classifyIsoDate } from "../../utils/classify-iso-date.js"
 import { describeError } from "../../utils/describe-error.js"
 import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { isCanvasPath } from "../obsidian-markdown/file-kinds.js"
 import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { sigmoid } from "./reranker.js"
@@ -533,8 +534,11 @@ const tryRerankMemoryCandidates = async (
       }),
     )
 
-    const probabilityOf = (candidate: MemoryRecallCandidate): number =>
-      probabilityByEntryId.get(candidate.row.id) ?? 0
+    // Missing probability (a scores/candidates length mismatch that cannot
+    // normally happen) sorts as least relevant, not as an error.
+    const getRerankProbability = (candidate: MemoryRecallCandidate): number => {
+      return probabilityByEntryId.get(candidate.row.id) ?? 0
+    }
 
     // Adaptive floor: FTS hits always survive (lexical match = strong
     // evidence), so the floor only governs vector-only candidates. Find
@@ -545,7 +549,7 @@ const tryRerankMemoryCandidates = async (
     const vectorOnlyCandidates = candidates.filter((candidate) => !candidate.ftsHit)
     const bestProbability =
       vectorOnlyCandidates.length > 0
-        ? Math.max(...vectorOnlyCandidates.map(probabilityOf))
+        ? Math.max(...vectorOnlyCandidates.map(getRerankProbability))
         : MEMORY_RECALL_MAX_FLOOR
     const scaledFloor = bestProbability * MEMORY_RECALL_RELATIVE_RATIO
     const effectiveFloor = Math.min(
@@ -554,17 +558,12 @@ const tryRerankMemoryCandidates = async (
     )
 
     const kept = candidates.filter(
-      (candidate) => candidate.ftsHit || probabilityOf(candidate) >= effectiveFloor,
+      (candidate) => candidate.ftsHit || getRerankProbability(candidate) >= effectiveFloor,
     )
 
     logger.info("memory recall rerank", { bestProbability, effectiveFloor })
 
-    return {
-      kept,
-      // Missing probability (a scores/candidates length mismatch that cannot
-      // normally happen) sorts as least relevant, not as an error.
-      relevance: (candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0,
-    }
+    return { kept, relevance: getRerankProbability }
   } catch (error) {
     logger.warn("memory recall rerank failed, using distance margin", {
       error: describeError(error),
@@ -585,8 +584,9 @@ const compareMemoryEntriesChronologically = (a: MemoryEntryRow, b: MemoryEntryRo
  *  Rowids are reassigned when the index is rebuilt, and computeRrfScores
  *  breaks equal-score ties by identifier — a rowid key would let a rebuild
  *  reorder tied entries. NUL cannot appear in file names, so the key never
- *  collides across files; the index is zero-padded so the identifier's
- *  byte order equals numeric entry order past nine entries. */
+ *  collides across files. The index is zero-padded to six digits so the
+ *  identifier's byte order equals numeric entry order (unpadded, entry 10
+ *  would sort before entry 9) for up to 999,999 entries in a file. */
 const memoryEntryFusionKey = (row: MemoryEntryRow): string =>
   `${row.file}\u0000${String(row.entry_index).padStart(6, "0")}`
 
@@ -1467,6 +1467,14 @@ export const searchByProperty = (
 
 // ── Link queries ───────────────────────────────────────────────
 
+/** A link query takes a note, whose ".md" must be lowercase, or a canvas in
+ *  any letter case. A canvas returns before the check, so ".canvas" in its
+ *  list only names the accepted extensions in the refusal. */
+const assertLinkQueryPath = (path: string): void => {
+  if (isCanvasPath(path)) return
+  assertPathHasExtension(path, [".md", ".canvas"])
+}
+
 /** Returns notes and files that link TO the given path (incoming links /
  *  backlinks). Canvas file-node references are included — a canvas that
  *  embeds a note via a `file`-type node appears as a backlink source. */
@@ -1475,7 +1483,7 @@ export const getBacklinks = (
   params: { path: string },
   logger: Logger,
 ): BacklinkEntry[] => {
-  assertPathHasExtension(params.path, [".md", ".canvas"])
+  assertLinkQueryPath(params.path)
   const sql = `
     SELECT l.source as path,
            COALESCE(n.title, f.basename) as title,
@@ -1516,7 +1524,7 @@ export const getOutgoingLinks = (
   params: { path: string; dailyNotesFolder?: string | null },
   logger: Logger,
 ): OutgoingLinkEntry[] => {
-  assertPathHasExtension(params.path, [".md", ".canvas"])
+  assertLinkQueryPath(params.path)
   // Left-join against both notes and non_md_files to classify each link target:
   // notes → kind "note", non_md_files → kind "file", neither → broken (defaults to "note").
   const sql = `

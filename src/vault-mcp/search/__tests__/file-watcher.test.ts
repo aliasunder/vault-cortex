@@ -20,7 +20,7 @@ import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 import { createSearchIndex } from "../search-index.js"
 import { extractPdfText } from "../../obsidian-markdown/pdf.js"
-import { readdirOrNull, statOrNull } from "../../../utils/fs.js"
+import { readdirOrNull, readFileTextPrefix, statOrNull } from "../../../utils/fs.js"
 import type { SearchIndex } from "../search-index.js"
 import { watchVaultAndBuildIndex } from "../file-watcher.js"
 import { atomicWriteFile } from "../../vault-operations/vault-filesystem.js"
@@ -501,6 +501,122 @@ describe("file-watcher — file content indexing", () => {
     ])
   })
 
+  it.each([
+    {
+      label: ".TXT",
+      fileName: "upper.TXT",
+      content: "crimson memo\n",
+      query: "crimson",
+      extension: ".txt",
+    },
+    {
+      label: ".CSV",
+      fileName: "Prices.CSV",
+      content: "id,item\n1,saffron\n",
+      query: "saffron",
+      extension: ".csv",
+    },
+  ])(
+    "indexes a file with an uppercase $label extension and removes it on delete",
+    { timeout: 15000 },
+    async ({ fileName, content, query, extension }) => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+      const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
+
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: fileIndex },
+        REAL_WATCHER_OPTIONS,
+      )
+      await writeFile(join(vault, fileName), content, "utf8")
+      await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+      const indexed = await fileIndex.hybridSearch({ query }, logger)
+      expect(
+        indexed.results.map((result) => ({ path: result.path, extension: result.extension })),
+      ).toEqual([{ path: fileName, extension }])
+
+      await unlink(join(vault, fileName))
+      await waitFor(() => removeSpy.mock.calls.length > 0)
+
+      const removed = await fileIndex.hybridSearch({ query }, logger)
+      expect(removed.results).toEqual([])
+    },
+  )
+
+  it(
+    "indexes a PDF with an uppercase extension and removes it on delete",
+    { timeout: 15000 },
+    async () => {
+      const { buildMinimalPdf } = await import("../../obsidian-markdown/__tests__/pdf-fixture.js")
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+      const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
+
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: fileIndex },
+        REAL_WATCHER_OPTIONS,
+      )
+      await writeFile(join(vault, "Report.PDF"), buildMinimalPdf())
+      await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+      const indexed = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
+      expect(
+        indexed.results.map((result) => ({ path: result.path, extension: result.extension })),
+      ).toEqual([{ path: "Report.PDF", extension: ".pdf" }])
+
+      await unlink(join(vault, "Report.PDF"))
+      await waitFor(() => removeSpy.mock.calls.length > 0)
+
+      const removed = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
+      expect(removed.results).toEqual([])
+    },
+  )
+
+  it(
+    "links the file cards of a canvas with an uppercase extension and drops them on delete",
+    { timeout: 15000 },
+    async () => {
+      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+        fileToolsEnabled: true,
+      })
+      const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+      const removeSpy = vi.spyOn(fileIndex, "removeFileContent")
+      const canvasSource = JSON.stringify({
+        nodes: [{ id: "f1", type: "file", x: 0, y: 0, width: 200, height: 100, file: "Plan.md" }],
+        edges: [],
+      })
+
+      await startWatcherWithoutRebuild(
+        { vaultPath: vault, search: fileIndex },
+        REAL_WATCHER_OPTIONS,
+      )
+      await writeFile(join(vault, "Board.Canvas"), canvasSource, "utf8")
+      await waitFor(() => upsertSpy.mock.calls.length > 0)
+
+      // Plan.md is never written, so the card is a link to a missing note
+      expect(fileIndex.getOutgoingLinks({ path: "Board.Canvas" }, logger)).toEqual([
+        {
+          path: "Plan.md",
+          title: null,
+          exists: false,
+          kind: "note",
+          bytes: null,
+          daily_note_forward_ref: false,
+        },
+      ])
+
+      await unlink(join(vault, "Board.Canvas"))
+      await waitFor(() => removeSpy.mock.calls.length > 0)
+
+      expect(fileIndex.getOutgoingLinks({ path: "Board.Canvas" }, logger)).toEqual([])
+    },
+  )
+
   it("calls embedFileContent when indexing a non-md file", { timeout: 15000 }, async () => {
     const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,
@@ -851,10 +967,11 @@ describe("file watcher — obsolete events and embedding queues", () => {
       const { testVault, search, database, fire } = await createControlledWatcher()
       const filePath = join(testVault, "content.txt")
       await writeFile(filePath, "currentopal")
-      const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
-      const readSpy = vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
-        if (requestedPath === filePath) throw new Error("controlled content read failure")
-        return actualFs.readFile(requestedPath, options)
+      const actualFsUtils =
+        await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+      const readSpy = vi.mocked(readFileTextPrefix).mockImplementation(async (params) => {
+        if (params.path === filePath) throw new Error("controlled content read failure")
+        return actualFsUtils.readFileTextPrefix(params)
       })
       const contentSpy = vi.spyOn(search, "upsertFileContent")
       const warnSpy = vi.spyOn(logger, "warn")
@@ -864,7 +981,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       })
 
       await expect(fire(event, "content.txt")).resolves.toBeUndefined()
-      expect(readSpy).toHaveBeenCalledWith(filePath, "utf8")
+      expect(readSpy).toHaveBeenCalledWith({ path: filePath, maxBytes: 102_400 })
       expect(warnSpy).toHaveBeenCalledExactlyOnceWith("file content indexing failed", {
         path: "content.txt",
         error: "[Error]: controlled content read failure",
@@ -1078,22 +1195,36 @@ describe("file watcher — obsolete events and embedding queues", () => {
     })
   })
 
+  /** Holds the first read of filePath open until release() runs. A note is
+   *  read whole and a text file through the prefix reader, so both are held. */
   const delayFirstRead = async (filePath: string) => {
     const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
     const entered = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
     const delayedPaths = new Set<string>()
+    const holdFirstRead = async (requestedPath: unknown): Promise<void> => {
+      if (requestedPath !== filePath || delayedPaths.has(filePath)) return
+
+      delayedPaths.add(filePath)
+      entered.resolve(undefined)
+      await release.promise
+    }
     vi.mocked(readFile).mockImplementation(async (requestedPath, options) => {
       const content = await actualFs.readFile(requestedPath, options)
-
-      if (requestedPath === filePath && !delayedPaths.has(filePath)) {
-        delayedPaths.add(filePath)
-        entered.resolve(undefined)
-        await release.promise
-      }
+      await holdFirstRead(requestedPath)
       return content
     })
-    onTestFinished(() => vi.mocked(readFile).mockRestore())
+    vi.mocked(readFileTextPrefix).mockImplementation(async (params) => {
+      const content = await actualFsUtils.readFileTextPrefix(params)
+      await holdFirstRead(params.path)
+      return content
+    })
+    onTestFinished(() => {
+      vi.mocked(readFile).mockRestore()
+      vi.mocked(readFileTextPrefix).mockRestore()
+    })
     return { entered: entered.promise, release: () => release.resolve(undefined) }
   }
 
@@ -1445,6 +1576,215 @@ describe("file watcher — obsolete events and embedding queues", () => {
       expect(embedder.embedText).toHaveBeenCalledTimes(4)
     },
   )
+
+  it.each([{ fileName: "page.html" }, { fileName: "page.htm" }])(
+    "indexes the visible text of $fileName and replaces it when the page changes",
+    async ({ fileName }) => {
+      const { testVault, search, fire } = await createControlledWatcher()
+      const searchPaths = async (query: string) => {
+        const { results } = await search.hybridSearch({ query }, logger)
+        return results.map((result) => result.path)
+      }
+
+      await writeFile(
+        join(testVault, fileName),
+        "<p>oldquartz</p><script>scriptonlyword()</script>",
+        "utf8",
+      )
+      await fire("add", fileName)
+
+      expect(await searchPaths("oldquartz")).toEqual([fileName])
+      expect(await searchPaths("scriptonlyword")).toEqual([])
+
+      await writeFile(join(testVault, fileName), "<p>newopal</p>", "utf8")
+      await fire("change", fileName)
+
+      expect(await searchPaths("newopal")).toEqual([fileName])
+      expect(await searchPaths("oldquartz")).toEqual([])
+    },
+  )
+
+  it("finds a page over 16 MiB by its name without reading it", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    const filler = "<p>filler</p>".repeat(Math.ceil((16 * 1024 * 1024) / 13) + 1)
+    const pagePath = join(testVault, "giganticpage.html")
+    await writeFile(pagePath, `<p>buriedcobalt</p>${filler}`, "utf8")
+    const searchPaths = async (query: string) => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    await fire("add", "giganticpage.html")
+
+    expect(await searchPaths("giganticpage")).toEqual(["giganticpage.html"])
+    expect(await searchPaths("buriedcobalt")).toEqual([])
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(pagePath, expect.anything())
+  })
+
+  it("finds a script over 16 MiB by its name without reading it", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    const filler = "# filler\n".repeat(Math.ceil((16 * 1024 * 1024) / 9) + 1)
+    const scriptPath = join(testVault, "giganticscript.py")
+    await writeFile(scriptPath, `buriedjasper = 1\n${filler}`, "utf8")
+    const searchPaths = async (query: string) => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    await fire("add", "giganticscript.py")
+
+    expect(await searchPaths("giganticscript")).toEqual(["giganticscript.py"])
+    expect(await searchPaths("buriedjasper")).toEqual([])
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(scriptPath, expect.anything())
+  })
+
+  it("reads only the first 100 KiB of a changed text file, all the text search keeps", async () => {
+    const { testVault, search, fire } = await createControlledWatcher()
+    const logPath = join(testVault, "prefixread.log")
+    // The opening word sits inside the first 100 KiB and the closing word past it
+    await writeFile(logPath, `openingtopaz\n${"x ".repeat(60_000)}\nclosingtopaz\n`, "utf8")
+    const searchPaths = async (query: string) => {
+      const { results } = await search.hybridSearch({ query }, logger)
+      return results.map((result) => result.path)
+    }
+
+    await fire("add", "prefixread.log")
+
+    expect(await searchPaths("openingtopaz")).toEqual(["prefixread.log"])
+    expect(await searchPaths("closingtopaz")).toEqual([])
+    expect(vi.mocked(readFileTextPrefix)).toHaveBeenCalledWith({
+      path: logPath,
+      maxBytes: 102_400,
+    })
+    // These two cover a read as a buffer and a read given an encoding or options
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath)
+    expect(vi.mocked(readFile)).not.toHaveBeenCalledWith(logPath, expect.anything())
+  })
+
+  it("leaves a page that is not UTF-8 out of search", async () => {
+    const { testVault, database, fire } = await createControlledWatcher()
+    // 0xE9 is "é" in Latin-1 and never a complete UTF-8 sequence
+    const latin1Page = Buffer.concat([
+      Buffer.from("<p>caf"),
+      Buffer.from([0xe9]),
+      Buffer.from(" latinword</p>"),
+    ])
+    await writeFile(join(testVault, "latin1.html"), latin1Page)
+    await writeFile(join(testVault, "plain.html"), "<p>plainword</p>", "utf8")
+
+    await fire("add", "latin1.html")
+    await fire("add", "plain.html")
+
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([
+      { path: "plain.html" },
+    ])
+    expect(database.prepare("SELECT path FROM non_md_files ORDER BY path").all()).toEqual([
+      { path: "latin1.html" },
+      { path: "plain.html" },
+    ])
+  })
+
+  it("finds a script by keyword through an add, a change and a delete, never embedding it", async () => {
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn().mockResolvedValue(vector),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, database, search, fire } = await createControlledWatcher(embedder)
+    const settledEmbeds: string[] = []
+    const realFileEmbed = search.embedFileContent
+    vi.spyOn(search, "embedFileContent").mockImplementation(async (params, requestLogger) => {
+      await realFileEmbed(params, requestLogger)
+      settledEmbeds.push(params.filePath)
+    })
+    const keywordPaths = (phrase: string): string[] => {
+      return database
+        .prepare<[string], { path: string }>(
+          "SELECT path FROM file_content_fts WHERE file_content_fts MATCH ? ORDER BY path",
+        )
+        .all(`"${phrase}"`)
+        .map((row) => row.path)
+    }
+    const storedChunkPaths = () => {
+      return database.prepare("SELECT DISTINCT file_path FROM file_content_chunks").all()
+    }
+
+    await writeFile(join(testVault, "report.py"), "def get_user_name():\n    pass\n", "utf8")
+    await writeFile(join(testVault, "control.txt"), "plain text control\n", "utf8")
+    await fire("add", "report.py")
+    await fire("add", "control.txt")
+    await vi.waitFor(() => expect(settledEmbeds.toSorted()).toEqual(["control.txt", "report.py"]))
+
+    expect(keywordPaths("get user name")).toEqual(["report.py"])
+    expect(storedChunkPaths()).toEqual([{ file_path: "control.txt" }])
+
+    await writeFile(join(testVault, "report.py"), "def get_order_total():\n    pass\n", "utf8")
+    await fire("change", "report.py")
+    await vi.waitFor(() => {
+      expect(settledEmbeds.toSorted()).toEqual(["control.txt", "report.py", "report.py"])
+    })
+
+    expect(keywordPaths("get order total")).toEqual(["report.py"])
+    expect(keywordPaths("get user name")).toEqual([])
+    expect(storedChunkPaths()).toEqual([{ file_path: "control.txt" }])
+
+    await unlink(join(testVault, "report.py"))
+    await fire("unlink", "report.py")
+
+    expect(keywordPaths("get order total")).toEqual([])
+    expect(database.prepare("SELECT path FROM file_content").all()).toEqual([
+      { path: "control.txt" },
+    ])
+    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("control\n\nplain text control")
+  })
+
+  it("drops a page from search while it holds a NUL byte, and a held embedding cannot restore it", async () => {
+    const firstEntered = Promise.withResolvers<undefined>()
+    const releaseFirst = Promise.withResolvers<Float32Array>()
+    const vector = new Float32Array(384).fill(0.1)
+    const embedder = {
+      embedText: vi.fn(async (text: string) => {
+        if (text === "page\n\nfirstgarnet") {
+          firstEntered.resolve(undefined)
+          return releaseFirst.promise
+        }
+        return vector
+      }),
+      embedBatch: vi.fn(async (texts: readonly string[]) => texts.map(() => vector)),
+    }
+    const { testVault, database, search, fire } = await createControlledWatcher(embedder)
+    const pagePath = join(testVault, "page.html")
+    const storedContent = () => database.prepare("SELECT path, content FROM file_content").all()
+    const storedChunks = () => database.prepare("SELECT file_path FROM file_content_chunks").all()
+
+    await writeFile(pagePath, "<p>firstgarnet</p>", "utf8")
+    const firstChange = fire("change", "page.html")
+    await firstEntered.promise
+    expect(storedContent()).toEqual([{ path: "page.html", content: "firstgarnet" }])
+
+    const withNulByte = Buffer.concat([
+      Buffer.from("<p>nulgarnet"),
+      Buffer.from([0]),
+      Buffer.from("</p>"),
+    ])
+    await writeFile(pagePath, withNulByte)
+    await fire("change", "page.html")
+    expect(storedContent()).toEqual([])
+
+    releaseFirst.resolve(vector)
+    await firstChange
+    await vi.waitFor(() => expect(embedder.embedText).toHaveBeenCalledTimes(1))
+    expect(storedChunks()).toEqual([])
+    expect(search.fullTextSearch({ query: "firstgarnet" }, logger)).toEqual([])
+
+    await writeFile(pagePath, "<p>secondgarnet</p>", "utf8")
+    await fire("change", "page.html")
+    expect(storedContent()).toEqual([{ path: "page.html", content: "secondgarnet" }])
+  })
 
   it("reports a detached file embedding failure and runs its queued replacement", async () => {
     const failingEntered = Promise.withResolvers<undefined>()
@@ -3378,7 +3718,7 @@ describe("file watcher — new-directory rescan", () => {
         logger,
       )
       // readdir order isn't guaranteed, so compare sorted ("loop" < "settled.md").
-      expect([...addedPaths].sort()).toEqual([loopLink, settledPath])
+      expect([...addedPaths].toSorted()).toEqual([loopLink, settledPath])
     },
   )
 

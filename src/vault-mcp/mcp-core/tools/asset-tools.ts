@@ -2,9 +2,11 @@
 
 import { z } from "zod"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import { assetOperations } from "../../vault-operations/asset-operations.js"
+import { assetOperations, MAX_TEXT_OUTPUT_BYTES } from "../../vault-operations/asset-operations.js"
 import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
+import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
+import type { FileKind } from "../../obsidian-markdown/file-kinds.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import {
@@ -77,6 +79,10 @@ const formatAssetReadResult = (result: AssetReadResult): CallToolResult["content
   }
 }
 
+/** A file kind's extensions as the tool text writes them (".html/.htm"), read
+ *  from the file-kind map so the text follows it when a type is added. */
+const formatExtensionsOfKind = (kind: FileKind): string => getExtensionsOfKind(kind).join("/")
+
 export const registerAssetTools = ({
   registerTool,
   safeHandler,
@@ -94,8 +100,12 @@ export const registerAssetTools = ({
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
     TOOL_NAMES.VAULT_SEARCH,
   ].every(isToolEnabled)
+  const imageExtensions = formatExtensionsOfKind("image")
+  const htmlExtensions = formatExtensionsOfKind("html")
+  const scriptExtensions = formatExtensionsOfKind("script")
+  const textExtensions = formatExtensionsOfKind("text")
   const listFilesContrastSentence = noteDiscoveryToolsServed
-    ? " vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else."
+    ? ` vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, HTML (${htmlExtensions}), script (${scriptExtensions}), and ${textExtensions} files, so this is the discovery surface for everything else.`
     : " This is the discovery surface for every file that is not a markdown note."
 
   registerTool(
@@ -110,13 +120,13 @@ Example: vault_read_file({ path: "exports/data.json" }) — the file content as 
 Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines
 Example: vault_read_file({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 
-When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", " vault_search also indexes canvas, PDF, and text-format content, but not images or other files.")}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
+When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF.${whenToolEnabledText("vault_get_outgoing_links", " Find the files a note links to (with byte sizes) via vault_get_outgoing_links.")}${whenToolEnabledText("vault_list_files", " Browse a folder's files via vault_list_files.")}${whenToolEnabledText("vault_search", ` vault_search also indexes the content of canvases and PDFs, the visible text of HTML pages (${htmlExtensions}), scripts (${scriptExtensions}), and the text formats ${textExtensions}, but not images or other files.`)}${whenToolEnabledText("vault_read_note", " For .md notes use vault_read_note.")} To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
 Parameters:
 - raw: true switches a canvas or PDF to its other form. A canvas returns its exact JSON source (geometry, ids, colors) instead of the outline. A PDF returns each page rendered as an image instead of extracted text, showing layout, diagrams, tables, and formatting; only the first ${config.maxPdfRenderPages} pages are rendered, and later pages are readable only as text, without raw.
-- start_line and limit page any text result as a line window. The text output cap (a fixed 100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap.
+- start_line and limit page any text result as a line window. The text output cap (a fixed ${MAX_TEXT_OUTPUT_BYTES / 1024} KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap.
 
-Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text format returns the file byte-exact.
+Behavior: A paged window comes back with \\n line endings and no trailing newline, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"); an unpaged read of a text file returns the file byte-exact, except that a leading byte-order mark is dropped.
 
 Errors:
 - "not a file: … is a markdown note" — the path ends in .md${whenToolEnabledText("vault_read_note", "; read notes with vault_read_note")}
@@ -136,19 +146,19 @@ ${PATH_SAFETY_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 - "file changed while reading" — retry the read
 - "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the server's operator to restart the server
-- "unsupported file type …" — the type (audio, archives, …) is not readable; the error names the readable types plus the file's existence and size
+- "unsupported file type …" — the file holds binary data (audio, archives, UTF-16 text, …); the error names the readable types plus the file's existence and size. Ask for a UTF-8 copy of UTF-16 text
 
 Returns: by file type:
-- Images (.png/.jpg/.jpeg/.gif/.webp): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels; an animated GIF is reduced to its first frame when recompressed.
+- Images (${imageExtensions}): an image content block plus a one-line metadata text block. The image is downscaled and recompressed when it exceeds the image output budget (${config.maxImageOutputBytes} bytes) or has a longer side over 1568 pixels; an animated GIF is reduced to its first frame when recompressed.
 - Canvas (.canvas): one text block holding a readable markdown outline — groups, node content in reading order, and a connections list with edge labels.
 - PDFs (.pdf): one text block of structured text with document metadata — title, page count, heading hierarchy, code blocks and inline code, page separators, and a links footer; with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page).
-- Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): one text block holding the file content verbatim.`,
+- Any other UTF-8 text file (.svg, .json, .csv, .html, .py, no extension, …): one text block holding the file content.`,
       inputSchema: {
         path: z
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the file, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md". Use the exact letter case.',
+            'Vault-relative path to the file, including any extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md". Use the exact letter case.',
           ),
         raw: z
           .boolean()
@@ -235,7 +245,7 @@ Returns: by file type:
       title: "List Files",
       description: `List non-markdown files in the vault or a folder — images, canvases, PDFs, data files — with per-file byte sizes and per-extension counts.
 
-Example: vault_list_files({}) — non-markdown files across the whole vault
+Example: vault_list_files({})
 Example: vault_list_files({ folder: "attachments" })
 Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 
@@ -249,7 +259,7 @@ ${LISTING_FILESYSTEM_ERROR_ENTRY}.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path; extension is "(none)" for a file without one), extension_counts (counts keyed by extension, e.g. { ".png": 3 }, over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit).${whenToolEnabledText(
         "vault_read_file",
-        "\n\nReadable types: vault_read_file reads only images (.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and the text formats .svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base.",
+        `\n\nReadable types: vault_read_file reads images (${imageExtensions}), .canvas, .pdf, and any UTF-8 text file.`,
       )}`,
       inputSchema: {
         folder: z

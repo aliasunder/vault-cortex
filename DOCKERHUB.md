@@ -48,7 +48,7 @@
 - **[Structured memory](https://github.com/aliasunder/vault-cortex#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
 - **[Tasks](https://github.com/aliasunder/vault-cortex#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Completing a recurring task spawns its next occurrence. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](https://github.com/aliasunder/vault-cortex#tools)** — backlinks, outgoing links, and orphan detection across the vault
-- **[Files](https://github.com/aliasunder/vault-cortex#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files as text
+- **[Files](https://github.com/aliasunder/vault-cortex#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files, HTML pages, and scripts as text
 - **[Obsidian-native](https://github.com/aliasunder/vault-cortex#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
 - **[Guided workflows](https://github.com/aliasunder/vault-cortex#prompts)** — built-in prompts for vault health, memory review, and daily reconciliation — assembled from live vault data each time
 
@@ -60,22 +60,6 @@
 ## Quick Start
 
 See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quick-start) for local setup (2 minutes with Docker), one-click hosting on Render or Railway, remote deployment with Obsidian Sync, and MCP client configuration.
-
-## Files
-
-Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. Vault Cortex treats files as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can use:
-
-- **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
-- **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. Canvas content is full-text searchable, and file references on the board appear in the link graph — backlinks and outgoing links work just like note-to-note links. The exact JSON source is one flag away when full fidelity matters
-- **PDFs** — text is extracted with heading hierarchy, code blocks, and hyperlinks preserved; PDF content is full-text searchable alongside your notes. Set `raw: true` to render pages as images instead, showing layout, diagrams, and tables that text extraction can't preserve — scanned and image-only PDFs work in this mode
-- **Text and data files** — TXT, SVG, JSON, XML, CSV, YAML, logs, and [Bases](https://help.obsidian.md/bases) files return exactly as written; the first 100 KB of content is full-text searchable. Big data files and logs can be read a line range at a time, with each page reporting where you are and how much file remains
-- **Browse** — list any visible folder's files with per-extension counts and file sizes; files a note links to report their size in the link graph too
-
-Set `FILE_TOOLS_ENABLED=false` to hide the file tools — useful when your remote vault syncs without attachments.
-
-See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/main/ARCHITECTURE.md#files) for the image pipeline and dispatch model.
-
----
 
 ## Tools
 

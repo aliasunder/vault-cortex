@@ -5,6 +5,11 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readEffectiveOrphanExcludeFolders } from "../../vault-operations/vault-folder-config.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
+import { getExtensionsOfKind } from "../../obsidian-markdown/file-kinds.js"
+import {
+  MAX_INDEXED_CONTENT_BYTES,
+  MAX_INDEXED_HTML_OR_SCRIPT_BYTES,
+} from "../../search/search-index.js"
 import { SEARCH_LEG_ROW_CAP } from "../../search/hybrid-search.js"
 import {
   createStrictInputObject,
@@ -83,10 +88,19 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   ])
 
   // File content is searched only while FILE_TOOLS_ENABLED is on, so the text
-  // that mentions file results follows that setting, not any one tool
+  // that mentions file results follows that setting, not any one tool. Scripts
+  // are never embedded, which matters to a caller only while semantic matching runs.
+  const scriptMatchClause = config.embeddingEnabled ? "; scripts match by keyword only" : ""
+  const scriptExtensions = getExtensionsOfKind("script").join("/")
+  const textExtensions = getExtensionsOfKind("text").join("/")
+  const nameOnlyLimitMiB = MAX_INDEXED_HTML_OR_SCRIPT_BYTES / (1024 * 1024)
+  const indexedPrefixKiB = MAX_INDEXED_CONTENT_BYTES / 1024
   const searchedContentText = config.fileToolsEnabled
-    ? "vault notes and file content (canvas, PDF, and text files)"
+    ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages, and ${scriptExtensions} scripts)`
     : "vault notes"
+  const fileContentLimitsSentence = config.fileToolsEnabled
+    ? ` Each file's first ${indexedPrefixKiB} KiB of text is searched; a page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
+    : ""
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`
     : `path, title, snippet, score, ${tagsFieldsText}, folder (top-level folder), type, kind, created, modified, bytes`
@@ -102,7 +116,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? {
         stage: "keyword matching",
         outcome:
-          'a query left with no terms is matched by meaning only, or finds nothing when only keyword matching ran (search_mode "fts")',
+          'a query left with no terms is matched by meaning only, or finds nothing when search_mode is "fts"',
       }
     : {
         stage: "matching",
@@ -117,9 +131,9 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
   const keywordCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP)
   const hybridCapExtent = describeCapExtent(SEARCH_LEG_ROW_CAP * 2)
   const resultCapSentence = config.embeddingEnabled
-    ? `When only keyword matching ran (search_mode "fts"), at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
+    ? `With search_mode "fts", at most ${keywordCapExtent} come back; with "hybrid", at most ${hybridCapExtent}.`
     : `At most ${keywordCapExtent} come back.`
-  const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}
+  const searchBehaviorLine = `Behavior: ${INDEX_LAG_LEAD}. No matches returns an empty results array with total 0, not an error. ${resultCapSentence}${fileContentLimitsSentence}
 - Malformed query syntax never throws: the words AND, OR, NOT and NEAR in any letter case, and punctuation such as *, ^, parentheses and colons, are dropped before ${emptiedQueryText.stage}; ${emptiedQueryText.outcome}.`
   const searchErrorsSection = `Errors:
 - "invalid created.on date: …" or "… is not a calendar date" (any created/modified bound) — pass a real calendar date in YYYY-MM-DD form
