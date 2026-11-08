@@ -10,5 +10,8 @@ export default defineConfig({
     // worker, loads the TypeScript sources outside vitest's transform, so it
     // needs this loader
     execArgv: ["--import", "tsx"],
+    // Tests that assert on real log lines must not inherit a developer's
+    // LOG_LEVEL or LOG_DIR, which would hide those lines or write to a real log folder.
+    env: { LOG_LEVEL: "info", LOG_DIR: "none" },
   },
 })

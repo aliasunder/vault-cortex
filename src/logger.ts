@@ -1,8 +1,19 @@
 import { env } from "node:process"
-import { mkdirSync, readdirSync, unlinkSync, appendFileSync } from "node:fs"
+import {
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+  appendFileSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs"
 import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
+import { describeError } from "./utils/describe-error.js"
+import { truncateToCodePointLimit } from "./utils/truncate-to-code-point-limit.js"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
@@ -88,8 +99,78 @@ const LOG_FILE_SUFFIX = ".log"
 const LOG_FILE_PATTERN = /^vault-mcp-(\d{4}-\d{2}-\d{2})\.log$/
 
 const DEFAULT_RETENTION_DAYS = 90
+// Bounds persisted logs while leaving room for busy days at the info level.
+const DEFAULT_MAX_DAILY_MB = 25
+const BYTES_PER_MB = 1_000_000
+// The limit notice is under 200 bytes; the tail also includes its preceding newline.
+const LIMIT_NOTICE_TAIL_BYTES = 512
+/** Matches the sink's notice header, excluding quoted text in ordinary log fields. */
+const LIMIT_NOTICE_PATTERN =
+  /^\{"timestamp":"[^"]+","level":"warn","name":"vault-cortex","message":"file_log_daily_limit_reached",/
+
+const endsWithApplicableLimitNotice = ({
+  logPath,
+  fileBytes,
+  maxDailyBytes,
+}: {
+  logPath: string
+  fileBytes: number
+  maxDailyBytes: number
+}): boolean => {
+  // With the cap turned off, no earlier notice applies, readable or not.
+  if (!fileBytes || !Number.isFinite(maxDailyBytes)) return false
+  const file = openSync(logPath, "r")
+
+  try {
+    const tail = Buffer.alloc(Math.min(fileBytes, LIMIT_NOTICE_TAIL_BYTES))
+    const bytesRead = readSync(file, tail, 0, tail.length, fileBytes - tail.length)
+    const lastLine = tail.toString("utf8", 0, bytesRead).trimEnd().split("\n").at(-1)
+
+    if (!lastLine || !LIMIT_NOTICE_PATTERN.test(lastLine)) return false
+
+    const notice: unknown = (() => {
+      try {
+        return JSON.parse(lastLine)
+      } catch (error) {
+        process.stdout.write(
+          consoleWarningLine("invalid_file_log_daily_limit_notice", {
+            error: describeError(error),
+          }),
+        )
+        return undefined
+      }
+    })()
+    const recordedLimit =
+      typeof notice === "object" && notice !== null && "maxDailyBytes" in notice
+        ? notice.maxDailyBytes
+        : undefined
+
+    // An unreadable notice preserves the cap; only a known increase reopens the file.
+    if (typeof recordedLimit !== "number" || !Number.isFinite(recordedLimit)) return true
+
+    return maxDailyBytes <= recordedLimit
+  } finally {
+    closeSync(file)
+  }
+}
 
 const todayDateString = (): string => DateTime.now().toISODate()
+
+const consoleWarningLine = (message: string, data: Record<string, unknown>): string => {
+  return (
+    JSON.stringify({
+      timestamp: DateTime.now().toISO(),
+      level: "warn",
+      name: "vault-cortex",
+      message,
+      ...data,
+    }) + "\n"
+  )
+}
+
+const reportFileLoggingStopped = (error: unknown): void => {
+  process.stdout.write(consoleWarningLine("file_logging_stopped", { error: describeError(error) }))
+}
 
 /** Deletes log files older than retentionDays. */
 export const pruneOldLogFiles = (logDir: string, retentionDays: number): void => {
@@ -105,30 +186,100 @@ export const pruneOldLogFiles = (logDir: string, retentionDays: number): void =>
   }
 }
 
-/** Creates a LogExtension that appends each line to a date-stamped file.
- *  Rolls to a new file at midnight. Prunes files older than retentionDays on creation. */
-export const createFileSinkExtension = (
-  logDir: string,
-  retentionDays: number = DEFAULT_RETENTION_DAYS,
-): LogExtension => {
-  mkdirSync(logDir, { recursive: true })
-  pruneOldLogFiles(logDir, retentionDays)
+/** Keeps the start of each day's log; console output continues after the daily cap. */
+export const createFileSinkExtension = ({
+  logDir,
+  retentionDays = DEFAULT_RETENTION_DAYS,
+  maxDailyBytes = DEFAULT_MAX_DAILY_MB * BYTES_PER_MB,
+}: {
+  logDir: string
+  retentionDays?: number
+  maxDailyBytes?: number
+}): LogExtension => {
+  // Initialisation failures disable this sink before it reaches any logger.
+  try {
+    mkdirSync(logDir, { recursive: true })
+    pruneOldLogFiles(logDir, retentionDays)
+  } catch (error) {
+    reportFileLoggingStopped(error)
+    return () => undefined
+  }
 
-  const logPath = (): string =>
-    join(logDir, `${LOG_FILE_PREFIX}${todayDateString()}${LOG_FILE_SUFFIX}`)
+  // Each day's count starts from disk so restarting preserves the written bytes.
+  const logDay = { date: "", bytes: 0, capped: false }
 
   // `line` is the same JSON string already written to stdout/stderr by emit()
   return (_entry: LogEntry, line: string): void => {
-    appendFileSync(logPath(), line)
+    const today = todayDateString()
+    const logPath = join(logDir, `${LOG_FILE_PREFIX}${today}${LOG_FILE_SUFFIX}`)
+
+    if (logDay.date !== today) {
+      pruneOldLogFiles(logDir, retentionDays)
+      logDay.bytes = statSync(logPath, { throwIfNoEntry: false })?.size ?? 0
+      logDay.date = today
+      // A notice can leave the file below the cap when the rejected line was large.
+      // Exact-cap files without a notice still need one on the next rejected write.
+      logDay.capped =
+        logDay.bytes > maxDailyBytes ||
+        endsWithApplicableLimitNotice({ logPath, fileBytes: logDay.bytes, maxDailyBytes })
+    }
+
+    if (logDay.capped) return
+
+    const lineBytes = Buffer.byteLength(line)
+    const exceedsDailyLimit = logDay.bytes + lineBytes > maxDailyBytes
+
+    if (exceedsDailyLimit) {
+      // The notice may exceed the cap so the persisted file explains why it stops.
+      // Mark first so even a failing append cannot retry the notice this day.
+      logDay.capped = true
+      const limitLine = consoleWarningLine("file_log_daily_limit_reached", { maxDailyBytes })
+      appendFileSync(logPath, limitLine)
+      process.stdout.write(limitLine)
+      return
+    }
+
+    appendFileSync(logPath, line)
+    logDay.bytes += lineBytes
   }
 }
 
 // ── Logger ──────────────────────────────────────────────────
 
 const parseRetentionDays = (envValue: string | undefined): number | undefined => {
-  if (!envValue) return undefined
-  const retentionDays = parseInt(envValue, 10)
-  return Number.isNaN(retentionDays) ? undefined : retentionDays
+  if (envValue === undefined) return undefined
+  const retentionDays = Number(envValue)
+
+  if (WHOLE_NUMBER.test(envValue) && Number.isFinite(retentionDays)) return retentionDays
+
+  process.stdout.write(
+    consoleWarningLine("invalid LOG_RETENTION_DAYS; using default", {
+      retentionDays: DEFAULT_RETENTION_DAYS,
+    }),
+  )
+  return DEFAULT_RETENTION_DAYS
+}
+
+/** Matches a whole number without signs, fractions or trailing text. */
+const WHOLE_NUMBER = /^\d+$(?![\s\S])/
+
+const parseMaxDailyBytes = (envValue: string | undefined): number => {
+  if (envValue === undefined) return DEFAULT_MAX_DAILY_MB * BYTES_PER_MB
+  if (envValue.toLowerCase() === "none") return Number.POSITIVE_INFINITY
+
+  const maxDailyMb = Number(envValue)
+  const maxDailyBytes = maxDailyMb * BYTES_PER_MB
+  const validLimit =
+    WHOLE_NUMBER.test(envValue) && maxDailyMb >= 1 && Number.isFinite(maxDailyBytes)
+
+  if (validLimit) return maxDailyBytes
+
+  process.stdout.write(
+    consoleWarningLine("invalid LOG_MAX_DAILY_MB; using default", {
+      maxDailyMb: DEFAULT_MAX_DAILY_MB,
+    }),
+  )
+  return DEFAULT_MAX_DAILY_MB * BYTES_PER_MB
 }
 
 /** Sentinel that turns file logging off. Deployments that default LOG_DIR on
@@ -148,11 +299,16 @@ export const resolveLogDir = (logDirSetting: string | undefined): string | undef
 }
 
 const logDir = resolveLogDir(env.LOG_DIR)
+const maxDailyBytes = parseMaxDailyBytes(env.LOG_MAX_DAILY_MB)
 const fileSinkExtension: LogExtension | undefined = logDir
-  ? createFileSinkExtension(logDir, parseRetentionDays(env.LOG_RETENTION_DAYS))
+  ? createFileSinkExtension({
+      logDir,
+      retentionDays: parseRetentionDays(env.LOG_RETENTION_DAYS) ?? DEFAULT_RETENTION_DAYS,
+      maxDailyBytes,
+    })
   : undefined
 
-const defaultExtensions: LogExtension[] = fileSinkExtension ? [fileSinkExtension] : []
+const defaultExtensions = new Set<LogExtension>(fileSinkExtension ? [fileSinkExtension] : [])
 
 /** Resolves function-valued child props at emit time — lets a child logger
  *  carry context that doesn't exist yet at child creation (e.g. the MCP
@@ -165,15 +321,65 @@ const resolveLazyProps = (props: Record<string, unknown>): Record<string, unknow
   return Object.fromEntries(resolvedEntries)
 }
 
+// Bounds arbitrary log fields so caller-controlled text cannot flood log storage.
+const LOG_FIELD_CODE_POINTS = 256
+// Keeps error descriptions and stack traces useful while bounding their size.
+const LOG_DIAGNOSTIC_CODE_POINTS = 4096
+// Bounds recursive traversal so deeply nested log data cannot exhaust the call stack.
+const LOG_FIELD_MAX_DEPTH = 64
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== "object" || value === null) return false
+  const prototype = Object.getPrototypeOf(value)
+
+  return prototype === Object.prototype || prototype === null
+}
+
+const capLogField = (
+  value: unknown,
+  { maxCodePoints, depth }: { maxCodePoints: number; depth: number },
+): unknown => {
+  if (typeof value === "string") {
+    const cappedValue = truncateToCodePointLimit(value, maxCodePoints)
+
+    if (cappedValue === value) return value
+    return truncateToCodePointLimit(value, maxCodePoints - 1) + "…"
+  }
+
+  if (depth >= LOG_FIELD_MAX_DEPTH && (Array.isArray(value) || isPlainObject(value))) {
+    return "[nested too deep]"
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((element) => capLogField(element, { maxCodePoints, depth: depth + 1 }))
+  }
+
+  if (isPlainObject(value)) return capLogData(value, depth)
+  return value
+}
+
+const capLogData = (
+  data: Readonly<Record<string, unknown>>,
+  depth = 0,
+): Record<string, unknown> => {
+  const cappedEntries = Object.entries(data).map(([key, value]) => {
+    const isDiagnostic = key === "error" || key === "cause" || key === "stack"
+    const maxCodePoints = isDiagnostic ? LOG_DIAGNOSTIC_CODE_POINTS : LOG_FIELD_CODE_POINTS
+
+    return [key, capLogField(value, { maxCodePoints, depth: depth + 1 })]
+  })
+  return Object.fromEntries(cappedEntries)
+}
+
 const createLogger = (
   name: string,
   options?: {
     props?: Record<string, unknown>
-    extensions?: LogExtension[]
+    extensions?: Set<LogExtension>
   },
 ): Logger => {
   const baseProps = options?.props ?? {}
-  const extensions = options?.extensions ?? []
+  const extensions = options?.extensions ?? new Set<LogExtension>()
 
   const emit = (level: LogLevel, message: string, data?: Record<string, unknown>): void => {
     if (LEVELS[level] < threshold) return
@@ -181,7 +387,7 @@ const createLogger = (
     // Capture source location for info/warn/error (skip debug to avoid overhead)
     const source = level !== "debug" ? getCallerSource() : undefined
 
-    const mergedData = { ...resolveLazyProps(baseProps), ...data }
+    const mergedData = capLogData({ ...resolveLazyProps(baseProps), ...data })
     const entry: LogEntry = {
       timestamp: DateTime.now().toISO(),
       level,
@@ -204,7 +410,13 @@ const createLogger = (
     else process.stdout.write(line)
 
     for (const extension of extensions) {
-      extension(entry, line)
+      try {
+        extension(entry, line)
+      } catch (error) {
+        // Root and child loggers share this set, so none retries a failed sink.
+        extensions.delete(extension)
+        reportFileLoggingStopped(error)
+      }
     }
   }
 

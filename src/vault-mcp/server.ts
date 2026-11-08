@@ -1,6 +1,6 @@
 /** MCP server entry point — config, mount routes, listen. */
 
-import express, { type Request, type Response, type NextFunction } from "express"
+import express, { type Request, type Response } from "express"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
@@ -20,37 +20,17 @@ import { createMcpRouter } from "./mcp-core/mcp-router.js"
 import { renderSetupPage } from "./setup/setup-page.js"
 import { loadConfig, type VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
-import { extractClientIp, headerAsString } from "../auth.js"
+import { createErrorMiddleware } from "../http-error-middleware.js"
 import { describeError } from "../utils/describe-error.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { securityHeaders } from "../utils/security-headers.js"
 import env from "env-var"
 
-/** Error middleware — logs the failure with request context, answers 500.
- *  The client IP is derived under the same Forwarded hop count as
- *  everywhere else, so a client-supplied Forwarded header can't write a
- *  false IP into the error log. */
-export const createErrorMiddleware =
-  ({ trustForwardedHops }: { trustForwardedHops: number }) =>
-  (err: Error, req: Request, res: Response, _next: NextFunction): void => {
-    logger.error("unhandled_error", {
-      sessionId: headerAsString(req.headers["mcp-session-id"]),
-      clientIp: extractClientIp(req, trustForwardedHops),
-      method: req.method,
-      path: req.path,
-      error: describeError(err),
-      stack: err.stack,
-    })
-    if (!res.headersSent) {
-      res.status(500).json({ error: "internal server error" })
-    }
-  }
-
 /**
  * SIGTERM handler that drains in-flight requests before exiting, so a write
  * can't be interrupted mid-flight.
- * - The body-tag parser closes first, which stops the background body-tag
- *   pass, so the pass writes nothing to the index while requests drain.
+ * - The body-tag parser refuses new parses before requests drain; worker
+ *   termination continues in the background.
  * - `httpServer.close()` stops accepting new connections and waits for active
  *   requests to finish.
  * - The fallback forces exit if a connection hangs the drain longer than
@@ -231,7 +211,6 @@ const startServer = async (): Promise<void> => {
   // widen this to Express's blanket `true`: trusting the whole chain
   // lets any client claim any IP via appended headers.
   app.set("trust proxy", config.trustProxyHops)
-  app.use(express.json())
 
   app.get("/healthz", (_req: Request, res: Response) => {
     res.json({ ok: true })

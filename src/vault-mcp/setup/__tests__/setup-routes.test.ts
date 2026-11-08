@@ -7,7 +7,7 @@ import { join } from "node:path"
 import express from "express"
 import { DateTime } from "luxon"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
-import type { Logger } from "../../../logger.js"
+import { logger, type Logger } from "../../../logger.js"
 import { createSetupRoutes } from "../setup-routes.js"
 import type { HostingPlatform } from "../setup-page.js"
 import { syncTokenStore } from "../sync-token-store.js"
@@ -27,18 +27,25 @@ const SIGNED_IN = {
 type LogCall = { level: string; message: string; data: Record<string, unknown> }
 
 const recordingLogger = (sink: LogCall[]): Logger => {
-  const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) =>
-      sink.push({ level: "debug", message, data: { ...props, ...data } }),
-    info: (message, data = {}) =>
-      sink.push({ level: "info", message, data: { ...props, ...data } }),
-    warn: (message, data = {}) =>
-      sink.push({ level: "warn", message, data: { ...props, ...data } }),
-    error: (message, data = {}) =>
-      sink.push({ level: "error", message, data: { ...props, ...data } }),
-    child: (childProps) => make({ ...props, ...childProps }),
+  const captureLine = (chunk: string | Uint8Array): boolean => {
+    const {
+      timestamp: _timestamp,
+      name: _name,
+      source: _source,
+      level,
+      message,
+      ...data
+    } = JSON.parse(String(chunk))
+    sink.push({ level, message, data })
+    return true
+  }
+  const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(captureLine)
+  const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(captureLine)
+  onTestFinished(() => {
+    stdoutSpy.mockRestore()
+    stderrSpy.mockRestore()
   })
-  return make({})
+  return logger
 }
 
 /** Script the fake API per path; unhandled paths answer 404. */
@@ -297,6 +304,21 @@ describe("POST /setup — MCP token gate", () => {
     expect(await response.text()).toContain("<h1>Setup complete</h1>")
   })
 
+  it("answers a JSON body with the missing-fields page before checking the token", async () => {
+    const harness = await startHarness()
+    const response = await fetch(`${harness.baseUrl}/setup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })
+    const html = await response.text()
+
+    expect(response.status).toBe(400)
+    expect(html).toContain("Enter your Obsidian account email and password.")
+    expect(harness.apiRequests).toEqual([])
+    expect(harness.logs).toEqual([])
+  })
+
   it("answers 400 when the email or password is missing", async () => {
     const harness = await startHarness()
 
@@ -322,6 +344,35 @@ describe("POST /setup — MCP token gate", () => {
 
     expect(statuses).toEqual([401, 401, 401, 401, 401, 429])
     expect(harness.logs.at(-1)?.message).toBe("setup_rate_limited")
+  })
+
+  it("caps forwarded client IPs in sign-in and rate-limit logs", async () => {
+    const harness = await startHarness({ forwardedHeaderTrusted: true })
+    const statuses: number[] = []
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await fetch(`${harness.baseUrl}/setup`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          forwarded: `for=${"x".repeat(1_000)}`,
+        },
+        body: new URLSearchParams({ ...CREDENTIALS, token: "wrong" }),
+      })
+      await response.text()
+      statuses.push(response.status)
+    }
+
+    expect(statuses).toEqual([401, 401, 401, 401, 401, 429])
+    expect(
+      harness.logs.map((log) => ({ message: log.message, clientIp: log.data.clientIp })),
+    ).toEqual([
+      ...Array.from({ length: 5 }, () => ({
+        message: "setup_bad_token",
+        clientIp: "x".repeat(255) + "…",
+      })),
+      { message: "setup_rate_limited", clientIp: "x".repeat(255) + "…" },
+    ])
   })
 
   it("sends the OAuth endpoints' rate-limit headers on the sixth attempt, without legacy X-RateLimit headers", async () => {
@@ -498,9 +549,18 @@ describe("POST /setup — sign-in outcomes", () => {
 
     await (await harness.postForm(CREDENTIALS)).text()
 
-    const logged = JSON.stringify(harness.logs)
-    expect(logged).not.toContain("user@example.com")
-    expect(logged).not.toContain('"pw"')
+    expect(harness.logs).toEqual([
+      {
+        level: "warn",
+        message: "setup_signin_failed",
+        data: {
+          component: "setup-routes",
+          requestId: expect.any(String),
+          clientIp: "127.0.0.1",
+          error: "Invalid email or password",
+        },
+      },
+    ])
   })
 
   it("reports an unreachable API as a reachability problem, not a stack trace", async () => {

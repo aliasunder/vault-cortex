@@ -21,22 +21,25 @@ type LogCall = {
   data: Record<string, unknown>
 }
 const recordingLogger = (sink: LogCall[]): Logger => {
-  const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) => {
-      sink.push({ level: "debug", message, data: { ...props, ...data } })
-    },
-    info: (message, data = {}) => {
-      sink.push({ level: "info", message, data: { ...props, ...data } })
-    },
-    warn: (message, data = {}) => {
-      sink.push({ level: "warn", message, data: { ...props, ...data } })
-    },
-    error: (message, data = {}) => {
-      sink.push({ level: "error", message, data: { ...props, ...data } })
-    },
-    child: (childProps) => make({ ...props, ...childProps }),
+  const captureLine = (chunk: string | Uint8Array): boolean => {
+    const {
+      timestamp: _timestamp,
+      name: _name,
+      source: _source,
+      level,
+      message,
+      ...data
+    } = JSON.parse(String(chunk))
+    sink.push({ level, message, data })
+    return true
+  }
+  const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(captureLine)
+  const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(captureLine)
+  onTestFinished(() => {
+    stdoutSpy.mockRestore()
+    stderrSpy.mockRestore()
   })
-  return make({})
+  return logger
 }
 
 // The documented local-dev placeholder (.gitleaks.toml allowlist, also used in
@@ -581,6 +584,34 @@ describe("OAuth consent audit logging", () => {
       },
     })
   })
+
+  it("caps the submitted request ID in consent rejection logs", async () => {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        request_id: "🎉".repeat(1_000),
+        token: AUTH_TOKEN,
+        action: "approve",
+      }),
+    })
+
+    expect({ status: response.status, body: await response.text() }).toEqual({
+      status: 400,
+      body: "Authorization request expired or invalid.",
+    })
+    expect(logs.filter((log) => log.message === "oauth_consent_expired")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_consent_expired",
+        data: {
+          component: "oauth-routes",
+          clientIp: expect.toBeOneOf(LOOPBACK_ADDRESSES),
+          requestId: "🎉".repeat(255) + "…",
+        },
+      },
+    ])
+  })
 })
 
 describe("OAuth endpoint rate limiting", () => {
@@ -668,6 +699,34 @@ describe("OAuth endpoint rate limiting", () => {
         path: "/register",
       },
     })
+  })
+
+  it("caps the request path and forwarded client IP in rate-limit logs", async () => {
+    const clientIp = "x".repeat(1_000)
+    const path = "/register/" + "x".repeat(1_000)
+    const statuses: number[] = []
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await fetch(`${baseUrl}${path}?state=private`, {
+        method: "POST",
+        headers: { forwarded: `for=${clientIp}` },
+      })
+      await response.text()
+      statuses.push(response.status)
+    }
+
+    expect(statuses).toEqual([404, 404, 404, 404, 404, 429])
+    expect(logs.filter((log) => log.message === "oauth_rate_limited")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_rate_limited",
+        data: {
+          component: "oauth-routes",
+          clientIp: "x".repeat(255) + "…",
+          path: "/register/" + "x".repeat(245) + "…",
+        },
+      },
+    ])
   })
 
   it("keys the limit by client IP, so exhausting one client leaves another unaffected", async () => {

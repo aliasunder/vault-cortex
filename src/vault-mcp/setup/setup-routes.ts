@@ -90,7 +90,7 @@ export const createSetupRoutes = ({
     password: string
     inheritedExpiresAt?: DateTime
   }): string => {
-    const requestId = randomUUID()
+    const pendingSignInId = randomUUID()
     const expiresAt =
       inheritedExpiresAt ?? DateTime.now().plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES })
     const remainingMs = expiresAt.diff(DateTime.now()).toMillis()
@@ -98,20 +98,24 @@ export const createSetupRoutes = ({
     // The inherited expiry already passed — don't store credentials at all.
     // The returned ID then maps to no sign-in, so the code form's next
     // submission shows the expired-sign-in page.
-    if (remainingMs <= 0) return requestId
-    pendingSignIns.set(requestId, { email, password, expiresAt })
+    if (remainingMs <= 0) return pendingSignInId
+    pendingSignIns.set(pendingSignInId, { email, password, expiresAt })
     // Drop the credentials at the expiry even when no further request arrives;
     // `expiresAt` stays the check for a code that comes in late. unref so an
     // abandoned sign-in cannot hold the process open.
-    setTimeout(() => pendingSignIns.delete(requestId), remainingMs).unref()
-    return requestId
+    setTimeout(() => pendingSignIns.delete(pendingSignInId), remainingMs).unref()
+    return pendingSignInId
   }
 
   /** Consumes the pending sign-in for this request — single use, returns undefined when expired or absent. */
-  const consumePendingSignIn = (requestId: string): PendingSignIn | undefined => {
-    const pending = pendingSignIns.get(requestId)
-    pendingSignIns.delete(requestId)
-    if (!pending || pending.expiresAt <= DateTime.now()) return undefined
+  const consumePendingSignIn = (pendingSignInId: string): PendingSignIn | undefined => {
+    const pending = pendingSignIns.get(pendingSignInId)
+    pendingSignIns.delete(pendingSignInId)
+    if (!pending) return undefined
+
+    const signInExpired = pending.expiresAt.toMillis() <= DateTime.now().toMillis()
+
+    if (signInExpired) return undefined
     return pending
   }
 
@@ -366,8 +370,8 @@ export const createSetupRoutes = ({
       })
     } catch (error) {
       if (isMfaRequiredError(error)) {
-        const requestId = storePendingSignIn({ email, password })
-        res.type("html").send(renderSetupPage({ kind: "mfa", requestId }))
+        const pendingSignInId = storePendingSignIn({ email, password })
+        res.type("html").send(renderSetupPage({ kind: "mfa", requestId: pendingSignInId }))
         return
       }
       requestLogger.warn("setup_signin_failed", {
@@ -418,7 +422,7 @@ export const createSetupRoutes = ({
       // A wrong or missing code keeps the sign-in alive for another try;
       // anything else (a timeout, a rejected password) starts over.
       if (isMfaCodeError(error)) {
-        const requestId = storePendingSignIn({
+        const pendingSignInId = storePendingSignIn({
           email: pending.email,
           password: pending.password,
           inheritedExpiresAt: pending.expiresAt,
@@ -426,7 +430,7 @@ export const createSetupRoutes = ({
         res.type("html").send(
           renderSetupPage({
             kind: "mfa",
-            requestId,
+            requestId: pendingSignInId,
             error: describeApiFailure(error),
           }),
         )
@@ -447,6 +451,13 @@ export const createSetupRoutes = ({
     limiter,
     express.urlencoded({ extended: false }),
     async (req: Request, res: Response) => {
+      if (!req.body) {
+        sendSignInPage(req, res, {
+          status: 400,
+          error: "Enter your Obsidian account email and password.",
+        })
+        return
+      }
       const body: Record<string, unknown> = req.body
       const requestLogger = routeLogger.child({
         requestId: randomUUID(),

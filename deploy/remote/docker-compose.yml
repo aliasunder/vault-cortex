@@ -65,6 +65,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_DIR: ${LOG_DIR:-/data/logs}
       LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}
+      LOG_MAX_DAILY_MB: ${LOG_MAX_DAILY_MB:-25}
       TZ: ${TZ:-UTC}
       WINDOWS_MODE: ${WINDOWS_MODE:-false}
       MAX_FILE_BYTES: ${MAX_FILE_BYTES:-52428800}

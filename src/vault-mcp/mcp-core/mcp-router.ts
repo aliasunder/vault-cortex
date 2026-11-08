@@ -1,6 +1,6 @@
 /** MCP session routes — transport lifecycle, session creation, request routing. */
 
-import { Router } from "express"
+import express, { Router } from "express"
 import type { Request, Response } from "express"
 import { randomUUID } from "node:crypto"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -41,13 +41,12 @@ const SERVER_ICONS = [
   },
 ]
 
+// Large note writes need room; this parser is reachable only with a valid token.
+const MCP_JSON_BODY_LIMIT = "5mb"
+
 const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
 
-/** Builds the session's server metadata (instructions + description) from
- *  the config and the enabled tool set. Tool cross-references key on the
- *  enabled set so they track every gating axis; the capability framing
- *  (read-only notice, memory-layer mention, search flavor) keys on config —
- *  those describe the deployment, not a specific tool. */
+/** Metadata names only served tools; memory and search framing follow config. */
 export const buildServerMetadata = (
   config: VaultConfig,
   enabledToolNames: ReadonlySet<ToolName>,
@@ -121,7 +120,9 @@ export const createMcpRouter = ({
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
-  router.post("/mcp", bearerAuth, async (req: Request, res: Response) => {
+  const parseMcpJson = express.json({ limit: MCP_JSON_BODY_LIMIT })
+
+  router.post("/mcp", bearerAuth, parseMcpJson, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })

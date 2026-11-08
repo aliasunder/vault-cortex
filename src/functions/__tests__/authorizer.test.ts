@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto"
 import { DateTime } from "luxon"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { signJwt } from "../../jwt.js"
+import { logger } from "../../logger.js"
 
 const SECRET = "test-lambda-secret"
 const PUBLIC_URL = "https://mcp.example.com"
@@ -82,6 +83,35 @@ const accessToken = ({
 }
 
 describe("authorizer handler", () => {
+  it("caps request-derived authorizer context without changing authorization", async () => {
+    const actual = await vi.importActual<typeof import("../../logger.js")>("../../logger.js")
+    const child = vi.spyOn(logger, "child").mockImplementation(actual.logger.child)
+    const records: Record<string, unknown>[] = []
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      records.push(JSON.parse(String(chunk)))
+      return true
+    })
+    onTestFinished(() => {
+      child.mockRestore()
+      stdoutSpy.mockRestore()
+    })
+    const result = await handler(requestTo("/" + "x".repeat(1_000), `Bearer ${SECRET}`))
+
+    expect(result).toEqual({ isAuthorized: true })
+    expect(records).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "info",
+        name: "vault-cortex",
+        message: "auth_success",
+        source: expect.stringMatching(/^authorizer\.ts:\d+$/),
+        requestId: "req-1",
+        sourceIp: "203.0.113.7",
+        path: "/" + "x".repeat(254) + "…",
+        method: "static",
+      },
+    ])
+  })
   it("authorizes the static token", async () => {
     recordedLogs.length = 0
     const result = await handler(protectedRequest(`Bearer ${SECRET}`))

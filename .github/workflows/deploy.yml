@@ -336,6 +336,7 @@ jobs:
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           LOG_DIR: ${{ vars.LOG_DIR }}
           LOG_RETENTION_DAYS: ${{ vars.LOG_RETENTION_DAYS }}
+          LOG_MAX_DAILY_MB: ${{ vars.LOG_MAX_DAILY_MB }}
           WINDOWS_MODE: ${{ vars.WINDOWS_MODE }}
         run: |
           umask 077
@@ -362,6 +363,7 @@ jobs:
           WINDOWS_MODE=${WINDOWS_MODE:-false}
           TZ=${TZ:-UTC}
           EOF
+          if [ -n "$LOG_MAX_DAILY_MB" ]; then echo "LOG_MAX_DAILY_MB=$LOG_MAX_DAILY_MB" >> "$RUNNER_TEMP/lightsail.env"; fi
           # Only write user-specific overrides when the repo Variable is set —
           # the server falls back to sensible defaults when these are absent.
           if [ -n "$PROTECTED_PATHS" ]; then echo "PROTECTED_PATHS=$PROTECTED_PATHS" >> "$RUNNER_TEMP/lightsail.env"; fi

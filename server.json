@@ -154,9 +154,14 @@
         },
         {
           "name": "LOG_RETENTION_DAYS",
-          "description": "Days to keep log files before automatic cleanup on startup; only applies when LOG_DIR is a path.",
+          "description": "Days to keep log files; cleanup runs at startup and each day. Only applies when LOG_DIR is a path.",
           "default": "90",
           "format": "number"
+        },
+        {
+          "name": "LOG_MAX_DAILY_MB",
+          "description": "Maximum MB per daily log file (1 MB = 1,000,000 bytes). Whole numbers of at least 1, or none to disable the cap. File logging pauses at the cap until midnight in TZ (UTC by default); console logging continues.",
+          "default": "25"
         },
         {
           "name": "PROTECTED_PATHS",

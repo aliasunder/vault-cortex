@@ -10,6 +10,7 @@ import { join } from "node:path"
 import env from "env-var"
 import { loadConfig } from "../config.js"
 import { logger } from "../../logger.js"
+import { createErrorMiddleware } from "../../http-error-middleware.js"
 import { describeError } from "../../utils/describe-error.js"
 import { securityHeaders } from "../../utils/security-headers.js"
 import { createSetupRoutes } from "./setup-routes.js"
@@ -106,17 +107,7 @@ const startSetupServer = (): void => {
     res.status(503).json({ error: "setup required", setup_url: setupUrl })
   })
 
-  // Not server.ts's createErrorMiddleware, because importing server.ts would
-  // load the index, OAuth and MCP modules that setup mode never runs.
-  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-    logger.error("unhandled_error", {
-      method: req.method,
-      path: req.path,
-      error: describeError(err),
-      stack: err.stack,
-    })
-    if (!res.headersSent) res.status(500).json({ error: "internal server error" })
-  })
+  app.use(createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }))
 
   // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
   // callback's error argument — it registers the callback as the server's
