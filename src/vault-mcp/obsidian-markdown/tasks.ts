@@ -1161,14 +1161,18 @@ const findMetadataStart = (taskBody: string): number => {
     -MAX_METADATA_TAIL_TOKENS,
   )
 
+  const signifiers = Array.from(taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE))
+
   for (const token of tokens) {
+    // A hashtag can end inside a Dataview opener, so recognize signifiers in the full body.
+    const startsInToken = (candidate: RegExpExecArray): boolean => {
+      return candidate.index >= token.index && candidate.index < token.index + token[0].length
+    }
     // Starting inside a hashtag loses its '#', so its remaining signifiers must also fit.
-    const candidates = Array.from(token[0].matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)).slice(
-      -MAX_METADATA_TAIL_TOKENS,
-    )
+    const candidates = signifiers.filter(startsInToken).slice(-MAX_METADATA_TAIL_TOKENS)
 
     for (const candidate of candidates) {
-      const candidateIndex = token.index + candidate.index
+      const candidateIndex = candidate.index
       const tail = parseTaskMetadata(taskBody.slice(candidateIndex))
       const tailDescription = tail.description.replace(HASHTAG_RE, "").trim()
 

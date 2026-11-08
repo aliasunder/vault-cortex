@@ -128,6 +128,14 @@ describe("task recognizer compatibility", () => {
       const pieces = Array.from({ length: 1 + draw(16) }, () => fragments[draw(fragments.length)])
       return pieces.join(draw(2) === 0 ? " " : "")
     })
+    const adjacentDataviewBodies = [
+      "work #tag[id:: a]",
+      "work #tag(id:: a)",
+      "work #tag[due:: 2026-01-02]",
+      "work #tag(due:: 2026-01-02)",
+      "work #tag[priority:: high]",
+      "work #tag(priority:: high)",
+    ]
     const denseBodies = [20, 21, 22, 482, 483, 484, 600].flatMap((size) => [
       "⏫".repeat(size),
       `⏫ #${"⏫".repeat(size)}`,
@@ -194,7 +202,13 @@ describe("task recognizer compatibility", () => {
     }
 
     expect(fixtureBodies.length).toBeGreaterThan(300)
-    const bodies = [...randomBodies, ...denseBodies, fullTail, ...fixtureBodies]
+    const bodies = [
+      ...randomBodies,
+      ...denseBodies,
+      ...adjacentDataviewBodies,
+      fullTail,
+      ...fixtureBodies,
+    ]
 
     for (const body of bodies) {
       expect({ body, boundary: grammar.metadataStart(body) }).toEqual({

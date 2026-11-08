@@ -1619,6 +1619,57 @@ describe("task line mutations", () => {
 
   // ── replaceTaskLineDescription ────────────────────────────────
 
+  describe("Dataview fields adjacent to hashtags", () => {
+    const fields = [
+      { label: "square ID", field: "[id:: a]" },
+      { label: "parenthesized ID", field: "(id:: a)" },
+      { label: "square due date", field: "[due:: 2026-01-02]" },
+      { label: "parenthesized due date", field: "(due:: 2026-01-02)" },
+      { label: "square priority", field: "[priority:: high]" },
+      { label: "parenthesized priority", field: "(priority:: high)" },
+    ]
+
+    it.each(fields)("preserves a $label when replacing the description", ({ field }) => {
+      expect(
+        tasks.replaceTaskLineDescription({
+          taskLine: `- [ ] work #tag${field}`,
+          newDescription: "New",
+        }),
+      ).toBe(`- [ ] New ${field}`)
+    })
+
+    it.each(fields.slice(0, 2))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLineTaskId({
+          taskLine: `- [ ] work #tag${field}`,
+          taskId: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+
+    it.each(fields.slice(2, 4))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLineDate({
+          taskLine: `- [ ] work #tag${field}`,
+          field: "due",
+          date: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+
+    it.each(fields.slice(4))("clears a $label after a hashtag", ({ field }) => {
+      expect(
+        tasks.updateTaskLinePriority({
+          taskLine: `- [ ] work #tag${field}`,
+          newPriority: null,
+          config: DATAVIEW_CONFIG,
+        }),
+      ).toBe("- [ ] work #tag")
+    })
+  })
+
   describe("replaceTaskLineDescription", () => {
     it("replaces description before metadata signifiers", () => {
       const line = "- [ ] Old description ⏫ ➕ 2026-08-01 ^my-task"
