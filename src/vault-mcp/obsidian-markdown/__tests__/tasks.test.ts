@@ -1635,6 +1635,18 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] New description ⏫ ➕ 2026-08-01 ^my-task")
     })
 
+    it("separates a new description from a bare checkbox with one space", () => {
+      expect(tasks.replaceTaskLineDescription({ taskLine: "- [ ]", newDescription: "New" })).toBe(
+        "- [ ] New",
+      )
+    })
+
+    it("adds the space the Tasks plugin writes after a checkbox glued to its text", () => {
+      expect(
+        tasks.replaceTaskLineDescription({ taskLine: "- [ ]Old ^my-task", newDescription: "New" }),
+      ).toBe("- [ ] New ^my-task")
+    })
+
     it("replaces description when only a block_id follows", () => {
       const line = "- [ ] Old text ^my-task"
       const result = tasks.replaceTaskLineDescription({
@@ -2049,7 +2061,7 @@ describe("task line mutations", () => {
     })
 
     it.each([
-      { name: "without a trailing space", taskLine: "- [ ]", expected: "- [ ]🆔 abc123" },
+      { name: "without a trailing space", taskLine: "- [ ]", expected: "- [ ] 🆔 abc123" },
       { name: "with a trailing space", taskLine: "- [ ] ", expected: "- [ ] 🆔 abc123" },
     ])("sets an ID on an empty task body $name", ({ taskLine, expected }) => {
       expect(tasks.isTaskLine(taskLine)).toBe(true)

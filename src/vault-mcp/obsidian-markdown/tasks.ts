@@ -1148,7 +1148,11 @@ const joinTaskLine = ({
   trailingWhitespace,
 }: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
-  return `${prefix}${body}${blockLink}${trailingWhitespace}`
+
+  // A checkbox needs a space before its text to render as one, and the Tasks
+  // plugin always writes that space, so text added to a bare `- [ ]` gets it.
+  const checkboxSeparator = body && prefix.endsWith("]") ? " " : ""
+  return `${prefix}${checkboxSeparator}${body}${blockLink}${trailingWhitespace}`
 }
 
 /** Applies a field mutation to the metadata tail only — field-like text
