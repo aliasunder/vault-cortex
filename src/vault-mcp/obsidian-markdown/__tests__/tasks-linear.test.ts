@@ -167,7 +167,7 @@ describe("task recognizer compatibility", () => {
         `
       import assert from 'node:assert/strict';
       import { tasks } from ${JSON.stringify(parserUrl)};
-      const sizes=[20000,40000];
+      const sizes=[20000,40000,80000];
       const medians=[];
       for (const size of sizes) {
         const taskLine='- [ ] '+'#a '.repeat(size)+'📅 2026-01-02';
@@ -185,8 +185,8 @@ describe("task recognizer compatibility", () => {
     )
 
     expect(JSON.parse(output)).toEqual({
-      sizes: [20000, 40000],
-      medians: [expect.any(Number), expect.any(Number)],
+      sizes: [20000, 40000, 80000],
+      medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
     })
     process.stdout.write(`Trailing tag deduplication timings ${output}\n`)
   }, 15_000)
