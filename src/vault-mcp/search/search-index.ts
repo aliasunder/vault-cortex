@@ -33,6 +33,7 @@ import { describeError, describeErrorForLog } from "../../utils/describe-error.j
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { readFileTextPrefix, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
+import { getUtf8BytePrefix } from "../../utils/get-utf8-byte-prefix.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import {
   isString,
@@ -129,23 +130,6 @@ const fileTextToIndexedText = (params: {
     case "other":
       return params.fileText
   }
-}
-
-/** Truncates a string to fit within a UTF-8 byte limit without splitting
- *  multi-byte characters — iterates Unicode code points and accumulates
- *  each code point's UTF-8 byte length, stopping before the cap. */
-const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
-  let usedBytes = 0
-  let endIndex = 0
-  for (const character of content) {
-    const characterBytes = Buffer.byteLength(character, "utf8")
-
-    if (usedBytes + characterBytes > maxBytes) break
-    usedBytes += characterBytes
-    // .length is UTF-16 code units — matches .slice()'s indexing
-    endIndex += character.length
-  }
-  return content.slice(0, endIndex)
 }
 
 // ── Types ───────────────────────────────────────────────────────
@@ -1421,7 +1405,7 @@ export const createSearchIndex = (
     const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
     const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
     const truncatedContent = needsTruncation
-      ? truncateToUtf8ByteLimit(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
+      ? getUtf8BytePrefix(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
       : contentToIndex
 
     if (needsTruncation) {

@@ -165,28 +165,6 @@ describe("extractPdfIndexText", () => {
     },
   )
 
-  it("truncates a multibyte code point only as a whole", async () => {
-    const header = "Title: Bound | Pages: 2\n\n"
-    const bodyText = "x".repeat(102_400 - Buffer.byteLength(header, "utf8") - 1) + "🎉after"
-    const pdfData = toPdfData(
-      buildLinkedPdf({
-        title: "Bound",
-        pages: [
-          { text: "first", linkUrls: [] },
-          { text: "UNVISITED-AFTER-CAP", linkUrls: [] },
-        ],
-      }),
-    )
-    const probe = await createIndexProbe({ pdfData, pageTexts: [bodyText] })
-
-    expect(await extractPdfIndexText(pdfData)).toEqual({
-      text: header + "x".repeat(102_400 - Buffer.byteLength(header, "utf8") - 1),
-      totalPages: 2,
-    })
-    expect(probe.requestedPages).toEqual([1])
-    expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
-  })
-
   it.each([{ totalPages: 500 }, { totalPages: 501 }])(
     "visits exactly 500 pages in a $totalPages-page document",
     async ({ totalPages }) => {

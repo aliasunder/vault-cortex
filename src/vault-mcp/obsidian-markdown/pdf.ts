@@ -1,6 +1,8 @@
 import { getMeta, extractTextItems, extractLinks } from "unpdf"
 import type { StructuredTextItem } from "unpdf"
 import type { PDFPageProxy } from "unpdf/pdfjs"
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- Pure UTF-8 truncation is shared with indexing.
+import { getUtf8BytePrefix } from "../../utils/get-utf8-byte-prefix.js"
 import { createPdfDocumentProxy } from "./pdf-engine.js"
 
 // Bound useful indexing work while the extraction process contains individual-page expansion.
@@ -35,21 +37,6 @@ const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => 
     }
   }
   return content.items.filter((textItem) => "str" in textItem).map(toStructuredItem)
-}
-
-/** Stops at whole code points so an internal byte budget cannot introduce replacement characters. */
-const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
-  // Byte and UTF-16 offsets advance together while walking Unicode code points.
-  let usedBytes = 0
-  let endIndex = 0
-  for (const character of content) {
-    const characterBytes = Buffer.byteLength(character, "utf8")
-
-    if (usedBytes + characterBytes > maxBytes) break
-    usedBytes += characterBytes
-    endIndex += character.length
-  }
-  return content.slice(0, endIndex)
 }
 
 /** Rounds a font size to one decimal place — used as the bucketing key for
@@ -579,7 +566,7 @@ export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextR
         return {
           text:
             renditionBytes > MAX_INDEXED_PDF_BYTES
-              ? truncateToUtf8ByteLimit(text, MAX_INDEXED_PDF_BYTES)
+              ? getUtf8BytePrefix(text, MAX_INDEXED_PDF_BYTES)
               : text,
           totalPages,
         }
