@@ -351,6 +351,8 @@ describe("PDF extraction ownership", () => {
       ),
     )
     const latestUpdate = extractor.extractForIndex({ path: "same.pdf", coalesce: true }, logger)
+    // Observe rejected decoys immediately if a regression settles the wrong queued job.
+    const queuedResults = Promise.allSettled([otherPath, samePathRead, latestUpdate])
     await oldRejection
     ready(child)
     finishIndex(child, 0, "active")
@@ -396,6 +398,7 @@ describe("PDF extraction ownership", () => {
     )
     finishIndex(child, 4, "latest")
     expect(await latestUpdate).toEqual({ text: "latest", totalPages: 1 })
+    await queuedResults
   })
 
   it("reaps a reader after an IPC send failure before dispatching queued recovery", async () => {
