@@ -1478,11 +1478,12 @@ Docker hardening, and durability seatbelts above.
   `file_log_daily_limit_reached` notice may exceed the cap; file writes
   resume at midnight in `TZ` (UTC by default), and console logging continues throughout.
 - **Log retention and failures**: files dated before today minus
-  `LOG_RETENTION_DAYS` are pruned at startup and each day. An append, size
-  lookup or prune failure disables file logging across the root logger and
-  its children with one console-only `file_logging_stopped` warning.
-  Folder creation failures do the same at startup; restart after fixing
-  the cause to resume file logging.
+  `LOG_RETENTION_DAYS` are pruned at startup and each day. A failure to
+  write to the log file, read its size or prune old files disables file
+  logging across the root logger and its children with one console-only
+  `file_logging_stopped` warning. A failure to create the log folder does
+  the same at startup. Restart after fixing the cause to resume file
+  logging.
 
 #### Memory layer safety
 

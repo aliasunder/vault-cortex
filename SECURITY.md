@@ -241,8 +241,9 @@ The server, and the `:remote` image's setup mode, set these headers:
   (digits only; `0` keeps today; invalid values warn and use `90`);
   older files written before a cap was configured keep their size until
   they age out
-- A failed append, folder creation, size lookup or prune disables file
-  logging with one console warning; fix the cause and restart to resume
+- If the server cannot write to its log file, create the log folder, read
+  the file's size or delete old log files, file logging stops with one
+  console warning; fix the cause and restart to resume
 
 ### Container hardening
 
