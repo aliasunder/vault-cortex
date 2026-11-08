@@ -12,6 +12,7 @@ import {
 import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
+import { describeError } from "./utils/describe-error.js"
 import { truncateToCodePointLimit } from "./utils/truncate-to-code-point-limit.js"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
@@ -133,7 +134,7 @@ const endsWithApplicableLimitNotice = ({
       } catch (error) {
         process.stdout.write(
           consoleWarningLine("invalid_file_log_daily_limit_notice", {
-            error: describeSinkError(error),
+            error: describeError(error),
           }),
         )
         return undefined
@@ -167,16 +168,8 @@ const consoleWarningLine = (message: string, data: Record<string, unknown>): str
   )
 }
 
-// describe-error.ts uses RegExp.escape, which the CLI's ES2022 lib lacks.
-// The CLI's test build compiles this file.
-const describeSinkError = (error: unknown): string => {
-  return error instanceof Error ? `[${error.name}]: ${error.message}` : String(error)
-}
-
 const reportFileLoggingStopped = (error: unknown): void => {
-  process.stdout.write(
-    consoleWarningLine("file_logging_stopped", { error: describeSinkError(error) }),
-  )
+  process.stdout.write(consoleWarningLine("file_logging_stopped", { error: describeError(error) }))
 }
 
 /** Deletes log files older than retentionDays. */
