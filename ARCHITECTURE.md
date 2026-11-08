@@ -121,6 +121,16 @@ graph TB
 
 Embeddings persist across rebuilds to reuse unchanged content and can be regenerated from the vault.
 
+### Note-content parsers
+
+The `obsidian-markdown/` layer parses note-controlled text for reads, rewrites and indexing. Parser work must stay linear in input size, with adversarial tests proving the bound and preserving complete results. The following bounds qualify that requirement:
+
+- **YAML properties:** public-node traversal checks duplicate keys with separate node-identity and scalar-value Sets. Block/flow traversal order and source-token offsets preserve the first duplicate-only refusal; another syntax error may take precedence when both occur.
+- **Canvas ownership:** nesting runs only when `content nodes × groups + groups²` is at most `16,000,000`, checked before ownership scans. About 2,000 groups and 2,000 content nodes keep nesting; larger work counts produce a flat rendition containing every valid node, group label and connection. Both renditions sort nodes in reading order, which costs O(n log n); nested rendering uses an explicit stack and appends each section once.
+- **Canvas measurement context:** a crossed-layout ownership pass measured 3,648 ms at 128,000,000 checks, now above budget. Scaling that single sample gives `3,648 × 16,000,000 / 128,000,000 = 456 ms` (about 0.45 s) at the budget. This is extrapolation under the original host/load conditions; neither figure is a worst-case latency ceiling or a guarantee on another host. Parent-bounded tests measure at-budget crossed layouts and a bounded multiple-canvas run.
+- **Body-tag residuals:** repeated tokenizer attempts and list-array copies remain superlinear. The body-tag worker's two-second deadline bounds their effect on request availability; a timed-out parse omits that note's body tags. A linear local list predicate does not make the entire parser linear.
+- **Regression tests:** bounded fixed-seed differential cases preserve parser results and error positions. Parent-owned watchdogs kill and reap synchronous adversarial children, which check complete semantic results as well as doubled-size timing medians.
+
 ## MCP Tools
 
 Common metadata on all discovery tools (`vault_search`, `vault_search_by_tag`, `vault_search_by_folder`, `vault_recent_notes`, `vault_search_by_property`, `vault_find_orphans` — introduced in the subsections below):

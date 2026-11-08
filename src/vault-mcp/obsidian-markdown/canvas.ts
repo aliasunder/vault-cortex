@@ -174,25 +174,63 @@ const renderNode = (node: CanvasNode): string => {
   return `[${node.type}]`
 }
 
-/** Renders a group section: heading, member nodes in reading order, then
- *  child groups recursively one heading level deeper (capped at H6). */
-const renderGroup = (
-  group: CanvasNode,
-  depth: number,
-  membersByGroupId: ReadonlyMap<string | undefined, CanvasNode[]>,
-  childGroupsByParentId: ReadonlyMap<string | undefined, CanvasNode[]>,
-): string => {
-  // H1 is the canvas overview line, so top-level groups (depth 0) start at H2.
+// Bounds both ownership axes while retaining nesting for ordinary multi-group canvases.
+const CANVAS_GROUP_WORK_BUDGET = 16_000_000
+
+export const canNestCanvasGroups = (counts: { contentNodes: number; groups: number }): boolean => {
+  return counts.groups * (counts.contentNodes + counts.groups) <= CANVAS_GROUP_WORK_BUDGET
+}
+
+const groupHeading = (group: CanvasNode, depth: number): string => {
+  // H1 is the overview, so groups start at H2 and deeper groups cap at H6.
   const heading = "#".repeat(Math.min(2 + depth, 6))
-  const members = membersByGroupId.get(group.id) ?? []
-  const childGroups = childGroupsByParentId.get(group.id) ?? []
-  return [
-    `${heading} Group: ${group.label ?? "(unlabeled)"}`,
-    ...members.map(renderNode),
-    ...childGroups.map((child) =>
-      renderGroup(child, depth + 1, membersByGroupId, childGroupsByParentId),
-    ),
-  ].join("\n\n")
+  return `${heading} Group: ${group.label ?? "(unlabeled)"}`
+}
+
+type GroupFrame =
+  { kind: "enter"; group: CanvasNode; depth: number } | { kind: "leave"; group: CanvasNode }
+
+/** Appends each section once, so deep groups need neither recursion nor descendant string copies. */
+const renderNestedNodes = (
+  contentNodes: readonly CanvasNode[],
+  groups: readonly CanvasNode[],
+): string[] => {
+  const membersByGroupId = groupBy(
+    contentNodes,
+    (node) => smallestContainingGroup(node, groups)?.id,
+  )
+  const childGroupsByParentId = groupBy(
+    groups,
+    (group) => smallestContainingGroup(group, groups)?.id,
+  )
+  const sections = (membersByGroupId.get(undefined) ?? []).map(renderNode)
+  const frames: GroupFrame[] = (childGroupsByParentId.get(undefined) ?? [])
+    .toReversed()
+    .map((group) => ({ kind: "enter", group, depth: 0 }))
+  const activeGroups = new Set<CanvasNode>()
+
+  // Reverse pushes retain the buckets' reading order during depth-first traversal.
+  while (frames.length) {
+    const frame = frames.pop()
+
+    if (!frame) break
+    if (frame.kind === "leave") {
+      activeGroups.delete(frame.group)
+      continue
+    }
+    const { group, depth } = frame
+
+    // Duplicate IDs can make the ID-keyed buckets cyclic; retain the recursive renderer's refusal.
+    if (activeGroups.has(group)) throw new RangeError("Maximum call stack size exceeded")
+    activeGroups.add(group)
+    frames.push({ kind: "leave", group })
+    sections.push(groupHeading(group, depth))
+    for (const member of membersByGroupId.get(group.id) ?? []) sections.push(renderNode(member))
+    for (const child of (childGroupsByParentId.get(group.id) ?? []).toReversed()) {
+      frames.push({ kind: "enter", group: child, depth: depth + 1 })
+    }
+  }
+  return sections
 }
 
 /** Groups a list by a key function, preserving each bucket's insertion order. */
@@ -245,14 +283,13 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
   const groups = nodes.filter((node) => node.type === "group")
   const contentNodes = nodes.filter((node) => node.type !== "group")
-  const membersByGroupId = groupBy(
-    contentNodes,
-    (node) => smallestContainingGroup(node, groups)?.id,
-  )
-  const childGroupsByParentId = groupBy(
-    groups,
-    (group) => smallestContainingGroup(group, groups)?.id,
-  )
+  const keepNesting = canNestCanvasGroups({
+    contentNodes: contentNodes.length,
+    groups: groups.length,
+  })
+  const nodeSections = keepNesting
+    ? renderNestedNodes(contentNodes, groups)
+    : nodes.map((node) => (node.type === "group" ? groupHeading(node, 0) : renderNode(node)))
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const edgeEndpointName = (id: string): string => {
@@ -260,10 +297,6 @@ export const linearizeCanvas = (canvasJson: string): string => {
     return node ? displayName(node) : `(missing node "${id}")`
   }
 
-  // A node outside every group has no containing group id, so groupBy filed
-  // it under the key undefined.
-  const ungroupedNodes = membersByGroupId.get(undefined) ?? []
-  const topLevelGroups = childGroupsByParentId.get(undefined) ?? []
   const edgeLines = edges.map((edge) => {
     const label = edge.label ? ` (${edge.label})` : ""
     return `${edgeEndpointName(edge.fromNode)} → ${edgeEndpointName(edge.toNode)}${label}`
@@ -271,10 +304,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
   const sections = [
     `# Canvas: ${nodes.length} ${nodes.length === 1 ? "node" : "nodes"}, ${edges.length} ${edges.length === 1 ? "edge" : "edges"}`,
-    ...ungroupedNodes.map(renderNode),
-    ...topLevelGroups.map((group) =>
-      renderGroup(group, 0, membersByGroupId, childGroupsByParentId),
-    ),
+    ...nodeSections,
     ...(edgeLines.length > 0 ? [["## Connections", ...edgeLines].join("\n\n")] : []),
   ]
   return sections.join("\n\n")

@@ -1,9 +1,11 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
+import { readParserComplexityReport } from "./helpers/frontmatter-canvas-adversary.js"
 import {
   linearizeCanvas,
   extractCanvasFileLinks,
   extractCanvasCardTexts,
   rewriteCanvasLinks,
+  canNestCanvasGroups,
 } from "../canvas.js"
 
 /** Minimal node factories — geometry defaults keep tests focused on the
@@ -631,5 +633,229 @@ describe("rewriteCanvasLinks", () => {
     }
 
     expect(rewriteInvalidCanvas).toThrow(/^invalid \.canvas JSON: /)
+  })
+})
+
+const groupNode = (index: number): Record<string, unknown> => ({
+  id: `g${String(index).padStart(5, "0")}`,
+  type: "group",
+  label: `Group ${index}`,
+  x: index * 30,
+  y: 0,
+  width: 20,
+  height: 20,
+})
+
+const separatedCanvas = (counts: {
+  groups: number
+  contentNodes: number
+}): {
+  json: string
+  nested: string
+  flat: string
+} => {
+  const groups = Array.from({ length: counts.groups }, (_, index) => groupNode(index))
+  const contentNodes = Array.from({ length: counts.contentNodes }, (_, index) =>
+    textNode({
+      id: `n${index}`,
+      text: `Text ${index}`,
+      x: index * 30 + 1,
+      y: 1,
+      width: 1,
+      height: 1,
+    }),
+  )
+  const overview = `# Canvas: ${counts.groups + counts.contentNodes} nodes, 0 edges`
+  const contentSections = contentNodes.map((_, index) => `[text]\nText ${index}`)
+  const groupSections = groups.map((_, index) => `## Group: Group ${index}`)
+  const nestedGroupSections = groupSections.flatMap((heading, index) => {
+    const content = contentSections[index]
+    return content ? [heading, content] : [heading]
+  })
+  return {
+    json: canvasJson([...contentNodes, ...groups]),
+    nested: [overview, ...contentSections.slice(counts.groups), ...nestedGroupSections].join(
+      "\n\n",
+    ),
+    flat: [overview, ...groupSections, ...contentSections].join("\n\n"),
+  }
+}
+
+describe("canvas ownership work and rendering depth", () => {
+  it("retains the legacy cycle refusal for duplicate IDs in a parent-killed child", () => {
+    expect(readParserComplexityReport("canvas-cycle")).toEqual({
+      fixture: "canvas-cycle",
+      name: "RangeError",
+      message: "Maximum call stack size exceeded",
+    })
+  }, 35_000)
+
+  it("retains shared child buckets for duplicate IDs on distinct acyclic paths", () => {
+    const nodes = [
+      { ...groupNode(0), id: "a", label: "First" },
+      { ...groupNode(0), id: "a", label: "Second", x: 100 },
+      { ...groupNode(0), id: "b", label: "Child", x: 1, y: 1, width: 10, height: 10 },
+      textNode({ id: "text", text: "Body", x: 2, y: 2, width: 1, height: 1 }),
+    ]
+    expect(linearizeCanvas(canvasJson(nodes))).toBe(
+      [
+        "# Canvas: 4 nodes, 0 edges",
+        "## Group: First",
+        "### Group: Child",
+        "[text]\nBody",
+        "## Group: Second",
+        "### Group: Child",
+        "[text]\nBody",
+      ].join("\n\n"),
+    )
+  })
+
+  it.each([
+    { fixture: "canvas-cross", copies: 1 },
+    { fixture: "canvas-multiple", copies: 5 },
+  ])(
+    "bounds $fixture at the ownership budget with complete output checks",
+    ({ fixture, copies }) => {
+      expect(readParserComplexityReport(fixture)).toEqual({
+        fixture,
+        node: process.version,
+        checksPerCanvas: 16_000_000,
+        copies,
+        medianMs: expect.any(Number),
+        semantics: "exact",
+      })
+    },
+    35_000,
+  )
+
+  it.each([
+    { label: "identical-rectangle depth", fixture: "canvas-depth" },
+    { label: "content-count ownership", fixture: "canvas-flat" },
+  ])(
+    "bounds the $label adversary in a parent-killed child",
+    ({ fixture }) => {
+      expect(readParserComplexityReport(fixture)).toEqual({
+        fixture,
+        node: process.version,
+        medianMs: expect.any(Number),
+        semantics: "exact",
+      })
+    },
+    35_000,
+  )
+
+  it.each([
+    { label: "zero groups", groups: 0, contentNodes: 100_000, nested: true },
+    { label: "one group at budget", groups: 1, contentNodes: 15_999_999, nested: true },
+    {
+      label: "one group one check above budget",
+      groups: 1,
+      contentNodes: 16_000_000,
+      nested: false,
+    },
+    { label: "both axes at budget", groups: 2000, contentNodes: 6000, nested: true },
+    { label: "both axes above budget", groups: 2000, contentNodes: 6001, nested: false },
+    { label: "group axis at budget", groups: 4000, contentNodes: 0, nested: true },
+    { label: "group axis above budget", groups: 4001, contentNodes: 0, nested: false },
+  ])("uses both axes for $label without allocating nodes", ({ groups, contentNodes, nested }) => {
+    expect(canNestCanvasGroups({ groups, contentNodes })).toBe(nested)
+  })
+
+  it.each([
+    { groups: 2000, contentNodes: 2000, nested: true },
+    { groups: 2000, contentNodes: 6000, nested: true },
+    { groups: 2000, contentNodes: 6001, nested: false },
+    { groups: 4000, contentNodes: 4000, nested: false },
+    { groups: 8000, contentNodes: 8000, nested: false },
+    { groups: 8000, contentNodes: 8001, nested: false },
+    { groups: 2000, contentNodes: 100_000, nested: false },
+    { groups: 4001, contentNodes: 1, nested: false },
+    { groups: 0, contentNodes: 4, nested: true },
+  ])(
+    "renders every section with $groups groups and $contentNodes content nodes",
+    ({ groups, contentNodes, nested }) => {
+      const fixture = separatedCanvas({ groups, contentNodes })
+      expect(linearizeCanvas(fixture.json)).toBe(nested ? fixture.nested : fixture.flat)
+    },
+  )
+
+  it("skips every ownership scan above budget before constructing group maps", () => {
+    const fixture = separatedCanvas({ groups: 2000, contentNodes: 6001 })
+    const nativeFilter = Array.prototype.filter
+    // Ownership filters scan the 2,000-group array; node parsing filters scan all 8,001 nodes.
+    let ownershipScans = 0
+    const filter = vi.spyOn(Array.prototype, "filter").mockImplementation(function (
+      this: unknown[],
+      predicate,
+      thisArg,
+    ) {
+      if (this.length === 2000) ownershipScans++
+      return nativeFilter.call(this, predicate, thisArg)
+    })
+    try {
+      expect(linearizeCanvas(fixture.json)).toBe(fixture.flat)
+      expect(ownershipScans).toBe(0)
+    } finally {
+      filter.mockRestore()
+    }
+  })
+
+  it("renders a 2,000-group identical-rectangle chain once with H6 capping", () => {
+    const groups = Array.from({ length: 2000 }, (_, index) => ({ ...groupNode(index), x: 0 }))
+    const expectedGroups = groups
+      .toReversed()
+      .map((_, index) => `${"#".repeat(Math.min(2 + index, 6))} Group: Group ${1999 - index}`)
+    expect(linearizeCanvas(canvasJson(groups))).toBe(
+      ["# Canvas: 2000 nodes, 0 edges", ...expectedGroups].join("\n\n"),
+    )
+  })
+
+  it("preserves flat labels, reading order and all connection names and labels", () => {
+    const padding = Array.from({ length: 4001 }, (_, index) => ({
+      ...groupNode(index),
+      label: undefined,
+      y: 10,
+    }))
+    const nodes = [
+      { ...groupNode(0), id: "group", label: "Named", x: 0, y: -2 },
+      textNode({ id: "text", x: 0, y: -1, text: "## Title\nBody" }),
+      {
+        id: "file",
+        type: "file",
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        file: "Folder/Note.md",
+        subpath: "#Heading",
+      },
+      { id: "link", type: "link", x: 0, y: 1, width: 1, height: 1, url: "https://example.com" },
+      { id: "unknown", type: "custom", x: 0, y: 2, width: 1, height: 1 },
+      { id: "invalid", type: "text", text: "Dropped" },
+      ...padding,
+    ]
+    const edges = [
+      { fromNode: "group", toNode: "text", label: "names" },
+      { fromNode: "file", toNode: "link", label: "" },
+      { fromNode: "unknown", toNode: "absent", label: "missing" },
+      { fromNode: "g00000", toNode: "group" },
+      { fromNode: "invalid" },
+    ]
+    expect(linearizeCanvas(canvasJson(nodes, edges))).toBe(
+      [
+        "# Canvas: 4006 nodes, 4 edges",
+        "## Group: Named",
+        "[text]\n## Title\nBody",
+        "[file] → Folder/Note.md#Heading",
+        "[link] → https://example.com",
+        "[custom]",
+        ...padding.map(() => "## Group: (unlabeled)"),
+        "## Connections",
+        "Named → Title (names)",
+        "Note.md → https://example.com",
+        '(custom node) → (missing node "absent") (missing)',
+        "(unlabeled group) → Named",
+      ].join("\n\n"),
+    )
   })
 })

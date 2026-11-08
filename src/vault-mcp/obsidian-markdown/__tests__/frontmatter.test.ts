@@ -2,6 +2,7 @@ import matter from "gray-matter"
 import { DateTime } from "luxon"
 import { parseDocument, stringify as stringifyYaml } from "yaml"
 import { describe, it, expect, vi } from "vitest"
+import { readParserComplexityReport } from "./helpers/frontmatter-canvas-adversary.js"
 import {
   findBodyStartLine,
   findWrittenBodyStartLine,
@@ -1077,4 +1078,226 @@ describe("mergeFrontmatter", () => {
       title: "x",
     })
   })
+})
+
+describe("linear duplicate-key checking", () => {
+  const snapshot = (note: string): unknown => {
+    const strictReading = (read: (source: string) => unknown): unknown => {
+      try {
+        return { value: read(note) }
+      } catch (error) {
+        if (!(error instanceof UnsupportedPropertiesBlockError)) throw error
+        return { error: { kind: error.kind, message: error.message } }
+      }
+    }
+    const tolerant = parseNoteSkippingUnreadableBlock(note)
+    return {
+      strict: strictReading(parseNote),
+      rewrite: strictReading(parseNoteForRewrite),
+      tolerant: {
+        data: tolerant.data,
+        content: tolerant.content,
+        error: tolerant.unreadableBlockError
+          ? {
+              kind: tolerant.unreadableBlockError.kind,
+              message: tolerant.unreadableBlockError.message,
+            }
+          : null,
+      },
+    }
+  }
+
+  it.each([
+    { label: "unique keys", fixture: "yaml-unique" },
+    { label: "late duplicates", fixture: "yaml-duplicate" },
+  ])(
+    "bounds 100,000 $label with a parent watchdog and exact semantic checks",
+    ({ fixture }) => {
+      expect(readParserComplexityReport(fixture)).toEqual({
+        fixture,
+        node: process.version,
+        sizes: [50_000, 100_000],
+        mediansMs: [expect.any(Number), expect.any(Number)],
+        semantics: "exact",
+      })
+    },
+    35_000,
+  )
+
+  it.each([
+    {
+      label: "malformed flow",
+      yaml: "{a: 1, a: [unclosed}",
+      reason:
+        "at line 2, column 20: Flow sequence in block collection must be sufficiently indented and end with a ]",
+    },
+    {
+      label: "unclosed quote",
+      yaml: 'a: 1\na: "unclosed',
+      reason: 'at line 3, column 13: Missing closing "quote',
+    },
+    {
+      label: "tab indentation",
+      yaml: "a: 1\na:\n\tb: 2",
+      reason: "at line 4, column 1: Tabs are not allowed as indentation",
+    },
+    {
+      label: "missing value",
+      yaml: "a: 1\na: 2\nb",
+      reason: "at line 4, column 1: Implicit map keys need to be followed by map values",
+    },
+  ])(
+    "refuses mixed duplicate and $label errors with the syntax-first message",
+    ({ yaml, reason }) => {
+      const error = {
+        kind: "invalid-yaml",
+        message: `properties block is not valid YAML ${reason}`,
+      }
+      expect(snapshot(`---\n${yaml}\n---\nbody`)).toEqual({
+        strict: { error },
+        rewrite: { error },
+        tolerant: { data: {}, content: "body", error },
+      })
+    },
+  )
+
+  it.each(
+    [
+      { label: "ordinary", yaml: "a: 1\na: 2", line: 3, column: 1 },
+      { label: "quoted", yaml: 'a: 1\n"a": 2', line: 3, column: 1 },
+      { label: "tagged", yaml: "a: 1\n!!str a: 2", line: 3, column: 7 },
+      { label: "anchored", yaml: "a: 1\n&key a: 2", line: 3, column: 6 },
+      { label: "explicit empty", yaml: "?\n: a\n?\n: b", line: 5, column: 1 },
+      {
+        label: "nested before root",
+        yaml: "x: 1\nouter:\n  a: 1\n  a: 2\nx: 2",
+        line: 5,
+        column: 3,
+      },
+      { label: "block before value", yaml: "a: 1\na: {b: 1, b: 2}", line: 3, column: 1 },
+      { label: "flow after value", yaml: "{a: 1, a: {b: 1, b: 2}}", line: 2, column: 18 },
+      { label: "collection key first", yaml: "? {a: 1, a: 2}\n: value", line: 2, column: 10 },
+      { label: "numeric equivalents", yaml: "1: first\n1.0: second", line: 3, column: 1 },
+      { label: "null equivalents", yaml: "null: first\n~: second", line: 3, column: 1 },
+      { label: "boolean equivalents", yaml: "true: first\nTrue: second", line: 3, column: 1 },
+      { label: "default merge keys", yaml: "<<: first\n<<: second", line: 3, column: 1 },
+      { label: "duplicate before alias conversion", yaml: "a: 1\na: *absent", line: 3, column: 1 },
+      { label: "duplicate before shape", yaml: "- {a: 1, a: 2}", line: 2, column: 10 },
+    ].flatMap((testCase) => [
+      { ...testCase, newline: "LF", separator: "\n" },
+      { ...testCase, newline: "CRLF", separator: "\r\n" },
+    ]),
+  )("keeps the exact $label refusal with $newline", ({ yaml, line, column, separator }) => {
+    const note = `---\n${yaml}\n---\nbody`.replaceAll("\n", separator)
+    const error = {
+      kind: "invalid-yaml",
+      message: `properties block is not valid YAML at line ${line}, column ${column}: Map keys must be unique`,
+    }
+    expect(snapshot(note)).toEqual({
+      strict: { error },
+      rewrite: { error },
+      tolerant: { data: {}, content: "body", error },
+    })
+  })
+
+  it("retains distinct numeric/string, NaN, alias-node and collection-node keys", () => {
+    const note =
+      '---\n1: numeric\n"1": string\n.nan: first\n.nan: second\nsource: &key value\n*key : first alias\n*key : second alias\n? [a, b]\n: first collection\n? [a, b]\n: second collection\n---\nbody'
+    expect(parseNote(note)).toEqual({
+      data: {
+        "1": "string",
+        NaN: "second",
+        source: "value",
+        value: "second alias",
+        "[ a, b ]": "second collection",
+      },
+      content: "body",
+    })
+  })
+
+  it.each([
+    { label: "LF", separator: "\n", offset: 9 },
+    { label: "CRLF", separator: "\r\n", offset: 13 },
+  ])("retains the native explicit-empty-key offset with $label", ({ separator, offset }) => {
+    const note = ["---", "?", ": a", "?", ": b", "---", "body"].join(separator)
+    const thrown = catchThrown(() => parseNote(note))
+
+    if (!(thrown instanceof UnsupportedPropertiesBlockError))
+      throw new Error("missing properties refusal")
+    const { cause } = thrown
+
+    if (!(cause instanceof Error) || !("pos" in cause))
+      throw new Error("missing YAML error position")
+    expect(cause.pos).toEqual([offset, offset + 1])
+  })
+
+  it("matches the native duplicate checker on 10,000 bounded fixed-seed documents", async () => {
+    const nativeYaml = await vi.importActual<typeof import("yaml")>("yaml")
+    const nativeParseDocument = nativeYaml.parseDocument
+    // Seed 0x739afb02; each map has at most 12 pairs, and nesting is at most three maps.
+    let seed = 0x739afb02
+    const random = (bound: number): number => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+      return (seed >>> 8) % bound
+    }
+    const spellings = [
+      "a",
+      '"a"',
+      "b",
+      "null",
+      "~",
+      "true",
+      "True",
+      "1",
+      "1.0",
+      '"1"',
+      ".nan",
+      "!!str a",
+      "&key a",
+    ]
+    const warning = vi.spyOn(process, "emitWarning").mockImplementation(() => undefined)
+    try {
+      for (let i = 0; i < 10_000; i++) {
+        const pairs = Array.from(
+          { length: 1 + random(12) },
+          () => `${spellings[random(spellings.length)]}: ${random(10)}`,
+        )
+        // Keep anchors unique while retaining tagged and anchored key positions.
+        const anchoredPairs = pairs.map((pair, index) => pair.replace("&key ", `&key${index} `))
+        const block = anchoredPairs.join("\n")
+        const flow = `{${anchoredPairs.join(", ")}}`
+        const templates = [
+          block,
+          flow,
+          `outer:\n  ${block.replaceAll("\n", "\n  ")}\nx: 1\nx: 2`,
+          `{x: 1, outer: ${flow}, x: 2}`,
+          `? ${flow}\n: value`,
+          `?\n: a\n?\n: b`,
+          `source: &source value\n*source : 1\n*source : 2`,
+          `? [a, b]\n: first\n? [a, b]\n: second`,
+        ]
+        const yaml = templates[random(templates.length)] ?? ""
+        const note = `---\n${yaml}\n---\nbody`.replaceAll("\n", random(2) ? "\r\n" : "\n")
+        const { blockText } = splitPropertiesBlock(note)
+        const nativeErrors = nativeParseDocument(blockText ?? "").errors
+        expect(
+          nativeErrors.filter((error) => error.code !== "DUPLICATE_KEY"),
+          note,
+        ).toEqual([])
+        const actual = snapshot(note)
+        vi.mocked(parseDocument).mockImplementation((source, options) =>
+          nativeParseDocument(source, { ...options, uniqueKeys: true }),
+        )
+        try {
+          expect(actual, note).toEqual(snapshot(note))
+        } finally {
+          vi.mocked(parseDocument).mockRestore()
+          // Parser call histories retain entire documents; the differential needs only this case.
+          vi.clearAllMocks()
+        }
+      }
+    } finally {
+      warning.mockRestore()
+    }
+  }, 30_000)
 })
