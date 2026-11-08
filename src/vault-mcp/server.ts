@@ -78,7 +78,10 @@ export const createShutdownHandler =
     const drained = new Promise<void>((resolveDrain) => httpServer.close(resolveDrain))
     const finishShutdown = async (): Promise<void> => {
       try {
-        await Promise.all([extractionClosed, parserClosed, drained])
+        const cleanupResults = await Promise.allSettled([extractionClosed, parserClosed, drained])
+        const failedCleanup = cleanupResults.find((result) => result.status === "rejected")
+
+        if (failedCleanup) throw failedCleanup.reason
         logger.info("drained, exiting")
         process.exit(0)
       } catch (error) {

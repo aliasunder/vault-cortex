@@ -268,26 +268,42 @@ describe("createShutdownHandler", () => {
     expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
   })
 
-  it("logs a parser cleanup failure and exits with an error", async () => {
+  it("waits for extraction and HTTP drain before exiting after a parser cleanup failure", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     onTestFinished(() => exitSpy.mockRestore())
-    const close = vi.fn((callback: () => void) => callback())
+    const extractionClosed = Promise.withResolvers<void>()
+    const drained = Promise.withResolvers<void>()
+    const close = vi.fn(async (callback: () => void) => {
+      await drained.promise
+      callback()
+    })
     const bodyTagParser = {
       close: vi.fn(async () => Promise.reject(new Error("terminate failed"))),
     }
 
-    createShutdownHandler({
-      httpServer: { close },
-      bodyTagParser,
-      pdfExtractor: createClosingParser(),
-    })()
-    // Settles the rejected close without reaching the force-exit timer
-    await vi.advanceTimersByTimeAsync(0)
+    try {
+      createShutdownHandler({
+        httpServer: { close },
+        bodyTagParser,
+        pdfExtractor: { close: vi.fn(() => extractionClosed.promise) },
+      })()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(exitSpy).not.toHaveBeenCalled()
+      extractionClosed.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(exitSpy).not.toHaveBeenCalled()
+      drained.resolve()
+      await vi.advanceTimersByTimeAsync(0)
 
-    expect(logger.warn).toHaveBeenCalledExactlyOnceWith("shutdown cleanup failed", {
-      error: "[Error]: terminate failed",
-    })
-    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
+      expect(logger.warn).toHaveBeenCalledExactlyOnceWith("shutdown cleanup failed", {
+        error: "[Error]: terminate failed",
+      })
+      expect(exitSpy).toHaveBeenCalledExactlyOnceWith(1)
+    } finally {
+      extractionClosed.resolve()
+      drained.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+    }
   })
 })
 
