@@ -230,24 +230,17 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 ### Request bodies and log storage
 
-- `POST /mcp` parses JSON only after bearer validation; tokenless malformed
-  bodies get 401 before the parser runs
-- Request-body errors produce one `request_body_rejected` warning without
-  a stack; strings inside plain objects and arrays in log data are capped
-  at 256 code points, with error, cause and stack text capped at 4,096.
-  Plain objects and arrays at depth 64 are replaced by `"[nested too deep]"`
-  (the data root is depth 0); other objects pass through unchanged
-- `LOG_MAX_DAILY_MB` bounds each day's file at 25 MB by default, plus one
-  limit notice; `none` disables the cap. File logging resumes at midnight in `TZ` (UTC by default),
-  while console logging continues
-- Log files are pruned at startup and each day under `LOG_RETENTION_DAYS`
-  (digits only; `0` keeps today; invalid values warn and use `90`);
-  older files written before a cap was configured keep their size until
-  they age out
-- If the server cannot create the log folder, write to its log file, read
-  the file's size, read the file's end for the daily limit notice or
-  delete old log files, file logging stops with one console warning; fix
-  the cause and restart to resume
+- `POST /mcp` parses JSON only after bearer validation, so a request
+  without a valid token gets 401 before its body is read
+- A rejected request body produces one short warning without a stack, and
+  the logger caps every logged string at 256 code points (error text and
+  stack traces at 4,096)
+- `LOG_MAX_DAILY_MB` (25 by default) caps each day's log file; file logging
+  resumes at midnight in `TZ`, and console logging continues
+- Log files older than `LOG_RETENTION_DAYS` (90 by default) are pruned at
+  startup and each day
+- If the log file or folder cannot be written, read or pruned, file logging
+  stops with one console warning and the server keeps running
 
 ### Container hardening
 
