@@ -2399,21 +2399,20 @@ export const createSearchIndex = (
       mapper: readFileSize,
     })
     const nonMarkdownFileSizes = nonMarkdownFileSizeResults.filter((entry) => entry !== null)
-    // A canvas is read for its links whether or not file tools are on. PDF,
-    // text, HTML and script content is read only when the file content tables
-    // exist, because without them the extraction is wasted I/O. The switch
+    // A canvas is read for its links whether or not file tools are on. Text,
+    // HTML and script content is read only when the file content tables exist;
+    // PDFs join their separate deferred pass below. The switch
     // names every kind, so a new kind does not compile until it has a reader.
-    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "pdf" | "text" | "decoded" | null => {
+    const rebuildReaderFor = (fileKind: FileKind): "canvas" | "text" | "decoded" | null => {
       switch (fileKind) {
         case "canvas":
           return "canvas"
-        case "pdf":
-          return fileToolsEnabled ? "pdf" : null
         case "text":
           return fileToolsEnabled ? "text" : null
         case "html":
         case "script":
           return fileToolsEnabled ? "decoded" : null
+        case "pdf":
         case "image":
         case "other":
           return null
