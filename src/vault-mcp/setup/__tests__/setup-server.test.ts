@@ -150,7 +150,7 @@ describe("setup-server entry point", () => {
       cacheControl: response.headers.get("cache-control"),
     }).toEqual({
       status: 413,
-      body: { error: "invalid request body" },
+      body: { error: "request body too large" },
       cacheControl: "no-store",
     })
     await vi.waitFor(() => expect(server.stdout()).toContain('"message":"request_body_rejected"'))

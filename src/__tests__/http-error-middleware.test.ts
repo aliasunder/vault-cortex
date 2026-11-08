@@ -68,9 +68,25 @@ describe("createErrorMiddleware", () => {
   })
 
   it.each([
-    { label: "malformed JSON", status: 400, type: "entity.parse.failed" },
-    { label: "oversized body", status: 413, type: "entity.too.large" },
-  ])("answers $label with its status and one short warning", ({ status, type }) => {
+    {
+      label: "malformed JSON",
+      status: 400,
+      type: "entity.parse.failed",
+      message: "invalid request body",
+    },
+    {
+      label: "other exposed 4xx",
+      status: 422,
+      type: "other.client.error",
+      message: "invalid request body",
+    },
+    {
+      label: "oversized body",
+      status: 413,
+      type: "entity.too.large",
+      message: "request body too large",
+    },
+  ])("answers $label with its status and one short warning", ({ status, type, message }) => {
     const records: Record<string, unknown>[] = []
     vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
       records.push(JSON.parse(String(chunk)))
@@ -93,7 +109,7 @@ describe("createErrorMiddleware", () => {
     expect(resStatus).toHaveBeenCalledTimes(1)
     expect(resStatus).toHaveBeenCalledWith(status)
     expect(resJson).toHaveBeenCalledTimes(1)
-    expect(resJson).toHaveBeenCalledWith({ error: "invalid request body" })
+    expect(resJson).toHaveBeenCalledWith({ error: message })
     expect(records).toEqual([
       {
         timestamp: expect.any(String),

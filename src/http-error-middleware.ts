@@ -19,14 +19,19 @@ export const createErrorMiddleware = ({
     }
 
     // Routes answer other client errors themselves, so exposed 4xx errors
-    // reaching this handler can use one generic body error.
+    // reaching this handler can use a short body error.
     if (isHttpClientError(err)) {
       logger.warn("request_body_rejected", {
         ...requestContext,
         type: "type" in err ? err.type : err.name,
         status: err.status,
       })
-      if (!res.headersSent) res.status(err.status).json({ error: "invalid request body" })
+      const error =
+        "type" in err && err.type === "entity.too.large"
+          ? "request body too large"
+          : "invalid request body"
+
+      if (!res.headersSent) res.status(err.status).json({ error })
       return
     }
 

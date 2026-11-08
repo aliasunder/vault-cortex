@@ -327,13 +327,34 @@ describe("JSON parser placement", () => {
     expect(server.stderr()).not.toContain('"message":"unhandled_error"')
   })
 
-  it("rejects tokenless malformed MCP JSON before parsing or logging a request", async () => {
+  it.each([
+    { label: "authenticated MCP", path: "/mcp", bytes: 6 * 1024 * 1024 },
+    { label: "public registration", path: "/register", bytes: 200 * 1024 },
+  ])("answers oversized $label JSON with 413", async ({ path, bytes }) => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(server.cleanup)
+    const response = await fetch(`http://127.0.0.1:${server.port}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN_A}` },
+      body: JSON.stringify({ body: "a".repeat(bytes) }),
+    })
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 413,
+      body: { error: "request body too large" },
+    })
+  })
+
+  it.each([
+    { label: "malformed", body: "{" },
+    { label: "oversized", body: JSON.stringify({ body: "a".repeat(6 * 1024 * 1024) }) },
+  ])("rejects tokenless $label MCP JSON before parsing or logging a request", async ({ body }) => {
     const server = await startServer(await freePort())
     onTestFinished(server.cleanup)
     const response = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: "{",
+      body,
     })
 
     expect({ status: response.status, body: await response.json() }).toEqual({
@@ -346,6 +367,7 @@ describe("JSON parser placement", () => {
     await server.cleanup()
     expect(server.stderr()).not.toContain('"message":"unhandled_error"')
     expect(server.stdout()).not.toContain('"message":"mcp_request"')
+    expect(server.stdout()).not.toContain('"message":"request_body_rejected"')
   })
 
   it("rejects malformed JSON consent as an invalid form without an unhandled error", async () => {
@@ -405,7 +427,7 @@ describe("consent page response headers", () => {
     }).toEqual({
       status: 413,
       cacheControl: "no-store",
-      body: { error: "invalid request body" },
+      body: { error: "request body too large" },
     })
   })
 })

@@ -225,12 +225,13 @@ The server, and the `:remote` image's setup mode, set these headers:
 - In-lock existence checks return the documented "note not found" error
   instead of Node's ENOENT text
 - Both Express apps return exposed 4xx request-body errors with their status
-  and `{"error":"invalid request body"}`; other failures return 500 with
+  and `{"error":"request body too large"}` for oversized bodies or
+  `{"error":"invalid request body"}` otherwise; other failures return 500 with
   `"internal server error"`. Stack traces stay in server-error logs
 
 ### Request bodies and log storage
 
-- `POST /mcp` parses JSON only after bearer validation, so a request
+- `POST /mcp` parses JSON up to 5 MB only after bearer validation, so a request
   without a valid token gets 401 before its body is read
 - A rejected request body produces one short warning without a stack, and
   the logger caps every logged string at 256 code points (error text and

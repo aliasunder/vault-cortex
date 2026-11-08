@@ -41,6 +41,9 @@ const SERVER_ICONS = [
   },
 ]
 
+// Large note writes need room; this parser is reachable only with a valid token.
+const MCP_JSON_BODY_LIMIT = "5mb"
+
 const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
 
 /** Metadata names only served tools; memory and search framing follow config. */
@@ -117,7 +120,9 @@ export const createMcpRouter = ({
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
-  router.post("/mcp", bearerAuth, express.json(), async (req: Request, res: Response) => {
+  const parseMcpJson = express.json({ limit: MCP_JSON_BODY_LIMIT })
+
+  router.post("/mcp", bearerAuth, parseMcpJson, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })

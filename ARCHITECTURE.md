@@ -1463,7 +1463,7 @@ Docker hardening, and durability seatbelts above.
   requests with a 10-second force-exit fallback, so a write is never
   interrupted mid-rename.
 - **Request bodies** (`src/http-error-middleware.ts`): `POST /mcp` parses
-  JSON only after the token check, so a request without a valid token is
+  JSON up to 5 MB only after the token check, so a request without a valid token is
   refused before its body is read. A malformed or oversized body gets its
   4xx and a one-line warning; other failures answer 500 and log their stack.
 - **Log size** (`src/logger.ts`): the logger caps every string it logs, so
