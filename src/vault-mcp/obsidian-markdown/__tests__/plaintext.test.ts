@@ -5,13 +5,13 @@ import { createScannerDocuments, scannerCorpora, legacyPlaintext } from "./link-
 
 describe("stripMarkdownSyntax", () => {
   it.each([
-    { variant: "plaintext-alias" },
-    { variant: "plaintext-wiki" },
-    { variant: "plaintext-markdown" },
-    { variant: "callout" },
+    { variant: "plaintext-alias", expectedBytes: [20_015, 40_015, 80_015] },
+    { variant: "plaintext-wiki", expectedBytes: [20_009, 40_009, 80_009] },
+    { variant: "plaintext-markdown", expectedBytes: [20_012, 40_012, 80_012] },
+    { variant: "callout", expectedBytes: [20_009, 40_009, 80_009] },
   ])(
     "bounds repeated failing $variant openers in an externally killed child",
-    ({ variant }) => {
+    ({ variant, expectedBytes }) => {
       const fixturePath = new URL("./link-scanner-adversary.ts", import.meta.url)
       // SIGKILL bounds a synchronous regex even when the child's event loop cannot run timers.
       const output = execFileSync(
@@ -28,9 +28,7 @@ describe("stripMarkdownSyntax", () => {
       expect(result.variant).toBe(variant)
       expect(
         result.measurements.map((measurement: { bytes: number }) => measurement.bytes),
-      ).toEqual(
-        variant === "plaintext-markdown" ? [20_012, 40_012, 80_012] : [20_009, 40_009, 80_009],
-      )
+      ).toEqual(expectedBytes)
       for (const [index, measurement] of result.measurements.entries()) {
         expect(measurement.median).toBeLessThan(1_000)
         const previous = result.measurements[index - 1]

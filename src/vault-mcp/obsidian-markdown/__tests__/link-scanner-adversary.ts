@@ -31,6 +31,10 @@ const fixture = (size: number): { text: string; expected: unknown } => {
     const tail = `${"[".repeat(size)}](a`
     return { text: `[[Keep]] ${tail}`, expected: `Keep ${tail}` }
   }
+  if (variant === "plaintext-alias") {
+    const tail = "[[x|".repeat(size / 4)
+    return { text: `[[Keep|alias]] ${tail}`, expected: `alias ${tail}` }
+  }
   return { text: `[[Keep]] ${"[".repeat(size)}`, expected: `Keep ${"[".repeat(size)}` }
 }
 
