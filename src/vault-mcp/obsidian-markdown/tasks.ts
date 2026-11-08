@@ -1098,8 +1098,9 @@ type TaskLineParts = {
 }
 
 /** Same prefix grammar as TASK_LINE_RE, captured up to and including the
- *  checkbox — the two must stay in sync on what counts as the prefix. */
-const TASK_PREFIX_RE = /^([\s>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/u
+ *  checkbox — the two must stay in sync on what counts as the prefix. The
+ *  spaces or tabs after the checkbox are captured too, so an edit keeps them. */
+const TASK_PREFIX_RE = /^([\s>]*(?:[-*+]|[0-9]+[.)]) +\[.\][ \t]*)/u
 
 /** Matches line terminators excluded by TASK_LINE_RE's body capture. */
 const TASK_BODY_LINE_BREAK_RE = /[\r\n\u2028\u2029]/u

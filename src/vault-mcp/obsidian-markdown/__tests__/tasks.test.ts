@@ -1664,6 +1664,24 @@ describe("task line mutations", () => {
       ).toBe("- [x]^card ✅ 2026-11-08")
     })
 
+    it.each([
+      { label: "a tab", taskLine: "- [ ]\tOld ^id", expected: "- [x]\tOld ✅ 2026-11-08 ^id" },
+      {
+        label: "a space and a tab",
+        taskLine: "- [ ] \tOld",
+        expected: "- [x] \tOld ✅ 2026-11-08",
+      },
+    ])("keeps $label after the checkbox when completing the task", ({ taskLine, expected }) => {
+      expect(
+        tasks.updateTaskLineStatus({
+          taskLine,
+          newStatus: "done",
+          today: "2026-11-08",
+          config: EMOJI_CONFIG,
+        }),
+      ).toBe(expected)
+    })
+
     it("leaves no hard break when an emptied task gets a new field", () => {
       const withoutDue = tasks.updateTaskLineDate({
         taskLine: "- [ ]  📅 2026-11-09",
