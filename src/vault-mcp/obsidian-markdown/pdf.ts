@@ -1,6 +1,55 @@
 import { getMeta, extractTextItems, extractLinks } from "unpdf"
 import type { StructuredTextItem } from "unpdf"
+import type { PDFPageProxy } from "unpdf/pdfjs"
 import { createPdfDocumentProxy } from "./pdf-engine.js"
+
+// Bound useful indexing work while the extraction process contains individual-page expansion.
+const MAX_INDEXED_PDF_PAGES = 500
+// Match the searchable-content budget, including metadata, separators and links.
+const MAX_INDEXED_PDF_BYTES = 102_400
+
+type PageTextContent = Awaited<ReturnType<PDFPageProxy["getTextContent"]>>
+
+const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => {
+  const toStructuredItem = (
+    item: Extract<PageTextContent["items"][number], { str: string }>,
+  ): StructuredTextItem => {
+    const [, , horizontalScale, verticalScale, xCoordinate, yCoordinate] = item.transform
+    const direction = item.dir
+
+    if (direction !== "ltr" && direction !== "rtl" && direction !== "ttb") {
+      throw new Error("PDF text has an invalid direction")
+    }
+
+    return {
+      str: item.str,
+      x: xCoordinate,
+      y: yCoordinate,
+      width: item.width,
+      height: item.height,
+      fontSize: Math.hypot(horizontalScale, verticalScale),
+      fontFamily: content.styles[item.fontName]?.fontFamily ?? "",
+      dir: direction,
+      hasEOL: item.hasEOL,
+    }
+  }
+  return content.items.filter((item) => "str" in item).map(toStructuredItem)
+}
+
+/** Stops at whole code points so an internal byte budget cannot introduce replacement characters. */
+const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
+  // Byte and UTF-16 offsets advance together while walking Unicode code points.
+  let usedBytes = 0
+  let endIndex = 0
+  for (const character of content) {
+    const characterBytes = Buffer.byteLength(character, "utf8")
+
+    if (usedBytes + characterBytes > maxBytes) break
+    usedBytes += characterBytes
+    endIndex += character.length
+  }
+  return content.slice(0, endIndex)
+}
 
 /** Rounds a font size to one decimal place — used as the bucketing key for
  *  heading-level detection. Both the map builder (`buildHeadingLevels`) and
@@ -484,6 +533,61 @@ export type PdfTextResult = Readonly<{
   text: string
   totalPages: number
 }>
+
+/** Reads pages sequentially until the formatted indexing prefix reaches its byte or page budget. */
+export const extractPdfIndexText = async (pdfData: Uint8Array): Promise<PdfTextResult> => {
+  const proxy = await createPdfDocumentProxy(pdfData)
+  try {
+    const meta = await getMeta(proxy)
+    const totalPages = proxy.numPages
+    const pageLimit = Math.min(totalPages, MAX_INDEXED_PDF_PAGES)
+    const itemsByPage: StructuredTextItem[][] = []
+    const pdfLinks: string[] = []
+    // Each visited page changes the heading inputs and links of the current prefix.
+    let text = ""
+    for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+      const page = await proxy.getPage(pageNumber)
+      try {
+        itemsByPage.push(structuredPageItems(await page.getTextContent()))
+        const annotations = await page.getAnnotations()
+        for (const annotation of annotations) {
+          if (
+            annotation.subtype === "Link" &&
+            typeof annotation.url === "string" &&
+            annotation.url
+          ) {
+            pdfLinks.push(annotation.url)
+          }
+        }
+      } finally {
+        page.cleanup()
+      }
+
+      const hasContent = itemsByPage.some((pageItems) => pageItems.some(hasVisibleText))
+      const rendition = reconstructPdfMarkdown({
+        title: meta.info.Title,
+        totalPages,
+        itemsByPage,
+        pdfLinks,
+      })
+      text = hasContent ? rendition : ""
+      const renditionBytes = Buffer.byteLength(rendition, "utf8")
+
+      if (renditionBytes >= MAX_INDEXED_PDF_BYTES) {
+        return {
+          text:
+            renditionBytes > MAX_INDEXED_PDF_BYTES
+              ? truncateToUtf8ByteLimit(text, MAX_INDEXED_PDF_BYTES)
+              : text,
+          totalPages,
+        }
+      }
+    }
+    return { text, totalPages }
+  } finally {
+    await proxy.loadingTask.destroy()
+  }
+}
 
 /**
  * Extracts structured text from a PDF buffer — creates a pdfjs proxy,
