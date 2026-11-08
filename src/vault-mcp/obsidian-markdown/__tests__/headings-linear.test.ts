@@ -80,6 +80,11 @@ describe("heading traversal compatibility", () => {
       "# x\rtext",
       "# x\u2028text",
       "# 😀",
+      "## v2#",
+      "# a#b",
+      "# a #b#",
+      "# ##",
+      "### ###",
     ]
     const count = Number(process.env.PARSER_CORPUS_CASES ?? 10_000)
 
@@ -104,6 +109,24 @@ describe("heading traversal compatibility", () => {
         })
       }
     }
+  })
+
+  it.each([
+    { newline: "\n", label: "LF" },
+    { newline: "\r\n", label: "CRLF" },
+  ])("keeps word-attached hashes and strips whole hash texts in $label headings", ({ newline }) => {
+    const lines = ["## v2#", "# a#b", "# a #b#", "# ##", "### ###"]
+    const expectedHeadings = [
+      { text: "v2#", level: 2, startLine: 0, bodyStartLine: 1, bodyEndLine: 1 },
+      { text: "a#b", level: 1, startLine: 1, bodyStartLine: 2, bodyEndLine: 2 },
+      { text: "a #b#", level: 1, startLine: 2, bodyStartLine: 3, bodyEndLine: 3 },
+      { text: "", level: 1, startLine: 3, bodyStartLine: 4, bodyEndLine: 5 },
+      { text: "", level: 3, startLine: 4, bodyStartLine: 5, bodyEndLine: 5 },
+    ]
+    const normalizedLines = lineParsers.splitIntoLines(lines.join(newline))
+
+    expect(readLegacyHeadings()(normalizedLines)).toEqual(expectedHeadings)
+    expect(parseHeadings(normalizedLines)).toEqual(expectedHeadings)
   })
 
   it("preserves empty, nested, setext, fence and comment boundaries exactly", () => {
