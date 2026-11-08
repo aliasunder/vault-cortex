@@ -4151,13 +4151,18 @@ describe("rebuildFromVault deferred PDF content", () => {
 })
 
 describe("rebuildFromVault PDF embedding completion", () => {
-  it("rejects PDF-pass completion when its enabled embedding fails", async () => {
+  it("indexes later PDFs after an embedding failure and rejects pass completion", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pdf-rebuild-embedding-error-"))
     onTestFinished(() => rm(directory, { recursive: true, force: true }))
     await writeFile(join(directory, "report.pdf"), "controlled bytes")
+    await writeFile(join(directory, "survivor.pdf"), "other controlled bytes")
     const embedder = {
-      embedText: vi.fn(async (): Promise<Float32Array> => {
-        throw new Error("controlled PDF embedding failure")
+      embedText: vi.fn(async (text: string): Promise<Float32Array> => {
+        if (text.includes("newcobalt")) throw new Error("controlled PDF embedding failure")
+
+        const vector = new Float32Array(384)
+        vector[0] = 1
+        return vector
       }),
       embedBatch: vi.fn(async (): Promise<Float32Array[]> => {
         throw new Error("unexpected batch")
@@ -4165,7 +4170,10 @@ describe("rebuildFromVault PDF embedding completion", () => {
     }
     const search = createSearchIndex(":memory:", embedder, undefined, { fileToolsEnabled: true })
     const pdfExtractor: PdfExtractor = {
-      extractForIndex: vi.fn(async () => ({ text: "New newcobalt", totalPages: 1 })),
+      extractForIndex: vi.fn(async ({ path }) => ({
+        text: path === "report.pdf" ? "New newcobalt" : "Healthy healthycontinuation",
+        totalPages: 1,
+      })),
       readText: async () => {
         throw new Error("index test must not read a PDF asset")
       },
@@ -4183,13 +4191,19 @@ describe("rebuildFromVault PDF embedding completion", () => {
     await rebuilt.embedding
 
     await expect(rebuilt.startPdfPass()).rejects.toThrow(
-      new Error("controlled PDF embedding failure"),
+      new AggregateError(
+        [new Error("controlled PDF embedding failure")],
+        "PDF embedding pass failed",
+      ),
     )
-    expect(pdfExtractor.extractForIndex).toHaveBeenCalledExactlyOnceWith(
-      { path: "report.pdf" },
-      logger,
-    )
-    expect(embedder.embedText).toHaveBeenCalledExactlyOnceWith("report\n\nNew newcobalt")
+    expect(pdfExtractor.extractForIndex).toHaveBeenCalledTimes(2)
+    expect(pdfExtractor.extractForIndex).toHaveBeenCalledWith({ path: "report.pdf" }, logger)
+    expect(pdfExtractor.extractForIndex).toHaveBeenCalledWith({ path: "survivor.pdf" }, logger)
+    expect(embedder.embedText).toHaveBeenCalledTimes(2)
+    expect(embedder.embedText).toHaveBeenCalledWith("report\n\nNew newcobalt")
+    expect(embedder.embedText).toHaveBeenCalledWith("survivor\n\nHealthy healthycontinuation")
+    const { results } = await search.hybridSearch({ query: "healthycontinuation" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["survivor.pdf"])
   })
 })
 

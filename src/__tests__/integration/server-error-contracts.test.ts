@@ -2703,11 +2703,8 @@ describe("isolated PDF extraction error contracts", () => {
       name: "vault_read_file",
       args: { path: "Active.pdf" },
     })
-    const queued = callTool({
-      client: ownClient,
-      name: "vault_read_file",
-      args: { path: "Queued.pdf" },
-    })
+    // Observe settlement immediately, including cleanup after an assertion failure.
+    const activeResult = Promise.allSettled([active])
     const dispatched = await waitForExtractionLog({
       stdout: server.stdout,
       matches: (entry) =>
@@ -2716,6 +2713,12 @@ describe("isolated PDF extraction error contracts", () => {
         entry.kind === "read",
     })
     expect(dispatched.childPid).toBe(childPid)
+    const queued = callTool({
+      client: ownClient,
+      name: "vault_read_file",
+      args: { path: "Queued.pdf" },
+    })
+    const queuedResult = Promise.allSettled([queued])
     await waitForExtractionLog({
       stdout: server.stdout,
       matches: (entry) =>
@@ -2732,8 +2735,18 @@ describe("isolated PDF extraction error contracts", () => {
       ),
     ).toEqual([])
     server.child.kill("SIGTERM")
-    expect(await active).toEqual(expectedStoppedExtraction({ path: "Active.pdf", remedy: "retry" }))
-    expect(await queued).toEqual(expectedStoppedExtraction({ path: "Queued.pdf", remedy: "retry" }))
+    expect(await activeResult).toEqual([
+      {
+        status: "fulfilled",
+        value: expectedStoppedExtraction({ path: "Active.pdf", remedy: "retry" }),
+      },
+    ])
+    expect(await queuedResult).toEqual([
+      {
+        status: "fulfilled",
+        value: expectedStoppedExtraction({ path: "Queued.pdf", remedy: "retry" }),
+      },
+    ])
     await waitForExtractionLog({
       stdout: server.stdout,
       matches: (entry) => entry.message === "SIGTERM received, draining",

@@ -1,4 +1,5 @@
 import { createPdfExtractor } from "../src/vault-mcp/vault-operations/pdf-extractor.js"
+import { loadConfig } from "../src/vault-mcp/config.js"
 /** Search ranking eval harness — measures hybrid search against a local
  *  judgment file of queries with expected results.
  *
@@ -229,13 +230,14 @@ const main = async (): Promise<void> => {
     console.log("rebuilding index (FTS + embedding — this takes minutes)…")
     const rebuildStartMs = performance.now()
     const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
+    const { maxFileBytes } = loadConfig()
     const pdfExtractor = createPdfExtractor({
       vaultPath: snapshotDir,
-      maxFileBytes: 50 * 1024 * 1024,
+      maxFileBytes,
     })
     try {
       const { count, embedding, bodyTags, startPdfPass } = await search.rebuildFromVault(
-        { vaultPath: snapshotDir, bodyTagParser, pdfExtractor, maxFileBytes: 50 * 1024 * 1024 },
+        { vaultPath: snapshotDir, bodyTagParser, pdfExtractor, maxFileBytes },
         logger,
       )
 

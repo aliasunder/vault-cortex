@@ -152,8 +152,7 @@ export type VaultConfig = Readonly<{
    *  rename-based exclusive write for moves (hard links aren't supported there).
    *  Set via WINDOWS_MODE; safe to leave on for any Windows setup. */
   windowsBindMount: boolean
-  /** Per-read byte cap for vault_read_file — files larger than this are
-   *  rejected before reading (memory guard). Set via MAX_FILE_BYTES. */
+  /** Files above MAX_FILE_BYTES cannot be read; PDFs also keep name-only search rows. */
   maxFileBytes: number
   /** Byte budget for image output after downscale/recompress, in binary bytes
    *  BEFORE base64 encoding. The default fits Claude Code's MCP output token

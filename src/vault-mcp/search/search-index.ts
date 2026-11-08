@@ -2997,6 +2997,8 @@ export const createSearchIndex = (
     const pdfPromise = (async (): Promise<void> => {
       await pdfGate.promise
       const passStart = performance.now()
+      // Finish other files after an embedding failure, then reject completion so eval cannot score it.
+      const embeddingFailures: unknown[] = []
       for (const file of pdfContents) {
         const scheduledVersion = pdfVersionsForExtraction.get(file.relativePath)
 
@@ -3024,12 +3026,24 @@ export const createSearchIndex = (
           },
           logger,
         )
-        await embedFileContent({ filePath: file.relativePath, sourceVersion }, logger)
+        try {
+          await embedFileContent({ filePath: file.relativePath, sourceVersion }, logger)
+        } catch (error) {
+          embeddingFailures.push(error)
+          logger.error("PDF embedding failed", {
+            path: file.relativePath,
+            ...describeErrorForLog(error),
+          })
+        }
       }
       logger.info("PDF content pass complete", {
         files: pdfContents.length,
         durationMs: Math.round(performance.now() - passStart),
       })
+
+      if (embeddingFailures.length > 0) {
+        throw new AggregateError(embeddingFailures, "PDF embedding pass failed")
+      }
     })()
     // The server observes completion without making readiness wait for PDF work.
     pdfPromise.catch((error: unknown) =>
