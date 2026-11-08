@@ -148,7 +148,7 @@ ${PATH_SAFETY_ERROR_ENTRY}
 ${FILESYSTEM_ERROR_ENTRY}
 - "file changed while reading" — retry the read
 - "PDF reader could not start" — the server's PDF reader failed to load; retry once, then ask the server's operator to restart the server
-- "PDF text extraction stopped" — split or re-export the PDF, or provide a text copy; when the message says "retry later" after a queue wait or shutdown, retry later
+- "PDF text extraction stopped" — split or re-export the PDF, or provide a text copy; when the message says "retry later", retry later
 - "unsupported file type …" — the file holds binary data (audio, archives, UTF-16 text, …); the error names the readable types plus the file's existence and size. Ask for a UTF-8 copy of UTF-16 text
 
 Returns: by file type:
