@@ -332,6 +332,8 @@ const resolveLazyProps = (props: Record<string, unknown>): Record<string, unknow
 const LOG_FIELD_CODE_POINTS = 256
 // Keeps error descriptions and stack traces useful while bounding their size.
 const LOG_DIAGNOSTIC_CODE_POINTS = 4096
+// Bounds recursive traversal so deeply nested log data cannot exhaust the call stack.
+const LOG_FIELD_MAX_DEPTH = 64
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   if (typeof value !== "object" || value === null) return false
@@ -340,7 +342,10 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   return prototype === Object.prototype || prototype === null
 }
 
-const capLogField = (value: unknown, maxCodePoints: number): unknown => {
+const capLogField = (
+  value: unknown,
+  { maxCodePoints, depth }: { maxCodePoints: number; depth: number },
+): unknown => {
   if (typeof value === "string") {
     const cappedValue = truncateToCodePointLimit(value, maxCodePoints)
 
@@ -348,20 +353,27 @@ const capLogField = (value: unknown, maxCodePoints: number): unknown => {
     return truncateToCodePointLimit(value, maxCodePoints - 1) + "…"
   }
 
-  if (Array.isArray(value)) {
-    return value.map((element) => capLogField(element, maxCodePoints))
+  if (depth >= LOG_FIELD_MAX_DEPTH && (Array.isArray(value) || isPlainObject(value))) {
+    return "[nested too deep]"
   }
 
-  if (isPlainObject(value)) return capLogData(value)
+  if (Array.isArray(value)) {
+    return value.map((element) => capLogField(element, { maxCodePoints, depth: depth + 1 }))
+  }
+
+  if (isPlainObject(value)) return capLogData(value, depth)
   return value
 }
 
-const capLogData = (data: Readonly<Record<string, unknown>>): Record<string, unknown> => {
+const capLogData = (
+  data: Readonly<Record<string, unknown>>,
+  depth = 0,
+): Record<string, unknown> => {
   const cappedEntries = Object.entries(data).map(([key, value]) => {
     const isDiagnostic = key === "error" || key === "cause" || key === "stack"
     const maxCodePoints = isDiagnostic ? LOG_DIAGNOSTIC_CODE_POINTS : LOG_FIELD_CODE_POINTS
 
-    return [key, capLogField(value, maxCodePoints)]
+    return [key, capLogField(value, { maxCodePoints, depth: depth + 1 })]
   })
   return Object.fromEntries(cappedEntries)
 }

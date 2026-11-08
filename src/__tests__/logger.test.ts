@@ -1300,6 +1300,38 @@ describe("logger field caps", () => {
     ])
   })
 
+  it("replaces arrays at depth 64 when emitting 3000 nested arrays without throwing", () => {
+    const records = captureConsoleRecords()
+    const nestedArrays: unknown = JSON.parse("[".repeat(3000) + '"short"' + "]".repeat(3000))
+
+    logger.info("deep arrays", { nestedArrays })
+
+    expect(JSON.stringify(records()[0]?.nestedArrays)).toBe(
+      "[".repeat(63) + '"[nested too deep]"' + "]".repeat(63),
+    )
+  })
+
+  it("keeps arrays through depth 63 unchanged", () => {
+    const records = captureConsoleRecords()
+    const serializedArrays = "[".repeat(63) + '"short"' + "]".repeat(63)
+    const nestedArrays: unknown = JSON.parse(serializedArrays)
+
+    logger.info("boundary arrays", { nestedArrays })
+
+    expect(JSON.stringify(records()[0]?.nestedArrays)).toBe(serializedArrays)
+  })
+
+  it("replaces plain objects at depth 64", () => {
+    const records = captureConsoleRecords()
+    const nestedObjects: unknown = JSON.parse('{"child":'.repeat(64) + '"short"' + "}".repeat(64))
+
+    logger.info("deep objects", { nestedObjects })
+
+    expect(JSON.stringify(records()[0]?.nestedObjects)).toBe(
+      '{"child":'.repeat(63) + '"[nested too deep]"' + "}".repeat(63),
+    )
+  })
+
   it("passes non-plain objects through for normal JSON serialization", () => {
     const records = captureConsoleRecords()
     const url = new URL(`https://example.com/${"a".repeat(300)}`)
