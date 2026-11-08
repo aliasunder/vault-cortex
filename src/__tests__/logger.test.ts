@@ -59,6 +59,23 @@ const expectedStoppedRecord = (error: string) => ({
   error,
 })
 
+/** JSON opener for nesting level `index`: objects at even levels, arrays at odd ones. */
+const alternatingOpener = (index: number): string => (index % 2 === 0 ? '{"child":' : "[")
+
+/** JSON text nesting `levels` containers that alternate object, array, object… around `innermost`. */
+const alternatingNesting = ({
+  levels,
+  innermost,
+}: {
+  levels: number
+  innermost: string
+}): string => {
+  const openers = Array.from({ length: levels }, (_, index) => alternatingOpener(index))
+  const closers = openers.map((opener) => (opener === "[" ? "]" : "}")).toReversed()
+
+  return openers.join("") + innermost + closers.join("")
+}
+
 const createTempDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "logger-test-"))
   onTestFinished(() => {
@@ -67,13 +84,16 @@ const createTempDir = (): string => {
   return dir
 }
 
-const sampleLine = (message: string): string =>
-  JSON.stringify({
-    timestamp: DateTime.now().toISO(),
-    level: "info",
-    name: "test",
-    message,
-  }) + "\n"
+const sampleLine = (message: string): string => {
+  return (
+    JSON.stringify({
+      timestamp: DateTime.now().toISO(),
+      level: "info",
+      name: "test",
+      message,
+    }) + "\n"
+  )
+}
 
 const sampleEntry = (message: string) => ({
   timestamp: DateTime.now().toISO(),
@@ -728,7 +748,7 @@ describe("createFileSinkExtension", () => {
 
     const files = readdirSync(logDir)
       .filter((filename) => filename.endsWith(".log"))
-      .sort()
+      .toSorted()
     expect(files).toEqual(["vault-mcp-2026-01-15.log", "vault-mcp-2026-01-16.log"])
 
     const day1Content = readFileSync(join(logDir, "vault-mcp-2026-01-15.log"), "utf8")
@@ -990,7 +1010,7 @@ describe("pruneOldLogFiles", () => {
 
     pruneOldLogFiles(logDir, 30)
 
-    const remaining = readdirSync(logDir).sort()
+    const remaining = readdirSync(logDir).toSorted()
     expect(remaining).toEqual(["README.md", "other-file.txt"])
   })
 
@@ -1004,7 +1024,7 @@ describe("pruneOldLogFiles", () => {
 
     pruneOldLogFiles(logDir, 30)
 
-    const remaining = readdirSync(logDir).sort()
+    const remaining = readdirSync(logDir).toSorted()
     expect(remaining).toEqual([`vault-mcp-${yesterday}.log`, `vault-mcp-${today}.log`])
   })
 
@@ -1043,8 +1063,11 @@ describe("source location resolution", () => {
       return true
     })
     onTestFinished(() => stdoutSpy.mockRestore())
-    return () =>
-      writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk))
+    return () => {
+      return writtenChunks
+        .filter((chunk) => chunk.startsWith("{"))
+        .map((chunk) => JSON.parse(chunk))
+    }
   }
 
   it("emits a source field with a .ts extension when source maps are available", () => {
@@ -1332,6 +1355,39 @@ describe("logger field caps", () => {
     )
   })
 
+  it("keeps plain objects through depth 63 unchanged", () => {
+    const records = captureConsoleRecords()
+    const serializedObjects = '{"child":'.repeat(63) + '"short"' + "}".repeat(63)
+    const nestedObjects: unknown = JSON.parse(serializedObjects)
+
+    logger.info("boundary objects", { nestedObjects })
+
+    expect(JSON.stringify(records()[0]?.nestedObjects)).toBe(serializedObjects)
+  })
+
+  it("keeps alternating object and array nesting through depth 63 unchanged", () => {
+    const records = captureConsoleRecords()
+    const serializedNesting = alternatingNesting({ levels: 63, innermost: '"short"' })
+    const nestedValues: unknown = JSON.parse(serializedNesting)
+
+    logger.info("boundary mixed nesting", { nestedValues })
+
+    expect(JSON.stringify(records()[0]?.nestedValues)).toBe(serializedNesting)
+  })
+
+  it("replaces alternating object and array nesting at depth 64", () => {
+    const records = captureConsoleRecords()
+    const nestedValues: unknown = JSON.parse(
+      alternatingNesting({ levels: 64, innermost: '"short"' }),
+    )
+
+    logger.info("deep mixed nesting", { nestedValues })
+
+    expect(JSON.stringify(records()[0]?.nestedValues)).toBe(
+      alternatingNesting({ levels: 63, innermost: '"[nested too deep]"' }),
+    )
+  })
+
   it("passes non-plain objects through for normal JSON serialization", () => {
     const records = captureConsoleRecords()
     const url = new URL(`https://example.com/${"a".repeat(300)}`)
@@ -1374,8 +1430,11 @@ describe("logger child lazy props", () => {
       return true
     })
     onTestFinished(() => stdoutSpy.mockRestore())
-    return () =>
-      writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk))
+    return () => {
+      return writtenChunks
+        .filter((chunk) => chunk.startsWith("{"))
+        .map((chunk) => JSON.parse(chunk))
+    }
   }
 
   it("resolves a function-valued prop at emit time, not at child creation", () => {
