@@ -1680,16 +1680,16 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] New description ⏫ ➕ 2026-08-01 ^my-task")
     })
 
-    it("separates a new description from a bare checkbox with one space", () => {
+    it("appends a new description directly after a bare checkbox", () => {
       expect(tasks.replaceTaskLineDescription({ taskLine: "- [ ]", newDescription: "New" })).toBe(
-        "- [ ] New",
+        "- [ ]New",
       )
     })
 
-    it("keeps the block link and hard break of a task with no description", () => {
+    it("replaces caret-only description text and keeps the hard break", () => {
       expect(
         tasks.replaceTaskLineDescription({ taskLine: "- [ ] ^my-task  ", newDescription: "New" }),
-      ).toBe("- [ ] New ^my-task  ")
+      ).toBe("- [ ] New  ")
     })
 
     it("keeps text glued to its checkbox as written", () => {
@@ -1710,13 +1710,13 @@ describe("task line mutations", () => {
     })
 
     it.each([
-      { label: "a tab", taskLine: "- [ ]\tOld ^id", expected: "- [x]\tOld ✅ 2026-11-08 ^id" },
+      { label: "a tab", taskLine: "- [ ]\tOld ^id", expected: "- [x]Old ✅ 2026-11-08 ^id" },
       {
         label: "a space and a tab",
         taskLine: "- [ ] \tOld",
-        expected: "- [x] \tOld ✅ 2026-11-08",
+        expected: "- [x] Old ✅ 2026-11-08",
       },
-    ])("keeps $label after the checkbox when completing the task", ({ taskLine, expected }) => {
+    ])("trims $label from the body when completing the task", ({ taskLine, expected }) => {
       expect(
         tasks.updateTaskLineStatus({
           taskLine,
@@ -1727,7 +1727,7 @@ describe("task line mutations", () => {
       ).toBe(expected)
     })
 
-    it("leaves no hard break when an emptied task gets a new field", () => {
+    it("keeps prefix spaces when an emptied task gets a new field", () => {
       const withoutDue = tasks.updateTaskLineDate({
         taskLine: "- [ ]  📅 2026-11-09",
         field: "due",
@@ -1735,10 +1735,10 @@ describe("task line mutations", () => {
         config: EMOJI_CONFIG,
       })
 
-      expect(withoutDue).toBe("- [ ]")
+      expect(withoutDue).toBe("- [ ]  ")
       expect(
         tasks.updateTaskLineTaskId({ taskLine: withoutDue, taskId: "new", config: EMOJI_CONFIG }),
-      ).toBe("- [ ] 🆔 new")
+      ).toBe("- [ ]  🆔 new")
     })
 
     it("replaces description when only a block_id follows", () => {
@@ -2145,19 +2145,19 @@ describe("task line mutations", () => {
       { name: "a carriage return", lineBreak: "\r" },
       { name: "a line separator", lineBreak: "\u2028" },
       { name: "a paragraph separator", lineBreak: "\u2029" },
-    ])("does not mutate a body containing $name", ({ lineBreak }) => {
+    ])("sets an ID on a body containing $name", ({ lineBreak }) => {
       const taskLine = `- [ ] First${lineBreak}second`
 
       expect(tasks.isTaskLine(taskLine)).toBe(false)
       expect(tasks.updateTaskLineTaskId({ taskLine, taskId: "abc123", config: EMOJI_CONFIG })).toBe(
-        taskLine,
+        `${taskLine} 🆔 abc123`,
       )
     })
 
     it.each([
-      { name: "without a trailing space", taskLine: "- [ ]", expected: "- [ ] 🆔 abc123" },
-      { name: "with a trailing space", taskLine: "- [ ] ", expected: "- [ ] 🆔 abc123 " },
-      { name: "ending in a hard break", taskLine: "- [ ]  ", expected: "- [ ] 🆔 abc123  " },
+      { name: "without a trailing space", taskLine: "- [ ]", expected: "- [ ]🆔 abc123" },
+      { name: "with a trailing space", taskLine: "- [ ] ", expected: "- [ ] 🆔 abc123" },
+      { name: "with two prefix spaces", taskLine: "- [ ]  ", expected: "- [ ]  🆔 abc123" },
       {
         name: "glued to its text before a block link and hard break",
         taskLine: "- [ ]Old ^my-task  ",

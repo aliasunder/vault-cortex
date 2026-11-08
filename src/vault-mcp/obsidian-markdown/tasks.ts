@@ -1367,12 +1367,8 @@ type TaskLineParts = {
 }
 
 /** Same prefix grammar as TASK_LINE_RE, captured up to and including the
- *  checkbox — the two must stay in sync on what counts as the prefix. The
- *  spaces or tabs after the checkbox are captured too, so an edit keeps them. */
-const TASK_PREFIX_RE = /^([\s>]*(?:[-*+]|[0-9]+[.)]) +\[.\][ \t]*)/u
-
-/** Matches line terminators excluded by TASK_LINE_RE's body capture. */
-const TASK_BODY_LINE_BREAK_RE = /[\r\n\u2028\u2029]/u
+ *  checkbox — the two must stay in sync on what counts as the prefix. */
+const TASK_PREFIX_RE = /^([\s>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/u
 
 /** Splits a task line at the parser's description/metadata boundary.
  *  Returns null when the line is not a task line. */
@@ -1381,13 +1377,7 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const prefix = checkboxMatch?.[1]
 
   if (!prefix) return null
-  // Split from the checkbox's closing bracket, not the spaces after it, so the
-  // spaces after an empty checkbox still separate a block link or end the line.
-  const checkboxEnd = prefix.trimEnd().length
-  const afterCheckbox = taskLine.slice(checkboxEnd)
-
-  if (TASK_BODY_LINE_BREAK_RE.test(afterCheckbox)) return null
-
+  const afterCheckbox = taskLine.slice(prefix.length)
   // Capture trailing whitespace before splitTrailingBlockLink trims it —
   // a markdown hard break (two+ trailing spaces) must survive the round-trip.
   const trimmedAfterCheckbox = afterCheckbox.trimEnd()
@@ -1395,14 +1385,9 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const { body: taskBody, blockLink } = splitTrailingBlockLink(trimmedAfterCheckbox)
   const metadataStart = findMetadataStart(taskBody)
 
-  // A task with text keeps its spacing after the checkbox, glued text included:
-  // a space before glued `^id` text would turn it into a block link. An empty
-  // task gets the one space the Tasks plugin writes before new text.
-  const linePrefix = taskBody.trim() ? prefix : `${taskLine.slice(0, checkboxEnd)} `
-
   if (metadataStart === -1) {
     return {
-      prefix: linePrefix,
+      prefix,
       description: taskBody.trim(),
       metadata: "",
       blockLink,
@@ -1410,7 +1395,7 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
     }
   }
   return {
-    prefix: linePrefix,
+    prefix,
     description: taskBody.slice(0, metadataStart).trim(),
     metadata: taskBody.slice(metadataStart).trim(),
     blockLink,
@@ -1426,11 +1411,7 @@ const joinTaskLine = ({
   trailingWhitespace,
 }: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
-
-  // A line left with no text drops the spaces after its checkbox, so they
-  // cannot turn into a hard break on the next edit.
-  const linePrefix = body ? prefix : prefix.trimEnd()
-  return `${linePrefix}${body}${blockLink}${trailingWhitespace}`
+  return `${prefix}${body}${blockLink}${trailingWhitespace}`
 }
 
 /** Applies a field mutation to the metadata tail only — field-like text
