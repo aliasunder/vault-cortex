@@ -380,6 +380,23 @@ const PLUGIN_MAX_RUNS = 20
 /** The plugin's do/while executes once before checking its limit, allowing 21 passes. */
 const MAX_STRIPPING_PASSES = PLUGIN_MAX_RUNS + 1
 
+const METADATA_MATCHERS_PER_PASS = [
+  EMOJI_PRIORITY_RE,
+  DATAVIEW_PRIORITY_RE,
+  ...DATE_FIELDS.flatMap((field) => [field.emoji, field.dataview]),
+  EMOJI_RECURRENCE_RE,
+  DATAVIEW_RECURRENCE_RE,
+  EMOJI_ON_COMPLETION_RE,
+  DATAVIEW_ON_COMPLETION_RE,
+  HASHTAG_FROM_END_RE,
+  EMOJI_ID_RE,
+  DATAVIEW_ID_RE,
+  EMOJI_DEPENDS_ON_RE,
+  DATAVIEW_DEPENDS_ON_RE,
+].length
+// Each matcher removes at most one field per pass, so a consumed tail fits this window.
+const MAX_METADATA_TAIL_TOKENS = METADATA_MATCHERS_PER_PASS * MAX_STRIPPING_PASSES
+
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
  *  adds `| undefined` to all indexed access. */
@@ -1127,6 +1144,12 @@ const updateTaskLineDependsOn = ({
  *  so the non-global regex never carries a lastIndex. */
 const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(FIRST_METADATA_SIGNIFIER_RE.source, "gu")
 
+/** Matches whole hashtags before signifiers, since one tag can contain many emoji. */
+const METADATA_TAIL_TOKEN_RE = new RegExp(
+  `${HASHTAG_RE.source}|${FIRST_METADATA_SIGNIFIER_RE.source}`,
+  "gu",
+)
+
 /** Index in a task body (checkbox prefix and block link removed) where the
  *  metadata tail begins, or -1 when the whole body is description.
  *  - A signifier opens the tail only when everything after it parses as
@@ -1134,11 +1157,23 @@ const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(FIRST_METADATA_SIGNIFIER_RE.
  *    ("Prefer 🔼 arrows in docs 📅 2026-09-15") stays in the description.
  *  - Tags interleaved with fields belong to the tail, not the description. */
 const findMetadataStart = (taskBody: string): number => {
-  for (const candidate of taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)) {
-    const tail = parseTaskMetadata(taskBody.slice(candidate.index))
-    const tailDescription = tail.description.replace(HASHTAG_RE, "").trim()
+  const tokens = Array.from(taskBody.matchAll(METADATA_TAIL_TOKEN_RE)).slice(
+    -MAX_METADATA_TAIL_TOKENS,
+  )
 
-    if (tailDescription === "") return candidate.index
+  for (const token of tokens) {
+    // Starting inside a hashtag loses its '#', so its remaining signifiers must also fit.
+    const candidates = Array.from(token[0].matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)).slice(
+      -MAX_METADATA_TAIL_TOKENS,
+    )
+
+    for (const candidate of candidates) {
+      const candidateIndex = token.index + candidate.index
+      const tail = parseTaskMetadata(taskBody.slice(candidateIndex))
+      const tailDescription = tail.description.replace(HASHTAG_RE, "").trim()
+
+      if (tailDescription === "") return candidateIndex
+    }
   }
   return -1
 }

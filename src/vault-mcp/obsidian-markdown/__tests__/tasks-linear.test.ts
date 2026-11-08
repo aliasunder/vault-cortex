@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { globSync, readFileSync } from "node:fs"
 import { runInNewContext } from "node:vm"
+import { DateTime } from "luxon"
 import ts from "typescript"
 import { describe, expect, it } from "vitest"
 import { tasks } from "../tasks.js"
@@ -11,6 +12,9 @@ type Grammar = {
   dataview: (params: { key: string; valuePattern: string }) => Matcher
   emoji: Matcher
   repeat: Matcher
+  metadataStart: (body: string) => number
+  legacyMetadataStart: (body: string) => number
+  withoutBlockLink: (body: string) => string
 }
 
 const isGrammar = (value: unknown): value is Grammar => {
@@ -21,7 +25,13 @@ const isGrammar = (value: unknown): value is Grammar => {
     "dataview" in value &&
     typeof value.dataview === "function" &&
     "emoji" in value &&
-    "repeat" in value
+    "repeat" in value &&
+    "metadataStart" in value &&
+    typeof value.metadataStart === "function" &&
+    "legacyMetadataStart" in value &&
+    typeof value.legacyMetadataStart === "function" &&
+    "withoutBlockLink" in value &&
+    typeof value.withoutBlockLink === "function"
   )
 }
 
@@ -29,26 +39,33 @@ const isGrammar = (value: unknown): value is Grammar => {
 const readGrammar = (): Grammar => {
   const source = readFileSync(new URL("../tasks.ts", import.meta.url), "utf8")
   const syntax = ts.createSourceFile("tasks.ts", source, ts.ScriptTarget.Latest, true)
-  const names = new Set([
-    "TASK_LINE_RE",
-    "dataviewField",
-    "EMOJI_RECURRENCE_RE",
-    "DATAVIEW_RECURRENCE_RE",
-  ])
-  const declarations = syntax.statements.filter((statement) => {
-    return (
-      ts.isVariableStatement(statement) &&
-      statement.declarationList.declarations.some((declaration) =>
-        names.has(declaration.name.getText(syntax)),
-      )
-    )
-  })
-  const program = declarations.map((statement) => statement.getText(syntax)).join("\n")
+  const declarations = syntax.statements.filter(ts.isVariableStatement)
+  /** Matches the export modifier on a top-level constant declaration. */
+  const exportModifier = /^export /u
+  const program = declarations
+    .map((statement) => statement.getText(syntax).replace(exportModifier, ""))
+    .join("\n")
   const compiled = ts.transpileModule(
-    `${program}\n;({ taskLine: TASK_LINE_RE, dataview: dataviewField, emoji: EMOJI_RECURRENCE_RE, repeat: DATAVIEW_RECURRENCE_RE })`,
+    `${program}\n;({
+      taskLine: TASK_LINE_RE,
+      dataview: dataviewField,
+      emoji: EMOJI_RECURRENCE_RE,
+      repeat: DATAVIEW_RECURRENCE_RE,
+      metadataStart: findMetadataStart,
+      withoutBlockLink: (body) => splitTrailingBlockLink(body).body,
+      // Freeze the unbounded search while sharing the unchanged metadata parser.
+      legacyMetadataStart: (taskBody) => {
+        for (const candidate of taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)) {
+          const tail = parseTaskMetadata(taskBody.slice(candidate.index));
+          const tailDescription = tail.description.replace(HASHTAG_RE, "").trim();
+          if (tailDescription === "") return candidate.index;
+        }
+        return -1;
+      }
+    })`,
     { compilerOptions: { target: ts.ScriptTarget.ESNext } },
   ).outputText
-  const grammar: unknown = runInNewContext(compiled)
+  const grammar: unknown = runInNewContext(compiled, { DateTime })
 
   if (!isGrammar(grammar)) throw new Error("private task grammar could not be loaded")
   return grammar
@@ -64,6 +81,174 @@ const consumedMatch = (match: RegExpExecArray | null): unknown => {
 }
 
 describe("task recognizer compatibility", () => {
+  it("preserves metadata boundaries over fixed-seed bodies and every literal task fixture", () => {
+    const grammar = readGrammar()
+    // The generator advances once per draw so a failure has a reproducible body.
+    let state = 0x7535eed
+    const draw = (bound: number): number => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+      return state % bound
+    }
+    const fragments = [
+      "Work",
+      "Prefer ⏫ arrows in prose",
+      "📅 tomorrow",
+      "#tag",
+      "#⏫⏫",
+      "⏫",
+      "🔺️",
+      "🔁 every week",
+      "🏁 keep",
+      "🆔 abc",
+      "⛔ a,b",
+      "➕2026-01-02",
+      "🛫2026-01-02",
+      "⏳2026-01-02",
+      "📅2026-01-02",
+      "✅2026-01-02",
+      "❌2026-99-99",
+      "[priority:: high]",
+      "(repeat:: every day)",
+      "[onCompletion:: delete]",
+      "[id:: abc]",
+      "(dependsOn:: a,b)",
+      "[created:: 2026-01-02]",
+      "(start:: 2026-01-02)",
+      "[scheduled:: 2026-01-02]",
+      "[due:: 2026-01-02]",
+      "[completion:: 2026-01-02]",
+      "(cancelled:: 2026-01-02)",
+      "[due:: bad)",
+      "⏫".repeat(40),
+    ]
+    const randomBodies = Array.from({ length: 1000 }, () => {
+      const pieces = Array.from({ length: 1 + draw(16) }, () => fragments[draw(fragments.length)])
+      return pieces.join(draw(2) === 0 ? " " : "")
+    })
+    const denseBodies = [20, 21, 22, 482, 483, 484, 600].flatMap((size) => [
+      "⏫".repeat(size),
+      `⏫ #${"⏫".repeat(size)}`,
+      `#${"⏫".repeat(size)}`,
+      `⏫ #${"⏫".repeat(size)} [due:: 2026-01-02]`,
+      `🆔abc ${"#⏫ ".repeat(size)}`,
+    ])
+    // Reverse extraction order permits every matcher to consume a field in each pass.
+    const fullPass = [
+      "[dependsOn:: a]",
+      "⛔ a",
+      "[id:: a]",
+      "🆔 a",
+      "#tag",
+      "[onCompletion:: keep]",
+      "🏁 keep",
+      "[repeat:: daily]",
+      "🔁 daily",
+      "[created:: 2026-01-02]",
+      "➕2026-01-02",
+      "[start:: 2026-01-02]",
+      "🛫2026-01-02",
+      "[scheduled:: 2026-01-02]",
+      "⏳2026-01-02",
+      "[due:: 2026-01-02]",
+      "📅2026-01-02",
+      "[cancelled:: 2026-01-02]",
+      "❌2026-01-02",
+      "[completion:: 2026-01-02]",
+      "✅2026-01-02",
+      "[priority:: high]",
+      "⏫",
+    ].join(" ")
+    const fullTail = Array.from({ length: 21 }, () => fullPass).join(" ")
+
+    expect(grammar.legacyMetadataStart(fullTail)).toBe(0)
+    expect(grammar.metadataStart(fullTail)).toBe(0)
+    // AST traversal accumulates fixtures from all task-related parser and mutation tests.
+    const fixtureBodies: string[] = []
+    const fixtureFolders = [
+      new URL("./", import.meta.url),
+      new URL("../../vault-operations/__tests__/", import.meta.url),
+    ]
+    const fixtureUrls = fixtureFolders.flatMap((folder) => {
+      return globSync("*task*.test.ts", { cwd: folder }).map(
+        (filename) => new URL(filename, folder),
+      )
+    })
+
+    for (const fixtureUrl of fixtureUrls) {
+      const source = readFileSync(fixtureUrl, "utf8")
+      const syntax = ts.createSourceFile(fixtureUrl.pathname, source, ts.ScriptTarget.Latest, true)
+      const collectTaskLines = (node: ts.Node): void => {
+        if (ts.isStringLiteralLike(node)) {
+          for (const line of node.text.split("\n")) {
+            const body = grammar.taskLine.exec(line)?.[2]
+
+            if (body !== undefined) fixtureBodies.push(grammar.withoutBlockLink(body))
+          }
+        }
+        ts.forEachChild(node, collectTaskLines)
+      }
+      collectTaskLines(syntax)
+    }
+
+    expect(fixtureBodies.length).toBeGreaterThan(300)
+    const bodies = [...randomBodies, ...denseBodies, fullTail, ...fixtureBodies]
+
+    for (const body of bodies) {
+      expect({ body, boundary: grammar.metadataStart(body) }).toEqual({
+        body,
+        boundary: grammar.legacyMetadataStart(body),
+      })
+    }
+    process.stdout.write(
+      `Metadata boundary corpus ${JSON.stringify({ random: randomBodies.length, dense: denseBodies.length, fixtures: fixtureBodies.length })}\n`,
+    )
+  }, 30_000)
+
+  it("bounds signifier-dense task edits and their growth in a child process", () => {
+    const parserUrl = new URL("../tasks.ts", import.meta.url).href
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "--eval",
+        `
+        import assert from 'node:assert/strict';
+        import { tasks } from ${JSON.stringify(parserUrl)};
+        const config = {taskFormat:'emoji',setDoneDate:true,setCancelledDate:true};
+        const sizes = [1000,2000,4000,5000];
+        const medians = [];
+        for (const size of sizes) {
+          const taskLine = '- [ ] ' + '⏫'.repeat(size);
+          const expected = '- [ ] ' + '⏫'.repeat(size-21) + ' ' + '⏫'.repeat(21) + ' 🆔 probe';
+          const check = () => {
+            assert.equal(tasks.updateTaskLineTaskId({taskLine,taskId:'probe',config}), expected);
+            assert.deepEqual(tasks.diffTaskRoundTrip({taskLine,priorTaskLine:taskLine,submitted:{}}), []);
+          };
+          check();
+          const samples = Array.from({length:5}, () => {const start=performance.now();check();return performance.now()-start;}).toSorted((first,second)=>first-second);
+          medians.push(samples[2]);
+        }
+        assert.ok(medians.every(value => value < 250), 'dense edits exceeded 250ms ' + medians);
+        for (let index=1;index<medians.length;index++) {
+          const linearGrowth = sizes[index]/sizes[index-1];
+          assert.ok(medians[index] <= Math.max(10,medians[index-1])*linearGrowth*1.5, 'dense edits scaled superlinearly ' + medians);
+        }
+        process.stdout.write(JSON.stringify({sizes,medians}));
+      `,
+      ],
+      { encoding: "utf8", timeout: 10_000 },
+    )
+    const measurements: unknown = JSON.parse(output)
+
+    expect(measurements).toEqual({
+      sizes: [1000, 2000, 4000, 5000],
+      medians: [expect.any(Number), expect.any(Number), expect.any(Number), expect.any(Number)],
+    })
+    process.stdout.write(`Task metadata edit timings ${output}\n`)
+  }, 15_000)
+
   it("preserves spans and consumed captures over fixed-seed field variants", () => {
     const grammar = readGrammar()
     /** The generator's state advances once per draw, making failures reproducible. */
