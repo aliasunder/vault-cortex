@@ -291,7 +291,7 @@ while the owner decides are bounded:
   `TRUST_FORWARDED_HOPS` above 0 only for a proxy that writes those headers
 - **Submission guessing is rate-limited** — `POST /oauth/decide` allows 5
   submissions per minute per client IP (an IPv6 client by its /56), bounding
-  guesses of `MCP_AUTH_TOKEN` before the form is parsed
+  guesses of `MCP_AUTH_TOKEN`
 
 ### Symlink safety
 

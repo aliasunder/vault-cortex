@@ -44,9 +44,7 @@ export const createOAuthRoutes = ({
   // touches each endpoint at most twice per minute, so 5/min absorbs
   // reconnect storms while shutting down brute force. windowMs/max mirror
   // the exact keys the SDK sets before spreading this config, so the spread
-  // replaces them outright. Don't rename `max` to `limit` (its modern
-  // alias): the options would then carry both keys, with no guarantee ours
-  // wins.
+  // replaces them outright.
   const oauthRateLimitOptions = {
     windowMs: 60 * 1000,
     max: 5,

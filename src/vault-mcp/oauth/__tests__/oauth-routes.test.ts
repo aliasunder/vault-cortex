@@ -238,6 +238,19 @@ describe("OAuth consent token submission", () => {
     expect(sixth.headers.get("location")).toBeNull()
   })
 
+  it("counts successful approvals toward the consent submission limit", async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { requestId } = await startPendingRequest()
+      const response = await submitToken(requestId, AUTH_TOKEN)
+
+      expect(response.status).toBe(302)
+    }
+    const sixth = await submitToken("already-approved-request", AUTH_TOKEN)
+
+    expect(sixth.status).toBe(429)
+    expect(await sixth.text()).toBe("Too many requests, please try again later.")
+  })
+
   it("accepts the same pending consent when the exhausted minute ends", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     onTestFinished(() => {
