@@ -81,6 +81,14 @@ describe("chunkContent", () => {
   })
 
   describe("heading-based splitting", () => {
+    it("chunks heading counts above the engine's call-argument limit", () => {
+      const bodyContent = "# h\n".repeat(150_000)
+
+      expect(chunkContent({ noteTitle: "Many", bodyContent })).toEqual([
+        { index: 0, text: `Many\n\n${Array.from({ length: 449 }, () => "h").join("\n")}` },
+      ])
+    })
+
     it("splits a long note into per-section chunks, each carrying its Section line", () => {
       const section1 = generateLabeledTokens(200, "first")
       const section2 = generateLabeledTokens(200, "second")
