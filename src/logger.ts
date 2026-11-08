@@ -3,7 +3,6 @@ import { mkdirSync, readdirSync, unlinkSync, appendFileSync, statSync } from "no
 import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
-import { describeError } from "./utils/describe-error.js"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
@@ -107,8 +106,17 @@ const consoleWarningLine = (message: string, data: Record<string, unknown>): str
   )
 }
 
+// The same text as utils/describe-error's describeError. That module can't be
+// imported here: the CLI's test build includes this file, and the module's
+// RegExp.escape needs a newer TypeScript lib than the CLI targets.
+const describeSinkError = (error: unknown): string => {
+  return error instanceof Error ? `[${error.name}]: ${error.message}` : String(error)
+}
+
 const reportFileLoggingStopped = (error: unknown): void => {
-  process.stdout.write(consoleWarningLine("file_logging_stopped", { error: describeError(error) }))
+  process.stdout.write(
+    consoleWarningLine("file_logging_stopped", { error: describeSinkError(error) }),
+  )
 }
 
 /** Deletes log files older than retentionDays. */
