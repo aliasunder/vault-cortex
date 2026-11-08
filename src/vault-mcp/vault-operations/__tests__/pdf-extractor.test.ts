@@ -141,31 +141,40 @@ describe("PDF extraction ownership", () => {
     )
   })
 
-  it.each([
-    { preference: "unavailable", warnings: 1 },
-    { preference: "applied", warnings: 0 },
-  ])(
-    "logs $preference OOM preference once across reader reuse",
-    async ({ preference, warnings }) => {
-      const { extractor, child } = startControlledExtractor()
-      const requestLogger = { ...logger, warn: vi.fn() }
-      const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
-      const first = extractor.readText({ path: "first.pdf" }, callerLogger)
-      child.emit("message", { kind: "ready", oomPreference: preference })
-      finishRead(child, 0, "first.pdf")
-      expect(await first).toEqual({ kind: "text", path: "first.pdf", text: "read text" })
-      const second = extractor.readText({ path: "second.pdf" }, callerLogger)
-      await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(2))
-      finishRead(child, 1, "second.pdf")
-      expect(await second).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
-      expect(requestLogger.warn).toHaveBeenCalledTimes(warnings)
-      if (warnings)
-        expect(requestLogger.warn).toHaveBeenCalledWith("PDF child OOM preference unavailable", {
-          childPid: 1234,
-        })
-      expect(spawn).toHaveBeenCalledTimes(1)
-    },
-  )
+  it("logs unavailable OOM preference once across reader reuse", async () => {
+    const { extractor, child } = startControlledExtractor()
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
+    const first = extractor.readText({ path: "first.pdf" }, callerLogger)
+    child.emit("message", { kind: "ready", oomPreference: "unavailable" })
+    finishRead(child, 0, "first.pdf")
+    expect(await first).toEqual({ kind: "text", path: "first.pdf", text: "read text" })
+    const second = extractor.readText({ path: "second.pdf" }, callerLogger)
+    await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(2))
+    finishRead(child, 1, "second.pdf")
+    expect(await second).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
+    expect(requestLogger.warn).toHaveBeenCalledExactlyOnceWith(
+      "PDF child OOM preference unavailable",
+      { childPid: 1234 },
+    )
+    expect(spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it("reuses a reader with applied OOM preference without warning", async () => {
+    const { extractor, child } = startControlledExtractor()
+    const requestLogger = { ...logger, warn: vi.fn() }
+    const callerLogger = { ...logger, child: vi.fn(() => requestLogger) }
+    const first = extractor.readText({ path: "first.pdf" }, callerLogger)
+    child.emit("message", { kind: "ready", oomPreference: "applied" })
+    finishRead(child, 0, "first.pdf")
+    expect(await first).toEqual({ kind: "text", path: "first.pdf", text: "read text" })
+    const second = extractor.readText({ path: "second.pdf" }, callerLogger)
+    await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(2))
+    finishRead(child, 1, "second.pdf")
+    expect(await second).toEqual({ kind: "text", path: "second.pdf", text: "read text" })
+    expect(requestLogger.warn).not.toHaveBeenCalled()
+    expect(spawn).toHaveBeenCalledTimes(1)
+  })
 
   it.each([
     { signal: "SIGABRT" as const },
@@ -299,8 +308,26 @@ describe("PDF extraction ownership", () => {
     expect(await latestUpdate).toEqual({ text: "latest", totalPages: 1 })
   })
 
+  it("replaces a child that already exited without overlapping it", async () => {
+    const { extractor, child, children } = startControlledExtractor()
+    const failed = extractor.readText({ path: "broken.pdf" }, logger)
+    const replacement = createControlledChild(5678)
+    children.push(replacement)
+    vi.mocked(spawn).mockReturnValueOnce(replacement)
+    const rejection = expect(failed).rejects.toThrow(
+      codedError(stoppedMessage("broken.pdf"), "pdf-resource"),
+    )
+    const recovery = extractor.readText({ path: "recovered.pdf" }, logger)
+    ready(child)
+    child.emit("exit", 1, null)
+    await rejection
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
+    ready(replacement)
+    finishRead(replacement, 1, "recovered.pdf")
+    expect(await recovery).toEqual({ kind: "text", path: "recovered.pdf", text: "read text" })
+  })
+
   it.each([
-    { label: "exit", event: "exit", args: [1, null] },
     { label: "disconnect", event: "disconnect", args: [] },
     { label: "process error", event: "error", args: [new Error("reader failed")] },
   ])("reaps an active child's $label before starting its replacement", async ({ event, args }) => {
@@ -316,11 +343,9 @@ describe("PDF extraction ownership", () => {
     ready(child)
     child.emit(event, ...args)
     await rejection
-    if (event !== "exit") {
-      expect(spawn).toHaveBeenCalledTimes(1)
-      expect(child.kill).toHaveBeenCalledWith("SIGKILL")
-      child.emit("exit", null, "SIGKILL")
-    }
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL")
+    child.emit("exit", null, "SIGKILL")
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
     ready(replacement)
     finishRead(replacement, 1, "recovered.pdf")

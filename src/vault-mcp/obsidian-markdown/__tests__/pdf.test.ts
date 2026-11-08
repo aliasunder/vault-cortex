@@ -15,8 +15,13 @@ const HEADER = "Title: (untitled) | Pages: 1"
 vi.mock("../pdf-engine.js", { spy: true })
 afterEach(() => vi.restoreAllMocks())
 
-const createIndexProbe = async (params: { pdfData: Uint8Array; pageTexts?: readonly string[] }) => {
+const createIndexProbe = async (params: {
+  pdfData: Uint8Array
+  pageTexts?: readonly string[]
+  textFailure?: { page: number; error: Error }
+}) => {
   const proxy = await createPdfDocumentProxy(params.pdfData)
+  const destroy = vi.spyOn(proxy.loadingTask, "destroy")
   onTestFinished(async () => {
     await proxy.loadingTask.destroy()
   })
@@ -32,6 +37,7 @@ const createIndexProbe = async (params: { pdfData: Uint8Array; pageTexts?: reado
     const cleanup = page.cleanup.bind(page)
     vi.spyOn(page, "getTextContent").mockImplementation(async () => {
       events.push(`text ${pageNumber}`)
+      if (params.textFailure?.page === pageNumber) throw params.textFailure.error
       const content = await getTextContent()
       const replacementText = params.pageTexts?.[pageNumber - 1]
 
@@ -56,7 +62,7 @@ const createIndexProbe = async (params: { pdfData: Uint8Array; pageTexts?: reado
     return page
   })
   vi.mocked(createPdfDocumentProxy).mockResolvedValueOnce(proxy)
-  return { requestedPages, events }
+  return { requestedPages, events, destroy }
 }
 
 describe("extractPdfIndexText", () => {
@@ -83,6 +89,7 @@ describe("extractPdfIndexText", () => {
     })
     expect(probe.requestedPages).toEqual([1])
     expect(probe.events).toEqual(["page 1", "text 1", "links 1", "cleanup 1"])
+    expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
   })
 
   it("visits pages sequentially and deduplicates visited links in the full rendition", async () => {
@@ -112,6 +119,7 @@ describe("extractPdfIndexText", () => {
       "links 2",
       "cleanup 2",
     ])
+    expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
   })
 
   it("returns empty text for a scanned document", async () => {
@@ -153,6 +161,7 @@ describe("extractPdfIndexText", () => {
 
       expect(await extractPdfIndexText(pdfData)).toEqual({ text: expectedText, totalPages: 3 })
       expect(probe.requestedPages).toEqual(expectedPages)
+      expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
     },
   )
 
@@ -175,6 +184,7 @@ describe("extractPdfIndexText", () => {
       totalPages: 2,
     })
     expect(probe.requestedPages).toEqual([1])
+    expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
   })
 
   it.each([{ totalPages: 500 }, { totalPages: 501 }])(
@@ -198,8 +208,28 @@ describe("extractPdfIndexText", () => {
       expect(probe.requestedPages).toEqual(
         Array.from({ length: 500 }, (_, pageIndex) => pageIndex + 1),
       )
+      expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
     },
   )
+
+  it("cleans the page and document when page text extraction fails, without visiting later pages", async () => {
+    const pdfData = toPdfData(
+      buildLinkedPdf({
+        title: "Failure",
+        pages: [
+          { text: "first", linkUrls: [] },
+          { text: "unvisited", linkUrls: [] },
+        ],
+      }),
+    )
+    const error = new Error("controlled page text failure")
+    const probe = await createIndexProbe({ pdfData, textFailure: { page: 1, error } })
+
+    await expect(extractPdfIndexText(pdfData)).rejects.toThrow(error)
+    expect(probe.requestedPages).toEqual([1])
+    expect(probe.events).toEqual(["page 1", "text 1", "cleanup 1"])
+    expect(probe.destroy).toHaveBeenCalledExactlyOnceWith()
+  })
 })
 
 describe("extractPdfText", () => {

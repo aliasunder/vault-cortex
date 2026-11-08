@@ -208,19 +208,27 @@ describe("createShutdownHandler", () => {
     // close() that immediately invokes its callback = drain completes at once.
     const close = vi.fn((callback: () => void) => callback())
     const bodyTagParser = createClosingParser()
+    const extractionClosed = Promise.withResolvers<undefined>()
+    onTestFinished(() => extractionClosed.resolve(undefined))
+    const pdfExtractor = { close: vi.fn(() => extractionClosed.promise) }
 
-    createShutdownHandler({
-      httpServer: { close },
-      bodyTagParser,
-      pdfExtractor: createClosingParser(),
-    })()
-
-    expect(bodyTagParser.close).toHaveBeenCalledOnce()
-    // The parser closes first, so the background pass stops before the drain
-    expect(bodyTagParser.close).toHaveBeenCalledBefore(close)
-    expect(close).toHaveBeenCalledOnce()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(exitSpy).toHaveBeenCalledExactlyOnceWith(0)
+    try {
+      createShutdownHandler({ httpServer: { close }, bodyTagParser, pdfExtractor })()
+      expect(pdfExtractor.close).toHaveBeenCalledExactlyOnceWith()
+      expect(pdfExtractor.close).toHaveBeenCalledBefore(close)
+      expect(bodyTagParser.close).toHaveBeenCalledOnce()
+      expect(bodyTagParser.close).toHaveBeenCalledBefore(close)
+      expect(close).toHaveBeenCalledOnce()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(exitSpy).not.toHaveBeenCalled()
+      extractionClosed.resolve(undefined)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(exitSpy).toHaveBeenCalledExactlyOnceWith(0)
+    } finally {
+      // Settle the mocked shutdown before the shared mock teardown can restore process.exit.
+      extractionClosed.resolve(undefined)
+      await vi.advanceTimersByTimeAsync(0)
+    }
   })
 
   it("forces exit 1 if the drain does not finish within the timeout", () => {
