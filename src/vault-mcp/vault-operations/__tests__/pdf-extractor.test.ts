@@ -93,6 +93,27 @@ describe("PDF extraction child", () => {
 })
 
 describe("PDF extraction ownership", () => {
+  it("uses the controlled size code without interpreting the failure message", async () => {
+    const { extractor, child } = startControlledExtractor()
+    const request = extractor.extractForIndex({ path: "one.pdf" }, logger)
+    const rejected = expect(request).rejects.toThrow(
+      codedError("controlled byte refusal", "pdf-size"),
+    )
+    ready(child)
+    child.emit("message", {
+      kind: "failure",
+      requestId: 0,
+      code: "size",
+      message: "controlled byte refusal",
+    })
+    await rejected
+    expect(child.kill).not.toHaveBeenCalled()
+    const recovery = extractor.extractForIndex({ path: "next.pdf" }, logger)
+    await vi.waitFor(() => expect(child.send).toHaveBeenCalledTimes(2))
+    finishIndex(child, 1)
+    expect(await recovery).toEqual({ text: "indexed", totalPages: 1 })
+    expect(spawn).toHaveBeenCalledTimes(1)
+  })
   it("starts the source child directly on macOS with only its own heap and loader flags", async () => {
     const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
 

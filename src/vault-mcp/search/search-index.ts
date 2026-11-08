@@ -409,9 +409,7 @@ export type OutgoingLinkEntry = {
 //      notes without links (skipLinks), Pass 2 extracts links with the
 //      complete path list so all targets can resolve.
 
-/** rebuildFromVault returns the indexed note count and the two passes that
- *  finish after it returns. Each pass logs its own failure, so a caller may
- *  leave either promise unawaited. */
+/** Background pass failures are logged; PDF work starts only when startPdfPass is called. */
 export type RebuildResult = {
   count: number
   embedding: Promise<void>
@@ -2258,7 +2256,8 @@ export const createSearchIndex = (
   }
 
   /** Rebuilds note, task, file and graph indexes; reconciles retained memory rows and vectors.
-   * Returns the note count and the background embedding and body-tag passes.
+   * Returns the note count, background embedding and body-tag passes, and a deferred PDF pass.
+   * - startPdfPass releases PDF extraction and returns its completion promise.
    * - No source write may run while it does. A source write is an upsert or remove call
    *   that changes the tables this clears; one that lands during its reads is replaced by
    *   the older content it read.

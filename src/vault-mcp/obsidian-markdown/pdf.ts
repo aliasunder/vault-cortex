@@ -14,7 +14,7 @@ const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => 
   const toStructuredItem = (
     item: Extract<PageTextContent["items"][number], { str: string }>,
   ): StructuredTextItem => {
-    const [, , horizontalScale, verticalScale, xCoordinate, yCoordinate] = item.transform
+    const [, , verticalBasisX, verticalBasisY, xCoordinate, yCoordinate] = item.transform
     const direction = item.dir
 
     if (direction !== "ltr" && direction !== "rtl" && direction !== "ttb") {
@@ -27,7 +27,8 @@ const structuredPageItems = (content: PageTextContent): StructuredTextItem[] => 
       y: yCoordinate,
       width: item.width,
       height: item.height,
-      fontSize: Math.hypot(horizontalScale, verticalScale),
+      // The transformed vertical unit vector's length gives the font size even for rotated text.
+      fontSize: Math.hypot(verticalBasisX, verticalBasisY),
       fontFamily: content.styles[item.fontName]?.fontFamily ?? "",
       dir: direction,
       hasEOL: item.hasEOL,

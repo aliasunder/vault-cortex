@@ -11,13 +11,20 @@ import { pdfReplySchema, type PdfReply, type PdfRequest } from "./pdf-extraction
 const ACTIVE_TIMEOUT_MS = 20_000
 // Reads precede queued indexing, but expire during a sustained stream of reads.
 const QUEUE_TIMEOUT_MS = 60_000
+// Bound the child's heap and Linux data allocations so an expanding PDF can be discarded.
+const CHILD_HEAP_LIMIT_MIB = 512
+const LINUX_DATA_LIMIT_KIB = 786_432
 const CHILD_ENTRY = fileURLToPath(
   new URL(`./pdf-extraction-child${extname(fileURLToPath(import.meta.url))}`, import.meta.url),
 )
 
 export type PdfExtractor = {
   extractForIndex: (
-    params: { path: string; coalesce?: boolean },
+    params: {
+      path: string
+      /** Replaces and rejects a queued same-path index job; an active job keeps running. */
+      coalesce?: boolean
+    },
     logger: Logger,
   ) => Promise<PdfTextResult>
   readText: (
@@ -75,7 +82,7 @@ export const createPdfExtractor = (params: {
 
   const startReader = (): Reader => {
     const nodeArgs = [
-      "--max-old-space-size=512",
+      `--max-old-space-size=${CHILD_HEAP_LIMIT_MIB}`,
       ...(CHILD_ENTRY.endsWith(".ts") ? ["--import", "tsx"] : []),
       CHILD_ENTRY,
     ]
@@ -83,7 +90,13 @@ export const createPdfExtractor = (params: {
     // Positional shell arguments preserve spaces and metacharacters in executable/entry paths.
     const args =
       process.platform === "linux"
-        ? ["-c", 'ulimit -d 786432 && exec "$@"', "pdf-extraction", process.execPath, ...nodeArgs]
+        ? [
+            "-c",
+            `ulimit -d ${LINUX_DATA_LIMIT_KIB} && exec "$@"`,
+            "pdf-extraction",
+            process.execPath,
+            ...nodeArgs,
+          ]
         : nodeArgs
     const child = spawn(command, args, {
       env: { ...inheritedEnvironment, LOG_DIR: "none" },
@@ -106,8 +119,8 @@ export const createPdfExtractor = (params: {
     return state
   }
 
-  const dispatch = (job: Job): Promise<void> =>
-    new Promise((resolveDispatch) => {
+  const dispatch = (job: Job): Promise<void> => {
+    return new Promise((resolveDispatch) => {
       const requestLogger = job.logger.child({ extractionRequestId: job.request.requestId })
       const state = reader && !reader.ended ? reader : startReader()
       const { child } = state
@@ -187,7 +200,7 @@ export const createPdfExtractor = (params: {
           return
         }
         if (reply.kind === "failure") {
-          const code = reply.message.startsWith("file too large:") ? "pdf-size" : "pdf-read"
+          const code = reply.code === "size" ? "pdf-size" : "pdf-read"
           finish(Object.assign(new Error(reply.message), { code }), false)
           return
         }
@@ -226,6 +239,7 @@ export const createPdfExtractor = (params: {
       child.once("disconnect", onDisconnect)
       if (state.ready) send()
     })
+  }
 
   const drain = async (): Promise<void> => {
     if (running) return
@@ -244,7 +258,10 @@ export const createPdfExtractor = (params: {
     }
   }
 
-  const enqueue = (request: PdfRequest, logger: Logger, coalesce = false): Promise<PdfReply> => {
+  const enqueue = (
+    { request, coalesce = false }: { request: PdfRequest; coalesce?: boolean | undefined },
+    logger: Logger,
+  ): Promise<PdfReply> => {
     if (closed) return Promise.reject(extractionError(request.path, "pdf-closed"))
     return new Promise((resolveReply, reject) => {
       if (coalesce) {
@@ -281,9 +298,8 @@ export const createPdfExtractor = (params: {
   return {
     extractForIndex: async ({ path, coalesce }, logger) => {
       const reply = await enqueue(
-        { ...params, kind: "index", path, requestId: nextRequestId++ },
+        { request: { ...params, kind: "index", path, requestId: nextRequestId++ }, coalesce },
         logger,
-        coalesce,
       )
 
       if (reply.kind !== "index-result") throw new Error("unexpected PDF index result")
@@ -291,7 +307,9 @@ export const createPdfExtractor = (params: {
     },
     readText: async ({ path, startLine, limit }, logger) => {
       const reply = await enqueue(
-        { ...params, kind: "read", path, startLine, limit, requestId: nextRequestId++ },
+        {
+          request: { ...params, kind: "read", path, startLine, limit, requestId: nextRequestId++ },
+        },
         logger,
       )
 

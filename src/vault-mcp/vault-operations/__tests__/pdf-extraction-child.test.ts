@@ -129,7 +129,7 @@ describe("PDF extraction child admission", () => {
     ).toEqual({
       kind: "failure",
       requestId: 1,
-      code: "read",
+      code: "size",
       message: `file too large: "good.pdf" is ${pdf.length} bytes (cap ${pdf.length - 1} bytes — raise MAX_FILE_BYTES to read larger files)`,
     })
   }, 15_000)

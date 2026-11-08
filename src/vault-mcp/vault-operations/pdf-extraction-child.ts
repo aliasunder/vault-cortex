@@ -1,10 +1,15 @@
 import { writeFile } from "node:fs/promises"
 import { logger } from "../../logger.js"
-import { describeErrorRelativeTo } from "../../utils/describe-error.js"
+import { describeError, describeErrorRelativeTo } from "../../utils/describe-error.js"
 import { extractPdfIndexText, extractPdfText } from "../obsidian-markdown/pdf.js"
 import { vaultFs } from "./vault-filesystem.js"
 import { buildPdfTextResult, describePdfOpenFailure } from "./asset-text.js"
 import { pdfRequestSchema, type PdfRequest, type PdfReply } from "./pdf-extraction-protocol.js"
+
+// Prefer the disposable child as a victim during host memory pressure.
+const CHILD_OOM_SCORE_ADJUSTMENT = "1000"
+/** Matches a bracketed error name followed by a colon at the start of a formatted error. */
+const FORMATTED_ERROR_NAME_PREFIX = /^\[[^\]]+\]: /
 
 const send = (reply: PdfReply): void => {
   if (!process.connected || !process.send) {
@@ -57,10 +62,10 @@ const main = async (): Promise<void> => {
   const oomPreference = await (async () => {
     if (process.platform !== "linux") return "unsupported"
     try {
-      await writeFile("/proc/self/oom_score_adj", "1000")
+      await writeFile("/proc/self/oom_score_adj", CHILD_OOM_SCORE_ADJUSTMENT)
       return "applied"
     } catch (error) {
-      logger.warn("PDF child OOM preference unavailable", { error: String(error) })
+      logger.warn("PDF child OOM preference unavailable", { error: describeError(error) })
       return "unavailable"
     }
   })()
@@ -76,8 +81,9 @@ const main = async (): Promise<void> => {
     const request = parsed.data
     void extract(request).catch((error: unknown) => {
       const description = describeErrorRelativeTo({ error, directory: request.vaultPath })
-      const message = description.replace(/^\[[^\]]+\]: /, "")
-      send({ kind: "failure", requestId: request.requestId, code: "read", message })
+      const message = description.replace(FORMATTED_ERROR_NAME_PREFIX, "")
+      const code = message.startsWith("file too large:") ? "size" : "read"
+      send({ kind: "failure", requestId: request.requestId, code, message })
     })
   })
   send({ kind: "ready", oomPreference })

@@ -9,6 +9,16 @@ const requestFields = {
 }
 
 describe("PDF extraction protocol", () => {
+  it("preserves a size refusal independently of its human-readable message", () => {
+    const reply = {
+      kind: "failure",
+      requestId: 7,
+      code: "size",
+      message: "controlled byte refusal",
+    }
+    const serialized: unknown = JSON.parse(JSON.stringify(reply))
+    expect(pdfReplySchema.parse(serialized)).toEqual(reply)
+  })
   it("preserves the read window and file admission budget across serialization", () => {
     const request = { ...requestFields, kind: "read", startLine: 10, limit: 20 }
     const serialized: unknown = JSON.parse(JSON.stringify(request))

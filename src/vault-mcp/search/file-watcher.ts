@@ -139,6 +139,7 @@ type HoldingWatcher = Readonly<{
    *  returns how many distinct paths that is. `applied` resolves once the
    *  non-PDF writes commit; PDF content waits for startPdfPass. Never rejects. */
   applyHeldChanges: () => { heldPathCount: number; applied: Promise<void> }
+  /** Releases PDF work and waits for the jobs already registered when called. */
   startPdfPass: () => Promise<void>
   /** Stops watching; a rescan or retry still scheduled fires later and does
    *  nothing. Used only when startup fails before the held changes apply.
@@ -259,7 +260,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
          *  - null for an HTML page or script that is not UTF-8 or holds a NUL byte
          *    early on, which vault_read_file refuses too;
          *  - the file's text otherwise. */
-        const readContentToIndex = async (): Promise<string | null> => {
+        const readContentAndResetPdfIndex = async (): Promise<string | null> => {
           switch (fileKind) {
             case "pdf": {
               // Removing the prior content also invalidates its queued vectors.
@@ -315,7 +316,7 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
               return await readFile(filePath, "utf8")
           }
         }
-        const contentToIndex = await readContentToIndex()
+        const contentToIndex = await readContentAndResetPdfIndex()
 
         if (currentEvents.get(relativePath) !== eventToken) return { status: "superseded" }
         // A byte-gated PDF keeps the filename row without creating new vectors.
@@ -1205,6 +1206,8 @@ export const watchVaultAndBuildIndex = async (
       heldChangesDeadline,
     })
   }
+  // Startup completion covers rebuild PDFs and held changes, including PDFs queued after the deadline.
+  // Later live watcher events finish independently.
   const pdfStart = Promise.withResolvers<undefined>()
   const pdfs = (async (): Promise<void> => {
     await pdfStart.promise
