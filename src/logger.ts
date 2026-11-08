@@ -106,9 +106,8 @@ const consoleWarningLine = (message: string, data: Record<string, unknown>): str
   )
 }
 
-// The same text as utils/describe-error's describeError. That module can't be
-// imported here: the CLI's test build includes this file, and the module's
-// RegExp.escape needs a newer TypeScript lib than the CLI targets.
+// describe-error.ts uses RegExp.escape, which the CLI's ES2022 lib lacks.
+// The CLI's test build compiles this file.
 const describeSinkError = (error: unknown): string => {
   return error instanceof Error ? `[${error.name}]: ${error.message}` : String(error)
 }
@@ -194,7 +193,15 @@ export const createFileSinkExtension = ({
 const parseRetentionDays = (envValue: string | undefined): number | undefined => {
   if (!envValue) return undefined
   const retentionDays = parseInt(envValue, 10)
-  return Number.isNaN(retentionDays) ? undefined : retentionDays
+
+  if (!Number.isNaN(retentionDays) && retentionDays >= 0) return retentionDays
+
+  process.stdout.write(
+    consoleWarningLine("invalid LOG_RETENTION_DAYS; using default", {
+      retentionDays: DEFAULT_RETENTION_DAYS,
+    }),
+  )
+  return DEFAULT_RETENTION_DAYS
 }
 
 /** Matches a whole number of megabytes, without signs, fractions or trailing text. */
@@ -206,8 +213,7 @@ const parseMaxDailyBytes = (envValue: string | undefined): number => {
 
   const maxDailyMb = Number(envValue)
   const maxDailyBytes = maxDailyMb * BYTES_PER_MB
-  const validLimit =
-    WHOLE_MEGABYTES.test(envValue) && maxDailyMb >= 1 && Number.isSafeInteger(maxDailyBytes)
+  const validLimit = WHOLE_MEGABYTES.test(envValue) && maxDailyMb >= 1
 
   if (validLimit) return maxDailyBytes
 

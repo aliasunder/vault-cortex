@@ -578,8 +578,6 @@ describe("LOG_MAX_DAILY_MB", () => {
     { label: "fractional", value: "1.5" },
     { label: "malformed", value: "25MB" },
     { label: "non-number", value: "bad" },
-    { label: "unsafe byte count", value: "9007199255" },
-    { label: "non-finite number", value: "9".repeat(400) },
     { label: "signed whole number", value: "+1" },
     { label: "surrounding whitespace", value: " 1 " },
     { label: "exponent", value: "1e1" },
@@ -603,6 +601,24 @@ describe("LOG_MAX_DAILY_MB", () => {
       expectedConsoleRecord("first"),
       expectedConsoleRecord("second"),
     ])
+  })
+
+  it.each([
+    { label: "unsafe byte count", value: "9007199255" },
+    { label: "non-finite byte count", value: "9".repeat(400) },
+  ])("accepts a whole megabyte limit with a $label", async ({ value }) => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    vi.stubEnv("LOG_MAX_DAILY_MB", value)
+    const fileLogger = await importFileLogger(logDir)
+    const message = "x".repeat(25_000_001)
+
+    fileLogger.info(message)
+
+    expect(records()).toEqual([expectedConsoleRecord(message)])
+    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
+      JSON.stringify(records()[0]) + "\n",
+    )
   })
 
   it("uses whole decimal megabytes for the configured cap and keeps console output after it", async () => {
@@ -629,6 +645,73 @@ describe("LOG_MAX_DAILY_MB", () => {
     ])
     expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
       JSON.stringify(records()[1]) + "\n",
+    )
+  })
+})
+
+describe("LOG_RETENTION_DAYS", () => {
+  it.each([
+    { label: "negative", value: "-1" },
+    { label: "non-number", value: "bad" },
+  ])("warns once and keeps the default retention for a $label value", async ({ value }) => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const now = DateTime.now()
+    const originalNow = Settings.now
+    onTestFinished(() => {
+      Settings.now = originalNow
+    })
+    Settings.now = () => now.toMillis()
+    const cutoffFile = `vault-mcp-${now.minus({ days: 90 }).toISODate()}.log`
+    const expiredFile = `vault-mcp-${now.minus({ days: 91 }).toISODate()}.log`
+    writeFileSync(join(logDir, cutoffFile), "kept")
+    writeFileSync(join(logDir, expiredFile), "pruned")
+    vi.stubEnv("LOG_RETENTION_DAYS", value)
+    const fileLogger = await importFileLogger(logDir)
+
+    fileLogger.info("first")
+    fileLogger.info("second")
+
+    expect(records()).toEqual([
+      {
+        timestamp: now.toISO(),
+        level: "warn",
+        name: "vault-cortex",
+        message: "invalid LOG_RETENTION_DAYS; using default",
+        retentionDays: 90,
+      },
+      expectedConsoleRecord("first"),
+      expectedConsoleRecord("second"),
+    ])
+    expect(readdirSync(logDir)).toEqual([cutoffFile, `vault-mcp-${now.toISODate()}.log`])
+    expect(readFileSync(join(logDir, cutoffFile), "utf8")).toBe("kept")
+  })
+
+  it.each([
+    { label: "zero", value: "0", days: 0 },
+    { label: "positive", value: "7", days: 7 },
+  ])("keeps today's existing file with $label retention", async ({ value, days }) => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const now = DateTime.now()
+    const originalNow = Settings.now
+    onTestFinished(() => {
+      Settings.now = originalNow
+    })
+    Settings.now = () => now.toMillis()
+    const todayFile = `vault-mcp-${now.toISODate()}.log`
+    const expiredFile = `vault-mcp-${now.minus({ days: days + 1 }).toISODate()}.log`
+    writeFileSync(join(logDir, todayFile), "existing\n")
+    writeFileSync(join(logDir, expiredFile), "pruned")
+    vi.stubEnv("LOG_RETENTION_DAYS", value)
+    const fileLogger = await importFileLogger(logDir)
+
+    fileLogger.info("continued")
+
+    expect(records()).toEqual([expectedConsoleRecord("continued")])
+    expect(readdirSync(logDir)).toEqual([todayFile])
+    expect(readFileSync(join(logDir, todayFile), "utf8")).toBe(
+      "existing\n" + JSON.stringify(records()[0]) + "\n",
     )
   })
 })

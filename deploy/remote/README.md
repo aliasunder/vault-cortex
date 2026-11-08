@@ -125,8 +125,7 @@ there it restarts and performs this first sync.
 
 If the sync can't complete on a brand-new setup, the server stops instead
 of starting with an incomplete vault, and Docker retries automatically. On
-later boots the server starts with the vault it already has while sync
-catches up in the background.
+later boots a catch-up sync runs before the server starts.
 
 **docker run (no Compose):** The command the CLI runs for you, spelled out —
 for when you have neither Node.js nor Compose, invoke a different runtime
@@ -436,9 +435,8 @@ and unchanged notes are not re-embedded.
 
 ## Restart
 
-On a new setup, the first sync finishes before the server starts. On later
-boots, the server starts with the existing vault while sync catches up in
-the background. The server runs these startup tasks:
+On every boot, a catch-up sync brings the vault current before the server
+starts. The server then runs these startup tasks:
 
 1. Create memory template files if the memory folder doesn't exist (skipped
    when `MEMORY_ENABLED=false` or `READONLY_MODE=true`).
