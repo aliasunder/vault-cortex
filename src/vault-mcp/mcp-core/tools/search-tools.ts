@@ -99,7 +99,7 @@ Example: vault_search({ query: "decision", filters: { modified: { after: "2026-0
     ? `vault notes and file content (canvas, PDF, the text formats ${textExtensions}, the visible text of HTML pages, and ${scriptExtensions} scripts)`
     : "vault notes"
   const fileContentLimitsSentence = config.fileToolsEnabled
-    ? ` Each file's first ${indexedPrefixKiB} KiB of text is searched; a page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
+    ? ` Files contribute up to ${indexedPrefixKiB} KiB of text; PDFs also stop after 500 pages. PDFs over ${config.maxFileBytes} bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. A page or script over ${nameOnlyLimitMiB} MiB is found by its name only${scriptMatchClause}.`
     : ""
   const searchResultFieldsText = config.fileToolsEnabled
     ? `path, title, snippet, score, ${tagsFieldsText}, folder (a note's top-level folder; a file's full parent folder), type, kind, extension, created, modified, bytes`

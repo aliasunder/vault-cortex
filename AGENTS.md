@@ -89,7 +89,8 @@ src/
   vault-mcp/
     server.ts, config.ts # Entry point and env-var loader, the only loose files here
     obsidian-markdown/ # Pure parsers and transforms with no I/O (pdf-engine excepted): lines, frontmatter, callouts, headings, links, tags, body-tags + obsidian-remark-parser + remark-ports/, tasks, recurrence, memory-entries, canvas, file-kinds, html, plaintext, pdf + pdf-engine, moment-format
-    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations
+    vault-operations/ # Vault read, write, and patch: vault-filesystem (base I/O), vault-patcher, note-mover, memory-store, daily-notes, vault-folder-config, task-mutations, task-format-config, trash-config, trash-sweeper, asset-operations, asset-text
+      pdf-extractor.ts, pdf-extraction-child.ts, pdf-extraction-protocol.ts # One shared child owns PDF text reads and deferred indexing; raw page rendering stays in the server
     mcp-core/ # MCP protocol surface: mcp-router, tool-registry, tool-availability, tool-definitions, prompt-definitions, coded-error-remedy
       tools/ # One <domain>-tools module per data-layer domain (vault-crud, search, task, memory, daily-note, asset), plus tool-helpers
       prompts/ # One <name>-prompt module per prompt (vault-orientation, memory-review, daily-review), plus prompt-helpers

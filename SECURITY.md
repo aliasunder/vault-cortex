@@ -228,6 +228,22 @@ The server, and the `:remote` image's setup mode, set these headers:
 
 ### Container hardening
 
+- PDF text reads and indexing share one child process with a 512 MiB V8
+  heap limit, a 768 MiB Linux data limit and a 20 s active deadline. The
+  Linux child requests `oom_score_adj=1000` on a best-effort basis. These
+  limits are not an RSS ceiling; macOS development relies on the heap
+  limit and deadline because its data limit does not constrain mmap
+- Index extraction stops at 100 KiB of formatted text or 500 pages.
+  PDFs over `MAX_FILE_BYTES` or whose extraction fails keep name-only
+  search entries; a changed PDF's old text and vectors are removed before
+  extraction. PDF content work starts after the HTTP server listens
+- PDF text reads have priority over queued indexing and expire after
+  60 s in the queue. Queue expiry and shutdown errors request a later
+  retry; resource failures request a split/re-export or a text copy.
+  Shutdown kills the child before waiting for requests to drain
+- PDF page-image rendering (`raw: true`) runs in the server process;
+  the text-extraction child and its limits do not cover that path
+
 - Non-root user (UID 1000 — `node` on `:local`, `obsidian` on `:remote`)
 - PID 1 init — `:local` uses `tini`, `:remote` uses s6-overlay's `/init`;
   both forward SIGTERM for clean SQLite WAL closure

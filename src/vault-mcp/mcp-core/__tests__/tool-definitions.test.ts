@@ -1562,7 +1562,7 @@ describe("vault_search Behavior line: result cap and file content limits", () =>
     "Behavior: Results can lag a file change by a few seconds. No matches returns an empty results array with total 0, not an error."
   // Stated only while file content is searched (FILE_TOOLS_ENABLED on)
   const FILE_CONTENT_LIMITS =
-    "Each file's first 100 KiB of text is searched; a page or script over 16 MiB is found by its name only"
+    "Files contribute up to 100 KiB of text; PDFs also stop after 500 pages. PDFs over 52428800 bytes or whose text extraction fails are found by name only; PDF content becomes searchable after startup. A page or script over 16 MiB is found by its name only"
 
   it.each([
     {
