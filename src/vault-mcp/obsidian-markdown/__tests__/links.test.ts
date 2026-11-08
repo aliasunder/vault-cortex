@@ -1,9 +1,97 @@
 import { describe, it, expect } from "vitest"
+import { execFileSync } from "node:child_process"
 import { links } from "../links.js"
+import { classifyLines } from "../lines.js"
+import {
+  createScannerDocuments,
+  scannerCorpora,
+  legacyWiki,
+  legacyMarkdown,
+  legacyTemplater,
+} from "./link-scanner-corpus.js"
 
 // ── matchLinksInLine ─────────────────────────────────────────────
 
 describe("matchLinksInLine", () => {
+  it.each([{ variant: "wiki" }, { variant: "markdown" }, { variant: "templater" }])(
+    "bounds repeated failing $variant openers in an externally killed child",
+    ({ variant }) => {
+      const fixturePath = new URL("./link-scanner-adversary.ts", import.meta.url)
+      // The parent deadline interrupts synchronous parser stalls, including legacy regex regressions.
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", fixturePath.pathname, variant],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          killSignal: "SIGKILL",
+        },
+      )
+      const result = JSON.parse(output)
+
+      expect(result.variant).toBe(variant)
+      expect(
+        result.measurements.map((measurement: { bytes: number }) => measurement.bytes),
+      ).toEqual(variant === "markdown" ? [20_016, 40_016, 80_016] : [20_009, 40_009, 80_009])
+      for (const [index, measurement] of result.measurements.entries()) {
+        // Ratios below 10 ms are noise; the ceiling still bounds those samples.
+        expect(measurement.median).toBeLessThan(1_000)
+        const previous = result.measurements[index - 1]
+
+        if (previous?.median > 10) expect(measurement.median / previous.median).toBeLessThan(3)
+      }
+    },
+    35_000,
+  )
+
+  it.each(scannerCorpora.slice(0, 3))(
+    "preserves every legacy match, capture and UTF-16 offset in 10,000 $label documents",
+    ({ alphabet }) => {
+      for (const document of createScannerDocuments(alphabet, 10_000)) {
+        const expected = [
+          ...[...document.matchAll(legacyWiki)].map((match) => ({
+            text: match[0],
+            start: match.index,
+            end: match.index + match[0].length,
+            kind: "wikilink",
+          })),
+          ...[...document.matchAll(legacyMarkdown)].map((match) => ({
+            text: match[0],
+            start: match.index,
+            end: match.index + match[0].length,
+            kind: "markdown",
+          })),
+        ]
+        expect(links.matchLinksInLine(document)).toEqual(expected)
+        const expectedTargets = new Set<string>()
+
+        for (const { text, inCode } of classifyLines(document)) {
+          if (inCode) continue
+          const masked = text
+            .replace(/`+[^`\n]*`+/g, (match) => " ".repeat(match.length))
+            .replace(legacyTemplater, (match) => " ".repeat(match.length))
+
+          for (const match of masked.matchAll(legacyWiki)) {
+            const target = (match[1] ?? "").trim().replace(/\\$/, "")
+
+            if (target) expectedTargets.add(target)
+          }
+          for (const match of masked.matchAll(legacyMarkdown)) {
+            const target = (match[1] ?? "").trim()
+
+            if (!target) continue
+            try {
+              expectedTargets.add(decodeURIComponent(target))
+            } catch {
+              expectedTargets.add(target)
+            }
+          }
+        }
+        expect(links.extractFromBody(document)).toEqual([...expectedTargets])
+      }
+    },
+  )
+
   it("finds a wikilink with its offsets and kind", () => {
     expect(links.matchLinksInLine("see [[Note A]] end")).toEqual([
       { text: "[[Note A]]", start: 4, end: 14, kind: "wikilink" },

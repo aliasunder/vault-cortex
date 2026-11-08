@@ -59,8 +59,8 @@ const RIGHT_PARENTHESIS = ")"
 const LOWERCASE_X = "x"
 const TAB_SIZE = 4
 
-/** Matches an item whose content holds a blank line followed by more content. */
-const LOOSE_LIST_ITEM_RE = /\n\n(?!\s*$)/
+/** Matches one whitespace character, including the Unicode whitespace in JavaScript's `\s`. */
+const WHITESPACE_RE = /\s/
 /** Matches a task marker at the start of an item's content: any one
  *  character between the brackets, then a space or tab. */
 const TASK_ITEM_RE = /^\[(.)\][ \t]/
@@ -68,6 +68,20 @@ const TASK_ITEM_RE = /^\[(.)\][ \t]/
  *  four spaces not followed by a fifth, one space, a tab, or nothing), and
  *  the rest of the first line. */
 const BULLET_RE = /^([ \t]*)([*+-]|\d+[.)])( {1,4}(?! )| |\t|$|(?=\n))([^\n]*)/
+
+/** A later blank line can only have a non-whitespace suffix when the first one does. */
+const hasLooseListContent = (content: string): boolean => {
+  const blankLineIndex = content.indexOf("\n\n")
+
+  if (blankLineIndex === -1) return false
+
+  // The counter advances through the suffix without retrying at later blank lines.
+  for (let index = blankLineIndex + 2; index < content.length; index += 1) {
+    if (!WHITESPACE_RE.test(content.charAt(index))) return true
+  }
+
+  return false
+}
 
 export const isAsciiDigit = (character: string): boolean => character >= "0" && character <= "9"
 
@@ -375,7 +389,7 @@ const tokenizeListItem = (
 
   return {
     type: "listItem",
-    spread: LOOSE_LIST_ITEM_RE.test(content),
+    spread: hasLooseListContent(content),
     checked: taskCharacter ? taskCharacter.toLowerCase() === LOWERCASE_X : null,
     children: parser.tokenizeBlock(content, position),
   }

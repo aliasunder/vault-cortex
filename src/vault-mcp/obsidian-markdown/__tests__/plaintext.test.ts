@@ -1,7 +1,55 @@
 import { describe, it, expect } from "vitest"
+import { execFileSync } from "node:child_process"
 import { stripMarkdownSyntax } from "../plaintext.js"
+import { createScannerDocuments, scannerCorpora, legacyPlaintext } from "./link-scanner-corpus.js"
 
 describe("stripMarkdownSyntax", () => {
+  it.each([
+    { variant: "plaintext-alias" },
+    { variant: "plaintext-wiki" },
+    { variant: "plaintext-markdown" },
+    { variant: "callout" },
+  ])(
+    "bounds repeated failing $variant openers in an externally killed child",
+    ({ variant }) => {
+      const fixturePath = new URL("./link-scanner-adversary.ts", import.meta.url)
+      // SIGKILL bounds a synchronous regex even when the child's event loop cannot run timers.
+      const output = execFileSync(
+        process.execPath,
+        ["--import", "tsx", fixturePath.pathname, variant],
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          killSignal: "SIGKILL",
+        },
+      )
+      const result = JSON.parse(output)
+
+      expect(result.variant).toBe(variant)
+      expect(
+        result.measurements.map((measurement: { bytes: number }) => measurement.bytes),
+      ).toEqual(
+        variant === "plaintext-markdown" ? [20_012, 40_012, 80_012] : [20_009, 40_009, 80_009],
+      )
+      for (const [index, measurement] of result.measurements.entries()) {
+        expect(measurement.median).toBeLessThan(1_000)
+        const previous = result.measurements[index - 1]
+
+        if (previous?.median > 10) expect(measurement.median / previous.median).toBeLessThan(3)
+      }
+    },
+    35_000,
+  )
+
+  it.each(scannerCorpora.slice(3))(
+    "preserves the complete legacy text for 10,000 $label documents",
+    ({ alphabet }) => {
+      for (const document of createScannerDocuments(alphabet, 10_000)) {
+        expect(stripMarkdownSyntax(document)).toBe(legacyPlaintext(document))
+      }
+    },
+  )
+
   const scenarios = [
     {
       name: "wikilink with alias → display text",

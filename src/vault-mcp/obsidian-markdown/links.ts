@@ -4,43 +4,29 @@
  *  (vault-operations/note-mover.ts) depend on this module as a peer, so the two
  *  can never disagree about what a link is or where it points.
  *
- *  The raw `/g` grammar regexes are module-private: a shared global regex carries
- *  `lastIndex` between calls, which corrupts iteration the moment a caller reaches
- *  for `.exec()`-in-a-loop or `.test()`. Callers instead use the position-safe
- *  methods on `links` (matchLinksInLine, inlineCodeSpans), which drive the
- *  regexes only via matchAll/replaceAll internally. */
+ *  Recognition stays private so callers share the grammar and receive
+ *  position-safe matches through the methods on `links`. */
 
 import { posix } from "node:path"
 import { classifyLines } from "./lines.js"
 
 // ── Grammar (private) ───────────────────────────────────────────
 
-/** Matches wikilinks: [[target]], [[target|text]], [[target#heading]],
- *  [[target#heading|text]], and embeds ![[target]]. Captures the target
- *  path/name (group 1) before any # or |. Global — use only with matchAll. */
-const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
+/** JavaScript whitespace also includes non-ASCII spaces and line terminators. */
+const WHITESPACE = /\s/
 
-/** Matches markdown internal links and embeds to any vault target —
- *  [text](Note.md), ![alt](image.png), [doc](file.pdf), [text](Extensionless%20Note),
- *  each optionally with a #heading. Obsidian resolves all of these, so
- *  recognition must too. External targets are excluded by a URI-scheme
- *  lookahead ([a-zA-Z][a-zA-Z0-9+.-]*: is RFC 3986 scheme grammar; both letter
- *  cases because schemes are case-insensitive, and a colon is illegal in
- *  Obsidian filenames so a scheme-like prefix is never a vault path), plus
- *  same-page #anchors. Captures the full target including any extension
- *  (group 1). Global — use only with matchAll. */
-const MD_LINK_RE = /\[[^\]]*\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|#)([^)#\s]+)(?:#[^)\s]*)?\)/g
+/** A URI scheme begins with an ASCII letter. */
+const SCHEME_START = /[a-zA-Z]/
+
+/** RFC 3986 permits these characters after a URI scheme's first letter. */
+const SCHEME_CHARACTER = /[a-zA-Z0-9+.-]/
+
+/** A dot without the s flag stops at each of these line terminators. */
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 
 /** Matches inline code spans so links inside backticks (e.g. `[[Note]]`) can be
  *  ignored. Global — use only with matchAll/replaceAll. */
 const INLINE_CODE_RE = /`+[^`\n]*`+/g
-
-/** Matches Templater expressions so links inside template directives
- *  (e.g. `<% tp.date.now("YYYY-MM-DD", 1, tp.file.title, "YYYY-MM-DD") %>`)
- *  are not extracted as link targets. Covers all Templater run-mode variants:
- *  `<%`  `<%+`  `<%*`  `<%-`  `<%_`  `<%~`. Single-line only — consistent
- *  with INLINE_CODE_RE. Global — use only with matchAll/replaceAll. */
-const TEMPLATER_RE = /<%[-+*_~]?.*?%>/g
 
 /** Splits a matched wikilink into [, embed `!`, target, `#heading`, `|alias`].
  *  Anchored and non-global — safe for .exec(). */
@@ -82,6 +68,8 @@ type LinkMatch = {
 /** The half-open character range [start, end) of an inline code span in a line. */
 type CodeSpan = { start: number; end: number }
 
+type TargetSpan = CodeSpan & { targetStart: number; targetEnd: number }
+
 /** The structural parts of a wikilink ![[target#heading|alias]]. heading/alias
  *  keep their leading `#` / `|` (or `\|` for table-escaped pipes) so
  *  reconstruction is plain concatenation; target is not trimmed (the caller
@@ -108,22 +96,129 @@ type MarkdownLinkParts = {
 
 // ── Line scanning ───────────────────────────────────────────────
 
+/** Delimiter cursors only advance, so failed openers share suffix scans. */
+const scanWikilinks = (text: string, visit: (span: TargetSpan) => void): void => {
+  // These cursors retain the next delimiter across overlapping opener attempts.
+  let targetEnd = 0
+  let headingEnd = 0
+  let closeBracket = 0
+
+  for (let start = 0; start < text.length; start++) {
+    const open = text[start] === "!" ? start + 1 : start
+
+    if (text[open] !== "[" || text[open + 1] !== "[") continue
+    const targetStart = open + 2
+    targetEnd = Math.max(targetEnd, targetStart)
+
+    while (targetEnd < text.length && !"]#|".includes(text.charAt(targetEnd))) targetEnd++
+    if (targetEnd === targetStart) continue
+    // The grammar permits an empty heading, but requires a nonempty alias.
+    let end = targetEnd
+
+    if (text[end] === "#") {
+      headingEnd = Math.max(headingEnd, end + 1)
+      while (headingEnd < text.length && !"]|".includes(text.charAt(headingEnd))) headingEnd++
+      end = headingEnd
+    }
+    if (text[end] === "|") {
+      const aliasStart = end + 1
+      closeBracket = Math.max(closeBracket, aliasStart)
+      while (closeBracket < text.length && text[closeBracket] !== "]") closeBracket++
+      if (closeBracket === aliasStart) continue
+      end = closeBracket
+    }
+    if (text[end] !== "]" || text[end + 1] !== "]") continue
+    visit({ start, end: end + 2, targetStart, targetEnd })
+    start = end + 1
+  }
+}
+
+/** URI schemes follow RFC 3986, including uppercase letters and punctuation. */
+const scanMarkdownLinks = (text: string, visit: (span: TargetSpan) => void): void => {
+  // Each delimiter cursor moves monotonically even when many openers fail.
+  let textEnd = 0
+  let targetEnd = 0
+  let fragmentEnd = 0
+  let schemeEnd = 0
+
+  for (let start = 0; start < text.length; start++) {
+    if (text[start] !== "[") continue
+    textEnd = Math.max(textEnd, start + 1)
+    while (textEnd < text.length && text[textEnd] !== "]") textEnd++
+    if (text[textEnd + 1] !== "(") continue
+    const targetStart = textEnd + 2
+
+    if (text[targetStart] === "#") continue
+    if (SCHEME_START.test(text.charAt(targetStart))) {
+      schemeEnd = Math.max(schemeEnd, targetStart + 1)
+      while (schemeEnd < text.length && SCHEME_CHARACTER.test(text.charAt(schemeEnd))) schemeEnd++
+      if (text[schemeEnd] === ":") continue
+    }
+    targetEnd = Math.max(targetEnd, targetStart)
+    while (
+      targetEnd < text.length &&
+      text[targetEnd] !== ")" &&
+      text[targetEnd] !== "#" &&
+      !WHITESPACE.test(text.charAt(targetEnd))
+    )
+      targetEnd++
+    if (targetEnd === targetStart) continue
+    // A fragment may be empty; whitespace still ends the attempted match.
+    let end = targetEnd
+
+    if (text[end] === "#") {
+      fragmentEnd = Math.max(fragmentEnd, end + 1)
+      while (
+        fragmentEnd < text.length &&
+        text[fragmentEnd] !== ")" &&
+        !WHITESPACE.test(text.charAt(fragmentEnd))
+      )
+        fragmentEnd++
+      end = fragmentEnd
+    }
+    if (text[end] !== ")") continue
+    visit({ start, end: end + 1, targetStart, targetEnd })
+    start = end
+  }
+}
+
+/** Line terminators stop Templater expressions even when the caller supplies a whole note. */
+const maskTemplaterExpressions = (text: string): string => {
+  const pieces: string[] = []
+  // The closer cursor is shared by every failed opener before it.
+  let close = 0
+  let copiedThrough = 0
+
+  for (let start = 0; start < text.length; start++) {
+    if (text[start] !== "<" || text[start + 1] !== "%") continue
+    close = Math.max(close, start + 2)
+    while (close < text.length && !LINE_TERMINATOR.test(text.charAt(close))) {
+      if (text[close] === "%" && text[close + 1] === ">") break
+      close++
+    }
+    if (text[close] !== "%" || text[close + 1] !== ">") continue
+    const end = close + 2
+    pieces.push(text.slice(copiedThrough, start), " ".repeat(end - start))
+    copiedThrough = end
+    start = end - 1
+  }
+  if (!copiedThrough) return text
+  pieces.push(text.slice(copiedThrough))
+  return pieces.join("")
+}
+
 /** Finds wikilinks, then markdown links (not in text order), with the offsets a rewriter
  *  needs to splice replacements. Links in inline code are kept for each caller to exclude. */
-const matchLinksInLine = (line: string): LinkMatch[] => [
-  ...[...line.matchAll(WIKILINK_RE)].map((match) => ({
-    text: match[0],
-    start: match.index,
-    end: match.index + match[0].length,
-    kind: "wikilink" as const,
-  })),
-  ...[...line.matchAll(MD_LINK_RE)].map((match) => ({
-    text: match[0],
-    start: match.index,
-    end: match.index + match[0].length,
-    kind: "markdown" as const,
-  })),
-]
+const matchLinksInLine = (line: string): LinkMatch[] => {
+  const matches: LinkMatch[] = []
+  scanWikilinks(line, ({ start, end }) => {
+    matches.push({ text: line.slice(start, end), start, end, kind: "wikilink" })
+  })
+  scanMarkdownLinks(line, ({ start, end }) => {
+    matches.push({ text: line.slice(start, end), start, end, kind: "markdown" })
+  })
+  return matches
+}
 
 /** Returns the character ranges of inline code spans in a line, so a rewriter can
  *  leave links inside backticks untouched. */
@@ -197,26 +292,21 @@ const extractFromBody = (content: string): string[] => {
     if (inCode) continue
 
     // Spaces keep text on either side of an ignored span from forming a new link.
-    const linkExtractableLine = text
-      .replace(INLINE_CODE_RE, (match) => " ".repeat(match.length))
-      .replace(TEMPLATER_RE, (match) => " ".repeat(match.length))
+    const withoutCode = text.replace(INLINE_CODE_RE, (match) => " ".repeat(match.length))
+    const linkExtractableLine = maskTemplaterExpressions(withoutCode)
 
-    for (const match of linkExtractableLine.matchAll(WIKILINK_RE)) {
-      const rawTarget = match[1]
-
-      if (rawTarget === undefined) continue
+    scanWikilinks(linkExtractableLine, ({ targetStart, targetEnd }) => {
+      const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
       const target = stripEscapedPipe(rawTarget.trim())
 
       if (target.length > 0) targets.add(target)
-    }
-    for (const match of linkExtractableLine.matchAll(MD_LINK_RE)) {
-      const rawTarget = match[1]
-
-      if (rawTarget === undefined) continue
+    })
+    scanMarkdownLinks(linkExtractableLine, ({ targetStart, targetEnd }) => {
+      const rawTarget = linkExtractableLine.slice(targetStart, targetEnd)
       const target = safeDecodeURIComponent(rawTarget.trim())
 
       if (target.length > 0) targets.add(target)
-    }
+    })
   }
   return [...targets]
 }
@@ -238,14 +328,12 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
   const collectWikilinksFrom = (frontmatterValue: unknown): void => {
     // Leaf: a string may hold one or more wikilinks — pull out each target.
     if (typeof frontmatterValue === "string") {
-      for (const match of frontmatterValue.matchAll(WIKILINK_RE)) {
-        const rawTarget = match[1]
-
-        if (rawTarget === undefined) continue
+      scanWikilinks(frontmatterValue, ({ targetStart, targetEnd }) => {
+        const rawTarget = frontmatterValue.slice(targetStart, targetEnd)
         const target = stripEscapedPipe(rawTarget.trim())
 
         if (target.length > 0) targets.add(target)
-      }
+      })
       return
     }
     // Array (e.g. a multi-value `related:`): recurse into every element.
