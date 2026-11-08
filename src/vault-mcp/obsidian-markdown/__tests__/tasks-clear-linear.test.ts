@@ -251,16 +251,26 @@ describe("task metadata clear compatibility", () => {
       import assert from 'node:assert/strict';
       import { tasks, DEFAULT_STATUS_REGISTRY } from ${JSON.stringify(parserUrl)};
       const config={taskFormat:'emoji',setDoneDate:true,setCancelledDate:true,setCreatedDate:false,recurrenceOnNextLine:false,removeScheduledDateOnRecurrence:false,statusRegistry:DEFAULT_STATUS_REGISTRY};
-      for(const size of [20000,40000,80000]) {
+      const sizes=[20000,40000,80000];
+      const medians=[];
+      for(const size of sizes) {
         const taskLine='- [x] ✅2026-01-02 ❌2026-01-03 #'+ '✅2026-01-02❌2026-01-03'.repeat(size);
-        assert.equal(tasks.updateTaskLineStatus({taskLine,newStatus:'todo',today:'2026-01-04',config}),'- [ ] #');
+        const check=()=>assert.equal(tasks.updateTaskLineStatus({taskLine,newStatus:'todo',today:'2026-01-04',config}),'- [ ] #');
+        check();
+        const samples=Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
+        medians.push(samples[2]);
       }
-      process.stdout.write('status stamps cleared');
+      assert.ok(medians.every(value=>value<1000),'status stamp clear exceeded ceiling '+medians);
+      assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'status stamp clear scaled superlinearly '+medians);
+      process.stdout.write(JSON.stringify({sizes,medians}));
     `,
       ],
-      { encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL" },
+      { encoding: "utf8", timeout: 15_000, killSignal: "SIGKILL" },
     )
 
-    expect(output).toBe("status stamps cleared")
-  }, 15_000)
+    expect(JSON.parse(output)).toEqual({
+      sizes: [20000, 40000, 80000],
+      medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+    })
+  }, 20_000)
 })
