@@ -160,19 +160,19 @@ MCP server logs are structured JSON with `timestamp`, `level`, `message`, `sourc
 
 ```bash
 # Errors only (token mismatch, watcher failures — things that need fixing)
-docker logs vault-cortex 2>&1 | jq 'select(.level == "error")'
+docker logs vault-cortex 2>&1 | jq -R 'fromjson? | select(.level == "error")'
 
 # Trace a single request across all layers
-docker logs vault-cortex 2>&1 | jq 'select(.requestId == "1")'
+docker logs vault-cortex 2>&1 | jq -R 'fromjson? | select(.requestId == "1")'
 
 # All activity from a specific client IP
-docker logs vault-cortex 2>&1 | jq 'select(.clientIp == "203.0.113.42")'
+docker logs vault-cortex 2>&1 | jq -R 'fromjson? | select(.clientIp == "203.0.113.42")'
 
 # All tool calls
-docker logs vault-cortex 2>&1 | jq 'select(.message == "tool_call")'
+docker logs vault-cortex 2>&1 | jq -R 'fromjson? | select(.message == "tool_call")'
 
 # Auth failures
-docker logs vault-cortex 2>&1 | jq 'select(.message | startswith("auth_failed"))'
+docker logs vault-cortex 2>&1 | jq -R 'fromjson? | select(.message | startswith("auth_failed"))'
 ```
 
 Note: `2>&1` is needed because error-level logs go to stderr — piping to jq requires combining both streams.
@@ -188,8 +188,8 @@ Note: `2>&1` is needed because error-level logs go to stderr — piping to jq re
 
 Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
 
-Log files pause until the next day when they reach `LOG_MAX_DAILY_MB` (25 MB
-by default); the container log continues. A `file_logging_stopped` warning
+Files under `LOG_DIR` (`/data/logs` by default) pause until midnight in `TZ`
+(UTC by default) when they reach `LOG_MAX_DAILY_MB` (25 MB by default); the container log continues. A `file_logging_stopped` warning
 means a disk or folder-access failure disabled file logging. Free disk space
 or fix folder access, then restart the container to resume file logging.
 
@@ -382,7 +382,7 @@ To find your stage: `cat .sst/stage` (after one-time setup).
 | `LOG_LEVEL`                           | Optional. Logging verbosity: `debug`, `info`, `warn`, `error`. Default: `info`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `LOG_DIR`                             | Optional. Directory for persistent log files inside the container. Default: `/data/logs`; `none` disables log files.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `LOG_RETENTION_DAYS`                  | Optional. Days to keep log files; cleanup runs at startup and each day. Only applies when `LOG_DIR` is a path. Default: `90`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `LOG_MAX_DAILY_MB`                    | Optional. Maximum MB per daily log file; file logging resumes the next day after reaching the cap, while the container log continues. Whole numbers of at least 1, or `none` to disable. Default: `25`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `LOG_MAX_DAILY_MB`                    | Optional. Maximum MB per daily log file; file logging resumes at midnight in `TZ` (UTC by default) after reaching the cap, while the container log continues. Whole numbers of at least 1, or `none` to disable the cap. Default: `25`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `WINDOWS_MODE`                        | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `TRUST_PROXY_HOPS`                    | Optional. Trusted reverse-proxy hops for deriving `req.ip` from `X-Forwarded-For` (the fallback client IP). The compose file defaults the instance to `1` (API Gateway); set `2` for `ORIGIN_URL` deployments (a tunnel between the gateway and the instance).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `TRUST_FORWARDED_HOPS`                | Optional. How many entries from the end of the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header's `for=` list to count to reach the client IP (OAuth rate limiting, request logs); `0` ignores the header. The compose file defaults the instance to `1` (API Gateway reports visitors there and sends no `X-Forwarded-For`). For `ORIGIN_URL` and CDN setups, see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional).                                                                                                                                                                                                                                                    |
@@ -738,14 +738,8 @@ If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, 
    ```
 
 2. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
-3. Install `cloudflared` and register with the existing tunnel token:
-
-   ```bash
-   sudo apt-get update && sudo apt-get install -y cloudflared
-   sudo cloudflared service install <TUNNEL_TOKEN>
-   ```
-
-4. Verify the tunnel: `curl https://<subdomain>.<yourdomain>/healthz`
+3. Install `cloudflared` using step 2 of [Port 8000 Hardening](#port-8000-hardening-optional), including its apt repository and key, and register with the existing tunnel token.
+4. Verify the locked tunnel using the service-token request in step 7 of [Port 8000 Hardening](#port-8000-hardening-optional).
 5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token):
 
    ```bash
@@ -823,6 +817,6 @@ curl https://mcp.example.com/healthz
   - **`401` or `403` — the token is rejected too:** the `McpAuthToken` secret and the instance `.env` hold different tokens. Give all four copies listed under [Rotating `MCP_AUTH_TOKEN`](#rotating-mcp_auth_token) the same value.
 - **`npm run deploy` errors with `SecretMissingError`** — set the secret first (one-time setup step 3).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
-- **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
+- **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Restore the matching `~/.ssh/vault-cortex` private key from your secure copy. Replacing the deployed key can replace the VM; follow [Rotating SSH keys](#rotating-ssh-keys) for a planned rotation. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
 - **Host key changed warning** — the Lightsail instance was replaced (e.g. `bundleId` changed in `sst.config.ts`). The deploy key convention prevents key-change replacements, but other properties can still trigger it. Run `ssh-keygen -R <lightsailIp>` and retry.

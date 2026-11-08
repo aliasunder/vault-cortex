@@ -224,7 +224,7 @@ policy), Docker daemon restart, or system reboot.
 npx vault-cortex@latest down   # set up with the CLI
 docker compose down            # Compose
 
-# Stop and delete all volumes (index rebuilds on next start):
+# Stop and delete all volumes (rebuilds the index; reconnect each MCP client):
 docker compose down -v         # Compose
 
 # Stop without removing (any setup method; docker start resumes):

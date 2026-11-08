@@ -28,10 +28,7 @@ import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { securityHeaders } from "../utils/security-headers.js"
 import env from "env-var"
 
-/** Request-body errors get a short 4xx warning; server failures retain their stack.
- *  The client IP is derived under the same Forwarded hop count as
- *  everywhere else, so a client-supplied Forwarded header can't write a
- *  false IP into the error log. */
+/** Request-body errors get a short 4xx warning; server failures retain their stack. */
 export const createErrorMiddleware =
   ({ trustForwardedHops }: { trustForwardedHops: number }) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
@@ -42,6 +39,8 @@ export const createErrorMiddleware =
       path: capLogField(req.path),
     }
 
+    // Only body parsers forward exposed 4xx errors here; routes answer other
+    // client errors themselves, so this branch can use one generic body error.
     if (isHttpClientError(err)) {
       logger.warn("request_body_rejected", {
         ...requestContext,
@@ -51,6 +50,7 @@ export const createErrorMiddleware =
       if (!res.headersSent) res.status(err.status).json({ error: "invalid request body" })
       return
     }
+
     logger.error("unhandled_error", {
       ...requestContext,
       error: describeError(err),
@@ -64,8 +64,8 @@ export const createErrorMiddleware =
 /**
  * SIGTERM handler that drains in-flight requests before exiting, so a write
  * can't be interrupted mid-flight.
- * - The body-tag parser closes first, which stops the background body-tag
- *   pass, so the pass writes nothing to the index while requests drain.
+ * - The body-tag parser refuses new parses before requests drain; worker
+ *   termination continues in the background.
  * - `httpServer.close()` stops accepting new connections and waits for active
  *   requests to finish.
  * - The fallback forces exit if a connection hangs the drain longer than

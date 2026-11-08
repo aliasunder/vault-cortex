@@ -436,8 +436,9 @@ and unchanged notes are not re-embedded.
 
 ## Restart
 
-On every boot, a catch-up sync brings the vault current before the server
-starts. The server then runs these startup tasks:
+On a new setup, the first sync finishes before the server starts. On later
+boots, the server starts with the existing vault while sync catches up in
+the background. The server runs these startup tasks:
 
 1. Create memory template files if the memory folder doesn't exist (skipped
    when `MEMORY_ENABLED=false` or `READONLY_MODE=true`).
@@ -755,7 +756,7 @@ These optional settings are worth knowing about:
 | `TRUST_PROXY_HOPS`      | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `TRUST_FORWARDED_HOPS`  | `0`                           | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway); `2` when a CDN fronts that proxy and is the only way to reach it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `LOG_RETENTION_DAYS`    | `90`                          | Days to keep log files; cleanup runs at startup and each day. The current day is also kept.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `LOG_MAX_DAILY_MB`      | `25`                          | Maximum MB per daily log file. At the cap, file logging pauses until the next day; the container log continues. Whole numbers of at least 1, or `none` to disable. On small disks, lower this or `LOG_RETENTION_DAYS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `LOG_MAX_DAILY_MB`      | `25`                          | Maximum MB per daily log file. At the cap, file logging pauses until midnight in `TZ` (UTC by default); the container log continues. Whole numbers of at least 1, or `none` to disable the cap. On small disks, lower this or `LOG_RETENTION_DAYS`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `STORAGE_ROOT`          | —                             | One directory for everything that must persist, for hosting platforms that allow a single volume (see **Single persistent volume** under [Setup](#setup)). Must not contain `*`, `?`, or `[`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 All settings are documented in `.env.example` and in the
@@ -763,8 +764,8 @@ All settings are documented in `.env.example` and in the
 
 ## Hardening (recommended)
 
-The setup above is authenticated — every request requires your token or an
-OAuth session. These optional measures add defense-in-depth:
+MCP requests require your token or an OAuth session; health checks and the
+sign-in pages are public. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
   direct access to port 8000, and to each other install's `PORT`, wherever you manage your server's firewall

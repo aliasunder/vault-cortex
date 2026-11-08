@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, unlinkSync, appendFileSync, statSync } from "no
 import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
+import { describeError } from "./utils/describe-error.js"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
@@ -107,9 +108,7 @@ const consoleWarningLine = (message: string, data: Record<string, unknown>): str
 }
 
 const reportFileLoggingStopped = (error: unknown): void => {
-  const errorDescription =
-    error instanceof Error ? `[${error.name}]: ${error.message}` : String(error)
-  process.stdout.write(consoleWarningLine("file_logging_stopped", { error: errorDescription }))
+  process.stdout.write(consoleWarningLine("file_logging_stopped", { error: describeError(error) }))
 }
 
 /** Deletes log files older than retentionDays. */
@@ -157,20 +156,26 @@ export const createFileSinkExtension = ({
       pruneOldLogFiles(logDir, retentionDays)
       logDay.bytes = statSync(logPath, { throwIfNoEntry: false })?.size ?? 0
       logDay.date = today
+      // An exact-cap file still needs its limit notice; an over-cap file already
+      // has one or predates this cap, so restarting must not append another.
       logDay.capped = logDay.bytes > maxDailyBytes
     }
+
     if (logDay.capped) return
+
     const lineBytes = Buffer.byteLength(line)
     const exceedsDailyLimit = logDay.bytes + lineBytes > maxDailyBytes
 
     if (exceedsDailyLimit) {
-      // Mark before the append so even a failing limit notice cannot retry this day.
+      // The notice may exceed the cap so the persisted file explains why it stops.
+      // Mark first so even a failing append cannot retry the notice this day.
       logDay.capped = true
       const limitLine = consoleWarningLine("file_log_daily_limit_reached", { maxDailyBytes })
       appendFileSync(logPath, limitLine)
       process.stdout.write(limitLine)
       return
     }
+
     appendFileSync(logPath, line)
     logDay.bytes += lineBytes
   }
@@ -190,12 +195,14 @@ const WHOLE_MEGABYTES = /^\d+$/
 const parseMaxDailyBytes = (envValue: string | undefined): number => {
   if (envValue === undefined) return DEFAULT_MAX_DAILY_MB * BYTES_PER_MB
   if (envValue.toLowerCase() === "none") return Number.POSITIVE_INFINITY
+
   const maxDailyMb = Number(envValue)
   const maxDailyBytes = maxDailyMb * BYTES_PER_MB
   const validLimit =
     WHOLE_MEGABYTES.test(envValue) && maxDailyMb >= 1 && Number.isSafeInteger(maxDailyBytes)
 
   if (validLimit) return maxDailyBytes
+
   process.stdout.write(
     consoleWarningLine("invalid LOG_MAX_DAILY_MB; using default", {
       maxDailyMb: DEFAULT_MAX_DAILY_MB,

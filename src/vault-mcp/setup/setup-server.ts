@@ -119,6 +119,8 @@ const startSetupServer = (): void => {
       path: capLogField(req.path),
     }
 
+    // Only body parsers forward exposed 4xx errors here; routes answer other
+    // client errors themselves, so this branch can use one generic body error.
     if (isHttpClientError(err)) {
       logger.warn("request_body_rejected", {
         ...requestContext,
@@ -128,6 +130,7 @@ const startSetupServer = (): void => {
       if (!res.headersSent) res.status(err.status).json({ error: "invalid request body" })
       return
     }
+
     logger.error("unhandled_error", {
       ...requestContext,
       error: describeError(err),

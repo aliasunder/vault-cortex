@@ -895,8 +895,8 @@ proxy-trust config:
   `TRUST_FORWARDED_HOPS=1`.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
-  isn't trusted. An injected forwarding header is ignored on both channels,
-  so it can't mint a fresh bucket.
+  isn't trusted. These counts prevent forged client IPs only when requests
+  arrive through the counted proxies; direct access to the server must be blocked.
 - Whichever setting supplies the client IP, an IPv6 client is keyed by its /56
   (express-rate-limit's `ipKeyGenerator`), because one host often holds a
   /64 and could otherwise get a fresh bucket for every address in it. The
@@ -1223,8 +1223,7 @@ random, so the Sync device name cannot fall back to it.
 A platform qualifies only if it starts the image's entrypoint as PID 1 —
 s6-overlay v3 refuses to run as a child of a platform-injected init
 (`s6-overlay-suexec: fatal: can only run as pid 1`). Both platforms above
-do; the probe is a deploy with no variables set, which must reach
-`init-check-auth`'s own error rather than the s6 one.
+do; the probe must reach the container's init scripts rather than fail in s6.
 
 `cli/src/__tests__/templates.test.ts` pins `render.yaml` to the published
 image, to the fixed values above (`PORT`, `STORAGE_ROOT`, `DEVICE_NAME`), to
@@ -1472,10 +1471,10 @@ Docker hardening, and durability seatbelts above.
   Server failures keep their full stack in `unhandled_error` and answer 500
   with `"internal server error"`.
 - **File logging** (`src/logger.ts`): one daily file, capped by
-  `LOG_MAX_DAILY_MB` (25 by default; `none` disables). The count starts from
+  `LOG_MAX_DAILY_MB` (25 by default; `none` disables the cap). The count starts from
   the existing file's byte size, so a restart preserves the budget. One
   `file_log_daily_limit_reached` notice may exceed the cap; file writes
-  resume the next day, and console logging continues throughout.
+  resume at midnight in `TZ` (UTC by default), and console logging continues throughout.
 - **Log retention and failures**: files dated before today minus
   `LOG_RETENTION_DAYS` are pruned at startup and each day. An append, size
   lookup or prune failure disables file logging across the root logger and

@@ -235,7 +235,7 @@ The server, and the `:remote` image's setup mode, set these headers:
 - Request-body errors produce one `request_body_rejected` warning without
   a stack; logged path, session ID and client IP are capped at 256 code points
 - `LOG_MAX_DAILY_MB` bounds each day's file at 25 MB by default, plus one
-  limit notice; `none` disables the cap. File logging resumes the next day,
+  limit notice; `none` disables the cap. File logging resumes at midnight in `TZ` (UTC by default),
   while console logging continues
 - Log files are pruned at startup and each day under `LOG_RETENTION_DAYS`;
   older files written before a cap was configured keep their size until

@@ -160,7 +160,7 @@
         },
         {
           "name": "LOG_MAX_DAILY_MB",
-          "description": "Maximum MB per daily log file (1 MB = 1,000,000 bytes). Whole numbers of at least 1, or none to disable. File logging pauses at the cap until the next day; console logging continues.",
+          "description": "Maximum MB per daily log file (1 MB = 1,000,000 bytes). Whole numbers of at least 1, or none to disable the cap. File logging pauses at the cap until midnight in TZ (UTC by default); console logging continues.",
           "default": "25"
         },
         {

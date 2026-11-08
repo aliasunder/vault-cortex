@@ -181,7 +181,8 @@ LOG_DIR=none
 
 # Maximum MB per daily log file (1 MB = 1,000,000 bytes; default: 25).
 # Valid values: whole numbers of at least 1, or "none" to disable the cap.
-# At the cap, file logging pauses until the next day; the container log continues.
+# At the cap, file logging pauses until midnight in TZ (default: UTC).
+# The container log continues.
 # LOG_MAX_DAILY_MB=25
 
 # Windows users: set this to true. Makes a vault stored on a C: drive work
@@ -350,7 +351,8 @@ LOG_RETENTION_DAYS=90
 
 # Maximum MB per daily log file (1 MB = 1,000,000 bytes; default: 25).
 # Valid values: whole numbers of at least 1, or "none" to disable the cap.
-# At the cap, file logging pauses until the next day; the container log continues.
+# At the cap, file logging pauses until midnight in TZ (default: UTC).
+# The container log continues.
 # LOG_MAX_DAILY_MB=25
 
 # User/group IDs for obsidian-sync (default: 1000).
