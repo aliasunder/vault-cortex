@@ -58,7 +58,7 @@ const readGrammar = (): Grammar => {
       withoutBlockLink: (body) => splitTrailingBlockLink(body).body,
       // Freeze the unbounded search while sharing the unchanged metadata parser.
       legacyMetadataStart: (taskBody) => {
-        for (const candidate of taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)) {
+        for (const candidate of taskBody.matchAll(new RegExp(FIRST_METADATA_SIGNIFIER_RE.source, "gu"))) {
           const tail = parseTaskMetadata(taskBody.slice(candidate.index));
           const tailDescription = tail.description.replace(HASHTAG_RE, "").trim();
           if (tailDescription === "") return candidate.index;
@@ -98,6 +98,13 @@ describe("task recognizer compatibility", () => {
       "📅 tomorrow",
       "#tag",
       "#⏫⏫",
+      "#📅📅📅",
+      "#🆔a",
+      "#⛔a",
+      "#📅2026-01-02",
+      "#⏫\t🆔abc",
+      "#x[priority::high]",
+      "[ priority:: high]",
       "⏫",
       "🔺️",
       "🔁 every week",
@@ -142,6 +149,13 @@ describe("task recognizer compatibility", () => {
       `#${"⏫".repeat(size)}`,
       `⏫ #${"⏫".repeat(size)} [due:: 2026-01-02]`,
       `🆔abc ${"#⏫ ".repeat(size)}`,
+    ])
+    const packedHashtagBodies = [1, 2, 20, 21, 22].flatMap((size) => [
+      Array.from({ length: size }, () => `#${"📅".repeat(size)}`).join(" "),
+      Array.from({ length: size }, () => `#${"⏫".repeat(size)}`).join(" "),
+      `⏫ ${"#📅 ".repeat(size)}`,
+      `#📅2026-01-02 ${"(repeat:: every day) ".repeat(size)}[id:: abc]`,
+      `#⏫\t🆔abc ${"[ priority:: high] ".repeat(size)}`,
     ])
     // Reverse extraction order permits every matcher to consume a field in each pass.
     const fullPass = [
@@ -205,6 +219,7 @@ describe("task recognizer compatibility", () => {
     const bodies = [
       ...randomBodies,
       ...denseBodies,
+      ...packedHashtagBodies,
       ...adjacentDataviewBodies,
       fullTail,
       ...fixtureBodies,
@@ -220,6 +235,53 @@ describe("task recognizer compatibility", () => {
       `Metadata boundary corpus ${JSON.stringify({ random: randomBodies.length, dense: denseBodies.length, fixtures: fixtureBodies.length })}\n`,
     )
   }, 30_000)
+
+  it("keeps a valid boundary before an invalid signifier inside a later hashtag", () => {
+    const grammar = readGrammar()
+
+    expect(grammar.metadataStart("⏫ #📅")).toBe(0)
+    expect(grammar.metadataStart("📅")).toBe(-1)
+    expect(grammar.metadataStart("#📅2026-01-02 (repeat:: every day)")).toBe(1)
+  })
+
+  it("bounds task edits whose hashtags each pack hundreds of signifiers", () => {
+    const parserUrl = new URL("../tasks.ts", import.meta.url).href
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "--eval",
+        `
+        import assert from 'node:assert/strict';
+        import { tasks } from ${JSON.stringify(parserUrl)};
+        const config = {taskFormat:'emoji',setDoneDate:true,setCancelledDate:true};
+        const sizes = [120,240,480];
+        const medians = [];
+        for (const size of sizes) {
+          const taskLine = '- [ ] ' + Array.from({length:size},()=> '#'+ '📅'.repeat(size+2)).join(' ');
+          const check = () => {
+            assert.equal(tasks.updateTaskLineTaskId({taskLine,taskId:'probe',config}),taskLine+' 🆔 probe');
+            assert.deepEqual(tasks.diffTaskRoundTrip({taskLine,priorTaskLine:taskLine,submitted:{}}),[]);
+          };
+          check();
+          const samples = Array.from({length:3},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
+          medians.push(samples[1]);
+        }
+        assert.ok(medians.every(value=>value<1000),'packed hashtag edits exceeded ceiling '+medians);
+        process.stdout.write(JSON.stringify({sizes,medians}));
+        `,
+      ],
+      { encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL" },
+    )
+
+    expect(JSON.parse(output)).toEqual({
+      sizes: [120, 240, 480],
+      medians: [expect.any(Number), expect.any(Number), expect.any(Number)],
+    })
+    process.stdout.write(`Packed hashtag edit timings ${output}\n`)
+  }, 15_000)
 
   it("bounds signifier-dense task edits and their growth in a child process", () => {
     const parserUrl = new URL("../tasks.ts", import.meta.url).href

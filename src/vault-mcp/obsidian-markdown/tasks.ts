@@ -380,7 +380,7 @@ const PLUGIN_MAX_RUNS = 20
 /** The plugin's do/while executes once before checking its limit, allowing 21 passes. */
 const MAX_STRIPPING_PASSES = PLUGIN_MAX_RUNS + 1
 
-const METADATA_MATCHERS_PER_PASS = [
+const METADATA_MATCHERS = [
   EMOJI_PRIORITY_RE,
   DATAVIEW_PRIORITY_RE,
   ...DATE_FIELDS.flatMap((field) => [field.emoji, field.dataview]),
@@ -393,9 +393,7 @@ const METADATA_MATCHERS_PER_PASS = [
   DATAVIEW_ID_RE,
   EMOJI_DEPENDS_ON_RE,
   DATAVIEW_DEPENDS_ON_RE,
-].length
-// Each matcher removes at most one field per pass, so a consumed tail fits this window.
-const MAX_METADATA_TAIL_TOKENS = METADATA_MATCHERS_PER_PASS * MAX_STRIPPING_PASSES
+]
 
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
@@ -1140,46 +1138,74 @@ const updateTaskLineDependsOn = ({
   })
 }
 
-/** Global twin of FIRST_METADATA_SIGNIFIER_RE for matchAll — kept separate
- *  so the non-global regex never carries a lastIndex. */
-const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(FIRST_METADATA_SIGNIFIER_RE.source, "gu")
-
-/** Matches whole hashtags before signifiers, since one tag can contain many emoji. */
-const METADATA_TAIL_TOKEN_RE = new RegExp(
-  `${HASHTAG_RE.source}|${FIRST_METADATA_SIGNIFIER_RE.source}`,
-  "gu",
-)
-
-/** Index in a task body (checkbox prefix and block link removed) where the
- *  metadata tail begins, or -1 when the whole body is description.
- *  - A signifier opens the tail only when everything after it parses as
- *    metadata — the parser strips from the right, so an emoji mid-sentence
- *    ("Prefer 🔼 arrows in docs 📅 2026-09-15") stays in the description.
- *  - Tags interleaved with fields belong to the tail, not the description. */
+/** Finds the earliest signifier consumed within the plugin's stripping budget.
+ *  Only hashtags can contain another signifier, so each stripped hashtag gets
+ *  one suffix walk starting immediately after its turn in the current pass. */
 const findMetadataStart = (taskBody: string): number => {
-  const tokens = Array.from(taskBody.matchAll(METADATA_TAIL_TOKEN_RE)).slice(
-    -MAX_METADATA_TAIL_TOKENS,
-  )
+  const scanSuffix = ({
+    text,
+    offset,
+    firstPass,
+    firstMatcher,
+    hadEarlierMatch,
+  }: {
+    text: string
+    offset: number
+    firstPass: number
+    firstMatcher: number
+    hadEarlierMatch: boolean
+  }): number => {
+    // Suffix removal and the earliest consumed signifier are sequential parser state.
+    let line = text.trimEnd()
+    let earliestStart = Infinity
 
-  const signifiers = Array.from(taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE))
+    for (let pass = firstPass; pass < MAX_STRIPPING_PASSES; pass++) {
+      let matchedThisPass = pass === firstPass && hadEarlierMatch
+      const matcherStart = pass === firstPass ? firstMatcher : 0
 
-  for (const token of tokens) {
-    // A hashtag can end inside a Dataview opener, so recognize signifiers in the full body.
-    const startsInToken = (candidate: RegExpExecArray): boolean => {
-      return candidate.index >= token.index && candidate.index < token.index + token[0].length
+      for (
+        let matcherIndex = matcherStart;
+        matcherIndex < METADATA_MATCHERS.length;
+        matcherIndex++
+      ) {
+        const matcher = METADATA_MATCHERS[matcherIndex]
+        const match = matcher?.exec(line)
+
+        if (!match) continue
+        const matchedText = capturedGroup(match, 0)
+
+        if (matcher === HASHTAG_FROM_END_RE) {
+          // Dropping this tag's '#' exposes its inner fields. Later tags have already
+          // spent their passes; replaying them for every inner signifier is unnecessary.
+          const tagStart = match.index + matchedText.indexOf("#") + 1
+          const innerStart = scanSuffix({
+            text: line.slice(tagStart),
+            offset: offset + tagStart,
+            firstPass: pass,
+            firstMatcher: matcherIndex + 1,
+            hadEarlierMatch: matchedThisPass,
+          })
+          earliestStart = Math.min(earliestStart, innerStart)
+        } else if (FIRST_METADATA_SIGNIFIER_RE.exec(matchedText)?.index === 0) {
+          // Spaced Dataview openers parse as fields but are not legacy boundary candidates.
+          earliestStart = Math.min(earliestStart, offset + match.index)
+        }
+        matchedThisPass = true
+        line = line.slice(0, match.index).trimEnd()
+      }
+      if (!matchedThisPass) break
     }
-    // Starting inside a hashtag loses its '#', so its remaining signifiers must also fit.
-    const candidates = signifiers.filter(startsInToken).slice(-MAX_METADATA_TAIL_TOKENS)
-
-    for (const candidate of candidates) {
-      const candidateIndex = candidate.index
-      const tail = parseTaskMetadata(taskBody.slice(candidateIndex))
-      const tailDescription = tail.description.replace(HASHTAG_RE, "").trim()
-
-      if (tailDescription === "") return candidateIndex
-    }
+    return earliestStart
   }
-  return -1
+  const earliestStart = scanSuffix({
+    text: taskBody,
+    offset: 0,
+    firstPass: 0,
+    firstMatcher: 0,
+    hadEarlierMatch: false,
+  })
+
+  return Number.isFinite(earliestStart) ? earliestStart : -1
 }
 
 type TaskLineParts = {
