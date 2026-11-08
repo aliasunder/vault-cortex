@@ -4077,6 +4077,45 @@ describe("rebuildFromVault deferred PDF content", () => {
   })
 
   it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
+    "skips scheduled PDF extraction after a $outcome before the pass starts",
+    async ({ outcome }) => {
+      const fixture = await createPdfRebuildFixture()
+      fixture.extractForIndex.mockResolvedValue({ text: "Stale delayedamber", totalPages: 1 })
+      const rebuilt = await fixture.rebuild()
+      await rebuilt.embedding
+      fixture.search.removeFileContent({ filePath: fixture.path }, logger)
+      if (outcome === "newer edit") {
+        const sourceVersion = fixture.search.upsertFileContent(
+          {
+            filePath: fixture.path,
+            rawContent: "Newer newcobalt",
+            fileStat: testStat(2000, 16),
+          },
+          logger,
+        )
+        await fixture.search.embedFileContent({ filePath: fixture.path, sourceVersion }, logger)
+      } else {
+        await rm(join(fixture.vaultPath, fixture.path))
+        fixture.search.removeNonMdFile(fixture.path)
+      }
+      await rebuilt.startPdfPass()
+
+      expect(fixture.extractForIndex).not.toHaveBeenCalled()
+      expect(fixture.fileRows()).toEqual([
+        ...(outcome === "newer edit"
+          ? [{ path: fixture.path, content: "Newer newcobalt", bytes: 16 }]
+          : []),
+        { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+      ])
+      expect(fixture.keywordPaths("delayedamber")).toEqual([])
+      expect(fixture.keywordPaths("oldquartz")).toEqual([])
+      expect(fixture.targetChunks()).toEqual(
+        outcome === "newer edit" ? [{ chunk_text: "Report\n\nNewer newcobalt" }] : [],
+      )
+    },
+  )
+
+  it.each([{ outcome: "newer edit" }, { outcome: "unlink" }])(
     "rejects delayed PDF publication after a $outcome",
     async ({ outcome }) => {
       const fixture = await createPdfRebuildFixture()

@@ -70,6 +70,25 @@ const startPdfChild = async () => {
 }
 
 describe("PDF extraction child admission", () => {
+  it("exits on malformed IPC instead of dispatching an extraction", async () => {
+    const { child } = await startPdfChild()
+    const reply = vi.fn()
+    child.on("message", reply)
+    const exited = once(child, "exit")
+    child.send({ kind: "raw" })
+
+    expect(await exited).toEqual([1, null])
+    expect(reply).not.toHaveBeenCalled()
+  }, 15_000)
+
+  it("exits when its parent disconnects the IPC channel", async () => {
+    const { child } = await startPdfChild()
+    const exited = once(child, "exit")
+    child.disconnect()
+
+    expect(await exited).toEqual([0, null])
+  }, 15_000)
+
   it.each([
     {
       label: "traversal",
