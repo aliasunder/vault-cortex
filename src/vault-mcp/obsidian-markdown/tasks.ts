@@ -162,7 +162,8 @@ const TASK_ID = /[a-zA-Z0-9_-]+/
  *  anything else lands on the line as prose the parser never reads back. */
 const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
 const isTaskId = (candidate: string): boolean => TASK_ID_WHOLE_RE.test(candidate)
-/** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`. */
+/** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`.
+ *  Trailing spaces follow the repeated group so repetitions cannot divide them. */
 const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.source})+ *)?`)
 
 /** Builds an emoji field regex: signifier + optional VS16 (U+FE0F, matched
@@ -174,8 +175,14 @@ const emojiField = ({ symbols, valuePattern }: { symbols: string; valuePattern: 
 /** Builds a Dataview inline-field regex: `[key:: value]` or `(key:: value)`
  *  with matched brackets and an optional trailing comma, anchored to line end
  *  (see block comment above). */
-const dataviewField = (innerPattern: string): RegExp =>
-  new RegExp(`(?:(?=[^\\]]+\\])\\[|(?=[^)]+\\))\\() *${innerPattern} *[)\\]](?: *,)?$`)
+const dataviewField = (innerPattern: string): RegExp => {
+  const squareBracketOpener = String.raw`(?=[^\]]+\])\[`
+  const parenthesisOpener = String.raw`(?=[^)]+\))\(`
+
+  return new RegExp(
+    `(?:${squareBracketOpener}|${parenthesisOpener}) *${innerPattern} *[)\\]](?: *,)?$`,
+  )
+}
 
 /** `YYYY-MM-DD` — the only date format the plugin recognizes on task lines. */
 const DATE_VALUE = "(\\d{4}-\\d{2}-\\d{2})"
@@ -315,8 +322,7 @@ type TaskMetadata = Pick<
   | "tags"
 >
 
-/** Passes cap for the stripping loop — the plugin's own runaway guard. A
- *  well-formed line finishes in one pass; 20 covers any field permutation. */
+/** Matches the Tasks plugin's 20-pass limit; any unstripped prefix remains description text. */
 const MAX_STRIPPING_PASSES = 20
 
 /** Extracts a regex capture group, throwing if absent. Capture groups are
@@ -348,7 +354,7 @@ const capturedPriority = (
 /** Strips metadata fields off the end of a task body, mirroring the plugin's
  *  deserialize():
  *  - each pass tries every field regex (all `$`-anchored) and removes what
- *    matches; the loop repeats until a pass matches nothing;
+ *    matches; the loop repeats until a pass matches nothing or the cap is reached;
  *  - a field written twice keeps its leftmost value, the one stripped last;
  *  - tags interleaved with signifiers are stripped too, then re-appended, so
  *    they stay part of the description without blocking fields to their left. */
@@ -577,9 +583,8 @@ const scanBodyLinesForTasks = ({
     const statusChar = capturedGroup(taskLineMatch, 1)
     const resolvedStatus = statusForChar(statusChar, statusRegistry)
 
-    // NON_TASK lines are invisible to the task system — prune the indent
-    // stack (closing any open task at the same or deeper indent) so tasks
-    // nested below become top-level, then skip the line.
+    // NON_TASK lines cannot parent tasks. Close tasks at the same or deeper
+    // indent while retaining shallower task ancestors for the next task.
     // After this guard, resolvedStatus is narrowed to TaskStatus
     // (StatusClassification is TaskStatus | "non_task").
     if (resolvedStatus === "non_task") {
@@ -793,8 +798,7 @@ const removeLastMetadataMatch = (metadata: string, regex: RegExp): string => {
 }
 
 /** Removes EVERY occurrence of a field regex from a metadata tail.
- *  Used by clear paths (field set to null) where no copy should survive;
- *  the set paths use removeLastMetadataMatch to preserve a description signifier. */
+ *  Clear paths, onCompletion sets, and completion stamps discard every duplicate. */
 const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
   const stripped = removeLastMetadataMatch(metadata, regex)
   return stripped === metadata ? metadata : removeAllMetadataMatches(stripped, regex)
@@ -1005,8 +1009,8 @@ const updateTaskLineRecurrence = ({
   })
 }
 
-/** Sets or clears the 🏁 / `[onCompletion:: ]` field on a task line.
- *  Inserted after recurrence and before dates — the plugin's field order. */
+/** Sets or clears 🏁 / `[onCompletion:: ]`, replacing every duplicate action.
+ *  New actions follow recurrence and precede dates — the plugin's field order. */
 const updateTaskLineOnCompletion = ({
   taskLine,
   onCompletion,
@@ -1157,11 +1161,8 @@ const appendMetadataField = ({
   fieldText: string
 }): string => [metadata, fieldText].filter(Boolean).join(" ")
 
-/** Inserts a field at its correct position in the task-line metadata by
- *  placing it before the first field in `laterFieldRegexes` that already
- *  exists, or appending when none of them is present. Each caller passes the
- *  fields that come after the one being inserted, so the canonical ordering
- *  (priority → recurrence → dates → id → depends_on) is maintained. */
+/** Inserts before the first present field in the caller's canonical field order.
+ *  Existing fields retain their order, even when it differs from the canonical order. */
 const insertFieldAtPosition = ({
   metadata,
   fieldText,
@@ -1369,9 +1370,8 @@ const consumedDescriptionTail = ({
 
 /** Description divergence uses two comparison modes with different
  *  representations:
- *  - Submitted this call: trimmed submitted text vs the after SLOT — the
- *    slot excludes tags the parser re-appends from the metadata tail, which
- *    would otherwise flag every description edit on a tagged line.
+ *  - Submitted this call: trimmed submitted text may match either the raw
+ *    description slot or the parser's description with tags re-appended.
  *  - Not submitted: prior PARSER view vs after PARSER view — both sides
  *    tag-enriched identically, so a trailing tag migrating into the slot
  *    when the last metadata field is cleared reads as no change.
@@ -1389,9 +1389,6 @@ const descriptionDivergences = ({
   const submittedDescription = submitted.description?.trim()
 
   if (submittedDescription !== undefined) {
-    // The slot triggers the divergence check (the parser view re-appends
-    // tags and would flag every edit on a tagged line), but the advisory
-    // quotes storedDescription — what vault_list_tasks actually returns.
     if (afterReading.descriptionSlot === submittedDescription) return []
     const storedDescription =
       afterReading.metadata.description === "" ? null : afterReading.metadata.description
@@ -1579,9 +1576,8 @@ const stripBlockLink = (taskLine: string): string => {
   return trimmedLine.slice(0, blockLinkMatch.index)
 }
 
-/** Extracts the structural indent of a line — leading whitespace after
- *  stripping blockquote `>` markers. A top-level task returns 0; an
- *  indented sub-task returns the whitespace count before its list marker. */
+/** Counts leading whitespace characters after removing column-zero blockquote prefixes.
+ *  Each tab counts as one; whitespace before `>` remains part of the indent. */
 const getStructuralIndent = (line: string): number => {
   // Strip leading blockquote markers: each `> ` (one `>` + one optional
   // space) is a blockquote level. Only the marker's own space is consumed;
@@ -1815,10 +1811,7 @@ const updateTaskLinePriority = ({
 const COMPLETE_MARKER = "**Complete**"
 
 /** Extracts heading names whose body starts with a `**Complete**` marker
- *  paragraph — the Kanban plugin's per-lane completion signal. Relies on
- *  `parseHeadings` (which is fence/comment-aware) to define section
- *  boundaries, so markers inside code blocks are excluded by the heading
- *  parser's span computation — not re-checked here.
+ *  paragraph — the Kanban plugin's per-lane completion signal.
  *
  *  @param bodyLines Note body lines (frontmatter stripped)
  *  @param headings  Pre-parsed headings from `parseHeadings(bodyLines)` */
@@ -1826,8 +1819,8 @@ const extractDoneLanes = (
   bodyLines: readonly string[],
   headings: readonly HeadingInfo[],
 ): string[] => {
-  // The marker must be the very first content paragraph after the heading —
-  // blank lines are skipped, anything else means the lane has no marker.
+  // An opening fence or comment is content, so a marker inside it cannot
+  // be the first content line after the heading.
   const startsWithCompleteMarker = (heading: HeadingInfo): boolean => {
     const firstContentLine = bodyLines
       .slice(heading.bodyStartLine, heading.bodyEndLine)
@@ -1845,9 +1838,9 @@ type KanbanCardInsertionMethod = "prepend" | "append"
 /** Matches a backtick fence delimiter (with or without a language tag). */
 const BACKTICK_FENCE_RE = /^`{3,}/
 
-/** Extracts `new-card-insertion-method` from the `%% kanban:settings %%`
- *  comment block. Returns `undefined` when the block is absent, the JSON
- *  is malformed, or the value is not a recognized insertion method. */
+/** Reads `new-card-insertion-method` after a `%% kanban:settings` marker.
+ *  - The next two backtick fences bound the JSON, even beyond a closing `%%`.
+ *  - Returns `undefined` for missing fences, malformed JSON, or an unrecognized value. */
 const parseKanbanCardInsertionMethod = (
   bodyLines: readonly string[],
 ): KanbanCardInsertionMethod | undefined => {
@@ -1857,8 +1850,6 @@ const parseKanbanCardInsertionMethod = (
 
   if (settingsLineIndex === -1) return undefined
 
-  // The block structure is fixed: %% kanban:settings → backtick fence →
-  // JSON → closing fence → %%. Extract the lines between the fences.
   const blockLines = bodyLines.slice(settingsLineIndex + 1)
   const fenceStart = blockLines.findIndex((line) => BACKTICK_FENCE_RE.test(line.trim()))
 
