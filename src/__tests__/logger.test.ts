@@ -439,6 +439,53 @@ describe("createFileSinkExtension", () => {
     )
   })
 
+  it("keeps the day capped after restarting with a lowered cap", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const line = '{"message":"first"}\n'
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes: 10_000 })
+    extension(sampleEntry("first"), line)
+    extension(sampleEntry("too large"), sampleLine("x".repeat(10_000)))
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const cappedContent = readFileSync(logFile, "utf8")
+    const maxDailyBytes = 5_000
+    expect(Buffer.byteLength(cappedContent)).toBeLessThan(maxDailyBytes)
+    const restartedExtension = createFileSinkExtension({ logDir, maxDailyBytes })
+
+    restartedExtension(sampleEntry("after restart"), line)
+    restartedExtension(sampleEntry("again"), line)
+
+    expect(records()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes: 10_000,
+      },
+    ])
+    expect(readFileSync(logFile, "utf8")).toBe(cappedContent)
+  })
+
+  it("writes after a malformed limit notice when the cap is off", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const malformedNotice =
+      '{"timestamp":"2026-11-08T12:00:00.000-05:00","level":"warn","name":"vault-cortex","message":"file_log_daily_limit_reached",broken\n'
+    writeFileSync(logFile, malformedNotice)
+    const line = '{"message":"after restart"}\n'
+    const extension = createFileSinkExtension({
+      logDir,
+      maxDailyBytes: Number.POSITIVE_INFINITY,
+    })
+
+    extension(sampleEntry("after restart"), line)
+
+    expect(records()).toEqual([])
+    expect(readFileSync(logFile, "utf8")).toBe(malformedNotice + line)
+  })
+
   it("resumes after restarting with LOG_MAX_DAILY_MB set to none", async () => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()

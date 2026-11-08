@@ -115,7 +115,8 @@ const endsWithApplicableLimitNotice = ({
   fileBytes: number
   maxDailyBytes: number
 }): boolean => {
-  if (!fileBytes) return false
+  // With the cap turned off, no earlier notice applies, readable or not.
+  if (!fileBytes || !Number.isFinite(maxDailyBytes)) return false
   const file = openSync(logPath, "r")
 
   try {
