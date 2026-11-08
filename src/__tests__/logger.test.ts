@@ -467,6 +467,31 @@ describe("createFileSinkExtension", () => {
     expect(readFileSync(logFile, "utf8")).toBe(cappedContent)
   })
 
+  it("keeps the day capped and warns once after a malformed limit notice", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const malformedNotice =
+      '{"timestamp":"2026-11-08T12:00:00.000-05:00","level":"warn","name":"vault-cortex","message":"file_log_daily_limit_reached",broken\n'
+    writeFileSync(logFile, malformedNotice)
+    const line = '{"message":"after restart"}\n'
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes: 10_000 })
+
+    extension(sampleEntry("after restart"), line)
+    extension(sampleEntry("again"), line)
+
+    expect(records()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "invalid_file_log_daily_limit_notice",
+        error: expect.stringMatching(/^\[SyntaxError\]: /),
+      },
+    ])
+    expect(readFileSync(logFile, "utf8")).toBe(malformedNotice)
+  })
+
   it("writes after a malformed limit notice when the cap is off", () => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()
