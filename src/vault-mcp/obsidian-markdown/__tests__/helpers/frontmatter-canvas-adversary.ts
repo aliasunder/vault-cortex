@@ -218,25 +218,39 @@ const runFixture = (fixture: string): unknown => {
   }
   if (fixture === "canvas-depth") {
     const medianMs = measure(canvasCase({ groups: 2000, contentNodes: 0, shape: "depth" }))
+    assert.ok(medianMs < 1000, `canvas-depth exceeded ceiling ${medianMs}`)
     return { fixture, node: process.version, medianMs, semantics: "exact" }
   }
   if (fixture === "canvas-flat") {
     const medianMs = measure(
       canvasCase({ groups: 2000, contentNodes: 100_000, shape: "separated" }),
     )
+    assert.ok(medianMs < 1000, `canvas-flat exceeded ceiling ${medianMs}`)
     return { fixture, node: process.version, medianMs, semantics: "exact" }
   }
   if (fixture === "canvas-cross" || fixture === "canvas-multiple") {
     const run = canvasCase({ groups: 2000, contentNodes: 6000, shape: "cross" })
     const copies = fixture === "canvas-multiple" ? 5 : 1
-    const medianMs = measure(() => {
-      for (let index = 0; index < copies; index++) run()
-    })
+    const singleMedianMs = measure(run)
+    const medianMs =
+      copies === 1
+        ? singleMedianMs
+        : measure(() => {
+            for (let index = 0; index < copies; index++) run()
+          })
+
+    assert.ok(singleMedianMs < 1000, `${fixture} exceeded single-canvas ceiling ${singleMedianMs}`)
+    assert.ok(medianMs < copies * 1000, `${fixture} exceeded ceiling ${medianMs}`)
+    assert.ok(
+      medianMs <= singleMedianMs * copies * 1.5,
+      `${fixture} scaled superlinearly ${singleMedianMs}, ${medianMs}`,
+    )
     return {
       fixture,
       node: process.version,
       checksPerCanvas: 16_000_000,
       copies,
+      singleMedianMs,
       medianMs,
       semantics: "exact",
     }

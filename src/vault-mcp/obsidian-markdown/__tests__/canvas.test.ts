@@ -731,6 +731,7 @@ describe("canvas ownership work and rendering depth", () => {
         node: process.version,
         checksPerCanvas: 16_000_000,
         copies,
+        singleMedianMs: expect.any(Number),
         medianMs: expect.any(Number),
         semantics: "exact",
       })
