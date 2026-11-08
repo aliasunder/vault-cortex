@@ -1200,19 +1200,6 @@ type RecurrenceSpawn =
   | { kind: "advisory"; advisory: string }
   | { kind: "none" }
 
-/** taskBefore.status already reflects the registry (extractTasks receives
- *  it), so the registry lookup is belt-and-suspenders — guards against a
- *  caller that extracted tasks without the registry. */
-const wasTaskAlreadyDone = ({
-  taskBefore,
-  statusRegistry,
-}: {
-  taskBefore: ParsedTask
-  statusRegistry: ReadonlyMap<string, StatusClassification>
-}): boolean => {
-  return taskBefore.status === "done" || statusRegistry.get(taskBefore.statusChar) === "done"
-}
-
 /** Resolves the recurrence spawn for an update, mirroring the Tasks plugin:
  *  spawn only on a transition to done from a not-done status (custom
  *  DONE-typed checkbox chars from the status registry count as done), with
@@ -1240,7 +1227,7 @@ const resolveRecurrenceSpawn = ({
 }): RecurrenceSpawn => {
   if (status !== "done") return { kind: "none" }
 
-  if (wasTaskAlreadyDone({ taskBefore, statusRegistry: config.statusRegistry })) {
+  if (taskBefore.status === "done") {
     return { kind: "none" }
   }
 
@@ -2290,7 +2277,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
     const shouldDeleteOnCompletion =
       status === "done" &&
-      !wasTaskAlreadyDone({ taskBefore, statusRegistry: formatConfig.statusRegistry }) &&
+      taskBefore.status !== "done" &&
       effectiveOnCompletion?.toLowerCase() === "delete"
 
     if (shouldDeleteOnCompletion) {
