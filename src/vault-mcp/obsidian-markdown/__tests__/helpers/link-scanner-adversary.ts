@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
-import { links } from "../links.js"
-import { stripMarkdownSyntax } from "../plaintext.js"
+import { links } from "../../links.js"
+import { stripMarkdownSyntax } from "../../plaintext.js"
 
 const variant = process.argv[2]
 const sizes = [20_000, 40_000, 80_000]

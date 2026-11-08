@@ -8,7 +8,7 @@ import {
   legacyWiki,
   legacyMarkdown,
   legacyTemplater,
-} from "./link-scanner-corpus.js"
+} from "./helpers/link-scanner-corpus.js"
 
 // ── matchLinksInLine ─────────────────────────────────────────────
 
@@ -16,7 +16,7 @@ describe("matchLinksInLine", () => {
   it.each([{ variant: "wiki" }, { variant: "markdown" }, { variant: "templater" }])(
     "bounds repeated failing $variant openers in an externally killed child",
     ({ variant }) => {
-      const fixturePath = new URL("./link-scanner-adversary.ts", import.meta.url)
+      const fixturePath = new URL("./helpers/link-scanner-adversary.ts", import.meta.url)
       // The parent deadline interrupts synchronous parser stalls, including legacy regex regressions.
       const output = execFileSync(
         process.execPath,

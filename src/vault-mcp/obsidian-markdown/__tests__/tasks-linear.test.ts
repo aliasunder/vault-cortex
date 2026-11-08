@@ -5,7 +5,7 @@ import { DateTime } from "luxon"
 import ts from "typescript"
 import { describe, expect, it } from "vitest"
 import { tasks } from "../tasks.js"
-import { createScannerDocuments } from "./link-scanner-corpus.js"
+import { createScannerDocuments } from "./helpers/link-scanner-corpus.js"
 
 /** Allows scheduling noise across the full input range. */
 const LINEAR_GROWTH_ALLOWANCE = 2

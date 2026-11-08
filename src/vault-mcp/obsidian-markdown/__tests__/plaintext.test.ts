@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest"
 import { execFileSync } from "node:child_process"
 import { stripMarkdownSyntax } from "../plaintext.js"
-import { createScannerDocuments, scannerCorpora, legacyPlaintext } from "./link-scanner-corpus.js"
+import {
+  createScannerDocuments,
+  scannerCorpora,
+  legacyPlaintext,
+} from "./helpers/link-scanner-corpus.js"
 
 describe("stripMarkdownSyntax", () => {
   it.each([
@@ -12,7 +16,7 @@ describe("stripMarkdownSyntax", () => {
   ])(
     "bounds repeated failing $variant openers in an externally killed child",
     ({ variant, expectedBytes }) => {
-      const fixturePath = new URL("./link-scanner-adversary.ts", import.meta.url)
+      const fixturePath = new URL("./helpers/link-scanner-adversary.ts", import.meta.url)
       // SIGKILL bounds a synchronous regex even when the child's event loop cannot run timers.
       const output = execFileSync(
         process.execPath,
