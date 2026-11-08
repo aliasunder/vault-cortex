@@ -4,6 +4,9 @@
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { chmod, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
+import { z } from "zod"
 import Database from "better-sqlite3"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
@@ -17,6 +20,7 @@ import {
 import type { ToolResult } from "./test-harness.js"
 import {
   buildPasswordProtectedPdf,
+  buildMinimalPdf,
   buildZeroPagePdf,
 } from "../../vault-mcp/obsidian-markdown/__tests__/pdf-fixture.js"
 import { runsAsRoot } from "../runs-as-root.js"
@@ -2412,6 +2416,329 @@ describe("unreadable PDF", () => {
       isError: true,
     })
   })
+})
+
+// ── Isolated PDF extraction failures ─────────────────────────
+
+const execFileAsync = promisify(execFile)
+const extractionLogSchema = z.object({
+  message: z.string(),
+  path: z.string().optional(),
+  kind: z.string().optional(),
+  extractionRequestId: z.number().optional(),
+  childPid: z.number().optional(),
+  reason: z.string().optional(),
+  signal: z.string().nullable().optional(),
+})
+type ExtractionLog = z.infer<typeof extractionLogSchema>
+
+const readExtractionLogs = (stdout: () => string): ExtractionLog[] => {
+  // The last chunk may stop inside JSON; only newline-terminated records are complete.
+  const completeLines = stdout().split("\n").slice(0, -1).filter(Boolean)
+  return completeLines.map((line) => extractionLogSchema.parse(JSON.parse(line)))
+}
+
+const waitForExtractionLog = async (params: {
+  stdout: () => string
+  matches: (entry: ExtractionLog) => boolean
+  timeoutMs?: number
+}): Promise<ExtractionLog> => {
+  return vi.waitFor(
+    () => {
+      const matched = readExtractionLogs(params.stdout).find(params.matches)
+
+      if (!matched) {
+        const recentLogs = readExtractionLogs(params.stdout).slice(-10)
+        throw new Error(
+          `expected PDF extraction lifecycle event has not arrived: ${JSON.stringify(recentLogs)}`,
+        )
+      }
+      return matched
+    },
+    { timeout: params.timeoutMs ?? 10_000, interval: 20 },
+  )
+}
+
+const findPdfChildren = async (serverPid: number): Promise<number[]> => {
+  const { stdout } = await execFileAsync("ps", ["-axo", "pid=,ppid=,command="])
+  // Whitespace varies with each numeric column's width; the command can itself contain spaces.
+  const processPattern = /^\s*(?<pid>\d+)\s+(?<parentPid>\d+)\s+(?<command>.+)$/
+  return stdout.split("\n").flatMap((line) => {
+    const fields = processPattern.exec(line)?.groups
+
+    if (!fields || Number(fields.parentPid) !== serverPid) return []
+    if (!fields.command?.includes("pdf-extraction-child")) return []
+    return [Number(fields.pid)]
+  })
+}
+
+const signalPdfChild = (pid: number, signal: NodeJS.Signals): void => {
+  try {
+    process.kill(pid, signal)
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH") return
+    throw error
+  }
+}
+
+const expectedPdfRead = {
+  content: [{ type: "text", text: "Title: (untitled) | Pages: 1\n\nHello PDF" }],
+}
+
+const expectedStoppedExtraction = (params: {
+  path: string
+  remedy: "split" | "retry"
+}): ToolResult => {
+  const remedy =
+    params.remedy === "split" ? "split or re-export the PDF, or provide a text copy" : "retry later"
+  return {
+    content: [
+      {
+        type: "text",
+        text: `[Error]: PDF text extraction stopped: "${params.path}" could not be completed; ${remedy}`,
+      },
+    ],
+    isError: true,
+  }
+}
+
+const startPdfFailureServer = async (paths: readonly string[]) => {
+  const port = await freePort()
+  const server = await startServer(port, {
+    LOG_LEVEL: "debug",
+    LOG_DIR: "none",
+    CHOKIDAR_USEPOLLING: "true",
+  })
+  onTestFinished(server.cleanup)
+  const ownClient = await createTestClient(port)
+  onTestFinished(() => ownClient.close())
+  const serverPid = server.child.pid
+
+  if (!serverPid) throw new Error("integration server has no PID")
+  // Every PID is independently discovered as a direct child before it can be stopped.
+  const controlledPids = new Set<number>()
+  onTestFinished(() => {
+    for (const pid of controlledPids) signalPdfChild(pid, "SIGKILL")
+  })
+  for (const path of ["Recovery.pdf", ...paths]) {
+    await writeFile(join(server.vaultPath, path), buildMinimalPdf())
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) => entry.message === "indexed non-md file" && entry.path === path,
+    })
+  }
+  expect(
+    await callTool({ client: ownClient, name: "vault_read_file", args: { path: "Recovery.pdf" } }),
+  ).toEqual(expectedPdfRead)
+  const children = await findPdfChildren(serverPid)
+  expect(children).toHaveLength(1)
+  const childPid = children[0]
+
+  if (!childPid) throw new Error("warmed PDF child is absent")
+  controlledPids.add(childPid)
+  const stopReplacement = async (): Promise<number> => {
+    return vi.waitFor(
+      async () => {
+        const childPids = await findPdfChildren(serverPid)
+        const replacementPid = childPids.find((pid) => !controlledPids.has(pid))
+
+        if (!replacementPid) throw new Error("replacement PDF child has not started")
+        controlledPids.add(replacementPid)
+        signalPdfChild(replacementPid, "SIGSTOP")
+        return replacementPid
+      },
+      { timeout: 30_000, interval: 10 },
+    )
+  }
+  const assertRecovery = async (): Promise<void> => {
+    expect(server.child.pid).toBe(serverPid)
+    expect(server.child.exitCode).toBeNull()
+    expect(server.child.signalCode).toBeNull()
+    expect((await fetch(`http://127.0.0.1:${port}/healthz`)).status).toBe(200)
+    expect(
+      await callTool({
+        client: ownClient,
+        name: "vault_read_file",
+        args: { path: "Recovery.pdf" },
+      }),
+    ).toEqual(expectedPdfRead)
+    expect((await findPdfChildren(serverPid)).includes(childPid)).toBe(false)
+  }
+  return { server, ownClient, serverPid, childPid, stopReplacement, assertRecovery }
+}
+
+describe("isolated PDF extraction error contracts", () => {
+  it("returns the stopped error after a real dispatched child is killed and recovers", async () => {
+    const { server, ownClient, childPid, assertRecovery } = await startPdfFailureServer([
+      "Stopped.pdf",
+    ])
+    signalPdfChild(childPid, "SIGSTOP")
+    const pending = callTool({
+      client: ownClient,
+      name: "vault_read_file",
+      args: { path: "Stopped.pdf" },
+    })
+    const dispatched = await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction dispatched" &&
+        entry.path === "Stopped.pdf" &&
+        entry.kind === "read",
+    })
+    expect(dispatched.childPid).toBe(childPid)
+    signalPdfChild(childPid, "SIGKILL")
+    expect(await pending).toEqual(
+      expectedStoppedExtraction({ path: "Stopped.pdf", remedy: "split" }),
+    )
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction reader discarded" &&
+        entry.extractionRequestId === dispatched.extractionRequestId &&
+        entry.signal === "SIGKILL",
+    })
+    await assertRecovery()
+  }, 45_000)
+
+  it("returns the split remedy when a dispatched child reaches the real twenty-second deadline", async () => {
+    const { server, ownClient, childPid, assertRecovery } = await startPdfFailureServer([
+      "Deadline.pdf",
+    ])
+    signalPdfChild(childPid, "SIGSTOP")
+    const pending = callTool({
+      client: ownClient,
+      name: "vault_read_file",
+      args: { path: "Deadline.pdf" },
+      timeoutMs: 45_000,
+    })
+    const dispatched = await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction dispatched" &&
+        entry.path === "Deadline.pdf" &&
+        entry.kind === "read",
+    })
+    expect(dispatched.childPid).toBe(childPid)
+    expect(await pending).toEqual(
+      expectedStoppedExtraction({ path: "Deadline.pdf", remedy: "split" }),
+    )
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction deadline exceeded" &&
+        entry.extractionRequestId === dispatched.extractionRequestId,
+    })
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction reader discarded" &&
+        entry.extractionRequestId === dispatched.extractionRequestId &&
+        entry.signal === "SIGKILL",
+    })
+    await assertRecovery()
+  }, 60_000)
+
+  it("returns retry later for a read that spends sixty seconds queued", async () => {
+    const paths = ["Blocker1.pdf", "Blocker2.pdf", "Blocker3.pdf", "Blocker4.pdf", "Expired.pdf"]
+    const { server, ownClient, childPid, stopReplacement, assertRecovery } =
+      await startPdfFailureServer(paths)
+    signalPdfChild(childPid, "SIGSTOP")
+    const blockers = paths.slice(0, -1).map((path) =>
+      callTool({
+        client: ownClient,
+        name: "vault_read_file",
+        args: { path },
+        timeoutMs: 100_000,
+      }),
+    )
+    const pending = callTool({
+      client: ownClient,
+      name: "vault_read_file",
+      args: { path: "Expired.pdf" },
+      timeoutMs: 100_000,
+    })
+    const queued = await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction queued" &&
+        entry.path === "Expired.pdf" &&
+        entry.kind === "read",
+    })
+    // Replacement discovery begins while the current stopped child still owns its deadline.
+    await stopReplacement()
+    await stopReplacement()
+    expect(await pending).toEqual(
+      expectedStoppedExtraction({ path: "Expired.pdf", remedy: "retry" }),
+    )
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction queue wait expired" &&
+        entry.extractionRequestId === queued.extractionRequestId,
+    })
+    expect(
+      readExtractionLogs(server.stdout).filter(
+        (entry) =>
+          entry.message === "PDF extraction dispatched" &&
+          entry.extractionRequestId === queued.extractionRequestId,
+      ),
+    ).toEqual([])
+    const blockerResults = await Promise.all(blockers)
+    expect(blockerResults.slice(0, 3)).toEqual([
+      expectedStoppedExtraction({ path: "Blocker1.pdf", remedy: "split" }),
+      expectedStoppedExtraction({ path: "Blocker2.pdf", remedy: "split" }),
+      expectedStoppedExtraction({ path: "Blocker3.pdf", remedy: "split" }),
+    ])
+    await assertRecovery()
+  }, 120_000)
+
+  it("returns retry later to active and queued HTTP reads while shutdown closes extraction", async () => {
+    const { server, ownClient, childPid } = await startPdfFailureServer([
+      "Active.pdf",
+      "Queued.pdf",
+    ])
+    signalPdfChild(childPid, "SIGSTOP")
+    const active = callTool({
+      client: ownClient,
+      name: "vault_read_file",
+      args: { path: "Active.pdf" },
+    })
+    const queued = callTool({
+      client: ownClient,
+      name: "vault_read_file",
+      args: { path: "Queued.pdf" },
+    })
+    const dispatched = await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction dispatched" &&
+        entry.path === "Active.pdf" &&
+        entry.kind === "read",
+    })
+    expect(dispatched.childPid).toBe(childPid)
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) =>
+        entry.message === "PDF extraction queued" &&
+        entry.path === "Queued.pdf" &&
+        entry.kind === "read",
+    })
+    expect(
+      readExtractionLogs(server.stdout).filter(
+        (entry) =>
+          entry.message === "PDF extraction dispatched" &&
+          entry.path === "Queued.pdf" &&
+          entry.kind === "read",
+      ),
+    ).toEqual([])
+    server.child.kill("SIGTERM")
+    expect(await active).toEqual(expectedStoppedExtraction({ path: "Active.pdf", remedy: "retry" }))
+    expect(await queued).toEqual(expectedStoppedExtraction({ path: "Queued.pdf", remedy: "retry" }))
+    await waitForExtractionLog({
+      stdout: server.stdout,
+      matches: (entry) => entry.message === "SIGTERM received, draining",
+    })
+  }, 45_000)
 })
 
 // ── Task errors ──────────────────────────────────────────────
