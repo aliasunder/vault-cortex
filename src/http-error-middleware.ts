@@ -15,7 +15,7 @@ export const createErrorMiddleware = ({
     const requestContext = {
       sessionId: capLogField(headerAsString(req.headers["mcp-session-id"])),
       clientIp: capLogField(extractClientIp(req, trustForwardedHops)),
-      method: req.method,
+      method: capLogField(req.method),
       path: capLogField(req.path),
     }
 

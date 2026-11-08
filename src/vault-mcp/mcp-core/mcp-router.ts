@@ -17,6 +17,7 @@ import { TOOL_REGISTRY } from "./tool-registry.js"
 import type { ToolName } from "./tool-registry.js"
 import { createToolAvailability } from "./tool-availability.js"
 import { logger } from "../../logger.js"
+import { capLogField } from "../../utils/cap-log-field.js"
 import { extractClientIp, headerAsString, mcpResourceUrl } from "../../auth.js"
 
 type McpRouterOptions = {
@@ -119,14 +120,14 @@ export const createMcpRouter = ({
 
   router.post("/mcp", bearerAuth, express.json(), async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
-    const clientIp = extractClientIp(req, config.trustForwardedHops)
-    logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
+    const clientIp = capLogField(extractClientIp(req, config.trustForwardedHops))
+    logger.info("mcp_request", { sessionId: capLogField(sessionId), clientIp, method: "POST" })
 
     const existingTransport = sessionId ? transports.get(sessionId) : undefined
 
     if (existingTransport) {
       logger.info("mcp_response", {
-        sessionId,
+        sessionId: capLogField(sessionId),
         clientIp,
         status: 200,
         outcome: "routed to existing session",
@@ -146,7 +147,7 @@ export const createMcpRouter = ({
           if (transport.sessionId) {
             transports.delete(transport.sessionId)
             logger.info("session_closed", {
-              sessionId: transport.sessionId,
+              sessionId: capLogField(transport.sessionId),
             })
           }
         }
@@ -169,7 +170,7 @@ export const createMcpRouter = ({
         const sessionLogger = logger.child({
           // Lazy: the transport generates its session id while handling the
           // initialize request — after this child is created. Resolved per-emit.
-          sessionId: () => transport.sessionId,
+          sessionId: () => capLogField(transport.sessionId),
           clientIp,
         })
         registerTools({
@@ -202,7 +203,7 @@ export const createMcpRouter = ({
         }
         transports.set(transport.sessionId, transport)
         logger.info("mcp_response", {
-          sessionId: transport.sessionId,
+          sessionId: capLogField(transport.sessionId),
           clientIp,
           status: 200,
           outcome: "session created",
@@ -219,7 +220,7 @@ export const createMcpRouter = ({
     }
 
     logger.warn("mcp_response", {
-      sessionId,
+      sessionId: capLogField(sessionId),
       clientIp,
       status: 404,
       outcome: "session not found",
@@ -234,10 +235,10 @@ export const createMcpRouter = ({
   // until an upstream proxy timeout kills it (surfacing as gateway 5xx).
   router.get("/mcp", bearerAuth, (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
-    const clientIp = extractClientIp(req, config.trustForwardedHops)
-    logger.info("mcp_request", { sessionId, clientIp, method: "GET" })
+    const clientIp = capLogField(extractClientIp(req, config.trustForwardedHops))
+    logger.info("mcp_request", { sessionId: capLogField(sessionId), clientIp, method: "GET" })
     logger.info("mcp_response", {
-      sessionId,
+      sessionId: capLogField(sessionId),
       clientIp,
       status: 405,
       outcome: "standalone SSE stream not offered",
@@ -249,13 +250,13 @@ export const createMcpRouter = ({
 
   router.delete("/mcp", bearerAuth, async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
-    const clientIp = extractClientIp(req, config.trustForwardedHops)
-    logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })
+    const clientIp = capLogField(extractClientIp(req, config.trustForwardedHops))
+    logger.info("mcp_request", { sessionId: capLogField(sessionId), clientIp, method: "DELETE" })
     const transport = sessionId ? transports.get(sessionId) : undefined
 
     if (!sessionId || !transport) {
       logger.warn("mcp_response", {
-        sessionId,
+        sessionId: capLogField(sessionId),
         clientIp,
         status: 404,
         outcome: "session not found",
@@ -266,7 +267,7 @@ export const createMcpRouter = ({
     await transport.close()
     transports.delete(sessionId)
     logger.info("mcp_response", {
-      sessionId,
+      sessionId: capLogField(sessionId),
       clientIp,
       status: 200,
       outcome: "session deleted",

@@ -237,7 +237,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 - `LOG_MAX_DAILY_MB` bounds each day's file at 25 MB by default, plus one
   limit notice; `none` disables the cap. File logging resumes at midnight in `TZ` (UTC by default),
   while console logging continues
-- Log files are pruned at startup and each day under `LOG_RETENTION_DAYS`;
+- Log files are pruned at startup and each day under `LOG_RETENTION_DAYS`
+  (digits only; `0` keeps today; invalid values warn and use `90`);
   older files written before a cap was configured keep their size until
   they age out
 - A failed append, folder creation, size lookup or prune disables file

@@ -1,5 +1,14 @@
 import { env } from "node:process"
-import { mkdirSync, readdirSync, unlinkSync, appendFileSync, statSync } from "node:fs"
+import {
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+  appendFileSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+} from "node:fs"
 import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
@@ -91,6 +100,25 @@ const DEFAULT_RETENTION_DAYS = 90
 // Bounds persisted logs while leaving room for busy days at the info level.
 const DEFAULT_MAX_DAILY_MB = 25
 const BYTES_PER_MB = 1_000_000
+// The limit notice is under 200 bytes; the tail also includes its preceding newline.
+const LIMIT_NOTICE_TAIL_BYTES = 512
+/** Matches the sink's notice header, excluding quoted text in ordinary log fields. */
+const LIMIT_NOTICE_PATTERN =
+  /^\{"timestamp":"[^"]+","level":"warn","name":"vault-cortex","message":"file_log_daily_limit_reached",/
+
+const endsWithLimitNotice = (logPath: string, fileBytes: number): boolean => {
+  if (!fileBytes) return false
+  const file = openSync(logPath, "r")
+
+  try {
+    const tail = Buffer.alloc(Math.min(fileBytes, LIMIT_NOTICE_TAIL_BYTES))
+    const bytesRead = readSync(file, tail, 0, tail.length, fileBytes - tail.length)
+    const lastLine = tail.toString("utf8", 0, bytesRead).trimEnd().split("\n").at(-1)
+    return Boolean(lastLine && LIMIT_NOTICE_PATTERN.test(lastLine))
+  } finally {
+    closeSync(file)
+  }
+}
 
 const todayDateString = (): string => DateTime.now().toISODate()
 
@@ -163,9 +191,9 @@ export const createFileSinkExtension = ({
       pruneOldLogFiles(logDir, retentionDays)
       logDay.bytes = statSync(logPath, { throwIfNoEntry: false })?.size ?? 0
       logDay.date = today
-      // An exact-cap file still needs its limit notice; an over-cap file already
-      // has one or predates this cap, so restarting must not append another.
-      logDay.capped = logDay.bytes > maxDailyBytes
+      // A notice can leave the file below the cap when the rejected line was large.
+      // Exact-cap files without a notice still need one on the next rejected write.
+      logDay.capped = logDay.bytes > maxDailyBytes || endsWithLimitNotice(logPath, logDay.bytes)
     }
 
     if (logDay.capped) return
@@ -191,10 +219,10 @@ export const createFileSinkExtension = ({
 // ── Logger ──────────────────────────────────────────────────
 
 const parseRetentionDays = (envValue: string | undefined): number | undefined => {
-  if (!envValue) return undefined
-  const retentionDays = parseInt(envValue, 10)
+  if (envValue === undefined) return undefined
+  const retentionDays = Number(envValue)
 
-  if (!Number.isNaN(retentionDays) && retentionDays >= 0) return retentionDays
+  if (WHOLE_NUMBER.test(envValue) && Number.isFinite(retentionDays)) return retentionDays
 
   process.stdout.write(
     consoleWarningLine("invalid LOG_RETENTION_DAYS; using default", {
@@ -204,8 +232,8 @@ const parseRetentionDays = (envValue: string | undefined): number | undefined =>
   return DEFAULT_RETENTION_DAYS
 }
 
-/** Matches a whole number of megabytes, without signs, fractions or trailing text. */
-const WHOLE_MEGABYTES = /^\d+$/
+/** Matches a whole number without signs, fractions or trailing text. */
+const WHOLE_NUMBER = /^\d+$(?![\s\S])/
 
 const parseMaxDailyBytes = (envValue: string | undefined): number => {
   if (envValue === undefined) return DEFAULT_MAX_DAILY_MB * BYTES_PER_MB
@@ -213,7 +241,8 @@ const parseMaxDailyBytes = (envValue: string | undefined): number => {
 
   const maxDailyMb = Number(envValue)
   const maxDailyBytes = maxDailyMb * BYTES_PER_MB
-  const validLimit = WHOLE_MEGABYTES.test(envValue) && maxDailyMb >= 1
+  const validLimit =
+    WHOLE_NUMBER.test(envValue) && maxDailyMb >= 1 && Number.isFinite(maxDailyBytes)
 
   if (validLimit) return maxDailyBytes
 

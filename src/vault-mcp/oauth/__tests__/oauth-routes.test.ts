@@ -581,6 +581,34 @@ describe("OAuth consent audit logging", () => {
       },
     })
   })
+
+  it("caps the submitted request ID in consent rejection logs", async () => {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        request_id: "🎉".repeat(1_000),
+        token: AUTH_TOKEN,
+        action: "approve",
+      }),
+    })
+
+    expect({ status: response.status, body: await response.text() }).toEqual({
+      status: 400,
+      body: "Authorization request expired or invalid.",
+    })
+    expect(logs.filter((log) => log.message === "oauth_consent_expired")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_consent_expired",
+        data: {
+          component: "oauth-routes",
+          clientIp: expect.toBeOneOf(LOOPBACK_ADDRESSES),
+          requestId: "🎉".repeat(255) + "…",
+        },
+      },
+    ])
+  })
 })
 
 describe("OAuth endpoint rate limiting", () => {
@@ -668,6 +696,34 @@ describe("OAuth endpoint rate limiting", () => {
         path: "/register",
       },
     })
+  })
+
+  it("caps the request path and forwarded client IP in rate-limit logs", async () => {
+    const clientIp = "x".repeat(1_000)
+    const path = "/register/" + "x".repeat(1_000)
+    const statuses: number[] = []
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await fetch(`${baseUrl}${path}?state=private`, {
+        method: "POST",
+        headers: { forwarded: `for=${clientIp}` },
+      })
+      await response.text()
+      statuses.push(response.status)
+    }
+
+    expect(statuses).toEqual([404, 404, 404, 404, 404, 429])
+    expect(logs.filter((log) => log.message === "oauth_rate_limited")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_rate_limited",
+        data: {
+          component: "oauth-routes",
+          clientIp: "x".repeat(255) + "…",
+          path: "/register/" + "x".repeat(245) + "…",
+        },
+      },
+    ])
   })
 
   it("keys the limit by client IP, so exhausting one client leaves another unaffected", async () => {

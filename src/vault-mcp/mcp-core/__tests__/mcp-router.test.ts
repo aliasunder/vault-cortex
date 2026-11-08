@@ -255,6 +255,41 @@ beforeEach(() => {
   vi.spyOn(logger, "child")
 })
 
+it.each([
+  { method: "POST", status: 404 },
+  { method: "GET", status: 405 },
+  { method: "DELETE", status: 404 },
+])(
+  "caps session IDs and client IPs in $method request and response logs",
+  async ({ method, status }) => {
+    const harness = await setupHarness({ config: loadConfig({ TRUST_FORWARDED_HOPS: "1" }) })
+    const response = await fetch(harness.url(), {
+      method,
+      headers: {
+        ...baseHeaders,
+        "mcp-session-id": "s".repeat(1_000),
+        forwarded: `for=${"x".repeat(1_000)}`,
+      },
+      ...(method === "POST" ? { body: JSON.stringify(initializeBody) } : {}),
+    })
+    await response.arrayBuffer()
+
+    expect(response.status).toBe(status)
+    expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
+      sessionId: "s".repeat(255) + "…",
+      clientIp: "x".repeat(255) + "…",
+      method,
+    })
+    const responseLogger = method === "GET" ? mockedLogger.info : mockedLogger.warn
+    expect(responseLogger).toHaveBeenCalledWith("mcp_response", {
+      sessionId: "s".repeat(255) + "…",
+      clientIp: "x".repeat(255) + "…",
+      status,
+      outcome: method === "GET" ? "standalone SSE stream not offered" : "session not found",
+    })
+  },
+)
+
 // restoreAllMocks restores every vi.spyOn-created spy (logger.* go back to
 // real methods). clearAllMocks then clears call/instance history on the
 // vi.fn() instances created by vi.mock factories (restoreAllMocks doesn't

@@ -9,6 +9,7 @@ import {
   appendFileSync,
   mkdirSync,
   statSync,
+  readSync,
 } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -367,6 +368,82 @@ describe("createFileSinkExtension", () => {
     expect(readFileSync(logFile, "utf8")).toBe(existingLine + JSON.stringify(records()[0]) + "\n")
   })
 
+  it("keeps an under-cap file unchanged after restarting past its limit notice", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const maxDailyBytes = 10_000
+    const line = '{"message":"first"}\n'
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes })
+    extension(sampleEntry("first"), line)
+    extension(sampleEntry("too large"), sampleLine("x".repeat(maxDailyBytes)))
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const cappedContent = readFileSync(logFile, "utf8")
+    expect(Buffer.byteLength(cappedContent)).toBeLessThan(maxDailyBytes)
+    const restartedExtension = createFileSinkExtension({ logDir, maxDailyBytes })
+
+    restartedExtension(sampleEntry("after restart"), line)
+    restartedExtension(sampleEntry("too large again"), sampleLine("x".repeat(maxDailyBytes)))
+
+    expect(records()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes,
+      },
+    ])
+    expect(readFileSync(logFile, "utf8")).toBe(cappedContent)
+  })
+
+  it("continues an under-cap file without a limit notice after restarting", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const maxDailyBytes = 10_000
+    const line = sampleLine("x".repeat(1_000))
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes })
+    extension(sampleEntry("first"), line)
+    const restartedExtension = createFileSinkExtension({ logDir, maxDailyBytes })
+    vi.mocked(readSync).mockClear()
+
+    restartedExtension(sampleEntry("after restart"), line)
+
+    expect(readSync).toHaveBeenCalledTimes(1)
+    expect(readSync).toHaveBeenCalledWith(
+      expect.any(Number),
+      Buffer.from(line).subarray(-512),
+      0,
+      512,
+      Buffer.byteLength(line) - 512,
+    )
+    expect(records()).toEqual([])
+    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
+      line + line,
+    )
+  })
+
+  it("disables the sink when reading the restart tail fails", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    writeFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "existing\n")
+    const fileLogger = await importFileLogger(logDir)
+    vi.mocked(readSync).mockImplementationOnce(() => {
+      throw new Error("tail read denied")
+    })
+
+    fileLogger.info("first")
+    fileLogger.info("second")
+
+    expect(records()).toEqual([
+      expectedConsoleRecord("first"),
+      expectedStoppedRecord("[Error]: tail read denied"),
+      expectedConsoleRecord("second"),
+    ])
+    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
+      "existing\n",
+    )
+  })
+
   it("keeps an over-cap file unchanged when the sink restarts", () => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()
@@ -514,6 +591,8 @@ describe("LOG_MAX_DAILY_MB", () => {
   it.each([
     { label: "unset", value: undefined },
     { label: "invalid", value: "bad" },
+    { label: "non-finite byte count", value: "9".repeat(400) },
+    { label: "overflowing byte count from finite megabytes", value: "1" + "0".repeat(303) },
   ])("enforces the 25 MB default when the value is $label", async ({ value }) => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()
@@ -580,7 +659,9 @@ describe("LOG_MAX_DAILY_MB", () => {
     { label: "non-number", value: "bad" },
     { label: "signed whole number", value: "+1" },
     { label: "surrounding whitespace", value: " 1 " },
+    { label: "trailing newline", value: "1\n" },
     { label: "exponent", value: "1e1" },
+    { label: "non-finite byte count", value: "9".repeat(400) },
   ])("uses the default with one startup warning for a $label value", async ({ value }) => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()
@@ -603,23 +684,23 @@ describe("LOG_MAX_DAILY_MB", () => {
     ])
   })
 
-  it.each([
-    { label: "unsafe byte count", value: "9007199255" },
-    { label: "non-finite byte count", value: "9".repeat(400) },
-  ])("accepts a whole megabyte limit with a $label", async ({ value }) => {
-    const logDir = createTempDir()
-    const records = captureConsoleRecords()
-    vi.stubEnv("LOG_MAX_DAILY_MB", value)
-    const fileLogger = await importFileLogger(logDir)
-    const message = "x".repeat(25_000_001)
+  it.each([{ label: "unsafe byte count", value: "9007199255" }])(
+    "accepts a whole megabyte limit with a $label",
+    async ({ value }) => {
+      const logDir = createTempDir()
+      const records = captureConsoleRecords()
+      vi.stubEnv("LOG_MAX_DAILY_MB", value)
+      const fileLogger = await importFileLogger(logDir)
+      const message = "x".repeat(25_000_001)
 
-    fileLogger.info(message)
+      fileLogger.info(message)
 
-    expect(records()).toEqual([expectedConsoleRecord(message)])
-    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
-      JSON.stringify(records()[0]) + "\n",
-    )
-  })
+      expect(records()).toEqual([expectedConsoleRecord(message)])
+      expect(
+        readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8"),
+      ).toBe(JSON.stringify(records()[0]) + "\n")
+    },
+  )
 
   it("uses whole decimal megabytes for the configured cap and keeps console output after it", async () => {
     const logDir = createTempDir()
@@ -653,6 +734,14 @@ describe("LOG_RETENTION_DAYS", () => {
   it.each([
     { label: "negative", value: "-1" },
     { label: "non-number", value: "bad" },
+    { label: "fraction", value: "0.5" },
+    { label: "exponent", value: "1e1" },
+    { label: "trailing text", value: "90abc" },
+    { label: "trailing newline", value: "90\n" },
+    { label: "signed whole number", value: "+1" },
+    { label: "surrounding whitespace", value: " 1 " },
+    { label: "empty", value: "" },
+    { label: "non-finite", value: "9".repeat(400) },
   ])("warns once and keeps the default retention for a $label value", async ({ value }) => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()

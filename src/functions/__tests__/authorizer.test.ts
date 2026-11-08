@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto"
 import { DateTime } from "luxon"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { signJwt } from "../../jwt.js"
+import { logger } from "../../logger.js"
 
 const SECRET = "test-lambda-secret"
 const PUBLIC_URL = "https://mcp.example.com"
@@ -82,6 +83,19 @@ const accessToken = ({
 }
 
 describe("authorizer handler", () => {
+  it("caps request-derived authorizer context without changing authorization", async () => {
+    const child = vi.spyOn(logger, "child")
+    onTestFinished(() => child.mockRestore())
+    const result = await handler(requestTo("/" + "x".repeat(1_000), `Bearer ${SECRET}`))
+
+    expect(result).toEqual({ isAuthorized: true })
+    expect(child).toHaveBeenCalledTimes(1)
+    expect(child).toHaveBeenCalledWith({
+      requestId: "req-1",
+      sourceIp: "203.0.113.7",
+      path: "/" + "x".repeat(254) + "…",
+    })
+  })
   it("authorizes the static token", async () => {
     recordedLogs.length = 0
     const result = await handler(protectedRequest(`Bearer ${SECRET}`))

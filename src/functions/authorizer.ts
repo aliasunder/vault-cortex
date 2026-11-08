@@ -30,6 +30,7 @@ import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { getDeploymentJwtVerification } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
+import { capLogField } from "../utils/cap-log-field.js"
 
 export const handler = async (
   event: APIGatewayRequestAuthorizerEventV2,
@@ -37,7 +38,11 @@ export const handler = async (
   const path = event.rawPath ?? "/"
   const requestId = event.requestContext?.requestId
   const sourceIp = event.requestContext?.http?.sourceIp
-  const logger = rootLogger.child({ requestId, sourceIp, path })
+  const logger = rootLogger.child({
+    requestId: capLogField(requestId),
+    sourceIp: capLogField(sourceIp),
+    path: capLogField(path),
+  })
 
   const token = parseBearer(event.headers?.authorization)
 

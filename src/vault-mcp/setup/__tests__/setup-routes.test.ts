@@ -339,6 +339,35 @@ describe("POST /setup — MCP token gate", () => {
     expect(harness.logs.at(-1)?.message).toBe("setup_rate_limited")
   })
 
+  it("caps forwarded client IPs in sign-in and rate-limit logs", async () => {
+    const harness = await startHarness({ forwardedHeaderTrusted: true })
+    const statuses: number[] = []
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await fetch(`${harness.baseUrl}/setup`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          forwarded: `for=${"x".repeat(1_000)}`,
+        },
+        body: new URLSearchParams({ ...CREDENTIALS, token: "wrong" }),
+      })
+      await response.text()
+      statuses.push(response.status)
+    }
+
+    expect(statuses).toEqual([401, 401, 401, 401, 401, 429])
+    expect(
+      harness.logs.map((log) => ({ message: log.message, clientIp: log.data.clientIp })),
+    ).toEqual([
+      ...Array.from({ length: 5 }, () => ({
+        message: "setup_bad_token",
+        clientIp: "x".repeat(255) + "…",
+      })),
+      { message: "setup_rate_limited", clientIp: "x".repeat(255) + "…" },
+    ])
+  })
+
   it("sends the OAuth endpoints' rate-limit headers on the sixth attempt, without legacy X-RateLimit headers", async () => {
     const harness = await startHarness()
 

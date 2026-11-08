@@ -176,6 +176,7 @@ LOG_LEVEL=info
 LOG_DIR=none
 
 # Days to keep log files; cleanup runs at startup and each day (default: 90).
+# Use digits only (0 keeps today); invalid values warn and use 90.
 # Only applies once LOG_DIR is a path.
 # LOG_RETENTION_DAYS=90
 
@@ -347,6 +348,7 @@ LOG_LEVEL=info
 LOG_DIR=/data/logs
 
 # Days to retain log files; cleanup runs at startup and each day (default: 90).
+# Use digits only (0 keeps today); invalid values warn and use 90.
 LOG_RETENTION_DAYS=90
 
 # Maximum MB per daily log file (1 MB = 1,000,000 bytes; default: 25).

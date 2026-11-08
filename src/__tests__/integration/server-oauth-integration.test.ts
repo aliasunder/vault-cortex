@@ -193,6 +193,41 @@ const refresh = ({
 }
 
 describe("JSON parser placement", () => {
+  it.each([{ path: "/token" }, { path: "/revoke" }])(
+    "returns the SDK OAuth 400 for a JSON body on $path",
+    async ({ path }) => {
+      const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: TOKEN_A })
+      onTestFinished(server.cleanup)
+      const response = await fetch(`http://127.0.0.1:${server.port}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ client_id: "json-client", token: "json-token" }),
+      })
+
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 400,
+        body: {
+          error: "invalid_request",
+          error_description: JSON.stringify(
+            [
+              {
+                expected: "object",
+                code: "invalid_type",
+                path: [],
+                message: "Invalid input: expected object, received undefined",
+              },
+            ],
+            null,
+            2,
+          ),
+        },
+      })
+      await server.cleanup()
+      expect(server.stdout()).not.toContain('"message":"unhandled_error"')
+      expect(server.stderr()).not.toContain('"message":"unhandled_error"')
+    },
+  )
+
   it.each([
     { label: "health check", method: "GET", path: "/healthz", status: 200, body: { ok: true } },
     {

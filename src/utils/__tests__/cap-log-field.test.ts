@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest"
 import { capLogField } from "../cap-log-field.js"
 
 describe("capLogField", () => {
+  it("preserves numeric request IDs and explicit null fields", () => {
+    expect([capLogField(0), capLogField(12), capLogField(null)]).toEqual([0, 12, null])
+  })
   it("preserves absent, empty and short fields", () => {
     expect([capLogField(undefined), capLogField(""), capLogField("/mcp")]).toEqual([
       undefined,

@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto"
 import { DateTime } from "luxon"
 import { extractClientIp, safeEqual } from "../../auth.js"
 import type { Logger } from "../../logger.js"
+import { capLogField } from "../../utils/cap-log-field.js"
 import {
   ObsidianApiError,
   describeApiFailure,
@@ -137,7 +138,7 @@ export const createSetupRoutes = ({
       options: { statusCode: number; message: unknown },
     ) => {
       routeLogger.warn("setup_rate_limited", {
-        clientIp: extractClientIp(req, trustForwardedHops),
+        clientIp: capLogField(extractClientIp(req, trustForwardedHops)),
       })
       res.status(options.statusCode).send(options.message)
     },
@@ -461,7 +462,7 @@ export const createSetupRoutes = ({
       const body: Record<string, unknown> = req.body
       const requestLogger = routeLogger.child({
         requestId: randomUUID(),
-        clientIp: extractClientIp(req, trustForwardedHops),
+        clientIp: capLogField(extractClientIp(req, trustForwardedHops)),
       })
 
       const isMfaCodeForm = Boolean(formField(body, "request_id"))
