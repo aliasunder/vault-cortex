@@ -953,7 +953,9 @@ describe("LOG_RETENTION_DAYS", () => {
       expectedConsoleRecord("first"),
       expectedConsoleRecord("second"),
     ])
-    expect(readdirSync(logDir)).toEqual([cutoffFile, `vault-mcp-${now.toISODate()}.log`])
+    expect(readdirSync(logDir).toSorted()).toEqual(
+      [cutoffFile, `vault-mcp-${now.toISODate()}.log`].toSorted(),
+    )
     expect(readFileSync(join(logDir, cutoffFile), "utf8")).toBe("kept")
   })
 
