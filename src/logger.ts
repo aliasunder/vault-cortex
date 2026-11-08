@@ -3,7 +3,6 @@ import { mkdirSync, readdirSync, unlinkSync, appendFileSync, statSync } from "no
 import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
-import { describeError } from "./utils/describe-error.js"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
@@ -89,6 +88,9 @@ const LOG_FILE_SUFFIX = ".log"
 const LOG_FILE_PATTERN = /^vault-mcp-(\d{4}-\d{2}-\d{2})\.log$/
 
 const DEFAULT_RETENTION_DAYS = 90
+// Bounds persisted logs while leaving room for busy days at the info level.
+const DEFAULT_MAX_DAILY_MB = 25
+const BYTES_PER_MB = 1_000_000
 
 const todayDateString = (): string => DateTime.now().toISODate()
 
@@ -105,7 +107,9 @@ const consoleWarningLine = (message: string, data: Record<string, unknown>): str
 }
 
 const reportFileLoggingStopped = (error: unknown): void => {
-  process.stdout.write(consoleWarningLine("file_logging_stopped", { error: describeError(error) }))
+  const errorDescription =
+    error instanceof Error ? `[${error.name}]: ${error.message}` : String(error)
+  process.stdout.write(consoleWarningLine("file_logging_stopped", { error: errorDescription }))
 }
 
 /** Deletes log files older than retentionDays. */
@@ -122,12 +126,16 @@ export const pruneOldLogFiles = (logDir: string, retentionDays: number): void =>
   }
 }
 
-/** Creates a LogExtension that appends each line to a date-stamped file.
- *  Rolls to a new file at midnight. Prunes files older than retentionDays on creation. */
-export const createFileSinkExtension = (
-  logDir: string,
-  retentionDays: number = DEFAULT_RETENTION_DAYS,
-): LogExtension => {
+/** Keeps the start of each day's log; console output continues after the daily cap. */
+export const createFileSinkExtension = ({
+  logDir,
+  retentionDays = DEFAULT_RETENTION_DAYS,
+  maxDailyBytes = DEFAULT_MAX_DAILY_MB * BYTES_PER_MB,
+}: {
+  logDir: string
+  retentionDays?: number
+  maxDailyBytes?: number
+}): LogExtension => {
   // Initialisation failures disable this sink before it reaches any logger.
   try {
     mkdirSync(logDir, { recursive: true })
@@ -138,7 +146,7 @@ export const createFileSinkExtension = (
   }
 
   // Each day's count starts from disk so restarting preserves the written bytes.
-  const logDay = { date: "", bytes: 0 }
+  const logDay = { date: "", bytes: 0, capped: false }
 
   // `line` is the same JSON string already written to stdout/stderr by emit()
   return (_entry: LogEntry, line: string): void => {
@@ -146,11 +154,25 @@ export const createFileSinkExtension = (
     const logPath = join(logDir, `${LOG_FILE_PREFIX}${today}${LOG_FILE_SUFFIX}`)
 
     if (logDay.date !== today) {
+      pruneOldLogFiles(logDir, retentionDays)
       logDay.bytes = statSync(logPath, { throwIfNoEntry: false })?.size ?? 0
       logDay.date = today
+      logDay.capped = false
+    }
+    if (logDay.capped) return
+    const lineBytes = Buffer.byteLength(line)
+    const exceedsDailyLimit = logDay.bytes + lineBytes > maxDailyBytes
+
+    if (exceedsDailyLimit) {
+      // Mark before the append so even a failing limit notice cannot retry this day.
+      logDay.capped = true
+      const limitLine = consoleWarningLine("file_log_daily_limit_reached", { maxDailyBytes })
+      appendFileSync(logPath, limitLine)
+      process.stdout.write(limitLine)
+      return
     }
     appendFileSync(logPath, line)
-    logDay.bytes += Buffer.byteLength(line)
+    logDay.bytes += lineBytes
   }
 }
 
@@ -160,6 +182,26 @@ const parseRetentionDays = (envValue: string | undefined): number | undefined =>
   if (!envValue) return undefined
   const retentionDays = parseInt(envValue, 10)
   return Number.isNaN(retentionDays) ? undefined : retentionDays
+}
+
+/** Matches a whole number of megabytes, without signs, fractions or trailing text. */
+const WHOLE_MEGABYTES = /^\d+$/
+
+const parseMaxDailyBytes = (envValue: string | undefined): number => {
+  if (envValue === undefined) return DEFAULT_MAX_DAILY_MB * BYTES_PER_MB
+  if (envValue.toLowerCase() === "none") return Number.POSITIVE_INFINITY
+  const maxDailyMb = Number(envValue)
+  const maxDailyBytes = maxDailyMb * BYTES_PER_MB
+  const validLimit =
+    WHOLE_MEGABYTES.test(envValue) && maxDailyMb >= 1 && Number.isSafeInteger(maxDailyBytes)
+
+  if (validLimit) return maxDailyBytes
+  process.stdout.write(
+    consoleWarningLine("invalid LOG_MAX_DAILY_MB; using default", {
+      maxDailyMb: DEFAULT_MAX_DAILY_MB,
+    }),
+  )
+  return DEFAULT_MAX_DAILY_MB * BYTES_PER_MB
 }
 
 /** Sentinel that turns file logging off. Deployments that default LOG_DIR on
@@ -179,8 +221,13 @@ export const resolveLogDir = (logDirSetting: string | undefined): string | undef
 }
 
 const logDir = resolveLogDir(env.LOG_DIR)
+const maxDailyBytes = parseMaxDailyBytes(env.LOG_MAX_DAILY_MB)
 const fileSinkExtension: LogExtension | undefined = logDir
-  ? createFileSinkExtension(logDir, parseRetentionDays(env.LOG_RETENTION_DAYS))
+  ? createFileSinkExtension({
+      logDir,
+      retentionDays: parseRetentionDays(env.LOG_RETENTION_DAYS) ?? DEFAULT_RETENTION_DAYS,
+      maxDailyBytes,
+    })
   : undefined
 
 const defaultExtensions = new Set<LogExtension>(fileSinkExtension ? [fileSinkExtension] : [])

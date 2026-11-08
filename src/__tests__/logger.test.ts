@@ -114,6 +114,81 @@ describe("resolveLogDir", () => {
 })
 
 describe("file logging fails open", () => {
+  it("disables the sink when a daily rollover prune fails", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const originalNow = Settings.now
+    const dayOne = DateTime.fromISO("2026-01-15T12:00:00Z").toMillis()
+    const dayTwo = DateTime.fromISO("2026-01-16T12:00:00Z").toMillis()
+    onTestFinished(() => {
+      Settings.now = originalNow
+    })
+    Settings.now = () => dayOne
+    const fileLogger = await importFileLogger(logDir)
+    fileLogger.info("day one")
+    const pruneSpy = vi
+      .mocked(readdirSync)
+      .mockClear()
+      .mockImplementationOnce(() => {
+        throw new Error("rollover prune denied")
+      })
+    Settings.now = () => dayTwo
+
+    fileLogger.info("day two")
+    fileLogger.child({ component: "child" }).info("child continues")
+
+    expect(pruneSpy).toHaveBeenCalledTimes(1)
+    expect(pruneSpy).toHaveBeenCalledWith(logDir)
+    expect(readdirSync(logDir)).toEqual(["vault-mcp-2026-01-15.log"])
+    expect(records()).toEqual([
+      expectedConsoleRecord("day one"),
+      expectedConsoleRecord("day two"),
+      expectedStoppedRecord("[Error]: rollover prune denied"),
+      expectedConsoleRecord("child continues", { component: "child" }),
+    ])
+  })
+
+  it("disables the sink if appending the daily limit notice fails", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const originalNow = Settings.now
+    const now = DateTime.now()
+    onTestFinished(() => {
+      Settings.now = originalNow
+    })
+    Settings.now = () => now.toMillis()
+    vi.stubEnv("LOG_MAX_DAILY_MB", "1")
+    const fileLogger = await importFileLogger(logDir)
+    const message = "x".repeat(1_000_000)
+    const appendSpy = vi
+      .mocked(appendFileSync)
+      .mockClear()
+      .mockImplementationOnce(() => {
+        throw new Error("limit notice failed")
+      })
+
+    fileLogger.info(message)
+    fileLogger.child({ component: "child" }).info("child continues")
+
+    expect(appendSpy).toHaveBeenCalledTimes(1)
+    expect(appendSpy).toHaveBeenCalledWith(
+      join(logDir, `vault-mcp-${now.toISODate()}.log`),
+      JSON.stringify({
+        timestamp: now.toISO(),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes: 1_000_000,
+      }) + "\n",
+    )
+    expect(readdirSync(logDir)).toEqual([])
+    expect(records()).toEqual([
+      expectedConsoleRecord(message),
+      expectedStoppedRecord("[Error]: limit notice failed"),
+      expectedConsoleRecord("child continues", { component: "child" }),
+    ])
+  })
+
   it("keeps console logging and disables failed appends across the root and children", async () => {
     const logDir = createTempDir()
     const records = captureConsoleRecords()
@@ -134,7 +209,7 @@ describe("file logging fails open", () => {
     fileLogger.info("root continues")
 
     expect(appendSpy).toHaveBeenCalledTimes(1)
-    expect(appendSpy).toHaveBeenCalledWith(logFile, expect.any(String))
+    expect(appendSpy).toHaveBeenCalledWith(logFile, JSON.stringify(records()[1]) + "\n")
     expect(readFileSync(logFile, "utf8")).toBe(originalContent)
     expect(records()).toEqual([
       expectedConsoleRecord("persisted"),
@@ -223,9 +298,125 @@ describe("file logging fails open", () => {
 })
 
 describe("createFileSinkExtension", () => {
+  it("writes through the exact byte cap and emits only one limit notice per day", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const line = '{"message":"🎉"}\n'
+    const maxDailyBytes = Buffer.byteLength(line)
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes })
+
+    extension(sampleEntry("first"), line)
+    extension(sampleEntry("second"), line)
+    extension(sampleEntry("third"), line)
+
+    const expectedNotice = {
+      timestamp: DateTime.now().toISO(),
+      level: "warn",
+      name: "vault-cortex",
+      message: "file_log_daily_limit_reached",
+      maxDailyBytes,
+    }
+    const notices = records()
+    expect(notices).toEqual([{ ...expectedNotice, timestamp: expect.any(String) }])
+    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
+      line + JSON.stringify(notices[0]) + "\n",
+    )
+  })
+
+  it("counts UTF-8 bytes when deciding whether another line fits", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const line = '{"message":"🎉🎉"}\n'
+    const maxDailyBytes = Buffer.byteLength(line) + line.length
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes })
+
+    extension(sampleEntry("first"), line)
+    extension(sampleEntry("second"), line)
+
+    expect(records()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes,
+      },
+    ])
+    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
+      line + JSON.stringify(records()[0]) + "\n",
+    )
+  })
+
+  it("counts a pre-existing file when a new sink starts", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const existingLine = '{"message":"existing"}\n'
+    writeFileSync(logFile, existingLine)
+    const maxDailyBytes = Buffer.byteLength(existingLine)
+    const extension = createFileSinkExtension({ logDir, maxDailyBytes })
+
+    extension(sampleEntry("new"), '{"message":"new"}\n')
+    extension(sampleEntry("later"), '{"message":"later"}\n')
+
+    expect(records()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes,
+      },
+    ])
+    expect(readFileSync(logFile, "utf8")).toBe(existingLine + JSON.stringify(records()[0]) + "\n")
+  })
+
+  it("resumes writing after midnight and prunes exactly the dates before the retention cutoff", () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const originalNow = Settings.now
+    // Mutable because the test advances across the daily rollover.
+    const clock = { millis: DateTime.fromISO("2026-01-15T12:00:00Z").toMillis() }
+    onTestFinished(() => {
+      Settings.now = originalNow
+    })
+    Settings.now = () => clock.millis
+    const line = '{"message":"hello"}\n'
+    const maxDailyBytes = Buffer.byteLength(line)
+    const extension = createFileSinkExtension({ logDir, retentionDays: 7, maxDailyBytes })
+    writeFileSync(join(logDir, "vault-mcp-2026-01-08.log"), "expires tomorrow")
+    writeFileSync(join(logDir, "vault-mcp-2026-01-09.log"), "on tomorrow's cutoff")
+    writeFileSync(join(logDir, "keep.txt"), "unrelated")
+    extension(sampleEntry("first"), line)
+    extension(sampleEntry("over cap"), line)
+    clock.millis = DateTime.fromISO("2026-01-16T12:00:00Z").toMillis()
+
+    extension(sampleEntry("tomorrow"), line)
+
+    expect(readdirSync(logDir).toSorted()).toEqual([
+      "keep.txt",
+      "vault-mcp-2026-01-09.log",
+      "vault-mcp-2026-01-15.log",
+      "vault-mcp-2026-01-16.log",
+    ])
+    expect(readFileSync(join(logDir, "vault-mcp-2026-01-09.log"), "utf8")).toBe(
+      "on tomorrow's cutoff",
+    )
+    expect(readFileSync(join(logDir, "vault-mcp-2026-01-16.log"), "utf8")).toBe(line)
+    expect(records()).toEqual([
+      {
+        timestamp: DateTime.fromISO("2026-01-15T12:00:00Z").toISO(),
+        level: "warn",
+        name: "vault-cortex",
+        message: "file_log_daily_limit_reached",
+        maxDailyBytes,
+      },
+    ])
+  })
+
   it("writes log lines to a date-stamped file", () => {
     const logDir = createTempDir()
-    const extension = createFileSinkExtension(logDir)
+    const extension = createFileSinkExtension({ logDir })
 
     extension(sampleEntry("hello"), sampleLine("hello"))
     extension(sampleEntry("world"), sampleLine("world"))
@@ -244,7 +435,7 @@ describe("createFileSinkExtension", () => {
     const parentDir = createTempDir()
     const nestedLogDir = join(parentDir, "nested", "logs")
 
-    createFileSinkExtension(nestedLogDir)
+    createFileSinkExtension({ logDir: nestedLogDir })
 
     expect(existsSync(nestedLogDir)).toBe(true)
   })
@@ -256,7 +447,7 @@ describe("createFileSinkExtension", () => {
 
     writeFileSync(logFile, '{"message":"existing"}\n')
 
-    const extension = createFileSinkExtension(logDir)
+    const extension = createFileSinkExtension({ logDir })
     extension(sampleEntry("appended"), sampleLine("appended"))
 
     const lines = readFileSync(logFile, "utf8")
@@ -276,7 +467,7 @@ describe("createFileSinkExtension", () => {
 
     // Day 1
     Settings.now = () => Date.parse("2026-01-15T12:00:00Z")
-    const extension = createFileSinkExtension(logDir, 30)
+    const extension = createFileSinkExtension({ logDir, retentionDays: 30 })
     extension(sampleEntry("day1"), '{"message":"day1"}\n')
 
     // Day 2
@@ -300,10 +491,128 @@ describe("createFileSinkExtension", () => {
     const logDir = createTempDir()
     writeFileSync(join(logDir, "vault-mcp-2020-01-01.log"), "ancient")
 
-    createFileSinkExtension(logDir, 7)
+    createFileSinkExtension({ logDir, retentionDays: 7 })
 
     const remaining = readdirSync(logDir)
     expect(remaining).toHaveLength(0)
+  })
+})
+
+describe("LOG_MAX_DAILY_MB", () => {
+  it.each([
+    { label: "unset", value: undefined },
+    { label: "invalid", value: "bad" },
+  ])("enforces the 25 MB default when the value is $label", async ({ value }) => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    vi.stubEnv("LOG_MAX_DAILY_MB", value)
+    const fileLogger = await importFileLogger(logDir)
+    const message = "x".repeat(25_000_001)
+
+    fileLogger.info(message)
+
+    const expectedWarning = {
+      timestamp: expect.any(String),
+      level: "warn",
+      name: "vault-cortex",
+      message: "invalid LOG_MAX_DAILY_MB; using default",
+      maxDailyMb: 25,
+    }
+    const expectedNotice = {
+      timestamp: expect.any(String),
+      level: "warn",
+      name: "vault-cortex",
+      message: "file_log_daily_limit_reached",
+      maxDailyBytes: 25_000_000,
+    }
+    expect(records()).toEqual([
+      ...(value === undefined ? [] : [expectedWarning]),
+      expectedConsoleRecord(message),
+      expectedNotice,
+    ])
+    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
+      JSON.stringify(records().at(-1)) + "\n",
+    )
+  })
+
+  it.each([
+    { label: "lowercase", value: "none" },
+    { label: "uppercase", value: "NONE" },
+  ])("disables the cap for the $label sentinel", async ({ value }) => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    vi.stubEnv("LOG_MAX_DAILY_MB", value)
+    const fileLogger = await importFileLogger(logDir)
+    const message = "x".repeat(25_000_001)
+
+    fileLogger.info(message)
+    fileLogger.info("still writing")
+
+    expect(records()).toEqual([
+      expectedConsoleRecord(message),
+      expectedConsoleRecord("still writing"),
+    ])
+    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
+      records()
+        .map((record) => JSON.stringify(record) + "\n")
+        .join(""),
+    )
+  })
+
+  it.each([
+    { label: "empty", value: "" },
+    { label: "zero", value: "0" },
+    { label: "negative", value: "-1" },
+    { label: "fractional", value: "1.5" },
+    { label: "malformed", value: "25MB" },
+    { label: "non-number", value: "bad" },
+  ])("uses the default with one startup warning for a $label value", async ({ value }) => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    vi.stubEnv("LOG_MAX_DAILY_MB", value)
+    const fileLogger = await importFileLogger(logDir)
+
+    fileLogger.info("first")
+    fileLogger.info("second")
+
+    expect(records()).toEqual([
+      {
+        timestamp: expect.any(String),
+        level: "warn",
+        name: "vault-cortex",
+        message: "invalid LOG_MAX_DAILY_MB; using default",
+        maxDailyMb: 25,
+      },
+      expectedConsoleRecord("first"),
+      expectedConsoleRecord("second"),
+    ])
+  })
+
+  it("uses whole decimal megabytes for the configured cap and keeps console output after it", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    vi.stubEnv("LOG_MAX_DAILY_MB", "1")
+    const fileLogger = await importFileLogger(logDir)
+    const message = "x".repeat(1_000_000)
+
+    fileLogger.info(message)
+    fileLogger.child({ component: "child" }).info("still on console")
+
+    const notice = {
+      timestamp: expect.any(String),
+      level: "warn",
+      name: "vault-cortex",
+      message: "file_log_daily_limit_reached",
+      maxDailyBytes: 1_000_000,
+    }
+    expect(records()).toEqual([
+      expectedConsoleRecord(message),
+      notice,
+      expectedConsoleRecord("still on console", { component: "child" }),
+    ])
+    expect(readFileSync(join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`), "utf8")).toBe(
+      JSON.stringify(records()[1]) + "\n",
+    )
   })
 })
 
@@ -358,7 +667,7 @@ describe("pruneOldLogFiles", () => {
     writeFileSync(join(logDir, `vault-mcp-${sixtyDaysAgo}.log`), "kept")
     writeFileSync(join(logDir, `vault-mcp-${hundredDaysAgo}.log`), "pruned")
 
-    createFileSinkExtension(logDir)
+    createFileSinkExtension({ logDir })
 
     expect(readdirSync(logDir)).toEqual([`vault-mcp-${sixtyDaysAgo}.log`])
   })

@@ -224,8 +224,24 @@ The server, and the `:remote` image's setup mode, set these headers:
   messages alike, so the container's absolute path stays in the server log
 - In-lock existence checks return the documented "note not found" error
   instead of Node's ENOENT text
-- Error middleware returns `"internal server error"` to clients;
-  request metadata and the error message are logged server-side only
+- Both Express apps return exposed 4xx request-body errors with their status
+  and `{"error":"invalid request body"}`; other failures return 500 with
+  `"internal server error"`. Full stacks stay in server-error logs
+
+### Request bodies and log storage
+
+- `POST /mcp` parses JSON only after bearer validation; tokenless malformed
+  bodies get 401 before the parser runs
+- Request-body errors produce one `request_body_rejected` warning without
+  a stack; logged path, session ID and client IP are capped at 256 code points
+- `LOG_MAX_DAILY_MB` bounds each day's file at 25 MB by default, plus one
+  limit notice; `none` disables the cap. File logging resumes the next day,
+  while console logging continues
+- Log files are pruned at startup and each day under `LOG_RETENTION_DAYS`;
+  older files written before a cap was configured keep their size until
+  they age out
+- A failed append, folder creation, size lookup or prune disables file
+  logging with one console warning; fix the cause and restart to resume
 
 ### Container hardening
 

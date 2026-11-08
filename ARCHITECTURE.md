@@ -1461,9 +1461,27 @@ Docker hardening, and durability seatbelts above.
 - **Graceful shutdown** (`server.ts`): SIGTERM handler drains in-flight
   requests with a 10-second force-exit fallback, so a write is never
   interrupted mid-rename.
-- **Error middleware**: catch-all Express middleware logs request
-  metadata and the error message server-side but returns only
-  `"internal server error"` to the client.
+- **Request-body parsing**: `POST /mcp` parses JSON after bearer validation;
+  other MCP methods parse no body. OAuth endpoints use their own parsers;
+  `/token`, `/authorize` and `/revoke` accept form bodies. The consent and
+  setup forms reject a missing parsed body as an invalid form.
+- **Error middleware**: both Express apps answer exposed 4xx body errors with
+  their status and `{"error":"invalid request body"}`, logging one
+  `request_body_rejected` warning with the error type and status, without a
+  stack. Logged path, session ID and client IP are capped at 256 code points.
+  Server failures keep their full stack in `unhandled_error` and answer 500
+  with `"internal server error"`.
+- **File logging** (`src/logger.ts`): one daily file, capped by
+  `LOG_MAX_DAILY_MB` (25 by default; `none` disables). The count starts from
+  the existing file's byte size, so a restart preserves the budget. One
+  `file_log_daily_limit_reached` notice may exceed the cap; file writes
+  resume the next day, and console logging continues throughout.
+- **Log retention and failures**: files dated before today minus
+  `LOG_RETENTION_DAYS` are pruned at startup and each day. An append, size
+  lookup or prune failure disables file logging across the root logger and
+  its children with one console-only `file_logging_stopped` warning.
+  Folder creation failures do the same at startup; restart after fixing
+  the cause to resume file logging.
 
 #### Memory layer safety
 

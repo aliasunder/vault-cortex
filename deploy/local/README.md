@@ -375,7 +375,7 @@ links):
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
 (memory folder, protected paths, orphan exclusions, file tools, read-only
 mode, per-tool disabling, daily notes folder and format, trash retention,
-timezone), see the [Configuration](../../README.md#configuration) section
+timezone, log-file limits), see the [Configuration](../../README.md#configuration) section
 in the main README.
 
 ## Troubleshooting
