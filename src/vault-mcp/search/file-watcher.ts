@@ -373,7 +373,10 @@ const startHoldingWatcher = (params: WatchVaultParams, logger: Logger): HoldingW
         // PDF completion includes the version-bound model job as well as extraction.
         if (fileKind === "pdf") await reportedEmbedding
       } catch (error) {
-        if (isErrnoException(error, "pdf-superseded")) return { status: "superseded" }
+        const isSupersededPdf =
+          error instanceof Error && "pdfFailure" in error && error.pdfFailure === "pdf-superseded"
+
+        if (isSupersededPdf) return { status: "superseded" }
         // A changed PDF keeps its current filename row on either a resource
         // failure or a transient failure; its obsolete content was removed above.
         // Other file kinds retain their prior content on transient failures.

@@ -38,12 +38,14 @@ type FailureCode = "pdf-resource" | "pdf-start" | "pdf-queue" | "pdf-closed" | "
 
 const extractionError = (path: string, code: FailureCode): Error => {
   if (code === "pdf-start")
-    return Object.assign(new Error(`PDF reader could not start: "${path}"; retry later`), { code })
+    return Object.assign(new Error(`PDF reader could not start: "${path}"; retry later`), {
+      pdfFailure: code,
+    })
   const remedy =
     code === "pdf-resource" ? "split or re-export the PDF, or provide a text copy" : "retry later"
   return Object.assign(
     new Error(`PDF text extraction stopped: "${path}" could not be completed; ${remedy}`),
-    { code },
+    { pdfFailure: code },
   )
 }
 
@@ -202,7 +204,7 @@ export const createPdfExtractor = (params: {
         }
         if (reply.kind === "failure") {
           const code = reply.code === "size" ? "pdf-size" : "pdf-read"
-          const failureDetails = reply.systemError ?? { code }
+          const failureDetails = reply.systemError ?? { pdfFailure: code }
           finish(Object.assign(new Error(reply.message), failureDetails), false)
           return
         }

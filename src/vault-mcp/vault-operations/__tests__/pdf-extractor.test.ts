@@ -72,8 +72,8 @@ const stoppedMessage = (path: string): string => {
   return `PDF text extraction stopped: "${path}" could not be completed; split or re-export the PDF, or provide a text copy`
 }
 
-const codedError = (message: string, code: string): Error => {
-  return Object.assign(new Error(message), { code })
+const pdfFailureError = (message: string, code: string): Error => {
+  return Object.assign(new Error(message), { pdfFailure: code })
 }
 
 describe("PDF extraction child", () => {
@@ -94,7 +94,7 @@ describe("PDF extraction child", () => {
 
     expect(await extractor.readText({ path: "good.pdf" }, logger)).toEqual(expected)
     await expect(extractor.readText({ path: "bad.pdf" }, logger)).rejects.toThrow(
-      codedError(
+      pdfFailureError(
         'PDF is damaged or not a PDF: "bad.pdf" exists (9 bytes) but cannot be parsed',
         "pdf-read",
       ),
@@ -130,7 +130,7 @@ describe("PDF extraction ownership", () => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.extractForIndex({ path: "one.pdf" }, logger)
     const rejected = expect(request).rejects.toThrow(
-      codedError("controlled byte refusal", "pdf-size"),
+      pdfFailureError("controlled byte refusal", "pdf-size"),
     )
     ready(child)
     child.emit("message", {
@@ -229,7 +229,7 @@ describe("PDF extraction ownership", () => {
     const request = extractor.readText({ path: "failed.pdf" }, callerLogger)
     vi.mocked(spawn).mockReturnValueOnce(replacement)
     const rejected = expect(request).rejects.toThrow(
-      codedError(stoppedMessage("failed.pdf"), "pdf-resource"),
+      pdfFailureError(stoppedMessage("failed.pdf"), "pdf-resource"),
     )
     ready(child)
     Object.assign(child, { signalCode: signal })
@@ -326,7 +326,7 @@ describe("PDF extraction ownership", () => {
     const active = extractor.extractForIndex({ path: "same.pdf" }, logger)
     const oldUpdate = extractor.extractForIndex({ path: "same.pdf", coalesce: true }, logger)
     const oldRejection = expect(oldUpdate).rejects.toThrow(
-      codedError(
+      pdfFailureError(
         'PDF text extraction stopped: "same.pdf" could not be completed; retry later',
         "pdf-superseded",
       ),
@@ -358,7 +358,7 @@ describe("PDF extraction ownership", () => {
     children.push(replacement)
     vi.mocked(spawn).mockReturnValueOnce(replacement)
     const rejection = expect(failed).rejects.toThrow(
-      codedError(stoppedMessage("broken.pdf"), "pdf-resource"),
+      pdfFailureError(stoppedMessage("broken.pdf"), "pdf-resource"),
     )
     const recovery = extractor.readText({ path: "recovered.pdf" }, logger)
     ready(child)
@@ -380,7 +380,7 @@ describe("PDF extraction ownership", () => {
     children.push(replacement)
     vi.mocked(spawn).mockReturnValueOnce(replacement)
     const rejection = expect(failed).rejects.toThrow(
-      codedError(stoppedMessage("broken.pdf"), "pdf-resource"),
+      pdfFailureError(stoppedMessage("broken.pdf"), "pdf-resource"),
     )
     const recovery = extractor.readText({ path: "recovered.pdf" }, logger)
     ready(child)
@@ -399,7 +399,7 @@ describe("PDF extraction ownership", () => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.readText({ path: "one.pdf" }, logger)
     const rejection = expect(request).rejects.toThrow(
-      codedError('PDF reader could not start: "one.pdf"; retry later', "pdf-start"),
+      pdfFailureError('PDF reader could not start: "one.pdf"; retry later', "pdf-start"),
     )
     child.emit("exit", 1, null)
     await rejection
@@ -432,7 +432,7 @@ describe("PDF extraction ownership", () => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.readText({ path: "one.pdf" }, logger)
     const rejection = expect(request).rejects.toThrow(
-      codedError(stoppedMessage("one.pdf"), "pdf-resource"),
+      pdfFailureError(stoppedMessage("one.pdf"), "pdf-resource"),
     )
     ready(child)
     child.emit("message", reply)
@@ -447,7 +447,7 @@ describe("PDF extraction ownership", () => {
     const { extractor, child } = startControlledExtractor()
     const request = extractor.readText({ path: "slow.pdf" }, logger)
     const rejection = expect(request).rejects.toThrow(
-      codedError(stoppedMessage("slow.pdf"), "pdf-resource"),
+      pdfFailureError(stoppedMessage("slow.pdf"), "pdf-resource"),
     )
     ready(child)
     await vi.advanceTimersByTimeAsync(19_999)
@@ -475,7 +475,7 @@ describe("PDF extraction ownership", () => {
     const third = extractor.readText({ path: "third.pdf" }, logger)
     const expired = extractor.readText({ path: "expired.pdf" }, logger)
     const rejection = expect(expired).rejects.toThrow(
-      codedError(
+      pdfFailureError(
         'PDF text extraction stopped: "expired.pdf" could not be completed; retry later',
         "pdf-queue",
       ),
@@ -504,13 +504,13 @@ describe("PDF extraction ownership", () => {
     const active = extractor.readText({ path: "active.pdf" }, logger)
     const queued = extractor.readText({ path: "queued.pdf" }, logger)
     const activeRejection = expect(active).rejects.toThrow(
-      codedError(
+      pdfFailureError(
         'PDF text extraction stopped: "active.pdf" could not be completed; retry later',
         "pdf-closed",
       ),
     )
     const queuedRejection = expect(queued).rejects.toThrow(
-      codedError(
+      pdfFailureError(
         'PDF text extraction stopped: "queued.pdf" could not be completed; retry later',
         "pdf-closed",
       ),
@@ -528,7 +528,7 @@ describe("PDF extraction ownership", () => {
     await observedClose
     expect(closed).toHaveBeenCalledTimes(1)
     await expect(extractor.readText({ path: "later.pdf" }, logger)).rejects.toThrow(
-      codedError(
+      pdfFailureError(
         'PDF text extraction stopped: "later.pdf" could not be completed; retry later',
         "pdf-closed",
       ),

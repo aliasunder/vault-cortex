@@ -4007,7 +4007,7 @@ describe("rebuildFromVault deferred PDF content", () => {
   it("leaves a resource-budget failure filename-only without restoring persisted text or vectors", async () => {
     const fixture = await createPdfRebuildFixture()
     const failure = Object.assign(new Error("controlled extraction budget"), {
-      code: "pdf-resource",
+      pdfFailure: "pdf-resource",
     })
     const extraction = Promise.withResolvers<{ text: string; totalPages: number }>()
     const started = Promise.withResolvers<undefined>()

@@ -1491,7 +1491,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
         extractionEntered.resolve(undefined)
         await releaseExtraction.promise
         if (outcome === "pdf-superseded") {
-          throw Object.assign(new Error("superseded extraction"), { code: "pdf-superseded" })
+          throw Object.assign(new Error("superseded extraction"), { pdfFailure: "pdf-superseded" })
         }
         return { text: "oldamber", totalPages: 1 }
       })
@@ -1593,7 +1593,7 @@ describe("file watcher — obsolete events and embedding queues", () => {
       extractForIndex.mockImplementationOnce(async () => {
         extractionEntered.resolve(undefined)
         await finishExtraction.promise
-        throw Object.assign(new Error("controlled PDF failure"), { code })
+        throw Object.assign(new Error("controlled PDF failure"), { pdfFailure: code })
       })
       onTestFinished(() => finishExtraction.resolve(undefined))
       await writeFile(filePath, "changed PDF")

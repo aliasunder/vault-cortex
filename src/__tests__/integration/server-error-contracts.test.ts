@@ -108,6 +108,19 @@ describe("protected path refusals", () => {
 // ── Absolute paths ───────────────────────────────────────────
 
 describe("absolute path blocked", () => {
+  it.each([
+    { label: "text", raw: false },
+    { label: "raw", raw: true },
+  ])("vault_read_file preserves the rejected absolute PDF path in $label mode", async ({ raw }) => {
+    const path = `${serverVaultPath}/absolute.pdf`
+    const result = await callTool({ client, name: "vault_read_file", args: { path, raw } })
+    expect(result).toEqual({
+      content: [
+        { type: "text", text: `[Error]: absolute path blocked: "${path}" must be vault-relative` },
+      ],
+      isError: true,
+    })
+  })
   it("vault_read_note rejects an absolute container path", async () => {
     const result = await callTool({
       client,
