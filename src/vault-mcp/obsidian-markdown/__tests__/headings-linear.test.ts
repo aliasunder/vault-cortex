@@ -7,6 +7,9 @@ import { parseHeadings, type HeadingInfo } from "../headings.js"
 import * as lineParsers from "../lines.js"
 import { tasks } from "../tasks.js"
 
+/** Allows scheduling noise across the full input range. */
+const LINEAR_GROWTH_ALLOWANCE = 2
+
 type HeadingParser = (lines: readonly string[]) => HeadingInfo[]
 
 /** Keeps the former suffix and boundary rules as a small-input oracle. */
@@ -199,7 +202,7 @@ describe("heading traversal compatibility", () => {
           medians.push(samples[2]);
         }
         assert.ok(medians.every(value=>value<1000),variant+' exceeded ceiling '+medians);
-        for(let index=1;index<medians.length;index++) if(medians[index-1]>10) assert.ok(medians[index]<=medians[index-1]*3,variant+' scaled superlinearly '+medians);
+        assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},variant+' scaled superlinearly '+medians);
         measurements.push({variant,sizes,medians});
       }
       process.stdout.write(JSON.stringify(measurements));

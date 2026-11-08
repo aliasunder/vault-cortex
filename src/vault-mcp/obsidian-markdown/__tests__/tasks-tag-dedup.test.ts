@@ -6,6 +6,9 @@ import ts from "typescript"
 import { describe, expect, it } from "vitest"
 import { tasks } from "../tasks.js"
 
+/** Allows scheduling noise across the full input range. */
+const LINEAR_GROWTH_ALLOWANCE = 2
+
 type Deduplication = ReturnType<typeof tasks.deduplicateDescriptionTags>
 
 /** Freezes the original per-tag search while sharing the separately verified boundary parser. */
@@ -98,13 +101,11 @@ describe("task description tag deduplication", () => {
           const taskLine = '- [ ] '+tags+' 📅2026-01-02 🆔'+'x'.repeat(size);
           const check = () => assert.deepEqual(tasks.deduplicateDescriptionTags(taskLine),{taskLine,deduplicatedTags:[]});
           check();
-          const samples = Array.from({length:3},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
-          medians.push(samples[1]);
+          const samples = Array.from({length:5},()=>{const start=performance.now();check();return performance.now()-start;}).toSorted((a,b)=>a-b);
+          medians.push(samples[2]);
         }
         assert.ok(medians.every(value=>value<350),'description tag searches exceeded ceiling '+medians);
-        for (let index=1;index<medians.length;index++) {
-          assert.ok(medians[index]<Math.max(10,medians[index-1])*3,'description tag searches scaled superlinearly '+medians);
-        }
+        assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'description tag searches scaled superlinearly '+medians);
         process.stdout.write(JSON.stringify({sizes,medians}));
         `,
       ],
