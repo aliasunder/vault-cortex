@@ -3017,14 +3017,27 @@ export const createSearchIndex = (
 
         if (!result || sourceVersions.get(file.relativePath) !== scheduledVersion) continue
 
-        const sourceVersion = upsertFileContent(
-          {
-            filePath: file.relativePath,
-            rawContent: result.text,
-            fileStat: { mtimeMs: file.modifiedAtMs, size: file.sizeBytes },
-          },
-          logger,
-        )
+        const publishPdfText = (): symbol | undefined => {
+          try {
+            return upsertFileContent(
+              {
+                filePath: file.relativePath,
+                rawContent: result.text,
+                fileStat: { mtimeMs: file.modifiedAtMs, size: file.sizeBytes },
+              },
+              logger,
+            )
+          } catch (error) {
+            logger.warn("PDF content pass could not publish file", {
+              path: file.relativePath,
+              ...describeErrorForLog(error),
+            })
+            return undefined
+          }
+        }
+        const sourceVersion = publishPdfText()
+
+        if (!sourceVersion) continue
         try {
           await embedFileContent({ filePath: file.relativePath, sourceVersion }, logger)
         } catch (error) {

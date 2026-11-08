@@ -3941,6 +3941,50 @@ describe("rebuildFromVault deferred PDF content", () => {
     expect(fixture.targetChunks()).toEqual([])
   })
 
+  it("keeps a failed PDF publication filename-only and indexes the remaining PDFs", async () => {
+    const fixture = await createPdfRebuildFixture()
+    await writeFile(join(fixture.vaultPath, "Survivor.PDF"), "healthy disk bytes")
+    fixture.database.exec(`
+      CREATE TRIGGER reject_pdf_publication BEFORE INSERT ON file_content
+      WHEN NEW.path = 'Report.PDF' AND NEW.content != ''
+      BEGIN
+        SELECT RAISE(ABORT, 'controlled PDF publication failure');
+      END;
+    `)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    fixture.extractForIndex.mockResolvedValue({ text: "New newcobalt", totalPages: 1 })
+    const rebuilt = await fixture.rebuild()
+    await rebuilt.embedding
+
+    await rebuilt.startPdfPass()
+
+    expect(warnSpy).toHaveBeenCalledExactlyOnceWith("PDF content pass could not publish file", {
+      path: fixture.path,
+      error: "[SqliteError]: controlled PDF publication failure",
+    })
+    expect(fixture.extractForIndex).toHaveBeenCalledTimes(2)
+    expect(fixture.extractForIndex).toHaveBeenNthCalledWith(1, { path: fixture.path }, logger)
+    expect(fixture.extractForIndex).toHaveBeenNthCalledWith(2, { path: "Survivor.PDF" }, logger)
+    expect(fixture.fileRows()).toEqual([
+      { path: fixture.path, content: "", bytes: 18 },
+      { path: "Survivor.PDF", content: "New newcobalt", bytes: 18 },
+      { path: "decoy.txt", content: "Decoy controlsun", bytes: 16 },
+    ])
+    expect(fixture.keywordPaths("Report")).toEqual([{ path: fixture.path }])
+    expect(fixture.keywordPaths("oldquartz")).toEqual([])
+    expect(fixture.keywordPaths("newcobalt")).toEqual([{ path: "Survivor.PDF" }])
+    expect(fixture.targetChunks()).toEqual([])
+    expect(
+      fixture.database
+        .prepare("SELECT file_path, chunk_text FROM file_content_chunks ORDER BY file_path")
+        .all(),
+    ).toEqual([
+      { file_path: "Survivor.PDF", chunk_text: "Survivor\n\nNew newcobalt" },
+      { file_path: "decoy.txt", chunk_text: "decoy\n\nDecoy controlsun" },
+    ])
+  })
+
   it("clears persisted old text and vectors before extraction and awaits the fresh PDF embedding", async () => {
     const fixture = await createPdfRebuildFixture()
     const extraction = Promise.withResolvers<{ text: string; totalPages: number }>()
