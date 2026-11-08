@@ -226,14 +226,15 @@ The server, and the `:remote` image's setup mode, set these headers:
   instead of Node's ENOENT text
 - Both Express apps return exposed 4xx request-body errors with their status
   and `{"error":"invalid request body"}`; other failures return 500 with
-  `"internal server error"`. Full stacks stay in server-error logs
+  `"internal server error"`. Stack traces stay in server-error logs
 
 ### Request bodies and log storage
 
 - `POST /mcp` parses JSON only after bearer validation; tokenless malformed
   bodies get 401 before the parser runs
 - Request-body errors produce one `request_body_rejected` warning without
-  a stack; logged path, session ID and client IP are capped at 256 code points
+  a stack; every string value in log data is capped at 256 code points,
+  with error, cause and stack text capped at 4,096
 - `LOG_MAX_DAILY_MB` bounds each day's file at 25 MB by default, plus one
   limit notice; `none` disables the cap. File logging resumes at midnight in `TZ` (UTC by default),
   while console logging continues
