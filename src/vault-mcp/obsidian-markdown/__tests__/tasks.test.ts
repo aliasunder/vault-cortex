@@ -662,12 +662,12 @@ describe("tasks.extractTasks", () => {
       })
 
       try {
-        tasks.extractTasks("- [ ] x")
+        tasks.extractTasks("- [ ] x [dependsOn:: a]")
       } finally {
         execSpy.mockRestore()
       }
 
-      const dependencyPatterns = observedPatterns.filter((pattern) =>
+      const dependencyPatterns = [...new Set(observedPatterns)].filter((pattern) =>
         pattern.source.includes("[a-zA-Z0-9_-]+"),
       )
       expect(dependencyPatterns.length).toBe(2)

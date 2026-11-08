@@ -99,7 +99,10 @@ export type ParsedTask = Readonly<{
  *  `1.` / `1)`), one or more spaces, and `[c]` with exactly one status
  *  character. Captures: [1] status character, [2] everything after the
  *  checkbox. Anchored and non-global — safe for .exec(). */
-const TASK_LINE_RE = /^[\s>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\] *(.*)$/u
+const TASK_LINE_RE = /^[\s>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\](.*)$/u
+
+/** Matches ASCII spaces before a task body's content. */
+const LEADING_BODY_SPACES_RE = /^ +/
 
 /** Matches any list item — the same prefix and marker grammar as
  *  TASK_LINE_RE without the checkbox. A non-task item at a task's indent
@@ -174,16 +177,49 @@ const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.sourc
 const emojiField = ({ symbols, valuePattern }: { symbols: string; valuePattern: string }): RegExp =>
   new RegExp(valuePattern === "" ? `${symbols}\\uFE0F?$` : `${symbols}\\uFE0F? *${valuePattern}$`)
 
-/** Builds a Dataview inline-field regex: `[key:: value]` or `(key:: value)`
- *  with matched brackets and an optional trailing comma, anchored to line end
- *  (see block comment above). */
-const dataviewField = (innerPattern: string): RegExp => {
-  const squareBracketOpener = String.raw`(?=[^\]]+\])\[`
-  const parenthesisOpener = String.raw`(?=[^)]+\))\(`
+type FieldMatcher = Pick<RegExp, "exec">
 
-  return new RegExp(
-    `(?:${squareBracketOpener}|${parenthesisOpener}) *${innerPattern} *[)\\]](?: *,)?$`,
-  )
+/** Matches only the last bracketed field, so failed openers never rescan its suffix. */
+const dataviewField = (innerPattern: string): FieldMatcher => {
+  const keyEnd = innerPattern.indexOf("::") + 2
+  const key = innerPattern.slice(0, keyEnd)
+  /** Matches the complete field value after its surrounding ASCII spaces are removed. */
+  const valuePattern = new RegExp(`^${innerPattern.slice(keyEnd + 2)}$`)
+  /** Matches a single field whose bracket pairing the suffix scan already checked. */
+  const fieldPattern = new RegExp(`^[[(] *${innerPattern} *[)\\]](?: *,)?$`)
+
+  return {
+    exec: (line) => {
+      // The cursors move backward once to the closing delimiter and last opener.
+      let close = line.length - 1
+
+      if (line[close] === ",") {
+        close -= 1
+        while (line[close] === " ") close -= 1
+      }
+      const closer = line[close]
+
+      if (closer !== "]" && closer !== ")") return null
+      let open = close - 1
+
+      while (open >= 0 && line[open] !== "[" && line[open] !== "(") open -= 1
+      if (open < 0 || closer !== (line[open] === "[" ? "]" : ")")) return null
+      let valueStart = open + 1
+
+      while (line[valueStart] === " ") valueStart += 1
+      if (!line.startsWith(key, valueStart)) return null
+      valueStart += key.length
+      while (line[valueStart] === " ") valueStart += 1
+      let valueEnd = close
+
+      while (valueEnd > valueStart && line[valueEnd - 1] === " ") valueEnd -= 1
+      if (!valuePattern.test(line.slice(valueStart, valueEnd))) return null
+      const match = fieldPattern.exec(line.slice(open))
+
+      if (match) match.index += open
+      return match
+    },
+  }
 }
 
 /** `YYYY-MM-DD` — the only date format the plugin recognizes on task lines. */
@@ -194,7 +230,7 @@ const DATE_VALUE = "(\\d{4}-\\d{2}-\\d{2})"
 const DATE_FIELDS: ReadonlyArray<{
   key: "done" | "cancelled" | "due" | "scheduled" | "start" | "created"
   emoji: RegExp
-  dataview: RegExp
+  dataview: FieldMatcher
 }> = [
   {
     key: "done",
@@ -238,11 +274,10 @@ const EMOJI_PRIORITY_RE = emojiField({
  *  the longer word wins). */
 const DATAVIEW_PRIORITY_RE = dataviewField("priority:: *(highest|high|medium|low|lowest)")
 /** Recurrence rule text after 🔁 — letters, digits, commas, spaces, `!`. */
-const EMOJI_RECURRENCE_RE = emojiField({
-  symbols: "🔁",
-  valuePattern: "([a-zA-Z0-9, !]+)",
-})
-const DATAVIEW_RECURRENCE_RE = dataviewField("repeat:: *([a-zA-Z0-9, !]+)")
+const EMOJI_RECURRENCE_RE = /🔁\uFE0F?([a-zA-Z0-9, !]+)$/
+/** Matches recurrence fields with their leading/trailing spaces inside the value. */
+const DATAVIEW_RECURRENCE_RE =
+  /(?:\[ *repeat::([a-zA-Z0-9, !]+)\]|\( *repeat::([a-zA-Z0-9, !]+)\))(?: *,)?$/
 /** On-completion action word after 🏁 (the plugin accepts delete/keep). */
 const EMOJI_ON_COMPLETION_RE = emojiField({
   symbols: "🏁",
@@ -384,16 +419,16 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
   let dependsOn: readonly string[] = []
   let trailingTags = ""
 
-  const extractField = (regex: RegExp, onMatch: (match: RegExpExecArray) => void): void => {
+  const extractField = (regex: FieldMatcher, onMatch: (match: RegExpExecArray) => void): void => {
     const match = regex.exec(line)
 
     if (!match) return
     onMatch(match)
-    line = line.replace(regex, "").trim()
+    line = line.slice(0, match.index).trim()
     matchedThisPass = true
   }
 
-  const extractDate = (regex: RegExp, key: (typeof DATE_FIELDS)[number]["key"]): void => {
+  const extractDate = (regex: FieldMatcher, key: (typeof DATE_FIELDS)[number]["key"]): void => {
     extractField(regex, (match) => {
       dates[key] = capturedGroup(match, 1)
     })
@@ -418,7 +453,8 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
       recurrence = capturedGroup(match, 1).trim()
     })
     extractField(DATAVIEW_RECURRENCE_RE, (match) => {
-      recurrence = capturedGroup(match, 1).trim()
+      const recurrenceValue = match[1] ?? capturedGroup(match, 2)
+      recurrence = recurrenceValue.trim()
     })
 
     extractField(EMOJI_ON_COMPLETION_RE, (match) => {
@@ -547,6 +583,9 @@ const scanBodyLinesForTasks = ({
   // state across the loop (same pattern as classifyLines).
   let openFence: OpenFence = null
   let commentOpen = false
+  // Heading starts are ordered; each heading is visited once during the line scan.
+  let headingIndex = 0
+  let nearestHeading: HeadingInfo | undefined
   for (let lineIndex = 0; lineIndex < bodyLines.length; lineIndex++) {
     const lineText = bodyLines[lineIndex]
 
@@ -566,7 +605,11 @@ const scanBodyLinesForTasks = ({
     if (commentResult.lineIsComment) continue
 
     // Reset indent stack at heading boundaries — sub-tasks can't span headings
-    const lineStartsHeading = headings.some((heading) => heading.startLine === lineIndex)
+    while (headings[headingIndex] && (headings[headingIndex]?.startLine ?? Infinity) < lineIndex) {
+      nearestHeading = headings[headingIndex]
+      headingIndex += 1
+    }
+    const lineStartsHeading = headings[headingIndex]?.startLine === lineIndex
 
     if (lineStartsHeading) {
       indentStack = []
@@ -598,10 +641,8 @@ const scanBodyLinesForTasks = ({
 
     // The block link sits at the end of the line — strip it before metadata
     // parsing, exactly as the plugin does.
-    const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
+    const bodyWithBlockLink = capturedGroup(taskLineMatch, 2).replace(LEADING_BODY_SPACES_RE, "")
     const { body: taskBody, blockId } = splitTrailingBlockLink(bodyWithBlockLink)
-
-    const nearestHeading = headings.findLast((heading) => heading.startLine < lineIndex)
 
     const taskIndent = getStructuralIndent(lineText)
     const ancestors = ancestorsOf(indentStack, taskIndent)
@@ -1211,7 +1252,7 @@ const parseTaskLineMetadata = (taskLine: string): TaskMetadata | null => {
   const taskLineMatch = TASK_LINE_RE.exec(taskLine)
 
   if (!taskLineMatch) return null
-  const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
+  const bodyWithBlockLink = capturedGroup(taskLineMatch, 2).replace(LEADING_BODY_SPACES_RE, "")
   const { body: taskBody } = splitTrailingBlockLink(bodyWithBlockLink)
   return parseTaskMetadata(taskBody)
 }

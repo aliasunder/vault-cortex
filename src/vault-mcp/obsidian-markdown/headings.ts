@@ -28,7 +28,20 @@ const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
 /** Matches an ATX heading's optional closing sequence per CommonMark §4.2: one
  *  or more `#` at the end of the text, after a space or tab or as the whole
  *  text. `## Title ##` reads as `Title`, and `### ###` as an empty heading. */
-const CLOSING_HASHES_REGEX = /(?:^|[ \t]+)#+[ \t]*$/
+const stripClosingHashes = (text: string): string => {
+  // Each suffix run is consumed once, including a failed space-only suffix.
+  let boundary = text.length
+
+  while (boundary > 0 && (text[boundary - 1] === " " || text[boundary - 1] === "\t")) boundary -= 1
+  const hashEnd = boundary
+
+  while (boundary > 0 && text[boundary - 1] === "#") boundary -= 1
+  if (boundary === hashEnd) return text
+  const hashStart = boundary
+
+  while (boundary > 0 && (text[boundary - 1] === " " || text[boundary - 1] === "\t")) boundary -= 1
+  return hashStart === 0 || boundary < hashStart ? text.slice(0, boundary) : text
+}
 
 /** Matches setext heading underlines per CommonMark §4.3: 0-3 leading spaces,
  *  one or more `=` (H1) or `-` (H2) characters, optional trailing whitespace.
@@ -181,7 +194,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     if (matchedHashes) {
       const matchedText = atxMatch?.[2] ?? ""
       collectedHeadings.push({
-        text: matchedText.replace(CLOSING_HASHES_REGEX, "").trim(),
+        text: stripClosingHashes(matchedText).trim(),
         level: matchedHashes.length,
         startLine: i,
         bodyStartLine: i + 1,
@@ -220,20 +233,22 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // run to EOF, but must stop before a trailing `%% %%` comment block (e.g. a
   // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
   const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
-  return collectedHeadings.map((heading, index) => {
-    const nextSameOrHigher = collectedHeadings
-      .slice(index + 1)
-      .find((next) => next.level <= heading.level)
-    return {
-      text: heading.text,
-      level: heading.level,
-      startLine: heading.startLine,
-      bodyStartLine: heading.bodyStartLine,
-      // Math.max keeps bodyEndLine >= bodyStartLine for malformed input.
-      bodyEndLine:
-        nextSameOrHigher?.startLine ?? Math.max(heading.bodyStartLine, trailingCommentBlockStart),
+  const completedHeadings = collectedHeadings.map((heading) => ({
+    ...heading,
+    bodyEndLine: Math.max(heading.bodyStartLine, trailingCommentBlockStart),
+  }))
+  const openHeadings: Array<(typeof completedHeadings)[number]> = []
+
+  // Each heading is pushed and closed once; only same-or-deeper levels close here.
+  for (const heading of completedHeadings) {
+    while (openHeadings.length && (openHeadings.at(-1)?.level ?? 0) >= heading.level) {
+      const closedHeading = openHeadings.pop()
+
+      if (closedHeading) closedHeading.bodyEndLine = heading.startLine
     }
-  })
+    openHeadings.push(heading)
+  }
+  return completedHeadings
 }
 
 /**
