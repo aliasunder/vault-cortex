@@ -1469,10 +1469,12 @@ Docker hardening, and durability seatbelts above.
 - **Error middleware** (`src/http-error-middleware.ts`): both Express apps answer exposed 4xx body errors with
   their status and `{"error":"invalid request body"}`, logging one
   `request_body_rejected` warning with the error type and status, without a
-  stack. Every string value in log data is capped at 256 code points, with
-  error, cause and stack text capped at 4,096.
-  Server failures log their stack in `unhandled_error` and answer 500
-  with `"internal server error"`.
+  stack. Server failures log their stack in `unhandled_error` and answer
+  500 with `"internal server error"`.
+- **Log field cap** (`src/logger.ts`): every string in a log line's data,
+  at any depth in plain objects and arrays, is cut to 256 code points;
+  `error`, `cause` and `stack` values are cut to 4,096. Call sites pass
+  values as they are.
 - **File logging** (`src/logger.ts`): one daily file, capped by
   `LOG_MAX_DAILY_MB` (25 by default; `none` disables the cap). The count starts from
   the existing file's byte size, so a restart preserves the budget. One
