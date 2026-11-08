@@ -122,6 +122,9 @@ export const createSetupRoutes = ({
   const limiter = rateLimit({
     windowMs: 60 * 1000,
     limit: 5,
+    // The same rate-limit headers as the OAuth endpoints' limiters.
+    standardHeaders: true,
+    legacyHeaders: false,
     keyGenerator: (req: Request) => ipKeyGenerator(extractClientIp(req, trustForwardedHops)),
     handler: (
       req: Request,
