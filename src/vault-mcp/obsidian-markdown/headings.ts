@@ -25,7 +25,7 @@ export type HeadingInfo = Readonly<{
  *  Empty headings (`##` alone on a line) are valid — group 2 is undefined. */
 const HEADING_REGEX = /^ {0,3}(#{1,6})(?:[ \t](.*))?$/
 
-/** Matches an ATX heading's optional closing sequence per CommonMark §4.2: one
+/** Removes an ATX heading's optional closing sequence per CommonMark §4.2: one
  *  or more `#` at the end of the text, after a space or tab or as the whole
  *  text. `## Title ##` reads as `Title`, and `### ###` as an empty heading. */
 const stripClosingHashes = (text: string): string => {
@@ -40,7 +40,9 @@ const stripClosingHashes = (text: string): string => {
   const hashStart = boundary
 
   while (boundary > 0 && (text[boundary - 1] === " " || text[boundary - 1] === "\t")) boundary -= 1
-  return hashStart === 0 || boundary < hashStart ? text.slice(0, boundary) : text
+  const hasClosingHashSeparator = hashStart === 0 || boundary < hashStart
+
+  return hasClosingHashSeparator ? text.slice(0, boundary) : text
 }
 
 /** Matches setext heading underlines per CommonMark §4.3: 0-3 leading spaces,

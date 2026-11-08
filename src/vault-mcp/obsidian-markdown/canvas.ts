@@ -25,8 +25,7 @@ import { posix } from "node:path"
  *
  * Lenient by design: real Obsidian canvases carry extra properties and
  * occasionally partial entries, so unknown props are ignored and entries
- * missing their required fields are skipped rather than thrown. Only
- * unparseable JSON throws.
+ * missing their required fields are skipped rather than thrown.
  *
  * The module also extracts and rewrites the links a canvas holds, for the
  * search index and the note mover. Obsidian calls nodes "cards": a text card
@@ -220,7 +219,8 @@ const renderNestedNodes = (
     }
     const { group, depth } = frame
 
-    // Duplicate IDs can make the ID-keyed buckets cyclic; retain the recursive renderer's refusal.
+    // Duplicate IDs can make child buckets revisit an active group; refuse the cycle
+    // so traversal cannot continue forever.
     if (activeGroups.has(group)) throw new RangeError("Maximum call stack size exceeded")
     activeGroups.add(group)
     frames.push({ kind: "leave", group })
@@ -268,7 +268,8 @@ const parseCanvasJson = (canvasJson: string): unknown => {
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
- * form with ids resolved to display names. Throws only on unparseable JSON.
+ * form with ids resolved to display names. Throws on unparseable JSON or
+ * a group cycle caused by duplicate IDs.
  */
 export const linearizeCanvas = (canvasJson: string): string => {
   const parsed = parseCanvasJson(canvasJson)
@@ -313,7 +314,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
 /** Extracts deduplicated vault-relative file paths from canvas `file`-type
  *  nodes. Text-node wikilinks are deliberately excluded — only explicit file
  *  references create graph edges (matching Obsidian's behavior). Throws on
- *  unparseable JSON (same contract as `linearizeCanvas`). */
+ *  unparseable JSON. */
 export const extractCanvasFileLinks = (canvasJson: string): string[] => {
   const parsed = parseCanvasJson(canvasJson)
 
@@ -333,7 +334,7 @@ export const extractCanvasFileLinks = (canvasJson: string): string[] => {
 /** The text of every text-type node, in JSON order. Obsidian updates the
  *  links in these cards when their target is renamed, so the note mover
  *  reads them to find a Canvas that links to a moving note. Throws on
- *  unparseable JSON (same contract as `linearizeCanvas`). */
+ *  unparseable JSON. */
 export const extractCanvasCardTexts = (canvasJson: string): string[] => {
   const parsed = parseCanvasJson(canvasJson)
 

@@ -11,7 +11,7 @@ const LINE_TERMINATOR = /[\n\r\u2028\u2029]/
 
 const stripWikilinkAliases = (text: string): string => {
   const pieces: string[] = []
-  // Delimiter cursors retain failed searches across overlapping openers.
+  // The first | or ] still decides every overlapping opener before it; no earlier delimiter exists.
   let targetEnd = 0
   let close = 0
   let copiedThrough = 0

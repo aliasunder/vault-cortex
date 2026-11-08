@@ -98,7 +98,7 @@ type MarkdownLinkParts = {
 
 /** Delimiter cursors only advance, so failed openers share suffix scans. */
 const scanWikilinks = (text: string, visit: (span: TargetSpan) => void): void => {
-  // These cursors retain the next delimiter across overlapping opener attempts.
+  // An overlapping opener before a cached delimiter has no intervening delimiter to find.
   let targetEnd = 0
   let headingEnd = 0
   let closeBracket = 0
@@ -135,7 +135,8 @@ const scanWikilinks = (text: string, visit: (span: TargetSpan) => void): void =>
 
 /** URI schemes follow RFC 3986, including uppercase letters and punctuation. */
 const scanMarkdownLinks = (text: string, visit: (span: TargetSpan) => void): void => {
-  // Each delimiter cursor moves monotonically even when many openers fail.
+  // Later openers reuse the same ] or reach a later one, so ]( target starts never move back.
+  // A cached scheme end stays valid until a target starts beyond it.
   let textEnd = 0
   let targetEnd = 0
   let fragmentEnd = 0

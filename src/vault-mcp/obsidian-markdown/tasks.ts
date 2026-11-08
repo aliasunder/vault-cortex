@@ -155,8 +155,8 @@ const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/
 //
 // Dataview regexes mirror toInlineFieldRegex(): the `key:: value` pair wrapped
 // in matching `[...]` or `(...)`, with an optional trailing comma, anchored to
-// line end. Each opener's lookahead requires its own closer before the line
-// ends, so a mismatched pair such as `[due:: 2026-01-01)` does not match.
+// line end. The suffix scan requires paired brackets, so a mismatched pair
+// such as `[due:: 2026-01-01)` does not match.
 
 /** The allowed characters in a single 🆔 / `id::` task ID. */
 const TASK_ID = /[a-zA-Z0-9_-]+/
@@ -177,14 +177,21 @@ const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.sourc
 const emojiField = ({ symbols, valuePattern }: { symbols: string; valuePattern: string }): RegExp =>
   new RegExp(valuePattern === "" ? `${symbols}\\uFE0F?$` : `${symbols}\\uFE0F? *${valuePattern}$`)
 
-type FieldMatcher = Pick<RegExp, "exec">
+type FieldMatch = Pick<RegExpExecArray, number | "index">
+type FieldMatcher = { exec: (line: string) => FieldMatch | null }
 
 /** Matches only the last bracketed field, so failed openers never rescan its suffix. */
-const dataviewField = (innerPattern: string): FieldMatcher => {
-  const keyEnd = innerPattern.indexOf("::") + 2
-  const key = innerPattern.slice(0, keyEnd)
+const dataviewField = ({
+  key,
+  valuePattern: valueSource,
+}: {
+  key: string
+  valuePattern: string
+}): FieldMatcher => {
+  const keyPrefix = `${key}::`
+  const innerPattern = `${keyPrefix} *${valueSource}`
   /** Matches the complete field value after its surrounding ASCII spaces are removed. */
-  const valuePattern = new RegExp(`^${innerPattern.slice(keyEnd + 2)}$`)
+  const valuePattern = new RegExp(`^${valueSource}$`)
   /** Matches a single field whose bracket pairing the suffix scan already checked. */
   const fieldPattern = new RegExp(`^[[(] *${innerPattern} *[)\\]](?: *,)?$`)
 
@@ -207,8 +214,8 @@ const dataviewField = (innerPattern: string): FieldMatcher => {
       let valueStart = open + 1
 
       while (line[valueStart] === " ") valueStart += 1
-      if (!line.startsWith(key, valueStart)) return null
-      valueStart += key.length
+      if (!line.startsWith(keyPrefix, valueStart)) return null
+      valueStart += keyPrefix.length
       while (line[valueStart] === " ") valueStart += 1
       let valueEnd = close
 
@@ -235,32 +242,32 @@ const DATE_FIELDS: ReadonlyArray<{
   {
     key: "done",
     emoji: emojiField({ symbols: "✅", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`completion:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "completion", valuePattern: DATE_VALUE }),
   },
   {
     key: "cancelled",
     emoji: emojiField({ symbols: "❌", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`cancelled:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "cancelled", valuePattern: DATE_VALUE }),
   },
   {
     key: "due",
     emoji: emojiField({ symbols: "(?:📅|📆|🗓)", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`due:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "due", valuePattern: DATE_VALUE }),
   },
   {
     key: "scheduled",
     emoji: emojiField({ symbols: "(?:⏳|⌛)", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`scheduled:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "scheduled", valuePattern: DATE_VALUE }),
   },
   {
     key: "start",
     emoji: emojiField({ symbols: "🛫", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`start:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "start", valuePattern: DATE_VALUE }),
   },
   {
     key: "created",
     emoji: emojiField({ symbols: "➕", valuePattern: DATE_VALUE }),
-    dataview: dataviewField(`created:: *${DATE_VALUE}`),
+    dataview: dataviewField({ key: "created", valuePattern: DATE_VALUE }),
   },
 ]
 
@@ -272,7 +279,10 @@ const EMOJI_PRIORITY_RE = emojiField({
 /** Dataview priority field, anchored to line end. Captures the level word
  *  (lowercase only, matching the plugin's regex; `highest` before `high` so
  *  the longer word wins). */
-const DATAVIEW_PRIORITY_RE = dataviewField("priority:: *(highest|high|medium|low|lowest)")
+const DATAVIEW_PRIORITY_RE = dataviewField({
+  key: "priority",
+  valuePattern: "(highest|high|medium|low|lowest)",
+})
 /** Recurrence rule text after 🔁 — letters, digits, commas, spaces, `!`. */
 const EMOJI_RECURRENCE_RE = /🔁\uFE0F?([a-zA-Z0-9, !]+)$/
 /** Matches recurrence fields with their leading/trailing spaces inside the value. */
@@ -283,19 +293,25 @@ const EMOJI_ON_COMPLETION_RE = emojiField({
   symbols: "🏁",
   valuePattern: "([a-zA-Z]+)",
 })
-const DATAVIEW_ON_COMPLETION_RE = dataviewField("onCompletion:: *([a-zA-Z]+)")
+const DATAVIEW_ON_COMPLETION_RE = dataviewField({
+  key: "onCompletion",
+  valuePattern: "([a-zA-Z]+)",
+})
 /** The task's own ID after 🆔. */
 const EMOJI_ID_RE = emojiField({
   symbols: "🆔",
   valuePattern: `(${TASK_ID.source})`,
 })
-const DATAVIEW_ID_RE = dataviewField(`id:: *(${TASK_ID.source})`)
+const DATAVIEW_ID_RE = dataviewField({ key: "id", valuePattern: `(${TASK_ID.source})` })
 /** Comma-separated IDs this task depends on, after ⛔. */
 const EMOJI_DEPENDS_ON_RE = emojiField({
   symbols: "⛔",
   valuePattern: `(${TASK_ID_SEQUENCE.source})`,
 })
-const DATAVIEW_DEPENDS_ON_RE = dataviewField(`dependsOn:: *(${TASK_ID_SEQUENCE.source})`)
+const DATAVIEW_DEPENDS_ON_RE = dataviewField({
+  key: "dependsOn",
+  valuePattern: `(${TASK_ID_SEQUENCE.source})`,
+})
 
 /** Emoji signifier → priority level. */
 const PRIORITY_BY_EMOJI: Readonly<Record<string, TaskPriority>> = {
@@ -367,7 +383,7 @@ const MAX_STRIPPING_PASSES = PLUGIN_MAX_RUNS + 1
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
  *  adds `| undefined` to all indexed access. */
-const capturedGroup = (match: RegExpExecArray, index: number): string => {
+const capturedGroup = (match: FieldMatch, index: number): string => {
   const value = match[index]
 
   if (value === undefined) {
@@ -419,7 +435,7 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
   let dependsOn: readonly string[] = []
   let trailingTags = ""
 
-  const extractField = (regex: FieldMatcher, onMatch: (match: RegExpExecArray) => void): void => {
+  const extractField = (regex: FieldMatcher, onMatch: (match: FieldMatch) => void): void => {
     const match = regex.exec(line)
 
     if (!match) return
@@ -434,6 +450,7 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     })
   }
 
+  // Removing a suffix can expose a field whose turn already passed; the next pass reads it.
   for (let pass = 0; pass < MAX_STRIPPING_PASSES; pass++) {
     matchedThisPass = false
 
@@ -1066,6 +1083,7 @@ const updateTaskLineOnCompletion = ({
   config: TaskFormatConfig
 }): string => {
   return transformMetadata(taskLine, (metadata) => {
+    // Parsing keeps the leftmost action; a surviving copy could still make completion delete the task.
     const metadataWithoutOnCompletion = removeAllMetadataMatches(metadata, ON_COMPLETION_INLINE_RE)
 
     if (onCompletion === null) {
@@ -1225,8 +1243,9 @@ const appendMetadataField = ({
   fieldText: string
 }): string => [metadata, fieldText].filter(Boolean).join(" ")
 
-/** Inserts before the first present field in the caller's canonical field order.
- *  Existing fields retain their order, even when it differs from the canonical order. */
+/** Inserts before the first present field in the caller's canonical field order,
+ *  or appends when none is present. Existing fields keep their order, even when
+ *  it differs from the canonical order. */
 const insertFieldAtPosition = ({
   metadata,
   fieldText,

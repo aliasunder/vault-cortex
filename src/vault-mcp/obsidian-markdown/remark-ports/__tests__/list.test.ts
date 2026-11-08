@@ -55,7 +55,7 @@ const predicateSource = (): string => {
     .filter(ts.isVariableStatement)
     .flatMap((statement) => statement.declarationList.declarations)
   const predicate = declarations.find(
-    (declaration) => declaration.name.getText(source) === "hasLooseListContent",
+    (declaration) => declaration.name.getText(source) === "hasContentAfterBlankLine",
   )
   const whitespace = declarations.find(
     (declaration) => declaration.name.getText(source) === "WHITESPACE_RE",

@@ -245,10 +245,11 @@ type DuplicateKeyStep =
   | { kind: "node"; node: unknown }
   | { kind: "key"; pair: Pair; nodes: Set<unknown>; values: Set<unknown> }
 
-/** Uses public source tokens because an explicit empty key's node range starts before its colon. */
+/** Preserves the YAML composer's duplicate-key error position. */
 const duplicateKeyOffset = (pair: Pair): number => {
   const lastPrefixToken = pair.srcToken?.start.at(-1)
 
+  // For `?\n: value`, the prefix ends at the colon; the empty key's range starts earlier.
   if (lastPrefixToken) return lastPrefixToken.offset + lastPrefixToken.source.length
   if (pair.srcToken?.key) return pair.srcToken.key.offset
   if (isNode(pair.key) && pair.key.range) return pair.key.range[0]
@@ -267,6 +268,8 @@ const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined =
     if (step.kind === "key") {
       const { pair, nodes, values } = step
       const key = pair.key
+
+      // YAML compares scalar values with ===; unlike Set equality, that keeps NaN keys distinct.
       const hasScalarValue = isScalar(key) && !Number.isNaN(key.value)
       const repeated = nodes.has(key) || (hasScalarValue && values.has(key.value))
 
@@ -286,8 +289,13 @@ const findFirstDuplicateKey = (document: Document): YAMLParseError | undefined =
       for (const pair of node.items.toReversed()) {
         const check: DuplicateKeyStep = { kind: "key", pair, nodes, values }
         const value: DuplicateKeyStep = { kind: "node", node: pair.value }
-        // Flow maps compose the value before checking the key; block maps check first.
-        steps.push(...(node.flow ? [check, value] : [value, check]))
+
+        // LIFO scheduling visits key → value → check in flow maps, key → check → value in blocks.
+        if (node.flow) {
+          steps.push(check, value)
+        } else {
+          steps.push(value, check)
+        }
         steps.push({ kind: "node", node: pair.key })
       }
       continue

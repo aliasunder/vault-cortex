@@ -70,7 +70,7 @@ const TASK_ITEM_RE = /^\[(.)\][ \t]/
 const BULLET_RE = /^([ \t]*)([*+-]|\d+[.)])( {1,4}(?! )| |\t|$|(?=\n))([^\n]*)/
 
 /** A later blank line can only have a non-whitespace suffix when the first one does. */
-const hasLooseListContent = (content: string): boolean => {
+const hasContentAfterBlankLine = (content: string): boolean => {
   const blankLineIndex = content.indexOf("\n\n")
 
   if (blankLineIndex === -1) return false
@@ -88,6 +88,7 @@ export const isAsciiDigit = (character: string): boolean => character >= "0" && 
 type ListItemLines = {
   value: string[]
   indent: number
+  /** Blank separators consumed after this item, outside its parsed content. */
   trail: string[]
 }
 
@@ -147,8 +148,10 @@ export const list = function (
 
   index = 0
   const items: ListItemLines[] = []
-  let allLines: string[] = []
-  let emptyLines: string[] = []
+  let listLines: string[] = []
+
+  // Blank lines join the list only when a continuation or another item follows.
+  let pendingBlankLines: string[] = []
   let item: ListItemLines | null = null
   let spread = false
   let empty = false
@@ -177,23 +180,23 @@ export const list = function (
     index = nextIndex + 1
 
     if (indented && item) {
-      item.value = item.value.concat(emptyLines, line)
-      allLines = allLines.concat(emptyLines, line)
-      emptyLines = []
+      item.value = item.value.concat(pendingBlankLines, line)
+      listLines = listLines.concat(pendingBlankLines, line)
+      pendingBlankLines = []
       continue
     }
 
     if (prefixed) {
-      if (emptyLines.length !== 0 && item) {
+      if (pendingBlankLines.length !== 0 && item) {
         spread = true
         item.value.push("")
-        item.trail = [...emptyLines]
+        item.trail = [...pendingBlankLines]
       }
 
       item = { value: [line], indent: scan.size, trail: [] }
       items.push(item)
-      allLines = allLines.concat(emptyLines, line)
-      emptyLines = []
+      listLines = listLines.concat(pendingBlankLines, line)
+      pendingBlankLines = []
       continue
     }
 
@@ -202,7 +205,7 @@ export const list = function (
       // leaves; kept so the port reads against its source
       if (previousEmpty && !commonmark) break
 
-      emptyLines.push(line)
+      pendingBlankLines.push(line)
       continue
     }
 
@@ -210,12 +213,13 @@ export const list = function (
     if (interrupt(interruptors, tokenizers, this, [eat, line, true])) break
     if (!item) break
 
-    item.value = item.value.concat(emptyLines, line)
-    allLines = allLines.concat(emptyLines, line)
-    emptyLines = []
+    item.value = item.value.concat(pendingBlankLines, line)
+    listLines = listLines.concat(pendingBlankLines, line)
+    pendingBlankLines = []
   }
 
-  const node = eat(allLines.join(LINE_FEED)).reset({
+  // reset records the parent span, then restores its text so each child can consume its own span.
+  const node = eat(listLines.join(LINE_FEED)).reset({
     type: "list",
     ordered,
     start,
@@ -383,13 +387,14 @@ const tokenizeListItem = (
   const taskMarker = task ? task[0] : ""
   const taskCharacter = task?.[1]
 
+  // Nested tokenizeBlock keeps source coordinates; offsets restore the stripped marker widths.
   if (taskMarker) offsets[position.line] = (offsets[position.line] ?? 0) + taskMarker.length
 
   const content = withoutBullet.slice(taskMarker.length)
 
   return {
     type: "listItem",
-    spread: hasLooseListContent(content),
+    spread: hasContentAfterBlankLine(content),
     checked: taskCharacter ? taskCharacter.toLowerCase() === LOWERCASE_X : null,
     children: parser.tokenizeBlock(content, position),
   }

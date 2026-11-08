@@ -8,7 +8,7 @@ import { tasks } from "../tasks.js"
 type Matcher = { exec: (input: string) => RegExpExecArray | null }
 type Grammar = {
   taskLine: Matcher
-  dataview: (inner: string) => Matcher
+  dataview: (params: { key: string; valuePattern: string }) => Matcher
   emoji: Matcher
   repeat: Matcher
 }
@@ -111,10 +111,15 @@ describe("task recognizer compatibility", () => {
 
     for (const variant of variants) {
       const oldPattern = legacyDataview(variant.inner)
+      const keyEnd = variant.inner.indexOf("::")
+      const key = variant.inner.slice(0, keyEnd + 2)
+      const fieldGrammar = {
+        key: variant.inner.slice(0, keyEnd),
+        valuePattern: variant.inner.slice(keyEnd + ":: *".length),
+      }
       const matcher = variant.inner.startsWith("repeat::")
         ? grammar.repeat
-        : grammar.dataview(variant.inner)
-      const key = variant.inner.slice(0, variant.inner.indexOf("::") + 2)
+        : grammar.dataview(fieldGrammar)
 
       for (let index = 0; index < count; index += 1) {
         const payload = Array.from(
