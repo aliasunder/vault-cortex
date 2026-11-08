@@ -1102,6 +1102,16 @@ describe("default config", () => {
   })
 
   describe("write chain", () => {
+    it("writes a 1 MB note through the authenticated MCP SDK client", async () => {
+      const body = "a".repeat(1024 * 1024) + "\n"
+      const path = "Scratch/large-write.md"
+      onTestFinished(() => rm(join(vaultPath, path), { force: true }))
+      const result = await callTool({ client, name: "vault_write_note", args: { path, body } })
+
+      expect(result).toEqual({ content: [{ type: "text", text: `Wrote ${path}` }] })
+      expect(await readFile(join(vaultPath, path), "utf8")).toBe(body)
+    })
+
     it("write → patch → replace → delete_span → replace_span → insert_at_anchor → update_properties → move → delete", async () => {
       // write
       const writeResult = await callTool({

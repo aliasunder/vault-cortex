@@ -909,8 +909,9 @@ removed two ways:
   rotation never accumulate.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
-`/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
-client-IP key derived from the deployment's explicit proxy-trust config:
+`/revoke`, `/oauth/decide`) are rate-limited at 5 req/min per client IP,
+bucketed by a client-IP key derived from the deployment's explicit
+proxy-trust config:
 
 - `TRUST_FORWARDED_HOPS` (default `0`) reads the client from the
   [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header.
@@ -933,8 +934,8 @@ client-IP key derived from the deployment's explicit proxy-trust config:
   `TRUST_FORWARDED_HOPS=1`.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
-  isn't trusted. An injected forwarding header is ignored on both channels,
-  so it can't mint a fresh bucket.
+  isn't trusted. These counts prevent forged client IPs only when requests
+  arrive through the counted proxies; direct access to the server must be blocked.
 - Whichever setting supplies the client IP, an IPv6 client is keyed by its /56
   (express-rate-limit's `ipKeyGenerator`), because one host often holds a
   /64 and could otherwise get a fresh bucket for every address in it. The
@@ -1261,8 +1262,9 @@ random, so the Sync device name cannot fall back to it.
 A platform qualifies only if it starts the image's entrypoint as PID 1 —
 s6-overlay v3 refuses to run as a child of a platform-injected init
 (`s6-overlay-suexec: fatal: can only run as pid 1`). Both platforms above
-do; the probe is a deploy with no variables set, which must reach
-`init-check-auth`'s own error rather than the s6 one.
+do; the probe is a deploy with no variables set, which must reach the
+container's init scripts rather than fail in s6. With no Sync token,
+`init-check-auth` selects setup mode.
 
 `cli/src/__tests__/templates.test.ts` pins `render.yaml` to the published
 image, to the fixed values above (`PORT`, `STORAGE_ROOT`, `DEVICE_NAME`), to
@@ -1486,7 +1488,7 @@ Docker hardening, and durability seatbelts above.
   Errors the server throws itself keep their text, since they can quote the
   caller's input. The `tool_error`, `prompt_error` and
   `pdf_page_render_failed` logs, and the logs of PDFs the search index or
-  file watcher cannot read, keep the full message
+  file watcher cannot read, keep the message
   and the cause of a wrapped error (`describeErrorForLog`).
 - **Memory file read failures** (`memory-store.ts`): a failed read of a
   memory file is rethrown as "cannot read memory file …" with the
@@ -1499,9 +1501,16 @@ Docker hardening, and durability seatbelts above.
 - **Graceful shutdown** (`server.ts`): SIGTERM handler drains in-flight
   requests with a 10-second force-exit fallback, so a write is never
   interrupted mid-rename.
-- **Error middleware**: catch-all Express middleware logs request
-  metadata and the error message server-side but returns only
-  `"internal server error"` to the client.
+- **Request bodies** (`src/http-error-middleware.ts`): `POST /mcp` parses
+  JSON up to 5 MB only after the token check, so a request without a valid token is
+  refused before its body is read. A malformed or oversized body gets its
+  4xx and a one-line warning; other failures answer 500 and log their stack.
+- **Log size** (`src/logger.ts`): the logger caps every string it logs, so
+  no request value can bloat a line, and stops writing a day's file at
+  `LOG_MAX_DAILY_MB` until midnight.
+- **Log write failures** (`src/logger.ts`): if the log file or folder
+  cannot be written, read or pruned, file logging stops with one console
+  warning and the server keeps running.
 
 #### Memory layer safety
 

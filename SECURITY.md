@@ -25,9 +25,10 @@ notes below describe what the maintainer uses.
   write. Protected paths prevent deletion of sensitive folders, and
   `READONLY_MODE=true` removes every vault-writing tool from the server
   entirely
-- **Docker image** — two targets from one Dockerfile: `:local` (tini + MCP
-  server) and `:remote` (s6-overlay supervising obsidian-sync + MCP server in
-  a single container, sharing a `/vault` volume at UID 1000)
+- **Docker image** — two targets from one Dockerfile: `local` (`:latest`,
+  tini + MCP server) and `remote` (`:remote`, s6-overlay supervising
+  obsidian-sync + MCP server in a single container, sharing a `/vault`
+  volume at UID 1000)
 
 ### Reference deployment (maintainer's IaC — not required by adopters)
 
@@ -223,8 +224,24 @@ The server, and the `:remote` image's setup mode, set these headers:
   messages alike, so the container's absolute path stays in the server log
 - In-lock existence checks return the documented "note not found" error
   instead of Node's ENOENT text
-- Error middleware returns `"internal server error"` to clients;
-  request metadata and the error message are logged server-side only
+- Both Express apps return exposed 4xx request-body errors with their status
+  and `{"error":"request body too large"}` for oversized bodies or
+  `{"error":"invalid request body"}` otherwise; other failures return 500 with
+  `"internal server error"`. Stack traces stay in server-error logs
+
+### Request bodies and log storage
+
+- `POST /mcp` parses JSON up to 5 MB only after bearer validation, so a request
+  without a valid token gets 401 before its body is read
+- A rejected request body produces one short warning without a stack, and
+  the logger caps every logged string at 256 code points (error text and
+  stack traces at 4,096)
+- `LOG_MAX_DAILY_MB` (25 by default) caps each day's log file; file logging
+  resumes at midnight in `TZ`, and console logging continues
+- Log files older than `LOG_RETENTION_DAYS` (90 by default) are pruned at
+  startup and each day
+- If the log file or folder cannot be written, read or pruned, file logging
+  stops with one console warning and the server keeps running
 
 ### Container hardening
 
@@ -244,8 +261,8 @@ The server, and the `:remote` image's setup mode, set these headers:
 - PDF page-image rendering (`raw: true`) runs in the server process;
   the text-extraction child and its limits do not cover that path
 
-- Non-root user (UID 1000 — `node` on `:local`, `obsidian` on `:remote`)
-- PID 1 init — `:local` uses `tini`, `:remote` uses s6-overlay's `/init`;
+- Non-root user (UID 1000 — `node` on `:latest`, `obsidian` on `:remote`)
+- PID 1 init — `:latest` uses `tini`, `:remote` uses s6-overlay's `/init`;
   both forward SIGTERM for clean SQLite WAL closure
 - Package-manager removal (`npm`/`npx`/`corepack`/`yarn` stripped from
   runtime in both targets)
@@ -304,6 +321,9 @@ while the owner decides are bounded:
   by its /56). The rate limit is what bounds how many requests are held,
   so it is only as strong as the client IP: set `TRUST_PROXY_HOPS` and
   `TRUST_FORWARDED_HOPS` above 0 only for a proxy that writes those headers
+- **Submission guessing is rate-limited** — `POST /oauth/decide` allows 5
+  submissions per minute per client IP (an IPv6 client by its /56), bounding
+  guesses of `MCP_AUTH_TOKEN`
 
 ### Symlink safety
 

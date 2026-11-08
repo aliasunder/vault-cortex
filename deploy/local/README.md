@@ -224,7 +224,7 @@ policy), Docker daemon restart, or system reboot.
 npx vault-cortex@latest down   # set up with the CLI
 docker compose down            # Compose
 
-# Stop and delete all volumes (index rebuilds on next start):
+# Stop and delete all volumes (rebuilds the index; reconnect each MCP client):
 docker compose down -v         # Compose
 
 # Stop without removing (any setup method; docker start resumes):
@@ -375,7 +375,7 @@ links):
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
 (memory folder, protected paths, orphan exclusions, file tools, read-only
 mode, per-tool disabling, daily notes folder and format, trash retention,
-timezone), see the [Configuration](../../README.md#configuration) section
+timezone, log-file limits), see the [Configuration](../../README.md#configuration) section
 in the main README.
 
 ## Troubleshooting

@@ -627,7 +627,7 @@ export const createOAuthProvider = ({
       oauthLogger.info("oauth_authorize_started", {
         clientId: client.client_id,
         requestId,
-        scopes,
+        scopes: scopes.join(" "),
       })
       res.type("html").send(
         renderConsentPage({
@@ -706,7 +706,7 @@ export const createOAuthProvider = ({
 
       oauthLogger.info("oauth_code_exchanged", {
         clientId: stored.clientId,
-        scopes,
+        scopes: scopes.join(" "),
       })
       return {
         access_token: accessToken,
@@ -784,7 +784,7 @@ export const createOAuthProvider = ({
 
       oauthLogger.info("oauth_token_refreshed", {
         clientId,
-        scopes: grantedScopes,
+        scopes: grantedScopes.join(" "),
       })
       return {
         access_token: accessToken,

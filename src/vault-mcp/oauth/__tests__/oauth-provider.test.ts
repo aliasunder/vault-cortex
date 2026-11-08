@@ -27,22 +27,25 @@ type LogCall = {
   data: Record<string, unknown>
 }
 const recordingLogger = (sink: LogCall[]): Logger => {
-  const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) => {
-      sink.push({ level: "debug", message, data: { ...props, ...data } })
-    },
-    info: (message, data = {}) => {
-      sink.push({ level: "info", message, data: { ...props, ...data } })
-    },
-    warn: (message, data = {}) => {
-      sink.push({ level: "warn", message, data: { ...props, ...data } })
-    },
-    error: (message, data = {}) => {
-      sink.push({ level: "error", message, data: { ...props, ...data } })
-    },
-    child: (childProps) => make({ ...props, ...childProps }),
+  const captureLine = (chunk: string | Uint8Array): boolean => {
+    const {
+      timestamp: _timestamp,
+      name: _name,
+      source: _source,
+      level,
+      message,
+      ...data
+    } = JSON.parse(String(chunk))
+    sink.push({ level, message, data })
+    return true
+  }
+  const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(captureLine)
+  const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(captureLine)
+  onTestFinished(() => {
+    stdoutSpy.mockRestore()
+    stderrSpy.mockRestore()
   })
-  return make({})
+  return logger
 }
 
 const AUTH_TOKEN = "test-static-token"
@@ -798,6 +801,27 @@ const setupAuditTest = async (
 }
 
 describe("OAuth audit logging", () => {
+  it("caps repeated refresh scopes in logs without truncating the grant", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+    const scopes = Array.from({ length: 1_000 }, () => "vault")
+    logs.length = 0
+
+    const tokens = await oauth.provider.exchangeRefreshToken(client, refreshToken, scopes)
+
+    expect(tokens.scope).toBe(scopes.join(" "))
+    expect(logs).toEqual([
+      {
+        level: "info",
+        message: "oauth_token_refreshed",
+        data: {
+          component: "oauth",
+          clientId: client.client_id,
+          scopes: "vault ".repeat(42) + "vau…",
+        },
+      },
+    ])
+  })
   it("logs oauth_client_registered on dynamic client registration", async () => {
     const { logs, oauth } = await setupAuditTest()
 
@@ -840,7 +864,7 @@ describe("OAuth audit logging", () => {
       data: {
         component: "oauth",
         clientId: client.client_id,
-        scopes: ["vault"],
+        scopes: "vault",
       },
     })
   })
@@ -909,7 +933,7 @@ describe("OAuth audit logging", () => {
       data: {
         component: "oauth",
         clientId: client.client_id,
-        scopes: ["vault"],
+        scopes: "vault",
       },
     })
   })
@@ -1704,6 +1728,54 @@ describe("OAuth refresh token reuse revocation", () => {
 })
 
 describe("OAuth resource parameter (RFC 8707)", () => {
+  it("caps the rejected resource URL in audit logs", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const { response, getHtml } = createMockResponse()
+
+    await expect(
+      oauth.provider.authorize(
+        client,
+        {
+          codeChallenge: "test-challenge",
+          redirectUri: "https://example.com/cb",
+          scopes: ["vault"],
+          resource: new URL("https://other.example/" + "x".repeat(1_000)),
+        },
+        response,
+      ),
+    ).rejects.toStrictEqual(new InvalidTargetError("The resource parameter is not this server"))
+
+    expect(getHtml()).toBe("")
+    expect(logs.filter((log) => log.message === "oauth_resource_rejected")).toEqual([
+      {
+        level: "warn",
+        message: "oauth_resource_rejected",
+        data: {
+          component: "oauth",
+          clientId: client.client_id,
+          resource: "https://other.example/" + "x".repeat(233) + "…",
+        },
+      },
+    ])
+  })
+
+  it("caps a registered client's name without changing the stored name", async () => {
+    const { logs, oauth } = await setupAuditTest()
+    const store = oauth.provider.clientsStore
+
+    if (!store.registerClient) throw new Error("registerClient not implemented")
+    const client = await store.registerClient({
+      client_name: "🎉".repeat(1_000),
+      redirect_uris: ["https://example.com/cb"],
+    })
+
+    expect(client.client_name).toBe("🎉".repeat(1_000))
+    expect(logs.filter((log) => log.message === "oauth_client_registered").at(-1)).toEqual({
+      level: "info",
+      message: "oauth_client_registered",
+      data: { component: "oauth", clientId: client.client_id, clientName: "🎉".repeat(255) + "…" },
+    })
+  })
   const authorizeWithResource = async (
     oauth: OAuthProvider,
     client: OAuthClientInformationFull,
@@ -1884,7 +1956,7 @@ describe("OAuth vault scope", () => {
     const { consentHtml, requestId } = await startAuthFlowWithScopes(oauth, client, [])
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
-    expect(started?.data.scopes).toEqual(["vault"])
+    expect(started?.data.scopes).toBe("vault")
     expect(consentHtml).toContain(GRANT_ROW_VALUE)
 
     const code = oauth.approveRequest(requestId, testLogger)
@@ -1905,7 +1977,7 @@ describe("OAuth vault scope", () => {
     const { consentHtml, requestId } = await startAuthFlowWithScopes(oauth, client, [""])
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
-    expect(started?.data.scopes).toEqual(["vault"])
+    expect(started?.data.scopes).toBe("vault")
     expect(consentHtml).toContain(GRANT_ROW_VALUE)
 
     const code = oauth.approveRequest(requestId, testLogger)
@@ -1919,7 +1991,7 @@ describe("OAuth vault scope", () => {
     const { consentHtml, requestId } = await startAuthFlowWithScopes(oauth, client, ["vault"])
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
-    expect(started?.data.scopes).toEqual(["vault"])
+    expect(started?.data.scopes).toBe("vault")
     expect(consentHtml).toContain(GRANT_ROW_VALUE)
 
     const code = oauth.approveRequest(requestId, testLogger)
@@ -1933,7 +2005,7 @@ describe("OAuth vault scope", () => {
     const { requestId } = await startAuthFlowWithScopes(oauth, client, ["read"])
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
-    expect(started?.data.scopes).toEqual(["vault"])
+    expect(started?.data.scopes).toBe("vault")
 
     const code = oauth.approveRequest(requestId, testLogger)
     const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
@@ -1959,7 +2031,7 @@ describe("OAuth vault scope", () => {
     const { consentHtml, requestId } = await startAuthFlowWithScopes(oauth, client, undefined)
 
     const started = logs.find((log) => log.message === "oauth_authorize_started")
-    expect(started?.data.scopes).toEqual(["vault"])
+    expect(started?.data.scopes).toBe("vault")
     expect(consentHtml).toContain(GRANT_ROW_VALUE)
 
     const code = oauth.approveRequest(requestId, testLogger)

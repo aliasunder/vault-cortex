@@ -37,7 +37,11 @@ export const handler = async (
   const path = event.rawPath ?? "/"
   const requestId = event.requestContext?.requestId
   const sourceIp = event.requestContext?.http?.sourceIp
-  const logger = rootLogger.child({ requestId, sourceIp, path })
+  const logger = rootLogger.child({
+    requestId,
+    sourceIp,
+    path,
+  })
 
   const token = parseBearer(event.headers?.authorization)
 

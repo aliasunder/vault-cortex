@@ -160,8 +160,10 @@ PORT=8000
 #
 # When the Forwarded header is read (TRUST_FORWARDED_HOPS above 0), it wins
 # and TRUST_PROXY_HOPS is not consulted; TRUST_PROXY_HOPS is the fallback
-# when that header is ignored or absent. Faked headers from visitors are
-# ignored in every row — only the counted proxies are trusted.
+# when that header is ignored or absent. Only the counted proxies are
+# trusted, so faked headers from visitors are ignored while requests reach
+# the server through those proxies. Block direct access to the server's
+# port, or a visitor who connects directly chooses its own client IP.
 # TRUST_PROXY_HOPS=0
 # TRUST_FORWARDED_HOPS=0
 
@@ -175,9 +177,16 @@ LOG_LEVEL=info
 # log files there; the /data volume keeps them.
 LOG_DIR=none
 
-# Days to keep log files before cleanup on startup (default: 90). Only
-# applies once LOG_DIR is a path.
+# Days to keep log files; cleanup runs at startup and each day (default: 90).
+# Use digits only (0 keeps today); invalid values warn and use 90.
+# Only applies once LOG_DIR is a path.
 # LOG_RETENTION_DAYS=90
+
+# Maximum MB per daily log file (1 MB = 1,000,000 bytes; default: 25).
+# Valid values: whole numbers of at least 1, or "none" to disable the cap.
+# At the cap, file logging pauses until midnight in TZ (default: UTC).
+# The container log continues.
+# LOG_MAX_DAILY_MB=25
 
 # Windows users: set this to true. Makes a vault stored on a C: drive work
 # through Docker Desktop (switches the file watcher to polling and note moves
@@ -325,8 +334,10 @@ PORT=8000
 #
 # When the Forwarded header is read (TRUST_FORWARDED_HOPS above 0), it wins
 # and TRUST_PROXY_HOPS is not consulted; TRUST_PROXY_HOPS is the fallback
-# when that header is ignored or absent. Faked headers from visitors are
-# ignored in every row — only the counted proxies are trusted.
+# when that header is ignored or absent. Only the counted proxies are
+# trusted, so faked headers from visitors are ignored while requests reach
+# the server through those proxies. Block direct access to the server's
+# port, or a visitor who connects directly chooses its own client IP.
 # TRUST_PROXY_HOPS=0
 # TRUST_FORWARDED_HOPS=0
 
@@ -340,8 +351,15 @@ LOG_LEVEL=info
 # survive. Set to "none" to keep only the container log.
 LOG_DIR=/data/logs
 
-# Days to retain persistent log files before cleanup (default: 90).
+# Days to retain log files; cleanup runs at startup and each day (default: 90).
+# Use digits only (0 keeps today); invalid values warn and use 90.
 LOG_RETENTION_DAYS=90
+
+# Maximum MB per daily log file (1 MB = 1,000,000 bytes; default: 25).
+# Valid values: whole numbers of at least 1, or "none" to disable the cap.
+# At the cap, file logging pauses until midnight in TZ (default: UTC).
+# The container log continues.
+# LOG_MAX_DAILY_MB=25
 
 # User/group IDs for obsidian-sync (default: 1000).
 PUID=1000

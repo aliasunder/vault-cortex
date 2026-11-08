@@ -82,6 +82,7 @@ src/
   logger.ts # Root logger (structured JSON, source location)
   auth.ts # Auth helpers shared by the Lambda authorizer and vault-mcp/
   jwt.ts # Minimal HS256 JWT sign and verify for the Lambda authorizer and the OAuth server
+  http-error-middleware.ts # Express error handler shared by the full server and setup mode: short 4xx for bad request bodies, 500 with a stack otherwise
   utils/ # Generic helpers with no domain logic (admission rules under Module layering)
   functions/authorizer.ts # Lambda: validates the static token or a JWT on every protected route
   __tests__/integration/ # Server tests over real HTTP through the SDK Client; files listed under "Integration tests — when to add"
@@ -386,6 +387,7 @@ log would produce N lines during a vault rebuild (one per note), it's
   not in structured fields, not in tests (fake fixtures only). Log
   identifiers (`sessionId`), never identity payloads such as an account
   email or name.
+- Pass field values as they are: the logger caps every string it logs.
 - Redact by destructuring the sensitive keys out:
   `const { password, token, ...safe } = payload`. Keep the payload typed
   (no `any`), and never `delete` keys from a copy.

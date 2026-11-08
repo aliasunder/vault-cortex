@@ -127,6 +127,59 @@ const signInThroughBrowser = async (port: number): Promise<Response> =>
   })
 
 describe("setup-server entry point", () => {
+  it("answers oversized forms with 413 and one capped warning without a stack", async () => {
+    const server = await spawnSetupServer({
+      HOME: tmpdir(),
+      MCP_AUTH_TOKEN: AUTH_TOKEN,
+      TRUST_FORWARDED_HOPS: "1",
+    })
+    await waitForStart(server)
+    const response = await fetch(`http://127.0.0.1:${server.port}/setup`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "mcp-session-id": "s".repeat(300),
+        forwarded: `for=${"i".repeat(300)}`,
+      },
+      body: `token=${"t".repeat(200 * 1024)}`,
+    })
+
+    expect({
+      status: response.status,
+      body: await response.json(),
+      cacheControl: response.headers.get("cache-control"),
+    }).toEqual({
+      status: 413,
+      body: { error: "request body too large" },
+      cacheControl: "no-store",
+    })
+    await vi.waitFor(() => expect(server.stdout()).toContain('"message":"request_body_rejected"'))
+    await stopChild(server.child)
+    const rejectionRecords = server
+      .stdout()
+      .trim()
+      .split("\n")
+      .map((line): Record<string, unknown> => JSON.parse(line))
+      .filter((record) => record.message === "request_body_rejected")
+
+    expect(rejectionRecords).toEqual([
+      {
+        timestamp: expect.any(String),
+        source: expect.stringMatching(/^http-error-middleware\.ts:\d+$/),
+        level: "warn",
+        name: "vault-cortex",
+        message: "request_body_rejected",
+        method: "POST",
+        path: "/setup",
+        sessionId: "s".repeat(255) + "…",
+        clientIp: "i".repeat(255) + "…",
+        type: "entity.too.large",
+        status: 413,
+      },
+    ])
+    expect(server.stderr()).toBe("")
+  })
+
   it("writes the token under $HOME/.config when XDG_CONFIG_HOME is unset, then exits 0 for the restart", async () => {
     const api = await startFakeObsidianApi((request) =>
       request.path === "/user/signin"

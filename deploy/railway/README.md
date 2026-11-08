@@ -297,7 +297,8 @@ The template sets these; change them under the service's **Variables** tab
 the template pre-fills them with the image defaults so you can edit them in
 place. `LOG_DIR` is not pre-filled — the container derives it at every start,
 and `none` is the only value worth setting by hand. Every other optional setting uses the same names as the remote
-quickstart's [Configuration table](../remote/#configuration) — add it as a
+quickstart's [Configuration table](../remote/#configuration), including
+`LOG_MAX_DAILY_MB` and `LOG_RETENTION_DAYS` for smaller disks — add it as a
 new variable.
 
 Don't set `PUBLIC_URL` or `VAULT_PATH` — the container derives

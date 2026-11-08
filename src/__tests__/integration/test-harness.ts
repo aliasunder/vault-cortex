@@ -23,6 +23,7 @@ type ServerHandle = {
   /** Everything the server has logged to stdout so far — the structured
    *  JSON log stream, for asserting a log line's presence or absence. */
   stdout: () => string
+  stderr: () => string
   cleanup: () => Promise<void>
 }
 
@@ -267,7 +268,7 @@ export const startServer = async (
     await rm(dataDir, { recursive: true, force: true })
   }
 
-  return { port, child, vaultPath, dataDir, stdout, cleanup }
+  return { port, child, vaultPath, dataDir, stdout, stderr, cleanup }
 }
 
 /** Spawn server expecting it to fail — returns exit code and stderr.
