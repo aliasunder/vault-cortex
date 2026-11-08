@@ -11,6 +11,7 @@ import {
 } from "./search/body-tag-parser.js"
 import { createSearchModels } from "./search/search-models.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
+import { createPdfExtractor, type PdfExtractor } from "./vault-operations/pdf-extractor.js"
 import { readTaskFormatConfig } from "./vault-operations/task-format-config.js"
 import { trashSweeper } from "./vault-operations/trash-sweeper.js"
 import { watchVaultAndBuildIndex } from "./search/file-watcher.js"
@@ -60,25 +61,32 @@ export const createShutdownHandler =
   ({
     httpServer,
     bodyTagParser,
+    pdfExtractor,
     forceExitMs = 10_000,
   }: {
     httpServer: { close: (callback: () => void) => void }
     bodyTagParser: Pick<BodyTagParser, "close">
+    pdfExtractor: Pick<PdfExtractor, "close">
     forceExitMs?: number
   }): (() => void) =>
   (): void => {
     logger.info("SIGTERM received, draining")
 
-    // Detached on purpose: the drain doesn't wait for it, and exiting ends the
-    // worker either way
-    bodyTagParser.close().catch((error: unknown) => {
-      logger.warn("body-tag parser did not close cleanly", { error: describeError(error) })
-    })
-
-    httpServer.close(() => {
-      logger.info("drained, exiting")
-      process.exit(0)
-    })
+    // Close extraction before draining HTTP so active reads get a defined error immediately.
+    const extractionClosed = pdfExtractor.close()
+    const parserClosed = bodyTagParser.close()
+    const drained = new Promise<void>((resolveDrain) => httpServer.close(resolveDrain))
+    const finishShutdown = async (): Promise<void> => {
+      try {
+        await Promise.all([extractionClosed, parserClosed, drained])
+        logger.info("drained, exiting")
+        process.exit(0)
+      } catch (error) {
+        logger.warn("shutdown cleanup failed", { error: describeError(error) })
+        process.exit(1)
+      }
+    }
+    void finishShutdown()
     setTimeout(() => {
       logger.warn("drain timed out, forcing exit")
       process.exit(1)
@@ -197,127 +205,153 @@ const startServer = async (): Promise<void> => {
 
   // Lives until SIGTERM, when the shutdown handler closes it
   const bodyTagParser = createBodyTagParser({ timeoutMs: BODY_TAG_PARSE_TIMEOUT_MS })
-
-  // Startup takes only the note count and leaves the rebuild's embedding and
-  // body-tag passes running, so the server takes requests while they run;
-  // rebuildFromVault logs either pass's failure itself.
-  const { count } = await watchVaultAndBuildIndex(
-    {
-      vaultPath,
-      search,
+  const pdfExtractor = createPdfExtractor({ vaultPath, maxFileBytes: config.maxFileBytes })
+  // The signal handler must exist before startup reconciliation can queue extraction.
+  const lifecycle: { httpServer?: { close: (callback: () => void) => void } } = {}
+  process.once(
+    "SIGTERM",
+    createShutdownHandler({
+      httpServer: {
+        close: (callback) => {
+          if (lifecycle.httpServer) lifecycle.httpServer.close(callback)
+          else callback()
+        },
+      },
       bodyTagParser,
-      watcherOptions: { usePolling: config.windowsBindMount },
-    },
-    logger,
-  )
-  logger.info("initial index built", { notesIndexedByRebuild: count })
-
-  const oauthProvider = createOAuthProvider({
-    authToken,
-    dbPath: oauthDbPath,
-    serverUrl,
-    logger,
-  })
-
-  const app = express()
-  // First, so a response that later middleware ends early, such as an error
-  // or a redirect, carries the headers too.
-  app.use(securityHeaders)
-  app.disable("x-powered-by")
-  // Proxy trust is deployment-explicit: TRUST_PROXY_HOPS grants one
-  // X-Forwarded-For hop per proxy the deployment controls. With the
-  // default 0, req.ip — the OAuth rate limiter's fallback bucket key —
-  // is the socket peer, and an injected header can't shift it. Never
-  // widen this to Express's blanket `true`: trusting the whole chain
-  // lets any client claim any IP via appended headers.
-  app.set("trust proxy", config.trustProxyHops)
-  app.use(express.json())
-
-  app.get("/healthz", (_req: Request, res: Response) => {
-    res.json({ ok: true })
-  })
-
-  // The :remote image serves the Sync sign-in page here while it has no
-  // token (setup/setup-server.ts); once configured, the same address says so
-  // instead of 404ing on a link from that flow or a guide.
-  app.get("/setup", (_req: Request, res: Response) => {
-    // Not cached, so the address shows setup mode's page again if the
-    // container returns to setup mode.
-    res
-      .set("Cache-Control", "no-store")
-      .type("html")
-      .send(renderSetupPage({ kind: "configured" }))
-  })
-
-  app.use(
-    createOAuthRoutes({
-      authToken,
-      serverUrl,
-      oauthProvider,
-      serviceDocumentationUrl: config.serviceDocumentationUrl,
-      trustForwardedHops: config.trustForwardedHops,
-      logger,
-    }),
-  )
-  app.use(
-    createMcpRouter({
-      vaultPath,
-      search,
-      serverUrl,
-      provider: oauthProvider.provider,
-      config,
+      pdfExtractor,
     }),
   )
 
-  app.use(createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }))
-
-  // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
-  // callback's error argument instead of throwing, so an unchecked callback
-  // would log "server started" and leave a process that serves nothing.
-  const httpServer = app.listen(port, host, (listenError?: Error) => {
-    if (listenError) {
-      logger.error("server failed to listen", {
-        host,
-        port,
-        error: describeError(listenError),
-      })
-      process.exit(1)
-    }
-    logger.info("server started", { host, port })
-  })
-
-  // Started after listen so a large trash backlog (unlinks at bind-mount
-  // latency) can never stall /healthz past container health-check budgets.
-  // Sync deploys never trash (their deletes skip .trash/ and remove the note
-  // for good) and a read-only server never modifies the vault, so neither runs.
-  const trashBookkeepingEnabled = !config.readOnlyMode && !config.obsidianSyncEnabled
-
-  process.on("SIGTERM", createShutdownHandler({ httpServer, bodyTagParser }))
-
-  // Orphan purge: drops rows whose .trash/ entry is gone — runs once at
-  // boot regardless of TRASH_RETENTION_DAYS.
-  if (trashBookkeepingEnabled) {
-    try {
-      await trashSweeper.purgeOrphanedTrashEntries({ vaultPath, trashEntryStore: search }, logger)
-    } catch (error) {
-      logger.error("orphaned trash entry purge failed", {
-        error: describeError(error),
-      })
-    }
-  }
-
-  // Retention sweep: unlinks expired files on a daily schedule.
-  const { trashRetentionDays } = config
-
-  if (trashBookkeepingEnabled && trashRetentionDays !== null) {
-    trashSweeper.startTrashSweepSchedule(
+  try {
+    // Startup takes only the note count and leaves the rebuild's embedding and
+    // body-tag passes running, so the server takes requests while they run;
+    // rebuildFromVault logs either pass's failure itself.
+    const { count, startPdfPass } = await watchVaultAndBuildIndex(
       {
         vaultPath,
-        retentionDays: trashRetentionDays,
-        trashEntryStore: search,
+        search,
+        bodyTagParser,
+        pdfExtractor,
+        maxFileBytes: config.maxFileBytes,
+        watcherOptions: { usePolling: config.windowsBindMount },
       },
       logger,
     )
+    logger.info("initial index built", { notesIndexedByRebuild: count })
+
+    const oauthProvider = createOAuthProvider({
+      authToken,
+      dbPath: oauthDbPath,
+      serverUrl,
+      logger,
+    })
+
+    const app = express()
+    // First, so a response that later middleware ends early, such as an error
+    // or a redirect, carries the headers too.
+    app.use(securityHeaders)
+    app.disable("x-powered-by")
+    // Proxy trust is deployment-explicit: TRUST_PROXY_HOPS grants one
+    // X-Forwarded-For hop per proxy the deployment controls. With the
+    // default 0, req.ip — the OAuth rate limiter's fallback bucket key —
+    // is the socket peer, and an injected header can't shift it. Never
+    // widen this to Express's blanket `true`: trusting the whole chain
+    // lets any client claim any IP via appended headers.
+    app.set("trust proxy", config.trustProxyHops)
+    app.use(express.json())
+
+    app.get("/healthz", (_req: Request, res: Response) => {
+      res.json({ ok: true })
+    })
+
+    // The :remote image serves the Sync sign-in page here while it has no
+    // token (setup/setup-server.ts); once configured, the same address says so
+    // instead of 404ing on a link from that flow or a guide.
+    app.get("/setup", (_req: Request, res: Response) => {
+      // Not cached, so the address shows setup mode's page again if the
+      // container returns to setup mode.
+      res
+        .set("Cache-Control", "no-store")
+        .type("html")
+        .send(renderSetupPage({ kind: "configured" }))
+    })
+
+    app.use(
+      createOAuthRoutes({
+        authToken,
+        serverUrl,
+        oauthProvider,
+        serviceDocumentationUrl: config.serviceDocumentationUrl,
+        trustForwardedHops: config.trustForwardedHops,
+        logger,
+      }),
+    )
+    app.use(
+      createMcpRouter({
+        vaultPath,
+        search,
+        pdfExtractor,
+        serverUrl,
+        provider: oauthProvider.provider,
+        config,
+      }),
+    )
+
+    app.use(createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }))
+
+    // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
+    // callback's error argument instead of throwing, so an unchecked callback
+    // would log "server started" and leave a process that serves nothing.
+    const httpServer = app.listen(port, host, (listenError?: Error) => {
+      if (listenError) {
+        logger.error("server failed to listen", {
+          host,
+          port,
+          error: describeError(listenError),
+        })
+        void pdfExtractor.close().finally(() => process.exit(1))
+        return
+      }
+      logger.info("server started", { host, port })
+      // This is the shared boundary for rebuild and held/live watcher PDF work.
+      void startPdfPass()
+    })
+    lifecycle.httpServer = httpServer
+
+    // Started after listen so a large trash backlog (unlinks at bind-mount
+    // latency) can never stall /healthz past container health-check budgets.
+    // Sync deploys never trash (their deletes skip .trash/ and remove the note
+    // for good) and a read-only server never modifies the vault, so neither runs.
+    const trashBookkeepingEnabled = !config.readOnlyMode && !config.obsidianSyncEnabled
+
+    // Orphan purge: drops rows whose .trash/ entry is gone — runs once at
+    // boot regardless of TRASH_RETENTION_DAYS.
+    if (trashBookkeepingEnabled) {
+      try {
+        await trashSweeper.purgeOrphanedTrashEntries({ vaultPath, trashEntryStore: search }, logger)
+      } catch (error) {
+        logger.error("orphaned trash entry purge failed", {
+          error: describeError(error),
+        })
+      }
+    }
+
+    // Retention sweep: unlinks expired files on a daily schedule.
+    const { trashRetentionDays } = config
+
+    if (trashBookkeepingEnabled && trashRetentionDays !== null) {
+      trashSweeper.startTrashSweepSchedule(
+        {
+          vaultPath,
+          retentionDays: trashRetentionDays,
+          trashEntryStore: search,
+        },
+        logger,
+      )
+    }
+  } catch (error) {
+    await Promise.all([pdfExtractor.close(), bodyTagParser.close()])
+    throw error
   }
 }
 

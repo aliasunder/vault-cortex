@@ -1,3 +1,4 @@
+import type { PdfExtractor } from "../../vault-operations/pdf-extractor.js"
 /** Shared types and helpers for tool group modules. */
 
 import { z } from "zod"
@@ -71,6 +72,7 @@ export type ToolRegistrationContext = ToolAvailability &
     registerTool: RegisterGatedTool
     vaultPath: string
     search: SearchIndex
+    pdfExtractor: PdfExtractor
     logger: Logger
     config: VaultConfig
   }

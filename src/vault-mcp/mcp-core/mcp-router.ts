@@ -1,3 +1,4 @@
+import type { PdfExtractor } from "../vault-operations/pdf-extractor.js"
 /** MCP session routes — transport lifecycle, session creation, request routing. */
 
 import { Router } from "express"
@@ -22,6 +23,7 @@ import { extractClientIp, headerAsString, mcpResourceUrl } from "../../auth.js"
 type McpRouterOptions = {
   vaultPath: string
   search: SearchIndex
+  pdfExtractor: PdfExtractor
   provider: OAuthServerProvider
   config: VaultConfig
   serverUrl: URL
@@ -107,6 +109,7 @@ ${markdownClause}`
 export const createMcpRouter = ({
   vaultPath,
   search,
+  pdfExtractor,
   provider,
   config,
   serverUrl,
@@ -180,6 +183,7 @@ export const createMcpRouter = ({
           server,
           vaultPath,
           search,
+          pdfExtractor,
           logger: sessionLogger,
           config,
         })

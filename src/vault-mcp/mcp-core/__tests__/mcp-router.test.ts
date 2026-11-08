@@ -1,3 +1,4 @@
+import { unusedPdfExtractor } from "../../../__tests__/pdf-extractor.js"
 import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest"
 import express from "express"
 import { randomUUID } from "node:crypto"
@@ -168,6 +169,7 @@ const setupHarness = async (
   app.use(
     createMcpRouter({
       vaultPath: VAULT_PATH,
+      pdfExtractor: unusedPdfExtractor,
       search,
       provider,
       config,

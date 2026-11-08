@@ -1,3 +1,4 @@
+import { unusedPdfExtractor } from "../../../__tests__/pdf-extractor.js"
 import { describe, it, expect, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
@@ -301,7 +302,12 @@ describe("task indexing lifecycle", () => {
     expect(index.listTasks({}, logger).tasks.map((entry) => entry.path)).toEqual(["ghost.md"])
 
     const { embedding } = await index.rebuildFromVault(
-      { vaultPath: vaultDir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: vaultDir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await embedding

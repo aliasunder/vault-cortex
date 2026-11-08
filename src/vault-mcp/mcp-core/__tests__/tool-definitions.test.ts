@@ -1,3 +1,4 @@
+import { createTestPdfExtractor, unusedPdfExtractor } from "../../../__tests__/pdf-extractor.js"
 import { describe, it, expect, beforeEach, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
 import { mkdtemp, rm, writeFile, mkdir, readFile, utimes } from "node:fs/promises"
@@ -66,6 +67,7 @@ beforeEach(() => {
   registerTools({
     server: mockServer as unknown as McpServer,
     vaultPath: "/test-vault",
+    pdfExtractor: createTestPdfExtractor("/test-vault"),
     search: {} as SearchIndex,
     logger,
     config: loadConfig({}),
@@ -82,6 +84,7 @@ const registerWithConfig = (
   registerTools({
     server: server as unknown as McpServer,
     vaultPath: context.vaultPath ?? "/test-vault",
+    pdfExtractor: unusedPdfExtractor,
     search: context.search ?? ({} as SearchIndex),
     logger: context.logger ?? logger,
     config: loadConfig(env),
@@ -956,6 +959,7 @@ describe("vault_read_note line paging", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig({}),
@@ -1194,6 +1198,7 @@ describe("vault_update_memory handler", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig(configEnv),
@@ -1299,6 +1304,7 @@ describe("vault_patch_note handler", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig({}),
@@ -1420,6 +1426,7 @@ describe("vault_read_note outline mode", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig({}),
@@ -1937,6 +1944,7 @@ describe("vault_memory_recall handler", () => {
     registerTools({
       server: memoryMockServer as unknown as McpServer,
       vaultPath: "/test-vault",
+      pdfExtractor: createTestPdfExtractor("/test-vault"),
       search: searchIndex,
       logger,
       config: loadConfig({}),
@@ -2016,6 +2024,7 @@ describe("vault_search handler", () => {
     registerTools({
       server: searchMockServer as unknown as McpServer,
       vaultPath: "/test-vault",
+      pdfExtractor: createTestPdfExtractor("/test-vault"),
       search: searchIndex,
       logger,
       config: loadConfig({}),
@@ -2506,6 +2515,7 @@ describe("vault_list_tasks handler", () => {
     registerTools({
       server: taskMockServer as unknown as McpServer,
       vaultPath: "/test-vault",
+      pdfExtractor: createTestPdfExtractor("/test-vault"),
       search: searchIndex,
       logger,
       config: loadConfig({}),
@@ -2664,6 +2674,7 @@ describe("file tool handlers", () => {
     registerTools({
       server: server as unknown as McpServer,
       vaultPath: tempVault,
+      pdfExtractor: createTestPdfExtractor(tempVault),
       search: {} as SearchIndex,
       logger,
       config: loadConfig({}),
@@ -4326,6 +4337,7 @@ describe("flag-combination matrix", () => {
       registerTools({
         server: server as unknown as McpServer,
         vaultPath: "/test-vault",
+        pdfExtractor: createTestPdfExtractor("/test-vault"),
         search: {} as SearchIndex,
         logger,
         config,

@@ -1,3 +1,4 @@
+import { unusedPdfExtractor } from "../../../__tests__/pdf-extractor.js"
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, unlink } from "node:fs/promises"
 import { join } from "node:path"
@@ -683,7 +684,12 @@ title: Agents
   it("indexes and embeds entries from every memory file during rebuild", async () => {
     const { dir, index, inspect } = await createRebuiltVault()
     const { embedding } = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await embedding
@@ -700,7 +706,12 @@ title: Agents
   it("removes entries for a memory file deleted while the server was down", async () => {
     const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
     const firstBuild = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await firstBuild.embedding
@@ -710,7 +721,12 @@ title: Agents
 
     await unlink(join(memoryDirPath, "Agents.md"))
     const secondBuild = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await secondBuild.embedding
@@ -727,7 +743,12 @@ title: Agents
     const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
     await writeFile(join(memoryDirPath, "Opinions.md.md"), OPINIONS_V1)
     const firstBuild = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await firstBuild.embedding
@@ -752,7 +773,12 @@ title: Agents
     ])
 
     const secondBuild = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await secondBuild.embedding
@@ -768,7 +794,12 @@ title: Agents
   it("re-indexes a memory note's entries from its body when its block is not valid YAML", async () => {
     const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
     const firstBuild = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await firstBuild.embedding
@@ -781,7 +812,12 @@ title: Agents
       "---\ntitle: [unclosed\n---\n# Opinions\n\n## Code patterns (newest first)\n\n- **2026-08-01**: Named over positional.\n",
     )
     const secondBuild = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await secondBuild.embedding
@@ -824,14 +860,24 @@ title: Agents
   it("embeds zero entries on a second rebuild with unchanged files", async () => {
     const { dir, index, embedder } = await createRebuiltVault()
     const firstBuild = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await firstBuild.embedding
     embedder.embedBatch.mockClear()
 
     const secondBuild = await index.rebuildFromVault(
-      { vaultPath: dir, bodyTagParser: inProcessBodyTagParser },
+      {
+        vaultPath: dir,
+        bodyTagParser: inProcessBodyTagParser,
+        pdfExtractor: unusedPdfExtractor,
+        maxFileBytes: 50 * 1024 * 1024,
+      },
       logger,
     )
     await secondBuild.embedding
