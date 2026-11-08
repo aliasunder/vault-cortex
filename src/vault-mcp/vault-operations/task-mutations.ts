@@ -527,7 +527,7 @@ const headingInsertIndexAtPosition = ({
   // Cards under child headings belong to those headings, not this lane.
   const firstChildStart = findFirstChildHeadingStart({ lines, heading })
   const walkEnd = firstChildStart ?? sectionEnd
-  const excludedLineIndices = findExcludedLineIndices(lines)
+  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
 
   const cardStartIndices: number[] = []
   // Variable-length jumps through the section: each card's sub-item block
@@ -548,7 +548,7 @@ const headingInsertIndexAtPosition = ({
     if (
       isExcludedFromLane({
         line,
-        excluded: excludedLineIndices.has(walkIndex),
+        excluded: fenceOrCommentLineIndices.has(walkIndex),
         statusRegistry,
       })
     ) {
@@ -910,8 +910,8 @@ const rejectNonTaskCheckbox = ({
 }
 
 /** Classifies a note once so lane walks and ID checks never rescan its prefix per candidate. */
-const findExcludedLineIndices = (bodyLines: readonly string[]): ReadonlySet<number> => {
-  const excludedLineIndices = new Set<number>()
+const findFenceOrCommentLineIndices = (bodyLines: readonly string[]): ReadonlySet<number> => {
+  const fenceOrCommentLineIndices = new Set<number>()
   // Fence and comment state must flow through every line, including skipped card sub-items.
   let openFence: OpenFence = null
   let commentOpen = false
@@ -922,7 +922,7 @@ const findExcludedLineIndices = (bodyLines: readonly string[]): ReadonlySet<numb
       openFence = fenceResult.openFence
 
       if (fenceResult.lineIsCode) {
-        excludedLineIndices.add(lineIndex)
+        fenceOrCommentLineIndices.add(lineIndex)
         continue
       }
     }
@@ -931,13 +931,13 @@ const findExcludedLineIndices = (bodyLines: readonly string[]): ReadonlySet<numb
     const commentResult = advanceComment(lineText, commentOpen)
     commentOpen = commentResult.commentOpen
 
-    if (wasCommentOpen && commentResult.lineIsComment) excludedLineIndices.add(lineIndex)
+    if (wasCommentOpen && commentResult.lineIsComment) fenceOrCommentLineIndices.add(lineIndex)
   }
-  return excludedLineIndices
+  return fenceOrCommentLineIndices
 }
 
 const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean =>
-  findExcludedLineIndices(bodyLines).has(lineIndex)
+  findFenceOrCommentLineIndices(bodyLines).has(lineIndex)
 
 /** No-op when the task already sits under the target heading and no
  *  explicit position is requested. With a position, same-lane reorders
@@ -1108,7 +1108,7 @@ const positionOfTaskInLane = ({
 
   const firstChildStart = findFirstChildHeadingStart({ lines, heading })
   const walkEnd = firstChildStart ?? sectionEnd
-  const excludedLineIndices = findExcludedLineIndices(lines)
+  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(lines)
 
   // Each card's sub-items are skipped via findTaskBlockEnd, so the
   // step size varies per iteration — both counters must be mutable.
@@ -1125,7 +1125,7 @@ const positionOfTaskInLane = ({
     if (
       isExcludedFromLane({
         line,
-        excluded: excludedLineIndices.has(walkIndex),
+        excluded: fenceOrCommentLineIndices.has(walkIndex),
         statusRegistry,
       })
     ) {
@@ -1375,11 +1375,11 @@ const validateBlockId = ({
   // - Every line counts, not only tasks: Obsidian resolves a block id on any line.
   // - trimEnd, so a hard break's trailing spaces cannot hide an existing id; a
   //   missed duplicate on a task line would make later lookups by it ambiguous.
-  const excludedLineIndices = findExcludedLineIndices(bodyLines)
+  const fenceOrCommentLineIndices = findFenceOrCommentLineIndices(bodyLines)
   const existingIndex = bodyLines.findIndex((bodyLine, index) => {
     if (index === excludeLineIndex) return false
     if (!bodyLine.trimEnd().endsWith(` ^${blockId}`)) return false
-    return !excludedLineIndices.has(index)
+    return !fenceOrCommentLineIndices.has(index)
   })
 
   if (existingIndex !== -1) {
