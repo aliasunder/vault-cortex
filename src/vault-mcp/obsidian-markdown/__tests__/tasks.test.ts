@@ -1641,6 +1641,12 @@ describe("task line mutations", () => {
       )
     })
 
+    it("keeps the block link and hard break of a task with no description", () => {
+      expect(
+        tasks.replaceTaskLineDescription({ taskLine: "- [ ] ^my-task  ", newDescription: "New" }),
+      ).toBe("- [ ] New ^my-task  ")
+    })
+
     it("adds the space the Tasks plugin writes after a checkbox glued to its text", () => {
       expect(
         tasks.replaceTaskLineDescription({ taskLine: "- [ ]Old ^my-task", newDescription: "New" }),
@@ -2062,7 +2068,13 @@ describe("task line mutations", () => {
 
     it.each([
       { name: "without a trailing space", taskLine: "- [ ]", expected: "- [ ] 🆔 abc123" },
-      { name: "with a trailing space", taskLine: "- [ ] ", expected: "- [ ] 🆔 abc123" },
+      { name: "with a trailing space", taskLine: "- [ ] ", expected: "- [ ] 🆔 abc123 " },
+      { name: "ending in a hard break", taskLine: "- [ ]  ", expected: "- [ ] 🆔 abc123  " },
+      {
+        name: "glued to its text before a block link and hard break",
+        taskLine: "- [ ]Old ^my-task  ",
+        expected: "- [ ] Old 🆔 abc123 ^my-task  ",
+      },
     ])("sets an ID on an empty task body $name", ({ taskLine, expected }) => {
       expect(tasks.isTaskLine(taskLine)).toBe(true)
       expect(tasks.updateTaskLineTaskId({ taskLine, taskId: "abc123", config: EMOJI_CONFIG })).toBe(

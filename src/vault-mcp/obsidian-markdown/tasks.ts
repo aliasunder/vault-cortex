@@ -1111,7 +1111,10 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const prefix = checkboxMatch?.[1]
 
   if (!prefix) return null
-  const afterCheckbox = taskLine.slice(prefix.length)
+  // Split from the checkbox's closing bracket, not the spaces after it, so the
+  // spaces after an empty checkbox still separate a block link or end the line.
+  const checkboxEnd = prefix.trimEnd().length
+  const afterCheckbox = taskLine.slice(checkboxEnd)
 
   if (TASK_BODY_LINE_BREAK_RE.test(afterCheckbox)) return null
 
@@ -1122,9 +1125,13 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const { body: taskBody, blockLink } = splitTrailingBlockLink(trimmedAfterCheckbox)
   const metadataStart = findMetadataStart(taskBody)
 
+  // A task with text keeps its own spacing after the checkbox; an empty one
+  // keeps only the bracket, and joinTaskLine adds one space before new text.
+  const linePrefix = taskBody.trim() ? prefix : taskLine.slice(0, checkboxEnd)
+
   if (metadataStart === -1) {
     return {
-      prefix,
+      prefix: linePrefix,
       description: taskBody.trim(),
       metadata: "",
       blockLink,
@@ -1132,7 +1139,7 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
     }
   }
   return {
-    prefix,
+    prefix: linePrefix,
     description: taskBody.slice(0, metadataStart).trim(),
     metadata: taskBody.slice(metadataStart).trim(),
     blockLink,
