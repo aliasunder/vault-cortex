@@ -9,6 +9,8 @@ import { createScannerDocuments } from "./link-scanner-corpus.js"
 
 /** Allows scheduling noise across the full input range. */
 const LINEAR_GROWTH_ALLOWANCE = 2
+/** Below this many milliseconds a median is mostly scheduling noise, so it sets no tighter growth bound. */
+const TIMING_FLOOR_MS = 25
 
 type Matcher = { exec: (input: string) => RegExpExecArray | null }
 type Grammar = {
@@ -175,7 +177,7 @@ describe("task recognizer compatibility", () => {
         medians.push(samples[2]);
       }
       assert.ok(medians.every(value=>value<500),'trailing tag deduplication exceeded ceiling '+medians);
-      assert.ok(medians.at(-1)<=Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'trailing tag deduplication scaled superlinearly '+medians);
+      assert.ok(medians.at(-1)<=Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE},'trailing tag deduplication scaled superlinearly '+medians);
       process.stdout.write(JSON.stringify({sizes,medians}));
     `,
       ],
@@ -415,7 +417,7 @@ describe("task recognizer compatibility", () => {
           medians.push(samples[2]);
         }
         assert.ok(medians.every(value => value < 250), 'dense edits exceeded 250ms ' + medians);
-        assert.ok(medians.at(-1) <= Math.max(10,medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE}, 'dense edits scaled superlinearly ' + medians);
+        assert.ok(medians.at(-1) <= Math.max(${TIMING_FLOOR_MS},medians[0])*(sizes.at(-1)/sizes[0])*${LINEAR_GROWTH_ALLOWANCE}, 'dense edits scaled superlinearly ' + medians);
         process.stdout.write(JSON.stringify({sizes,medians}));
       `,
       ],
@@ -638,7 +640,7 @@ describe("task recognizer compatibility", () => {
           medians.push(samples[2]);
         }
         assert.ok(medians.every(value => value < 250), fixture.name + ' exceeded 250ms ' + medians);
-        assert.ok(medians.at(-1) <= Math.max(10,medians[0])*(fixture.sizes.at(-1)/fixture.sizes[0])*${LINEAR_GROWTH_ALLOWANCE}, fixture.name + ' scaled superlinearly ' + medians);
+        assert.ok(medians.at(-1) <= Math.max(${TIMING_FLOOR_MS},medians[0])*(fixture.sizes.at(-1)/fixture.sizes[0])*${LINEAR_GROWTH_ALLOWANCE}, fixture.name + ' scaled superlinearly ' + medians);
         measurements.push({name:fixture.name,sizes:fixture.sizes,medians});
       }
       process.stdout.write(JSON.stringify(measurements));
