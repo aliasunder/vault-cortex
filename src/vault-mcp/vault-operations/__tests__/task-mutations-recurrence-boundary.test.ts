@@ -50,6 +50,20 @@ describe("recurrence mutation metadata boundary", () => {
         expect(await readFile(notePath, "utf8")).toBe(
           `- [ ] ${description} ${newField} 📅 2026-01-02\n`,
         )
+        const followUpResult = await taskMutations.updateTask(
+          {
+            vaultPath,
+            path: "Task.md",
+            line: 1,
+            recurrence: null,
+            format,
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+          },
+          logger,
+        )
+
+        expect(followUpResult.changes).toEqual(["recurrence: every week → (none)"])
+        expect(await readFile(notePath, "utf8")).toBe(original)
         await writeFile(notePath, original)
         const clearResult = await taskMutations.updateTask(
           {
@@ -66,7 +80,14 @@ describe("recurrence mutation metadata boundary", () => {
         expect(clearResult.changes).toEqual(["recurrence: (none) → (none)"])
         expect(await readFile(notePath, "utf8")).toBe(original)
       }
-      expect(metadataInputs).toEqual(Array.from({ length: 6 }, () => "📅 2026-01-02"))
+      expect(metadataInputs).toEqual(
+        Array.from({ length: 3 }, () => [
+          "📅 2026-01-02",
+          `${newField} 📅 2026-01-02`,
+          "📅 2026-01-02",
+          "📅 2026-01-02",
+        ]).flat(),
+      )
     },
   )
 })
