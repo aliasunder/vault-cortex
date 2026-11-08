@@ -22,22 +22,37 @@ import { loadConfig, type VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
+import { isHttpClientError } from "../utils/is-http-client-error.js"
+import { capLogField } from "../utils/cap-log-field.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { securityHeaders } from "../utils/security-headers.js"
 import env from "env-var"
 
-/** Error middleware — logs the failure with request context, answers 500.
+/** Request-body errors get a short 4xx warning; server failures retain their stack.
  *  The client IP is derived under the same Forwarded hop count as
  *  everywhere else, so a client-supplied Forwarded header can't write a
  *  false IP into the error log. */
 export const createErrorMiddleware =
   ({ trustForwardedHops }: { trustForwardedHops: number }) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
-    logger.error("unhandled_error", {
-      sessionId: headerAsString(req.headers["mcp-session-id"]),
-      clientIp: extractClientIp(req, trustForwardedHops),
+    const requestContext = {
+      sessionId: capLogField(headerAsString(req.headers["mcp-session-id"])),
+      clientIp: capLogField(extractClientIp(req, trustForwardedHops)),
       method: req.method,
-      path: req.path,
+      path: capLogField(req.path),
+    }
+
+    if (isHttpClientError(err)) {
+      logger.warn("request_body_rejected", {
+        ...requestContext,
+        type: "type" in err ? err.type : err.name,
+        status: err.status,
+      })
+      if (!res.headersSent) res.status(err.status).json({ error: "invalid request body" })
+      return
+    }
+    logger.error("unhandled_error", {
+      ...requestContext,
       error: describeError(err),
       stack: err.stack,
     })

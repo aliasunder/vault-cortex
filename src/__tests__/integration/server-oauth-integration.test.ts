@@ -192,6 +192,25 @@ const refresh = ({
 }
 
 describe("JSON parser placement", () => {
+  it.each([
+    { label: "authenticated MCP", path: "/mcp" },
+    { label: "public registration", path: "/register" },
+  ])("answers malformed $label JSON with 400", async ({ path }) => {
+    const server = await startServer(await freePort(), { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(server.cleanup)
+    const response = await fetch(`http://127.0.0.1:${server.port}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN_A}` },
+      body: "{",
+    })
+
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 400,
+      body: { error: "invalid request body" },
+    })
+    expect(server.stderr()).not.toContain('"message":"unhandled_error"')
+  })
+
   it("rejects tokenless malformed MCP JSON before parsing or logging a request", async () => {
     const server = await startServer(await freePort())
     onTestFinished(server.cleanup)
@@ -246,7 +265,7 @@ describe("consent page response headers", () => {
     expect(response.headers.get("cache-control")).toBe("no-store")
   })
 
-  it("answers an oversized consent form with a 500 that is not cacheable", async () => {
+  it("answers an oversized consent form with a 413 that is not cacheable", async () => {
     const port = await freePort()
     const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
     onTestFinished(() => server.cleanup())
@@ -264,9 +283,9 @@ describe("consent page response headers", () => {
       cacheControl: response.headers.get("cache-control"),
       body: await response.json(),
     }).toEqual({
-      status: 500,
+      status: 413,
       cacheControl: "no-store",
-      body: { error: "internal server error" },
+      body: { error: "invalid request body" },
     })
   })
 })

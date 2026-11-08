@@ -10,7 +10,10 @@ import { join } from "node:path"
 import env from "env-var"
 import { loadConfig } from "../config.js"
 import { logger } from "../../logger.js"
+import { extractClientIp, headerAsString } from "../../auth.js"
 import { describeError } from "../../utils/describe-error.js"
+import { isHttpClientError } from "../../utils/is-http-client-error.js"
+import { capLogField } from "../../utils/cap-log-field.js"
 import { securityHeaders } from "../../utils/security-headers.js"
 import { createSetupRoutes } from "./setup-routes.js"
 import type { HostingPlatform } from "./setup-page.js"
@@ -109,9 +112,24 @@ const startSetupServer = (): void => {
   // Not server.ts's createErrorMiddleware, because importing server.ts would
   // load the index, OAuth and MCP modules that setup mode never runs.
   app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-    logger.error("unhandled_error", {
+    const requestContext = {
+      sessionId: capLogField(headerAsString(req.headers["mcp-session-id"])),
+      clientIp: capLogField(extractClientIp(req, config.trustForwardedHops)),
       method: req.method,
-      path: req.path,
+      path: capLogField(req.path),
+    }
+
+    if (isHttpClientError(err)) {
+      logger.warn("request_body_rejected", {
+        ...requestContext,
+        type: "type" in err ? err.type : err.name,
+        status: err.status,
+      })
+      if (!res.headersSent) res.status(err.status).json({ error: "invalid request body" })
+      return
+    }
+    logger.error("unhandled_error", {
+      ...requestContext,
       error: describeError(err),
       stack: err.stack,
     })

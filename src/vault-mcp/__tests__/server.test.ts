@@ -50,6 +50,67 @@ const createMockReqRes = (
 }
 
 describe("createErrorMiddleware", () => {
+  it.each([
+    { label: "malformed JSON", status: 400, type: "entity.parse.failed" },
+    { label: "oversized body", status: 413, type: "entity.too.large" },
+  ])("answers $label with its status and one short warning", ({ status, type }) => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => {
+      vi.restoreAllMocks()
+    })
+    const middleware = createErrorMiddleware({ trustForwardedHops: 0 })
+    const { req, res, resStatus, resJson, next } = createMockReqRes({
+      path: "p".repeat(300),
+      ip: "i".repeat(300),
+      headers: { "mcp-session-id": "🎉".repeat(300) },
+    })
+    const error = Object.assign(new Error("private body contents"), { status, expose: true, type })
+
+    middleware(error, req, res, next)
+
+    expect(resStatus).toHaveBeenCalledTimes(1)
+    expect(resStatus).toHaveBeenCalledWith(status)
+    expect(resJson).toHaveBeenCalledTimes(1)
+    expect(resJson).toHaveBeenCalledWith({ error: "invalid request body" })
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("request_body_rejected", {
+      path: "p".repeat(255) + "…",
+      clientIp: "i".repeat(255) + "…",
+      sessionId: "🎉".repeat(255) + "…",
+      method: "POST",
+      type,
+      status,
+    })
+    expect(errorSpy).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
+  })
+
+  it("caps request fields on server errors while keeping the full stack", () => {
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
+    onTestFinished(() => errorSpy.mockRestore())
+    const middleware = createErrorMiddleware({ trustForwardedHops: 0 })
+    const { req, res, next } = createMockReqRes({
+      path: "p".repeat(300),
+      ip: "i".repeat(300),
+      headers: { "mcp-session-id": "s".repeat(300) },
+    })
+    const error = new Error("boom")
+    Object.defineProperty(error, "stack", { value: "Error: boom\n    at test" })
+
+    middleware(error, req, res, next)
+
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy).toHaveBeenCalledWith("unhandled_error", {
+      method: "POST",
+      path: "p".repeat(255) + "…",
+      clientIp: "i".repeat(255) + "…",
+      sessionId: "s".repeat(255) + "…",
+      error: "[Error]: boom",
+      stack: "Error: boom\n    at test",
+    })
+  })
+
   it("returns 500 with json error when headers have not been sent", () => {
     const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {})
     onTestFinished(() => errorSpy.mockRestore())
