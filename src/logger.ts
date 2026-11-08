@@ -1,8 +1,9 @@
 import { env } from "node:process"
-import { mkdirSync, readdirSync, unlinkSync, appendFileSync } from "node:fs"
+import { mkdirSync, readdirSync, unlinkSync, appendFileSync, statSync } from "node:fs"
 import { findSourceMap, type SourceOrigin } from "node:module"
 import { join } from "node:path"
 import { DateTime } from "luxon"
+import { describeError } from "./utils/describe-error.js"
 
 type LogLevel = "debug" | "info" | "warn" | "error"
 
@@ -91,6 +92,22 @@ const DEFAULT_RETENTION_DAYS = 90
 
 const todayDateString = (): string => DateTime.now().toISODate()
 
+const consoleWarningLine = (message: string, data: Record<string, unknown>): string => {
+  return (
+    JSON.stringify({
+      timestamp: DateTime.now().toISO(),
+      level: "warn",
+      name: "vault-cortex",
+      message,
+      ...data,
+    }) + "\n"
+  )
+}
+
+const reportFileLoggingStopped = (error: unknown): void => {
+  process.stdout.write(consoleWarningLine("file_logging_stopped", { error: describeError(error) }))
+}
+
 /** Deletes log files older than retentionDays. */
 export const pruneOldLogFiles = (logDir: string, retentionDays: number): void => {
   const cutoffDate = DateTime.now().minus({ days: retentionDays }).toISODate()
@@ -111,15 +128,29 @@ export const createFileSinkExtension = (
   logDir: string,
   retentionDays: number = DEFAULT_RETENTION_DAYS,
 ): LogExtension => {
-  mkdirSync(logDir, { recursive: true })
-  pruneOldLogFiles(logDir, retentionDays)
+  // Initialisation failures disable this sink before it reaches any logger.
+  try {
+    mkdirSync(logDir, { recursive: true })
+    pruneOldLogFiles(logDir, retentionDays)
+  } catch (error) {
+    reportFileLoggingStopped(error)
+    return () => undefined
+  }
 
-  const logPath = (): string =>
-    join(logDir, `${LOG_FILE_PREFIX}${todayDateString()}${LOG_FILE_SUFFIX}`)
+  // Each day's count starts from disk so restarting preserves the written bytes.
+  const logDay = { date: "", bytes: 0 }
 
   // `line` is the same JSON string already written to stdout/stderr by emit()
   return (_entry: LogEntry, line: string): void => {
-    appendFileSync(logPath(), line)
+    const today = todayDateString()
+    const logPath = join(logDir, `${LOG_FILE_PREFIX}${today}${LOG_FILE_SUFFIX}`)
+
+    if (logDay.date !== today) {
+      logDay.bytes = statSync(logPath, { throwIfNoEntry: false })?.size ?? 0
+      logDay.date = today
+    }
+    appendFileSync(logPath, line)
+    logDay.bytes += Buffer.byteLength(line)
   }
 }
 
@@ -152,7 +183,7 @@ const fileSinkExtension: LogExtension | undefined = logDir
   ? createFileSinkExtension(logDir, parseRetentionDays(env.LOG_RETENTION_DAYS))
   : undefined
 
-const defaultExtensions: LogExtension[] = fileSinkExtension ? [fileSinkExtension] : []
+const defaultExtensions = new Set<LogExtension>(fileSinkExtension ? [fileSinkExtension] : [])
 
 /** Resolves function-valued child props at emit time — lets a child logger
  *  carry context that doesn't exist yet at child creation (e.g. the MCP
@@ -169,11 +200,11 @@ const createLogger = (
   name: string,
   options?: {
     props?: Record<string, unknown>
-    extensions?: LogExtension[]
+    extensions?: Set<LogExtension>
   },
 ): Logger => {
   const baseProps = options?.props ?? {}
-  const extensions = options?.extensions ?? []
+  const extensions = options?.extensions ?? new Set<LogExtension>()
 
   const emit = (level: LogLevel, message: string, data?: Record<string, unknown>): void => {
     if (LEVELS[level] < threshold) return
@@ -204,7 +235,13 @@ const createLogger = (
     else process.stdout.write(line)
 
     for (const extension of extensions) {
-      extension(entry, line)
+      try {
+        extension(entry, line)
+      } catch (error) {
+        // Root and child loggers share this set, so none retries a failed sink.
+        extensions.delete(extension)
+        reportFileLoggingStopped(error)
+      }
     }
   }
 

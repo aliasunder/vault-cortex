@@ -1,5 +1,15 @@
 import { describe, it, expect, onTestFinished, vi } from "vitest"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs"
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  existsSync,
+  appendFileSync,
+  mkdirSync,
+  statSync,
+} from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime, Settings } from "luxon"
@@ -7,6 +17,46 @@ import { findSourceMap } from "node:module"
 import { createFileSinkExtension, pruneOldLogFiles, logger, resolveLogDir } from "../logger.js"
 
 vi.mock("node:module", { spy: true })
+vi.mock("node:fs", { spy: true })
+
+const captureConsoleRecords = (): (() => Record<string, unknown>[]) => {
+  const chunks: string[] = []
+  const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+    chunks.push(String(chunk))
+    return true
+  })
+  onTestFinished(() => stdoutSpy.mockRestore())
+  return () => chunks.map((chunk) => JSON.parse(chunk))
+}
+
+const importFileLogger = async (logDir: string) => {
+  vi.resetModules()
+  vi.stubEnv("LOG_DIR", logDir)
+  vi.stubEnv("LOG_LEVEL", "info")
+  onTestFinished(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
+  return (await import("../logger.js")).logger
+}
+
+const expectedConsoleRecord = (message: string, data: Record<string, unknown> = {}) => ({
+  timestamp: expect.any(String),
+  level: "info",
+  name: "vault-cortex",
+  message,
+  source: expect.stringMatching(/^logger\.test\.ts:\d+$/),
+  ...data,
+})
+
+const expectedStoppedRecord = (error: string) => ({
+  timestamp: expect.any(String),
+  level: "warn",
+  name: "vault-cortex",
+  message: "file_logging_stopped",
+  error,
+})
 
 const createTempDir = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "logger-test-"))
@@ -60,6 +110,115 @@ describe("resolveLogDir", () => {
 
   it("does not treat a directory literally named none under a path as the sentinel", () => {
     expect(resolveLogDir("/data/none")).toBe("/data/none")
+  })
+})
+
+describe("file logging fails open", () => {
+  it("keeps console logging and disables failed appends across the root and children", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const fileLogger = await importFileLogger(logDir)
+    const child = fileLogger.child({ component: "child" })
+    fileLogger.info("persisted")
+    const logFile = join(logDir, `vault-mcp-${DateTime.now().toISODate()}.log`)
+    const originalContent = readFileSync(logFile, "utf8")
+    const appendSpy = vi
+      .mocked(appendFileSync)
+      .mockClear()
+      .mockImplementationOnce(() => {
+        throw new Error("disk full")
+      })
+
+    expect(() => fileLogger.info("failed append")).not.toThrow()
+    child.info("child continues")
+    fileLogger.info("root continues")
+
+    expect(appendSpy).toHaveBeenCalledTimes(1)
+    expect(appendSpy).toHaveBeenCalledWith(logFile, expect.any(String))
+    expect(readFileSync(logFile, "utf8")).toBe(originalContent)
+    expect(records()).toEqual([
+      expectedConsoleRecord("persisted"),
+      expectedConsoleRecord("failed append"),
+      expectedStoppedRecord("[Error]: disk full"),
+      expectedConsoleRecord("child continues", { component: "child" }),
+      expectedConsoleRecord("root continues"),
+    ])
+  })
+
+  it("keeps startup and console logging working when the log folder cannot be created", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    vi.mocked(mkdirSync).mockImplementationOnce(() => {
+      throw new Error("folder denied")
+    })
+    const fileLogger = await importFileLogger(logDir)
+
+    fileLogger.info("started")
+    fileLogger.child({ component: "child" }).info("child continues")
+
+    expect(readdirSync(logDir)).toEqual([])
+    expect(records()).toEqual([
+      expectedStoppedRecord("[Error]: folder denied"),
+      expectedConsoleRecord("started"),
+      expectedConsoleRecord("child continues", { component: "child" }),
+    ])
+  })
+
+  it("keeps startup and console logging working when the initial prune fails", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    vi.mocked(readdirSync).mockImplementationOnce(() => {
+      throw new Error("prune denied")
+    })
+    const fileLogger = await importFileLogger(logDir)
+
+    fileLogger.info("started")
+    fileLogger.info("still running")
+
+    expect(readdirSync(logDir)).toEqual([])
+    expect(records()).toEqual([
+      expectedStoppedRecord("[Error]: prune denied"),
+      expectedConsoleRecord("started"),
+      expectedConsoleRecord("still running"),
+    ])
+  })
+
+  it("disables the shared sink when the first size lookup after midnight fails", async () => {
+    const logDir = createTempDir()
+    const records = captureConsoleRecords()
+    const originalNow = Settings.now
+    const dayOne = DateTime.fromISO("2026-01-15T12:00:00Z").toMillis()
+    const dayTwo = DateTime.fromISO("2026-01-16T12:00:00Z").toMillis()
+    onTestFinished(() => {
+      Settings.now = originalNow
+    })
+    Settings.now = () => dayOne
+    const fileLogger = await importFileLogger(logDir)
+    fileLogger.info("day one")
+    const originalContent = readFileSync(join(logDir, "vault-mcp-2026-01-15.log"), "utf8")
+    const lookupSpy = vi
+      .mocked(statSync)
+      .mockClear()
+      .mockImplementationOnce(() => {
+        throw new Error("stat denied")
+      })
+    Settings.now = () => dayTwo
+
+    expect(() => fileLogger.info("day two")).not.toThrow()
+    fileLogger.child({ component: "child" }).info("child continues")
+
+    expect(lookupSpy).toHaveBeenCalledTimes(1)
+    expect(lookupSpy).toHaveBeenCalledWith(join(logDir, "vault-mcp-2026-01-16.log"), {
+      throwIfNoEntry: false,
+    })
+    expect(readdirSync(logDir)).toEqual(["vault-mcp-2026-01-15.log"])
+    expect(readFileSync(join(logDir, "vault-mcp-2026-01-15.log"), "utf8")).toBe(originalContent)
+    expect(records()).toEqual([
+      expectedConsoleRecord("day one"),
+      expectedConsoleRecord("day two"),
+      expectedStoppedRecord("[Error]: stat denied"),
+      expectedConsoleRecord("child continues", { component: "child" }),
+    ])
   })
 })
 
