@@ -353,6 +353,27 @@ describe("OAuth consent body validation", () => {
     expect(text).toBe("Invalid form submission.")
   })
 
+  it.each([
+    { label: "a request without a body", requestOptions: {} },
+    {
+      label: "an unsupported content type",
+      requestOptions: {
+        headers: { "content-type": "text/plain" },
+        body: "request_id=a&token=t&action=approve",
+      },
+    },
+  ])("returns 400 for $label", async ({ requestOptions }) => {
+    const response = await fetch(`${baseUrl}/oauth/decide`, {
+      ...requestOptions,
+      method: "POST",
+    })
+
+    expect(response.status).toBe(400)
+    expect(await response.text()).toBe("Invalid form submission.")
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(response.headers.get("ratelimit-remaining")).toBe("4")
+  })
+
   it("returns 400 for a request ID with no pending request", async () => {
     const response = await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",

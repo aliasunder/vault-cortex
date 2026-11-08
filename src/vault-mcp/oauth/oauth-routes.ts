@@ -159,7 +159,7 @@ export const createOAuthRoutes = ({
     consentDecisionLimiter,
     express.urlencoded({ extended: false }),
     (req: Request, res: Response) => {
-      const formFields: Record<string, unknown> = req.body
+      const formFields: Record<string, unknown> = req.body ?? {}
       const { request_id: requestId, token, action } = formFields
 
       /** The form submits all three fields for either action; only approval checks the token. */
