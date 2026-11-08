@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.57.0] — 2026-11-08
+
+### Features
+
+- Read any UTF-8 file and search HTML pages and scripts (#746)
+
 ## [0.56.5] — 2026-11-07
 
 ### Bug Fixes
