@@ -926,10 +926,12 @@ const findExcludedLineIndices = (bodyLines: readonly string[]): ReadonlySet<numb
         continue
       }
     }
+    // A line outside a comment is classified by its fence state before its comment opener.
+    const wasCommentOpen = commentOpen
     const commentResult = advanceComment(lineText, commentOpen)
     commentOpen = commentResult.commentOpen
 
-    if (commentResult.lineIsComment) excludedLineIndices.add(lineIndex)
+    if (wasCommentOpen && commentResult.lineIsComment) excludedLineIndices.add(lineIndex)
   }
   return excludedLineIndices
 }

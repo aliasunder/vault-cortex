@@ -2986,6 +2986,61 @@ kanban-plugin: board
 
       // ── integer position ──────────────────────────────────────
 
+      it("inserts at position 2 after counting a card that opens a comment", async () => {
+        const vault = await createVault()
+        const board =
+          "## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Second ^second\n"
+        await writeTestNote(vault, "board.md", board)
+
+        const created = await taskMutations.createTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "inserted",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        expect(created).toEqual({
+          path: "board.md",
+          line: 4,
+          description: "Inserted",
+          block_id: "inserted",
+          heading: "Active",
+          changes: [`created: (none) → ${today()}`],
+        })
+        expect(await readTestNote(vault, "board.md")).toBe(
+          `## Active\n- [ ] Commented %%\n%%\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] First ^first\n- [ ] Second ^second\n`,
+        )
+      })
+
+      it("reports position 3 when reordering after a card that opens a comment", async () => {
+        const vault = await createVault()
+        const board =
+          "## Active\n- [ ] Commented %%\n%%\n- [ ] First ^first\n- [ ] Second ^second\n"
+        await writeTestNote(vault, "board.md", board)
+
+        const moved = await taskMutations.updateTask(
+          {
+            statusRegistry: DEFAULT_STATUS_REGISTRY,
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "second",
+            position: 2,
+          },
+          logger,
+        )
+
+        expect(moved.changes).toEqual(["position: 3 → 2"])
+        expect(await readTestNote(vault, "board.md")).toBe(
+          "## Active\n- [ ] Commented %%\n%%\n- [ ] Second ^second\n- [ ] First ^first\n",
+        )
+      })
+
       it("classifies each line a bounded number of times during large lane insertions and reorders", async () => {
         const vault = await createVault()
         const cards = Array.from(
