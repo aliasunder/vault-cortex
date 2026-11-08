@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest"
+import { execFileSync } from "node:child_process"
+import { readFileSync } from "node:fs"
+import { describe, it, expect, vi } from "vitest"
 import {
   tasks,
   type ParsedTask,
@@ -578,6 +580,115 @@ describe("tasks.extractTasks", () => {
           onCompletion: "delete",
         }),
       ])
+    })
+
+    it.each([
+      { name: "emoji", field: (value: string) => `⛔ ${value}` },
+      { name: "Dataview", field: (value: string) => `[dependsOn:: ${value}]` },
+    ])("parses a 60-ID adversarial $name dependency list in under 50 ms", ({ field }) => {
+      const dependencies = Array.from({ length: 60 }, () => "a").join(" , ")
+      const line = `- [ ] x ${field(`${dependencies}!`)}`
+      const parserUrl = new URL("../tasks.ts", import.meta.url).href
+      // The child deadline can interrupt a synchronous regex that blocks the event loop.
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `import { tasks } from ${JSON.stringify(parserUrl)};
+           const started = performance.now();
+           const extracted = tasks.extractTasks(${JSON.stringify(line)});
+           const elapsed = performance.now() - started;
+           process.stdout.write(JSON.stringify({ extracted, elapsed }));`,
+        ],
+        { encoding: "utf8", timeout: 2000 },
+      )
+      const result = JSON.parse(output)
+
+      expect(result.extracted).toEqual([
+        task({ description: `x ${field(`${dependencies}!`)}`, dependsOn: [] }),
+      ])
+      expect(result.elapsed).toBeLessThan(50)
+    })
+
+    it("preserves dependency matches and group 1 across fixed-seed lists and existing fixtures", () => {
+      /** The former dependency grammar, retained as the compatibility oracle. */
+      const oldSequence = /[a-zA-Z0-9_-]+( *, *[a-zA-Z0-9_-]+ *)*/
+      const observedPatterns: RegExp[] = []
+      const originalExec = RegExp.prototype.exec
+      // A regular function preserves exec's receiver so the real private patterns are compared.
+      const execSpy = vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (
+        this: RegExp,
+        text,
+      ) {
+        if (this.source.includes("⛔") || this.source.includes("dependsOn::")) {
+          observedPatterns.push(this)
+        }
+        return originalExec.call(this, text)
+      })
+
+      try {
+        tasks.extractTasks("- [ ] x")
+      } finally {
+        execSpy.mockRestore()
+      }
+
+      const dependencyPatterns = observedPatterns.filter((pattern) =>
+        pattern.source.includes("[a-zA-Z0-9_-]+"),
+      )
+      expect(dependencyPatterns.length).toBe(2)
+
+      // State advances once per draw so this corpus is reproducible.
+      let randomState = 0x5eed1234
+      const draw = (limit: number): number => {
+        randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0
+        return randomState % limit
+      }
+      const ids = ["a", "B2", "db-setup", "cache_setup", "0", "_-", ""]
+      const punctuation = ["", "!", ".", ":", ",", "é"]
+      // At most five IDs keeps failures of the exponential oracle short.
+      const randomLists = Array.from({ length: 1000 }, () => {
+        const values = Array.from({ length: 1 + draw(5) }, () => {
+          return `${" ".repeat(draw(3))}${ids[draw(ids.length)]}${" ".repeat(draw(3))}`
+        })
+        return `${values.join(",")}${punctuation[draw(punctuation.length)]}`
+      })
+      const testSource = readFileSync(new URL("./tasks.test.ts", import.meta.url), "utf8")
+      /** Quoted strings containing dependency fields include all existing literal fixtures. */
+      const dependencyFixture = /["`]([^"`\n]*(?:⛔|dependsOn::)[^"`\n]*)["`]/gu
+      const fixtureLines = Array.from(
+        testSource.matchAll(dependencyFixture),
+        (match) => match[1] ?? "",
+      )
+      const generatedLines = randomLists.flatMap((value) => [
+        `- [ ] x ⛔ ${value}`,
+        `- [ ] x [dependsOn:: ${value}]`,
+        `- [ ] x (dependsOn:: ${value}),`,
+      ])
+      const lines = [...fixtureLines, ...generatedLines]
+
+      for (const pattern of dependencyPatterns) {
+        const oldPattern = new RegExp(
+          pattern.source.replace(
+            "[a-zA-Z0-9_-]+(?:(?: *, *[a-zA-Z0-9_-]+)+ *)?",
+            oldSequence.source,
+          ),
+          pattern.flags,
+        )
+        expect(oldPattern.source).not.toBe(pattern.source)
+
+        for (const line of lines) {
+          const oldMatch = oldPattern.exec(line)
+          const newMatch = pattern.exec(line)
+          expect({ line, match: newMatch?.[0], group1: newMatch?.[1] }).toEqual({
+            line,
+            match: oldMatch?.[0],
+            group1: oldMatch?.[1],
+          })
+        }
+      }
     })
 
     it("parses 🆔 id and ⛔ dependsOn with spaces around commas", () => {

@@ -163,7 +163,7 @@ const TASK_ID = /[a-zA-Z0-9_-]+/
 const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
 const isTaskId = (candidate: string): boolean => TASK_ID_WHOLE_RE.test(candidate)
 /** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`. */
-const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}( *, *${TASK_ID.source} *)*`)
+const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}(?:(?: *, *${TASK_ID.source})+ *)?`)
 
 /** Builds an emoji field regex: signifier + optional VS16 (U+FE0F, matched
  *  via escape so no invisible character hides in this source) + spaces +
