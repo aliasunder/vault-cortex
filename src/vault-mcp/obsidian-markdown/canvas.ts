@@ -10,8 +10,9 @@ import { posix } from "node:path"
  * opaque node ids — a reader consuming the raw JSON spends most of its
  * attention on `x`/`y`/`width`/`height` noise and mental id-joins. This
  * transform keeps exactly what carries meaning and re-expresses it as
- * document structure: spatial grouping becomes heading nesting, canvas
- * position becomes reading order (top-to-bottom, left-to-right), and
+ * document structure: spatial grouping becomes heading nesting within the
+ * ownership-work budget, canvas position becomes reading order (top-to-bottom,
+ * left-to-right), and
  * edges become an `A → B (label)` list with ids resolved to display
  * names. Geometry is dropped entirely — it is presentation, and the
  * rendition is a reading surface, not a round-trippable format (callers
@@ -268,8 +269,9 @@ const parseCanvasJson = (canvasJson: string): unknown => {
  * Linearizes .canvas JSON into readable markdown: an overview line, ungrouped
  * node content first, each group's content under a `Group:` heading (nested
  * groups one level deeper), then a `Connections` edge list in `A → B (label)`
- * form with ids resolved to display names. Throws on unparseable JSON or
- * a group cycle caused by duplicate IDs.
+ * form with ids resolved to display names. Above the ownership-work budget,
+ * node content and group headings stay flat in reading order. Throws on
+ * unparseable JSON or a group cycle caused by duplicate IDs.
  */
 export const linearizeCanvas = (canvasJson: string): string => {
   const parsed = parseCanvasJson(canvasJson)
