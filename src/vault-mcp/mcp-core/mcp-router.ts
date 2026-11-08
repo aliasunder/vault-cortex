@@ -1,6 +1,6 @@
 /** MCP session routes — transport lifecycle, session creation, request routing. */
 
-import { Router } from "express"
+import express, { Router } from "express"
 import type { Request, Response } from "express"
 import { randomUUID } from "node:crypto"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -121,7 +121,7 @@ export const createMcpRouter = ({
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
-  router.post("/mcp", bearerAuth, async (req: Request, res: Response) => {
+  router.post("/mcp", bearerAuth, express.json(), async (req: Request, res: Response) => {
     const sessionId = headerAsString(req.headers["mcp-session-id"])
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })

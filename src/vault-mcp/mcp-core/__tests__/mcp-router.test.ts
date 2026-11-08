@@ -164,7 +164,6 @@ const setupHarness = async (
   // the router receives, so tests exercise the deployment's actual trust
   // model instead of an ambient blanket trust.
   app.set("trust proxy", config.trustProxyHops)
-  app.use(express.json())
   app.use(
     createMcpRouter({
       vaultPath: VAULT_PATH,

@@ -297,6 +297,21 @@ describe("POST /setup — MCP token gate", () => {
     expect(await response.text()).toContain("<h1>Setup complete</h1>")
   })
 
+  it("answers a JSON body with the missing-fields page before checking the token", async () => {
+    const harness = await startHarness()
+    const response = await fetch(`${harness.baseUrl}/setup`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })
+    const html = await response.text()
+
+    expect(response.status).toBe(400)
+    expect(html).toContain("Enter your Obsidian account email and password.")
+    expect(harness.apiRequests).toEqual([])
+    expect(harness.logs).toEqual([])
+  })
+
   it("answers 400 when the email or password is missing", async () => {
     const harness = await startHarness()
 

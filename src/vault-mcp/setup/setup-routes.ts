@@ -447,6 +447,13 @@ export const createSetupRoutes = ({
     limiter,
     express.urlencoded({ extended: false }),
     async (req: Request, res: Response) => {
+      if (!req.body) {
+        sendSignInPage(req, res, {
+          status: 400,
+          error: "Enter your Obsidian account email and password.",
+        })
+        return
+      }
       const body: Record<string, unknown> = req.body
       const requestLogger = routeLogger.child({
         requestId: randomUUID(),

@@ -231,7 +231,6 @@ const startServer = async (): Promise<void> => {
   // widen this to Express's blanket `true`: trusting the whole chain
   // lets any client claim any IP via appended headers.
   app.set("trust proxy", config.trustProxyHops)
-  app.use(express.json())
 
   app.get("/healthz", (_req: Request, res: Response) => {
     res.json({ ok: true })

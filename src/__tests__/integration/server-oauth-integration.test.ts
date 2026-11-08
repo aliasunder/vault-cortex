@@ -191,6 +191,43 @@ const refresh = ({
   })
 }
 
+describe("JSON parser placement", () => {
+  it("rejects tokenless malformed MCP JSON before parsing or logging a request", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(server.cleanup)
+    const response = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({
+      error: "invalid_token",
+      error_description: "Missing Authorization header",
+    })
+    expect(server.stderr()).not.toContain('"message":"unhandled_error"')
+    expect(server.stdout()).not.toContain('"message":"mcp_request"')
+  })
+
+  it("rejects malformed JSON consent as an invalid form without an unhandled error", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(server.cleanup)
+    const response = await fetch(`http://127.0.0.1:${server.port}/oauth/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    })
+
+    expect({
+      status: response.status,
+      cacheControl: response.headers.get("cache-control"),
+      body: await response.text(),
+    }).toEqual({ status: 400, cacheControl: "no-store", body: "Invalid form submission." })
+    expect(server.stderr()).not.toContain('"message":"unhandled_error"')
+  })
+})
+
 // ── Consent page response headers ──────────────────────────────
 
 describe("consent page response headers", () => {
