@@ -165,7 +165,7 @@ describe("setup-server entry point", () => {
     expect(rejectionRecords).toEqual([
       {
         timestamp: expect.any(String),
-        source: expect.stringMatching(/^setup-server\.ts:\d+$/),
+        source: expect.stringMatching(/^http-error-middleware\.ts:\d+$/),
         level: "warn",
         name: "vault-cortex",
         message: "request_body_rejected",

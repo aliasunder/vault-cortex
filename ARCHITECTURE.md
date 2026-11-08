@@ -1464,7 +1464,7 @@ Docker hardening, and durability seatbelts above.
   other MCP methods parse no body. OAuth endpoints use their own parsers;
   `/token`, `/authorize` and `/revoke` accept form bodies. The consent and
   setup forms reject a missing parsed body as an invalid form.
-- **Error middleware**: both Express apps answer exposed 4xx body errors with
+- **Error middleware** (`src/http-error-middleware.ts`): both Express apps answer exposed 4xx body errors with
   their status and `{"error":"invalid request body"}`, logging one
   `request_body_rejected` warning with the error type and status, without a
   stack. Logged path, session ID and client IP are capped at 256 code points.

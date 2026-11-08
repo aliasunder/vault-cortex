@@ -281,7 +281,7 @@ describe("JSON parser placement", () => {
         level: "warn",
         name: "vault-cortex",
         message: "request_body_rejected",
-        source: expect.stringMatching(/^server\.ts:\d+$/),
+        source: expect.stringMatching(/^http-error-middleware\.ts:\d+$/),
         clientIp: "127.0.0.1",
         method: "POST",
         path,
