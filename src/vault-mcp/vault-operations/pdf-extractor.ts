@@ -102,7 +102,15 @@ export const createPdfExtractor = (params: {
         : nodeArgs
     const child = spawn(command, args, {
       // The child owns its Node flags; launcher/debug settings must not reach it.
-      env: { ...inheritedEnvironment, NODE_OPTIONS: undefined, LOG_DIR: "none" },
+      env: {
+        ...inheritedEnvironment,
+        NODE_OPTIONS: undefined,
+        LOG_DIR: "none",
+        // tsx's extra esbuild V8 isolate can exhaust the Linux data limit.
+        ...(process.platform === "linux" && CHILD_ENTRY.endsWith(".ts")
+          ? { ESBUILD_WORKER_THREADS: "0" }
+          : {}),
+      },
       stdio: ["ignore", "ignore", "ignore", "ipc"],
     })
     const state: Reader = { child, ready: false, ended: false, exited: Promise.resolve() }

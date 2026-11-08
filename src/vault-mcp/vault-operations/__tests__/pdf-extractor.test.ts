@@ -50,6 +50,7 @@ const captureChildLaunch = (child: ChildProcess) => {
       stdio: options?.stdio,
       logDir: options?.env?.LOG_DIR,
       nodeOptions: options?.env?.NODE_OPTIONS,
+      esbuildWorkerThreads: options?.env?.ESBUILD_WORKER_THREADS,
     })
     return child
   })
@@ -166,6 +167,7 @@ describe("PDF extraction ownership", () => {
   })
   it("starts the source child directly on macOS with only its own heap and loader flags", async () => {
     vi.stubEnv("NODE_OPTIONS", "--inspect=127.0.0.1:0 --max-old-space-size=128")
+    vi.stubEnv("ESBUILD_WORKER_THREADS", "1")
     onTestFinished(() => {
       vi.unstubAllEnvs()
     })
@@ -195,6 +197,7 @@ describe("PDF extraction ownership", () => {
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       logDir: "none",
       nodeOptions: undefined,
+      esbuildWorkerThreads: "1",
     })
   })
 
@@ -265,6 +268,10 @@ describe("PDF extraction ownership", () => {
   })
 
   it("applies both Linux process limits and suppresses child file logging", async () => {
+    vi.stubEnv("ESBUILD_WORKER_THREADS", "1")
+    onTestFinished(() => {
+      vi.unstubAllEnvs()
+    })
     const descriptor = Object.getOwnPropertyDescriptor(process, "platform")
 
     if (!descriptor) throw new Error("process.platform has no descriptor")
@@ -295,6 +302,7 @@ describe("PDF extraction ownership", () => {
       stdio: ["ignore", "ignore", "ignore", "ipc"],
       logDir: "none",
       nodeOptions: undefined,
+      esbuildWorkerThreads: "0",
     })
     expect(child.send).toHaveBeenCalledTimes(1)
     expect(child.send).toHaveBeenCalledWith(
