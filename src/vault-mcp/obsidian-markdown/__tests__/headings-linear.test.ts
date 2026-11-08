@@ -10,8 +10,9 @@ import { tasks } from "../tasks.js"
 type HeadingParser = (lines: readonly string[]) => HeadingInfo[]
 
 /** Keeps the former suffix and boundary rules as a small-input oracle. */
-const readLegacyHeadings = (): HeadingParser => {
-  const source = readFileSync(new URL("../headings.ts", import.meta.url), "utf8")
+const readLegacyHeadings = (
+  source = readFileSync(new URL("../headings.ts", import.meta.url), "utf8"),
+): HeadingParser => {
   const boundaryStart = source.indexOf("  const completedHeadings =")
   const boundaryEnd = source.indexOf("\n}", boundaryStart)
 
@@ -26,6 +27,8 @@ const readLegacyHeadings = (): HeadingParser => {
     "stripClosingHashes(matchedText)",
     'matchedText.replace(/(?:^|[ \\t]+)#+[ \\t]*$/, "")',
   )
+
+  if (closingSource === legacySource) throw new Error("closing-hash oracle anchor missing")
   const compiled = ts.transpileModule(closingSource, {
     compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.CommonJS },
   }).outputText
@@ -39,6 +42,16 @@ const readLegacyHeadings = (): HeadingParser => {
 }
 
 describe("heading traversal compatibility", () => {
+  it("refuses to compare closing hashes when the frozen oracle substitution misses", () => {
+    const source = readFileSync(new URL("../headings.ts", import.meta.url), "utf8")
+    const missingAnchor = source.replace("stripClosingHashes(matchedText)", "matchedText")
+
+    expect(missingAnchor).not.toBe(source)
+    expect(() => readLegacyHeadings(missingAnchor)).toThrow(
+      new Error("closing-hash oracle anchor missing"),
+    )
+  })
+
   it("preserves full heading ranges and task attribution over fixed-seed documents", () => {
     const legacy = readLegacyHeadings()
     // The generator advances one deterministic state for every choice.

@@ -12,6 +12,7 @@ type Grammar = {
   dataview: (params: { key: string; valuePattern: string }) => Matcher
   emoji: Matcher
   repeat: Matcher
+  dependencies: Matcher
   metadataStart: (body: string) => number
   legacyMetadataStart: (body: string) => number
   withoutBlockLink: (body: string) => string
@@ -26,6 +27,7 @@ const isGrammar = (value: unknown): value is Grammar => {
     typeof value.dataview === "function" &&
     "emoji" in value &&
     "repeat" in value &&
+    "dependencies" in value &&
     "metadataStart" in value &&
     typeof value.metadataStart === "function" &&
     "legacyMetadataStart" in value &&
@@ -51,6 +53,7 @@ const readGrammar = (): Grammar => {
       dataview: dataviewField,
       emoji: EMOJI_RECURRENCE_RE,
       repeat: DATAVIEW_RECURRENCE_RE,
+      dependencies: DATAVIEW_DEPENDS_ON_RE,
       metadataStart: findMetadataStart,
       withoutBlockLink: (body) => splitTrailingBlockLink(body).body,
       // Freeze the unbounded search while sharing the unchanged metadata parser.
@@ -335,6 +338,33 @@ describe("task recognizer compatibility", () => {
       const input = `text 🔁${index % 2 === 0 ? "\uFE0F" : ""}${" ".repeat(draw(8))}${index % 3 === 0 ? "every week" : payload}`
       expect(consumedMatch(grammar.emoji.exec(input))).toEqual(consumedMatch(oldEmoji.exec(input)))
     }
+  })
+
+  it("compares real Dataview dependency fields with the frozen suffix grammar", () => {
+    const grammar = readGrammar()
+    const legacy = legacyDataview("dependsOn:: *([a-zA-Z0-9_-]+( *, *[a-zA-Z0-9_-]+ *)*)")
+    const values = ["a", "a,b", "a , b  , c ", "db-setup, cache_setup", "", "a!", "a,,b"]
+
+    for (const value of values) {
+      for (const delimiters of [
+        { open: "[", close: "]" },
+        { open: "(", close: ")" },
+      ]) {
+        for (const suffix of ["", ",", " ,", ", ", ",]", ")"]) {
+          const input = `- [ ] x ${delimiters.open}dependsOn:: ${value}${delimiters.close}${suffix}`
+
+          expect({ input, match: consumedMatch(grammar.dependencies.exec(input)) }).toEqual({
+            input,
+            match: consumedMatch(legacy.exec(input)),
+          })
+        }
+      }
+    }
+    expect(consumedMatch(grammar.dependencies.exec("- [ ] x (dependsOn:: a),"))).toEqual({
+      index: 8,
+      text: "(dependsOn:: a),",
+      value: "a",
+    })
   })
 
   it("preserves the body capture after removing only its leading ASCII spaces", () => {

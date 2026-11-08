@@ -645,7 +645,7 @@ describe("tasks.extractTasks", () => {
       },
     )
 
-    it("preserves dependency matches and group 1 across fixed-seed lists and existing fixtures", () => {
+    it("preserves emoji dependency matches and group 1 across fixed-seed lists and existing fixtures", () => {
       /** The former dependency grammar, retained as the compatibility oracle. */
       const oldSequence = /[a-zA-Z0-9_-]+( *, *[a-zA-Z0-9_-]+ *)*/
       const observedPatterns: RegExp[] = []
@@ -655,7 +655,7 @@ describe("tasks.extractTasks", () => {
         this: RegExp,
         text,
       ) {
-        if (this.source.includes("⛔") || this.source.includes("dependsOn::")) {
+        if (this.source.includes("⛔")) {
           observedPatterns.push(this)
         }
         return originalExec.call(this, text)
@@ -670,7 +670,7 @@ describe("tasks.extractTasks", () => {
       const dependencyPatterns = [...new Set(observedPatterns)].filter((pattern) =>
         pattern.source.includes("[a-zA-Z0-9_-]+"),
       )
-      expect(dependencyPatterns.length).toBe(2)
+      expect(dependencyPatterns.length).toBe(1)
 
       // State advances once per draw so this corpus is reproducible.
       let randomState = 0x5eed1234
@@ -702,13 +702,7 @@ describe("tasks.extractTasks", () => {
       const lines = [...fixtureLines, ...generatedLines]
 
       for (const pattern of dependencyPatterns) {
-        const oldPattern = new RegExp(
-          pattern.source.replace(
-            "[a-zA-Z0-9_-]+(?:(?: *, *[a-zA-Z0-9_-]+)+ *(?! ))?",
-            oldSequence.source,
-          ),
-          pattern.flags,
-        )
+        const oldPattern = new RegExp(`⛔\\uFE0F? *(${oldSequence.source})$`)
         expect(oldPattern.source).not.toBe(pattern.source)
 
         for (const line of lines) {
