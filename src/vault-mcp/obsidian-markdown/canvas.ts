@@ -188,10 +188,13 @@ const groupHeading = (group: CanvasNode, depth: number): string => {
 }
 
 /** Buckets keyed by node identity append each section once, even when IDs repeat. */
-const renderNestedNodes = (
-  contentNodes: readonly CanvasNode[],
-  groups: readonly CanvasNode[],
-): string[] => {
+const renderNestedNodes = ({
+  contentNodes,
+  groups,
+}: {
+  contentNodes: readonly CanvasNode[]
+  groups: readonly CanvasNode[]
+}): string[] => {
   const membersByGroup = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups))
   const childGroupsByParent = groupBy(groups, (group) => smallestContainingGroup(group, groups))
   const sections = (membersByGroup.get(undefined) ?? []).map(renderNode)
@@ -272,7 +275,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
     groups: groups.length,
   })
   const nodeSections = keepNesting
-    ? renderNestedNodes(contentNodes, groups)
+    ? renderNestedNodes({ contentNodes, groups })
     : nodes.map((node) => (node.type === "group" ? groupHeading(node, 0) : renderNode(node)))
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
