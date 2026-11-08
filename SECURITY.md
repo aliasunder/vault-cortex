@@ -233,8 +233,10 @@ The server, and the `:remote` image's setup mode, set these headers:
 - `POST /mcp` parses JSON only after bearer validation; tokenless malformed
   bodies get 401 before the parser runs
 - Request-body errors produce one `request_body_rejected` warning without
-  a stack; every string value in log data is capped at 256 code points,
-  with error, cause and stack text capped at 4,096
+  a stack; strings inside plain objects and arrays in log data are capped
+  at 256 code points, with error, cause and stack text capped at 4,096.
+  Plain objects and arrays at depth 64 are replaced by `"[nested too deep]"`
+  (the data root is depth 0); other objects pass through unchanged
 - `LOG_MAX_DAILY_MB` bounds each day's file at 25 MB by default, plus one
   limit notice; `none` disables the cap. File logging resumes at midnight in `TZ` (UTC by default),
   while console logging continues

@@ -1449,8 +1449,9 @@ Docker hardening, and durability seatbelts above.
   Errors the server throws itself keep their text, since they can quote the
   caller's input. The `tool_error`, `prompt_error` and
   `pdf_page_render_failed` logs, and the logs of PDFs the search index or
-  file watcher cannot read, keep the full message
-  and the cause of a wrapped error (`describeErrorForLog`).
+  file watcher cannot read, keep the message
+  and the cause of a wrapped error (`describeErrorForLog`), each capped at
+  4,096 code points.
 - **Memory file read failures** (`memory-store.ts`): a failed read of a
   memory file is rethrown as "cannot read memory file …" with the
   vault-relative path and no Node error code, so the tool boundary adds no
@@ -1471,9 +1472,11 @@ Docker hardening, and durability seatbelts above.
   `request_body_rejected` warning with the error type and status, without a
   stack. Server failures log their stack in `unhandled_error` and answer
   500 with `"internal server error"`.
-- **Log field cap** (`src/logger.ts`): every string in a log line's data,
-  at any depth in plain objects and arrays, is cut to 256 code points;
-  `error`, `cause` and `stack` values are cut to 4,096. Call sites pass
+- **Log field cap** (`src/logger.ts`): strings in a log line's data,
+  inside plain objects and arrays, are cut to 256 code points;
+  `error`, `cause` and `stack` values are cut to 4,096. Plain objects and
+  arrays at depth 64 are replaced by `"[nested too deep]"`; the data root
+  is depth 0. Other objects pass through unchanged. Call sites pass
   values as they are.
 - **File logging** (`src/logger.ts`): one daily file, capped by
   `LOG_MAX_DAILY_MB` (25 by default; `none` disables the cap). The count starts from

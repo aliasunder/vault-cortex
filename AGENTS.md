@@ -385,9 +385,11 @@ log would produce N lines during a vault rebuild (one per note), it's
   not in structured fields, not in tests (fake fixtures only). Log
   identifiers (`sessionId`), never identity payloads such as an account
   email or name.
-- Pass field values as they are. The logger cuts every string in a log
-  line's data to 256 code points (`error`, `cause` and `stack` to 4,096),
-  so a long value from a request cannot flood the log.
+- Pass field values as they are. The logger cuts strings inside plain
+  objects and arrays in a log line's data to 256 code points (`error`,
+  `cause` and `stack` to 4,096). Plain objects and arrays at depth 64 are
+  replaced by `"[nested too deep]"` (the data root is depth 0); other
+  objects pass through unchanged.
 - Redact by destructuring the sensitive keys out:
   `const { password, token, ...safe } = payload`. Keep the payload typed
   (no `any`), and never `delete` keys from a copy.
